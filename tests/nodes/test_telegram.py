@@ -3,12 +3,12 @@
 from unittest.mock import AsyncMock, patch
 import pytest
 from aic_flow.graph.state import State
-from aic_flow.nodes.telegram import TelegramNode
+from aic_flow.nodes.telegram import MessageTelegram
 
 
 @pytest.fixture
 def telegram_node():
-    return TelegramNode(
+    return MessageTelegram(
         name="telegram_node",
         token="test_token",
         chat_id="123456",
