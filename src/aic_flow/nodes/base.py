@@ -23,7 +23,7 @@ class BaseNode(ABC):
                     result = result[part]
                 self.__dict__[key] = result
 
-    def __call__(self, state: State) -> dict[str, Any]:  # pragma: no cover
+    def __call__(self, state: State) -> dict[str, Any]:
         """Execute the node."""
         self.decode_variables(state)
         result = self.run(state)
@@ -32,4 +32,4 @@ class BaseNode(ABC):
     @abstractmethod
     def run(self, state: State) -> dict[str, Any]:
         """Run the node."""
-        pass
+        pass  # pragma: no cover

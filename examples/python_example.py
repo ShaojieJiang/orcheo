@@ -1,5 +1,6 @@
 """Example of a simple workflow using AIC Flow."""
 
+import asyncio
 import json
 from typing import Any
 import websockets
@@ -46,6 +47,5 @@ async def run_workflow():
 
 
 if __name__ == "__main__":
-    import asyncio
-
+    # This example needs the backend running
     asyncio.run(run_workflow())
