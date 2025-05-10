@@ -38,8 +38,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
-      - name: Install frontend dependencies
-        run: npm install --force
+      # - name: Install frontend dependencies
+      #   run: npm install --force
 
       - name: Check style against standards
         run: uv run make lint
