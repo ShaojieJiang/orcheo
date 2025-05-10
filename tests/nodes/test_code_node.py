@@ -7,7 +7,7 @@ def test_basic_code_execution():
     state = {}
     node = PythonCodeNode("python_node", "return 3")
     output = node(state)
-    assert output["outputs"] == 3
+    assert output["outputs"] == {"python_node": 3}
 
 
 def test_code_without_result():
@@ -36,7 +36,7 @@ return result
 """,
     )
     output = node(state)
-    assert output["outputs"] == 8
+    assert output["outputs"] == {"python_node": 8}
 
 
 def test_code_with_error():
@@ -57,4 +57,4 @@ return result
 """,
     )
     output = node(state)
-    assert output["outputs"] == 3.141592653589793
+    assert output["outputs"] == {"python_node": 3.141592653589793}
