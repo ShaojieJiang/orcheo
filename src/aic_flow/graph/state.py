@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 from typing import Annotated
-from typing_extensions import TypedDict
-from .output import add_outputs
+from langgraph.graph import MessagesState
 
 
-class State(TypedDict):
+class State(MessagesState):
     """State for the graph."""
 
-    outputs: Annotated[dict, add_outputs]
+    outputs: Annotated[dict, dict_reducer]
+
+
+def dict_reducer(left: dict, right: dict) -> dict:
+    """Reducer for dictionaries."""
+    return {**left, **right}
