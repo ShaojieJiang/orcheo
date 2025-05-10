@@ -23,13 +23,13 @@ class BaseNode(ABC):
                     result = result[part]
                 self.__dict__[key] = result
 
-    async def __call__(self, state: State) -> dict[str, Any]:  # pragma: no cover
+    def __call__(self, state: State) -> dict[str, Any]:
         """Execute the node."""
         self.decode_variables(state)
-        result = await self.run(state)
+        result = self.run(state)
         return {"outputs": {self.name: result}}
 
     @abstractmethod
-    async def run(self, state: State) -> dict[str, Any]:
+    def run(self, state: State) -> dict[str, Any]:
         """Run the node."""
-        pass
+        pass  # pragma: no cover
