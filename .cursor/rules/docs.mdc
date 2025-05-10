@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Documentation Guide
+
+- Project documentation is in [docs/](mdc:docs)
+- Node documentation: [docs/node.md](mdc:docs/node.md)

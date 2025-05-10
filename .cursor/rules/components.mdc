@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Components Guide
+
+- UI components are in [src/components/](mdc:src/components)
+- Node configuration UI: [src/components/NodeConfigPage.tsx](mdc:src/components/NodeConfigPage.tsx)

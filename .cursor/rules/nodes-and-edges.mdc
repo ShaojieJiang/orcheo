@@ -1,0 +1,13 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Nodes and Edges Guide
+
+- Node logic is in [src/nodes/](mdc:src/nodes):
+  - Base node component: [src/nodes/BaseNode.tsx](mdc:src/nodes/BaseNode.tsx)
+  - Node types: [src/nodes/types.ts](mdc:src/nodes/types.ts)
+  - Node exports: [src/nodes/index.ts](mdc:src/nodes/index.ts)
+- Edge logic is in [src/edges/](mdc:src/edges):
+  - Edge exports: [src/edges/index.ts](mdc:src/edges/index.ts)

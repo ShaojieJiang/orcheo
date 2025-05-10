@@ -1,0 +1,17 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Project Structure Guide
+
+- Main entry: [src/main.tsx](mdc:src/main.tsx)
+- App component: [src/App.tsx](mdc:src/App.tsx)
+- Components: [src/components/](mdc:src/components)
+- Node logic: [src/nodes/](mdc:src/nodes)
+- Edge logic: [src/edges/](mdc:src/edges)
+- Styles: [src/index.css](mdc:src/index.css)
+- Types: [src/nodes/types.ts](mdc:src/nodes/types.ts)
+- Documentation: [docs/](mdc:docs)
+- Configuration: [package.json](mdc:package.json), [vite.config.ts](mdc:vite.config.ts), [tsconfig.json](mdc:tsconfig.json)
+- Entry HTML: [index.html](mdc:index.html)
