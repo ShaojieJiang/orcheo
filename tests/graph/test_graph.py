@@ -1,7 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from aic_flow.graph import build_graph
 from aic_flow.graph.state import State
-from aic_flow.nodes.code import PythonCodeNode
+from aic_flow.nodes.code import PythonCode
 
 
 graph_config = {
@@ -17,7 +17,7 @@ graph_config = {
 def build_lang_graph():
     """Build a reference graph for testing."""
     graph = StateGraph(State)
-    graph.add_node("code", PythonCodeNode(name="code", code="print('Hello, world!')"))
+    graph.add_node("code", PythonCode(name="code", code="print('Hello, world!')"))
     graph.add_edge(START, "code")
     graph.add_edge("code", END)
     return graph.compile()

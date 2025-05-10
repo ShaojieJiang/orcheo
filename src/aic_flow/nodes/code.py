@@ -11,22 +11,11 @@ from aic_flow.nodes.registry import NodeMetadata, registry
     NodeMetadata(
         name="PythonCode",
         description="Execute Python code",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Python code to execute"}
-            },
-            "required": ["code"],
-        },
-        output_schema={
-            "type": "object",
-            "description": "Message dictionary",
-        },
         category="code",
     )
 )
 @dataclass
-class PythonCodeNode(BaseNode):
+class PythonCode(BaseNode):
     """Node for executing Python code."""
 
     code: str

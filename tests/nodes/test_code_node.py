@@ -1,18 +1,18 @@
 import pytest
 from aic_flow.graph.state import State
-from aic_flow.nodes.code import PythonCodeNode
+from aic_flow.nodes.code import PythonCode
 
 
 def test_basic_code_execution():
     state = {}
-    node = PythonCodeNode("python_node", "return 3")
+    node = PythonCode("python_node", "return 3")
     output = node(state)
     assert output["outputs"] == {"python_node": 3}
 
 
 def test_code_without_result():
     state = {}
-    node = PythonCodeNode("python_node", "x = 1; y = 2; return None")
+    node = PythonCode("python_node", "x = 1; y = 2; return None")
     with pytest.raises(ValueError):
         node(state)
 
@@ -24,7 +24,7 @@ def test_code_with_state():
             {"x": 2, "y": 3},
         ]
     }
-    node = PythonCodeNode(
+    node = PythonCode(
         "python_node",
         """
 x = state["outputs"][-1]["x"]
@@ -40,7 +40,7 @@ return result
 
 
 def test_code_with_error():
-    node = PythonCodeNode("python_node", "result = undefined_var; return result")
+    node = PythonCode("python_node", "result = undefined_var; return result")
     state = State({})
     with pytest.raises(NameError):
         node(state)
@@ -48,7 +48,7 @@ def test_code_with_error():
 
 def test_code_with_imports():
     state = {}
-    node = PythonCodeNode(
+    node = PythonCode(
         "python_node",
         """
 import math

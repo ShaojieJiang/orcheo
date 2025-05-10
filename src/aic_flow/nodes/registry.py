@@ -1,7 +1,6 @@
 """Registry implementation for AIC Flow nodes."""
 
 from collections.abc import Callable
-from typing import Any
 from pydantic import BaseModel
 
 
@@ -11,15 +10,11 @@ class NodeMetadata(BaseModel):
     Attributes:
         name: Unique identifier for the node
         description: Human-readable description of the node's purpose
-        input_schema: Schema defining the node's input parameters
-        output_schema: Schema defining the node's output structure
         category: Node category, defaults to "general"
     """
 
     name: str
     description: str
-    input_schema: dict[str, Any]
-    output_schema: dict[str, Any]
     category: str = "general"
 
 

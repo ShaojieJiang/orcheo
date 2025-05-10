@@ -21,7 +21,7 @@ return {"message": "Hello AIC!"}
         },
         {
             "name": "telegram",
-            "type": "TelegramMessage",
+            "type": "MessageTelegram",
             "token": os.getenv("TELEGRAM_TOKEN"),
             "chat_id": os.getenv("TELEGRAM_CHAT_ID"),
             "message": "{{print.message}}",
