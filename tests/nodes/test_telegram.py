@@ -1,6 +1,6 @@
 """Tests for Telegram node."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aic_flow.graph.state import State
 from aic_flow.nodes.telegram import MessageTelegram
@@ -18,15 +18,21 @@ def telegram_node():
 
 @pytest.mark.asyncio
 async def test_telegram_node_send_message(telegram_node):
-    mock_result = AsyncMock()
-    mock_result.message_id = 42
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"result": {"message_id": 42}}
 
-    with patch("telegram.Bot") as mock_bot:
-        mock_bot.return_value.send_message = AsyncMock(return_value=mock_result)
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value.post.return_value = mock_response
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
         result = await telegram_node.run(State(), None)
 
         assert result == {"message_id": 42, "status": "sent"}
-        mock_bot.assert_called_once_with(token="test_token")
-        mock_bot.return_value.send_message.assert_called_once_with(
-            chat_id="123456", text="Test message"
+        mock_client.__aenter__.return_value.post.assert_called_once_with(
+            "https://api.telegram.org/bottest_token/sendMessage",
+            json={
+                "chat_id": "123456",
+                "text": "Test message",
+                "parse_mode": "MarkdownV2",
+            },
         )
