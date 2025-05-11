@@ -16,13 +16,14 @@ def telegram_node():
     )
 
 
-def test_telegram_node_send_message(telegram_node):
+@pytest.mark.asyncio
+async def test_telegram_node_send_message(telegram_node):
     mock_result = AsyncMock()
     mock_result.message_id = 42
 
     with patch("telegram.Bot") as mock_bot:
         mock_bot.return_value.send_message = AsyncMock(return_value=mock_result)
-        result = telegram_node.run(State(), None)
+        result = await telegram_node.run(State(), None)
 
         assert result == {"message_id": 42, "status": "sent"}
         mock_bot.assert_called_once_with(token="test_token")

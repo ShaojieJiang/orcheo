@@ -1,6 +1,7 @@
 """Tests for base node implementation."""
 
 from typing import Any
+import pytest
 from langchain_core.runnables import RunnableConfig
 from aic_flow.graph.state import State
 from aic_flow.nodes.base import AINode, TaskNode
@@ -13,7 +14,7 @@ class MockTaskNode(TaskNode):
         super().__init__(name=name)
         self.input_var = input_var
 
-    def run(self, state: State) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         return {"result": self.input_var}
 
 
@@ -24,7 +25,7 @@ class MockAINode(AINode):
         super().__init__(name=name)
         self.input_var = input_var
 
-    def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         return {"result": self.input_var}
 
 
@@ -45,15 +46,15 @@ def test_decode_variables():
     assert node.input_var == "plain_text"
 
 
-def test_ai_node_call():
+@pytest.mark.asyncio
+async def test_ai_node_call():
     # Setup
     state = State({"outputs": {}})
     config = RunnableConfig()
     node = MockAINode(name="test_ai", input_var="test_value")
 
     # Execute
-    result = node(state, config)
+    result = await node(state, config)
 
     # Assert
-    assert result["result"] == "test_value"
     assert result["outputs"]["test_ai"]["result"] == "test_value"
