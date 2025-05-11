@@ -39,7 +39,8 @@ dependencies = [
   "langgraph-checkpoint-sqlite>=2.0.7",
   "aiosqlite>=0.21.0",
   "langgraph-checkpoint-postgres>=2.0.21",
-  "selenium>=4.32.0"
+  "selenium>=4.32.0",
+  "python-telegram-bot>=22.0"
 ]
 description = "Add your description here"
 name = "aic-flow"
