@@ -25,7 +25,7 @@ class Agent(AINode):
     model_config: dict
     system_prompt: str | None = None
     checkpointer: str | None = None
-    # tools: list[BaseTool] # TODO: Add tools
+    # tools: list[BaseTool] # TODO: Add tools and MCP support
     # structured_output: Any # TODO: Add structured output
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
