@@ -6,13 +6,28 @@ from fastapi import WebSocket
 from aic_flow.main import execute_workflow, workflow_websocket
 
 
+class AsyncIteratorMock:
+    def __init__(self, items):
+        self.items = items
+        self.index = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.index >= len(self.items):
+            raise StopAsyncIteration
+        item = self.items[self.index]
+        self.index += 1
+        return item
+
+
 @pytest.mark.asyncio
 async def test_execute_workflow():
     # Mock dependencies
     mock_websocket = AsyncMock(spec=WebSocket)
     mock_conn = AsyncMock()
     mock_graph = MagicMock()
-    mock_compiled_graph = AsyncMock()
 
     # Test data
     workflow_id = "test-workflow"
@@ -21,10 +36,17 @@ async def test_execute_workflow():
     execution_id = "test-execution"
 
     # Mock graph compilation
-    mock_compiled_graph.astream.return_value = [
+    steps = [
         {"status": "running", "data": "test"},
         {"status": "completed", "data": "done"},
     ]
+
+    async def mock_astream(*args, **kwargs):
+        for step in steps:
+            yield step
+
+    mock_compiled_graph = MagicMock()
+    mock_compiled_graph.astream = mock_astream
     mock_graph.compile.return_value = mock_compiled_graph
 
     # Mock context managers

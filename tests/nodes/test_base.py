@@ -6,8 +6,8 @@ from aic_flow.graph.state import State
 from aic_flow.nodes.base import AINode, TaskNode
 
 
-class TestNode(TaskNode):
-    """Test node implementation."""
+class MockTaskNode(TaskNode):
+    """Mock task node implementation."""
 
     def __init__(self, name: str, input_var: str):
         super().__init__(name=name)
@@ -17,8 +17,8 @@ class TestNode(TaskNode):
         return {"result": self.input_var}
 
 
-class TestAINode(AINode):
-    """Test AI node implementation."""
+class MockAINode(AINode):
+    """Mock AI node implementation."""
 
     def __init__(self, name: str, input_var: str):
         super().__init__(name=name)
@@ -33,13 +33,13 @@ def test_decode_variables():
     state = State({"outputs": {"node1": {"data": {"value": "test_value"}}}})
 
     # Test node with variable reference
-    node = TestNode(name="test", input_var="{{node1.data.value}}")
+    node = MockTaskNode(name="test", input_var="{{node1.data.value}}")
     node.decode_variables(state)
 
     assert node.input_var == "test_value"
 
     # Test node without variable reference
-    node = TestNode(name="test", input_var="plain_text")
+    node = MockTaskNode(name="test", input_var="plain_text")
     node.decode_variables(state)
 
     assert node.input_var == "plain_text"
@@ -49,7 +49,7 @@ def test_ai_node_call():
     # Setup
     state = State({"outputs": {}})
     config = RunnableConfig()
-    node = TestAINode(name="test_ai", input_var="test_value")
+    node = MockAINode(name="test_ai", input_var="test_value")
 
     # Execute
     result = node(state, config)
