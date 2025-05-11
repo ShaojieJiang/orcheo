@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Any
+from langchain_core.runnables import RunnableConfig
 from aic_flow.graph.state import State
 from aic_flow.nodes.base import TaskNode
 from aic_flow.nodes.registry import NodeMetadata, registry
@@ -20,7 +21,7 @@ class PythonCode(TaskNode):
 
     code: str
 
-    def run(self, state: State) -> dict[str, Any]:
+    def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         if "return" not in self.code or "return None" in self.code:

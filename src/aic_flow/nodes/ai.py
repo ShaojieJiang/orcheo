@@ -5,7 +5,6 @@ from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from aic_flow.graph.state import State
 from aic_flow.nodes.base import AINode
@@ -36,12 +35,13 @@ class Agent(AINode):
         match self.checkpointer:
             case "memory":
                 checkpointer = InMemorySaver()
-            case "sqlite":
-                checkpointer = SqliteSaver()
-            # case "postgres": # TODO: Add postgres checkpointer
+            # TODO: Add sqlite and postgres checkpointer
+            # case "sqlite":
+            #     checkpointer = SqliteSaver()
+            # case "postgres":
             #     checkpointer = PostgresSaver()
             case None:
-                checkpointer = None
+                checkpointer = None  # type: ignore
             case _:
                 raise ValueError(f"Invalid checkpointer: {self.checkpointer}")
 
