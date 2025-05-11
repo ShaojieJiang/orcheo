@@ -22,7 +22,7 @@ def test_telegram_node_send_message(telegram_node):
 
     with patch("telegram.Bot") as mock_bot:
         mock_bot.return_value.send_message = AsyncMock(return_value=mock_result)
-        result = telegram_node.run(State())
+        result = telegram_node.run(State(), None)
 
         assert result == {"message_id": 42, "status": "sent"}
         mock_bot.assert_called_once_with(token="test_token")

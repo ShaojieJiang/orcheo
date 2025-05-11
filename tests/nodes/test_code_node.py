@@ -6,7 +6,7 @@ from aic_flow.nodes.code import PythonCode
 def test_basic_code_execution():
     state = {}
     node = PythonCode("python_node", "return 3")
-    output = node(state)
+    output = node(state, None)
     assert output["outputs"] == {"python_node": 3}
 
 
@@ -14,7 +14,7 @@ def test_code_without_result():
     state = {}
     node = PythonCode("python_node", "x = 1; y = 2; return None")
     with pytest.raises(ValueError):
-        node(state)
+        node(state, None)
 
 
 def test_code_with_state():
@@ -35,7 +35,7 @@ result = a + b
 return result
 """,
     )
-    output = node(state)
+    output = node(state, None)
     assert output["outputs"] == {"python_node": 8}
 
 
@@ -43,7 +43,7 @@ def test_code_with_error():
     node = PythonCode("python_node", "result = undefined_var; return result")
     state = State({})
     with pytest.raises(NameError):
-        node(state)
+        node(state, None)
 
 
 def test_code_with_imports():
@@ -56,5 +56,5 @@ result = math.pi
 return result
 """,
     )
-    output = node(state)
+    output = node(state, None)
     assert output["outputs"] == {"python_node": 3.141592653589793}
