@@ -1,5 +1,6 @@
 """Example of running an agent node independently."""
 
+import asyncio
 import os
 from dotenv import load_dotenv
 from aic_flow.nodes.ai import Agent
@@ -20,7 +21,9 @@ agent_node = Agent(
     checkpointer="memory",
 )
 config = {"configurable": {"thread_id": "123"}}
-result = agent_node(
-    {"messages": [{"role": "user", "content": "Hello, how are you?"}]}, config
+result = asyncio.run(
+    agent_node(
+        {"messages": [{"role": "user", "content": "Hello, how are you?"}]}, config
+    )
 )
 print(result)

@@ -72,7 +72,7 @@ async def execute_workflow(
 
         await websocket.send_json({"status": "completed"})  # pragma: no cover
 
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         logger.error(f"Workflow error: {str(e)}", exc_info=True)
         await websocket.send_json({"status": "error", "error": str(e)})
 
