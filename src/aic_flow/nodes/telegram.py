@@ -1,6 +1,5 @@
 """Telegram messaging node for AIC Flow."""
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 import telegram
@@ -25,8 +24,8 @@ class MessageTelegram(TaskNode):
     chat_id: str
     message: str
 
-    def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to Telegram and return status."""
         bot = telegram.Bot(token=self.token)
-        result = asyncio.run(bot.send_message(chat_id=self.chat_id, text=self.message))
+        result = await bot.send_message(chat_id=self.chat_id, text=self.message)
         return {"message_id": result.message_id, "status": "sent"}

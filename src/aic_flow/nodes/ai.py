@@ -28,7 +28,7 @@ class Agent(AINode):
     # tools: list[BaseTool] # TODO: Add tools
     # structured_output: Any # TODO: Add structured output
 
-    def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         # TODO: Prepare all the components
         model = init_chat_model(**self.model_config)
@@ -50,5 +50,5 @@ class Agent(AINode):
         )
 
         # Execute agent with state as input
-        result = agent.invoke({"input": state}, config)
+        result = await agent.ainvoke({"input": state}, config)
         return result
