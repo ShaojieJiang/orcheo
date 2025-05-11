@@ -1,5 +1,5 @@
 from langgraph.graph import END, START, StateGraph
-from aic_flow.graph import build_graph
+from aic_flow.graph.builder import build_graph
 from aic_flow.graph.state import State
 from aic_flow.nodes.code import PythonCode
 

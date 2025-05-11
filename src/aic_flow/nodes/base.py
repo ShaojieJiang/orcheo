@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from aic_flow.graph import State
+from aic_flow.graph.state import State
 
 
 @dataclass
