@@ -2,10 +2,10 @@
 
 from typing import Any
 from aic_flow.graph.state import State
-from aic_flow.nodes.base import BaseNode
+from aic_flow.nodes.base import TaskNode
 
 
-class TestNode(BaseNode):
+class TestNode(TaskNode):
     """Test node implementation."""
 
     def __init__(self, name: str, input_var: str):

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 from aic_flow.graph.state import State
-from aic_flow.nodes.base import BaseNode
+from aic_flow.nodes.base import TaskNode
 from aic_flow.nodes.registry import NodeMetadata, registry
 
 
@@ -15,7 +15,7 @@ from aic_flow.nodes.registry import NodeMetadata, registry
     )
 )
 @dataclass
-class PythonCode(BaseNode):
+class PythonCode(TaskNode):
     """Node for executing Python code."""
 
     code: str

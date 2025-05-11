@@ -1,10 +1,10 @@
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from aic_flow.graph.state import State
-from aic_flow.nodes.base import BaseNode
+from aic_flow.nodes.base import TaskNode
 
 
-class Node1(BaseNode):
+class Node1(TaskNode):
     """Node 1."""
 
     def run(self, state: State) -> dict:
@@ -12,7 +12,7 @@ class Node1(BaseNode):
         return {"a": 1}
 
 
-class Node2(BaseNode):
+class Node2(TaskNode):
     """Node 2."""
 
     def run(self, state: State) -> dict:
@@ -20,7 +20,7 @@ class Node2(BaseNode):
         return "b"
 
 
-class Node3(BaseNode):
+class Node3(TaskNode):
     """Node 3."""
 
     def run(self, state: State) -> dict:

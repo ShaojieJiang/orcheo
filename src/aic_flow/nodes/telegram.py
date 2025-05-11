@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 import telegram
 from aic_flow.graph.state import State
-from aic_flow.nodes.base import BaseNode
+from aic_flow.nodes.base import TaskNode
 from aic_flow.nodes.registry import NodeMetadata, registry
 
 
@@ -17,7 +17,7 @@ from aic_flow.nodes.registry import NodeMetadata, registry
     )
 )
 @dataclass
-class MessageTelegram(BaseNode):
+class MessageTelegram(TaskNode):
     """Node for sending Telegram messages."""
 
     token: str
