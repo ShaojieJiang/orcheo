@@ -1,10 +1,11 @@
 """AI Agent node."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
@@ -49,7 +50,7 @@ class Agent(AINode):
     model_config: dict
     system_prompt: str | None = None
     checkpointer: str | None = None
-    # tools: list[BaseTool] # TODO: Add tools and MCP support
+    tools: list[BaseTool] = field(default_factory=list)
     structured_output: dict | StructuredOutput | None = None
     """Structured output for the agent."""
 
@@ -79,13 +80,13 @@ class Agent(AINode):
         )
 
         agent = create_react_agent(
-            model,
-            tools=[],
+            model.bind_tools(self.tools),
+            tools=self.tools,
             prompt=self.system_prompt,
             response_format=response_format,
             checkpointer=checkpointer,
         )
 
         # Execute agent with state as input
-        result = await agent.ainvoke({"input": state}, config)
+        result = await agent.ainvoke(state, config)
         return result
