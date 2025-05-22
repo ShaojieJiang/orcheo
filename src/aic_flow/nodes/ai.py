@@ -26,7 +26,12 @@ class Agent(AINode):
     system_prompt: str | None = None
     checkpointer: str | None = None
     # tools: list[BaseTool] # TODO: Add tools and MCP support
-    # structured_output: Any # TODO: Add structured output
+    structured_output: Any | None = None
+    """Structured output for the agent.
+
+    Supports all that supported by LangGraph, but currently, only supports
+    JSON Schema.
+    """
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
@@ -46,7 +51,11 @@ class Agent(AINode):
                 raise ValueError(f"Invalid checkpointer: {self.checkpointer}")
 
         agent = create_react_agent(
-            model, [], prompt=self.system_prompt, checkpointer=checkpointer
+            model,
+            tools=[],
+            prompt=self.system_prompt,
+            response_format=self.structured_output,
+            checkpointer=checkpointer,
         )
 
         # Execute agent with state as input
