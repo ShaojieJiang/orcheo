@@ -3,21 +3,24 @@ from aic_flow.graph.state import State
 from aic_flow.nodes.code import PythonCode
 
 
-def test_basic_code_execution():
+@pytest.mark.asyncio
+async def test_basic_code_execution():
     state = {}
-    node = PythonCode("python_node", "return 3")
-    output = node(state)
+    node = PythonCode(name="python_node", code="return 3")
+    output = await node(state, None)
     assert output["outputs"] == {"python_node": 3}
 
 
-def test_code_without_result():
+@pytest.mark.asyncio
+async def test_code_without_result():
     state = {}
-    node = PythonCode("python_node", "x = 1; y = 2; return None")
+    node = PythonCode(name="python_node", code="x = 1; y = 2; return None")
     with pytest.raises(ValueError):
-        node(state)
+        await node(state, None)
 
 
-def test_code_with_state():
+@pytest.mark.asyncio
+async def test_code_with_state():
     state = {
         "outputs": [
             {"x": 1, "y": 2},
@@ -25,8 +28,8 @@ def test_code_with_state():
         ]
     }
     node = PythonCode(
-        "python_node",
-        """
+        name="python_node",
+        code="""
 x = state["outputs"][-1]["x"]
 y = state["outputs"][-1]["y"]
 a = x * 2
@@ -35,26 +38,28 @@ result = a + b
 return result
 """,
     )
-    output = node(state)
+    output = await node(state, None)
     assert output["outputs"] == {"python_node": 8}
 
 
-def test_code_with_error():
-    node = PythonCode("python_node", "result = undefined_var; return result")
+@pytest.mark.asyncio
+async def test_code_with_error():
+    node = PythonCode(name="python_node", code="result = undefined_var; return result")
     state = State({})
     with pytest.raises(NameError):
-        node(state)
+        await node(state, None)
 
 
-def test_code_with_imports():
+@pytest.mark.asyncio
+async def test_code_with_imports():
     state = {}
     node = PythonCode(
-        "python_node",
-        """
+        name="python_node",
+        code="""
 import math
 result = math.pi
 return result
 """,
     )
-    output = node(state)
+    output = await node(state, None)
     assert output["outputs"] == {"python_node": 3.141592653589793}

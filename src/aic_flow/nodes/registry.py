@@ -14,8 +14,11 @@ class NodeMetadata(BaseModel):
     """
 
     name: str
+    """Unique identifier for the node."""
     description: str
+    """Human-readable description of the node's purpose."""
     category: str = "general"
+    """Node category, defaults to "general"."""
 
 
 class NodeRegistry:

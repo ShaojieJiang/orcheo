@@ -3,7 +3,7 @@
 import asyncio
 import os
 from dotenv import load_dotenv
-from aic_flow.graph import build_graph
+from aic_flow.graph.builder import build_graph
 
 
 load_dotenv()
@@ -34,4 +34,4 @@ return {"message": "Hello AIC!"}
 if __name__ == "__main__":
     graph = build_graph(graph_config)
     compiled_graph = graph.compile()
-    asyncio.run(compiled_graph.ainvoke({}))
+    asyncio.run(compiled_graph.ainvoke({}, None))

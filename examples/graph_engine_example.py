@@ -1,4 +1,7 @@
-"""Example of a simple workflow using AIC Flow."""
+"""Example of a simple workflow using AIC Flow.
+
+To run this example, you need to have the backend running: `make dev-backend`.
+"""
 
 import asyncio
 import json
@@ -47,5 +50,4 @@ async def run_workflow():
 
 
 if __name__ == "__main__":
-    # This example needs the backend running
     asyncio.run(run_workflow())
