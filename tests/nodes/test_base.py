@@ -19,6 +19,12 @@ class MockTaskNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         return {"result": self.input_var}
 
+    def tool_run(self, *args: Any, **kwargs: Any) -> Any:
+        return {"tool_result": args[0]}
+
+    async def tool_arun(self, *args: Any, **kwargs: Any) -> Any:
+        return {"async_tool_result": args[0]}
+
 
 class MockAINode(AINode):
     """Mock AI node implementation."""
@@ -61,3 +67,16 @@ async def test_ai_node_call():
 
     # Assert
     assert result["outputs"]["test_ai"]["result"] == "test_value"
+
+
+def test_task_node_tool_run():
+    node = MockTaskNode(name="test", input_var="test_value")
+    result = node.tool_run("test_arg")
+    assert result == {"tool_result": "test_arg"}
+
+
+@pytest.mark.asyncio
+async def test_task_node_tool_arun():
+    node = MockTaskNode(name="test", input_var="test_value")
+    result = await node.tool_arun("test_arg")
+    assert result == {"async_tool_result": "test_arg"}

@@ -82,3 +82,18 @@ async def test_telegram_node_send_message_with_parse_mode():
             text="Test message!",
             parse_mode="MarkdownV2",
         )
+
+
+def test_telegram_node_tool_run(telegram_node):
+    mock_message = AsyncMock(spec=Message)
+    mock_message.message_id = 42
+
+    mock_bot = AsyncMock()
+    mock_bot.send_message = AsyncMock(return_value=mock_message)
+
+    with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
+        result = telegram_node.tool_run("123456", "Test message!")
+        assert result == {"message_id": 42, "status": "sent"}
+        mock_bot.send_message.assert_called_once_with(
+            chat_id="123456", text="Test message!", parse_mode=None
+        )

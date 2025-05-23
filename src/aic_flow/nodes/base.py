@@ -26,11 +26,11 @@ class BaseNode(BaseModel):
 
     def tool_run(self, *args: Any, **kwargs: Any) -> Any:
         """Run the node as a tool."""
-        pass
+        pass  # pragma: no cover
 
     async def tool_arun(self, *args: Any, **kwargs: Any) -> Any:
         """Async run the node as a tool."""
-        pass
+        pass  # pragma: no cover
 
 
 class AINode(BaseNode):
