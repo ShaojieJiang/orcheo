@@ -11,7 +11,7 @@ from aic_flow.nodes.base import TaskNode
 class Node1(TaskNode):
     """Node 1."""
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict:
+    async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return {"a": 1}
 
@@ -19,7 +19,7 @@ class Node1(TaskNode):
 class Node2(TaskNode):
     """Node 2."""
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict:
+    async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return "b"
 
@@ -27,7 +27,7 @@ class Node2(TaskNode):
 class Node3(TaskNode):
     """Node 3."""
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict:
+    async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return ["c"]
 

@@ -19,7 +19,7 @@ class PythonCode(TaskNode):
 
     code: str
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         if "return" not in self.code or "return None" in self.code:

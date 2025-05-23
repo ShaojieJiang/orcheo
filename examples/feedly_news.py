@@ -20,7 +20,7 @@ from aic_flow.nodes.telegram import MessageTelegram, escape_markdown
 class FeedlyToken(TaskNode):
     """Node for getting the Feedly token."""
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         chrome_options = Options()
@@ -92,7 +92,7 @@ class GetFeedlyUnread(TaskNode):
             titles.append(f"• [{title}]({url})")
         return "\n".join(titles)
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         token = f"OAuth {self.token}"
@@ -119,7 +119,7 @@ class MarkFeedlyAsRead(TaskNode):
     send_status: str = "{{MessageTelegram.status}}"
     entry_ids: list[str] = "{{GetFeedlyUnread.entry_ids}}"
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         if self.send_status != "sent":

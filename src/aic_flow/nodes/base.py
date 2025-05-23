@@ -39,12 +39,12 @@ class AINode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
-        result = await self.execute(state, config)
+        result = await self.run(state, config)
         result["outputs"] = {self.name: result}
         return result
 
     @abstractmethod
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Run the node."""
         pass  # pragma: no cover
 
@@ -55,10 +55,10 @@ class TaskNode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
         self.decode_variables(state)
-        result = await self.execute(state, config)
+        result = await self.run(state, config)
         return {"outputs": {self.name: result}}
 
     @abstractmethod
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Run the node."""
         pass  # pragma: no cover

@@ -71,7 +71,7 @@ class Agent(AINode):
             for tool in self.tools
         ]
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         # TODO: Prepare all the components
         model = init_chat_model(**self.model_settings)

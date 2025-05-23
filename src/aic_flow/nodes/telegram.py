@@ -55,7 +55,7 @@ class MessageTelegram(TaskNode):
     message: str | None = None
     parse_mode: str | None = None
 
-    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to Telegram and return status."""
         assert self.chat_id is not None
         assert self.message is not None
