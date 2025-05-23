@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from dataclasses import dataclass
 from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
@@ -18,11 +17,10 @@ from aic_flow.nodes.base import TaskNode
 from aic_flow.nodes.telegram import MessageTelegram, escape_markdown
 
 
-@dataclass
 class FeedlyToken(TaskNode):
     """Node for getting the Feedly token."""
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         chrome_options = Options()
@@ -64,7 +62,6 @@ class FeedlyToken(TaskNode):
             driver.quit()
 
 
-@dataclass
 class GetFeedlyUnread(TaskNode):
     """Node for getting the Feedly unread count."""
 
@@ -95,7 +92,7 @@ class GetFeedlyUnread(TaskNode):
             titles.append(f"• [{title}]({url})")
         return "\n".join(titles)
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         token = f"OAuth {self.token}"
@@ -114,7 +111,6 @@ class GetFeedlyUnread(TaskNode):
         }
 
 
-@dataclass
 class MarkFeedlyAsRead(TaskNode):
     """Node for marking the Feedly as read."""
 
@@ -123,7 +119,7 @@ class MarkFeedlyAsRead(TaskNode):
     send_status: str = "{{MessageTelegram.status}}"
     entry_ids: list[str] = "{{GetFeedlyUnread.entry_ids}}"
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the code and return results."""
         # Ensure the code contains a return statement
         if self.send_status != "sent":
