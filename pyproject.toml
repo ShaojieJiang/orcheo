@@ -84,7 +84,8 @@ extend-select = [
 ignore = [
   "PLR2004",  # magic value used in comparsion (i.e. `if ndays == 28: month_is_feb`).
   "PLR0913",  # too many arguments
-  "D401"  # first line of docstring should be in imperative mood
+  "D401",  # first line of docstring should be in imperative mood
+  "D100"  # missing docstring in public module
 ]
 select = [
   "E",  # pycodestyle

@@ -12,23 +12,6 @@
 #     name: python3
 # ---
 
-# %%
-"""Example of using Agent node."""
-
-# ---
-# jupyter:
-#   jupytext:
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.16.7
-#   kernelspec:
-#     display_name: .venv
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # Example of using Agent node
 
