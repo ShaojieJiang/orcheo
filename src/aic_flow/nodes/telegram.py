@@ -1,5 +1,6 @@
 """Telegram messaging node for AIC Flow."""
 
+import asyncio
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from telegram import Bot
@@ -59,6 +60,18 @@ class MessageTelegram(TaskNode):
         assert self.chat_id is not None
         assert self.message is not None
         return await self.tool_arun(self.chat_id, self.message, self.parse_mode)
+
+    def tool_run(
+        self, chat_id: str, message: str, parse_mode: str | None = None
+    ) -> Any:
+        """Send message to Telegram and return status.
+
+        Args:
+            chat_id: The ID of the chat to send the message to.
+            message: The message to send.
+            parse_mode: The parse mode to use for the message.
+        """
+        return asyncio.run(self.tool_arun(chat_id, message, parse_mode))
 
     async def tool_arun(
         self, chat_id: str, message: str, parse_mode: str | None = None

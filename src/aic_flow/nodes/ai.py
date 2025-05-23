@@ -52,7 +52,7 @@ class Agent(AINode):
     """System prompt for the agent."""
     checkpointer: str | None = None
     """Checkpointer used to save the agent's state."""
-    tools: list[BaseTool | BaseNode] = field(default_factory=list)
+    tools: list[BaseNode | BaseTool] = field(default_factory=list)
     """Tools used by the agent."""
     structured_output: dict | StructuredOutput | None = None
     """Structured output for the agent."""
@@ -66,7 +66,7 @@ class Agent(AINode):
                 tool.tool_run,
                 coroutine=tool.tool_arun,
                 name=tool.name,
-                description=tool.description,
+                parse_docstring=True,
             )
             for tool in self.tools
         ]
