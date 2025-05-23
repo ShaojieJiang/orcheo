@@ -23,7 +23,7 @@ def mock_agent():
 def agent():
     return Agent(
         name="test_agent",
-        model_config={"model_name": "gpt-3.5-turbo"},
+        model_settings={"model_name": "gpt-3.5-turbo"},
         system_prompt="Test prompt",
     )
 
@@ -48,7 +48,7 @@ async def test_run_with_memory_checkpointer(
     # Verify
     mock_init_model.assert_called_once_with(model_name="gpt-3.5-turbo")
     mock_create_agent.assert_called_once()
-    mock_agent.ainvoke.assert_called_once_with({"input": state}, config)
+    mock_agent.ainvoke.assert_called_once_with(state, config)
     assert result == {"output": "test result"}
 
 
@@ -72,7 +72,7 @@ async def test_run_without_checkpointer(
     # Verify
     mock_init_model.assert_called_once_with(model_name="gpt-3.5-turbo")
     mock_create_agent.assert_called_once()
-    mock_agent.ainvoke.assert_called_once_with({"input": state}, config)
+    mock_agent.ainvoke.assert_called_once_with(state, config)
     assert result == {"output": "test result"}
 
 

@@ -3,6 +3,7 @@
 from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
+from pydantic import Field
 from aic_flow.graph.state import State
 from aic_flow.nodes.base import AINode, TaskNode
 
@@ -10,9 +11,10 @@ from aic_flow.nodes.base import AINode, TaskNode
 class MockTaskNode(TaskNode):
     """Mock task node implementation."""
 
+    input_var: str = Field(description="Input variable for testing")
+
     def __init__(self, name: str, input_var: str):
-        super().__init__(name=name)
-        self.input_var = input_var
+        super().__init__(name=name, input_var=input_var)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         return {"result": self.input_var}
@@ -21,9 +23,10 @@ class MockTaskNode(TaskNode):
 class MockAINode(AINode):
     """Mock AI node implementation."""
 
+    input_var: str = Field(description="Input variable for testing")
+
     def __init__(self, name: str, input_var: str):
-        super().__init__(name=name)
-        self.input_var = input_var
+        super().__init__(name=name, input_var=input_var)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         return {"result": self.input_var}
