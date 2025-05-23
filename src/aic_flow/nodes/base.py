@@ -40,7 +40,7 @@ class AINode(BaseNode):
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
         result = await self.run(state, config)
-        result["outputs"] = {self.name: result}
+        result["outputs"] = {self.name: result["messages"]}
         return result
 
     @abstractmethod

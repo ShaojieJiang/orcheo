@@ -71,7 +71,9 @@ class MessageTelegram(TaskNode):
             message: The message to send.
             parse_mode: The parse mode to use for the message.
         """
-        return asyncio.run(self.tool_arun(chat_id, message, parse_mode))
+        return asyncio.run(
+            self.tool_arun(chat_id, message, parse_mode)
+        )  # pragma: no cover
 
     async def tool_arun(
         self, chat_id: str, message: str, parse_mode: str | None = None

@@ -1,6 +1,6 @@
 """Tests for AI node implementation."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from aic_flow.graph.state import State
@@ -9,13 +9,16 @@ from aic_flow.nodes.ai import Agent, StructuredOutput
 
 @pytest.fixture
 def mock_model():
-    return AsyncMock()
+    model = Mock()
+    # Mock the bind_tools method to return itself (not async)
+    model.bind_tools.return_value = model
+    return model
 
 
 @pytest.fixture
 def mock_agent():
     agent = AsyncMock()
-    agent.ainvoke = AsyncMock(return_value={"output": "test result"})
+    agent.ainvoke.return_value = {"output": "test result"}
     return agent
 
 

@@ -35,7 +35,7 @@ class MockAINode(AINode):
         super().__init__(name=name, input_var=input_var)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        return {"result": self.input_var}
+        return {"messages": {"result": self.input_var}}
 
 
 def test_decode_variables():
@@ -66,7 +66,10 @@ async def test_ai_node_call():
     result = await node(state, config)
 
     # Assert
-    assert result["outputs"]["test_ai"]["result"] == "test_value"
+    assert result == {
+        "messages": {"result": "test_value"},
+        "outputs": {"test_ai": {"result": "test_value"}},
+    }
 
 
 def test_task_node_tool_run():

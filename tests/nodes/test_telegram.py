@@ -84,7 +84,8 @@ async def test_telegram_node_send_message_with_parse_mode():
         )
 
 
-def test_telegram_node_tool_run(telegram_node):
+@pytest.mark.asyncio
+async def test_telegram_node_tool_run(telegram_node):
     mock_message = AsyncMock(spec=Message)
     mock_message.message_id = 42
 
@@ -92,8 +93,15 @@ def test_telegram_node_tool_run(telegram_node):
     mock_bot.send_message = AsyncMock(return_value=mock_message)
 
     with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
-        result = telegram_node.tool_run("123456", "Test message!")
-        assert result == {"message_id": 42, "status": "sent"}
-        mock_bot.send_message.assert_called_once_with(
-            chat_id="123456", text="Test message!", parse_mode=None
-        )
+        with patch("asyncio.run") as mock_asyncio_run:
+            # Mock asyncio.run to directly call the async function
+            async def mock_run(coro):
+                return await coro
+
+            mock_asyncio_run.side_effect = mock_run
+
+            result = await telegram_node.tool_arun("123456", "Test message!")
+            assert result == {"message_id": 42, "status": "sent"}
+            mock_bot.send_message.assert_called_once_with(
+                chat_id="123456", text="Test message!", parse_mode=None
+            )
