@@ -16,9 +16,14 @@
 # # Example of using Agent node
 
 # %%
+import asyncio
 import os
 from dotenv import load_dotenv
+from langchain_core.tools import tool
+from langgraph.graph import END, START, StateGraph
+from aic_flow.graph.state import State
 from aic_flow.nodes.ai import Agent
+from aic_flow.nodes.code import PythonCode
 from aic_flow.nodes.telegram import MessageTelegram
 
 
@@ -200,3 +205,58 @@ result = await agent_node(  # noqa: F704, PLE1142
 )
 
 result["messages"][-2]
+
+# %% [markdown]
+# ## Use sub-graph as a tool
+
+# %%
+python_code_node = PythonCode(
+    name="PythonCode",
+    code="return {'messages': [{'role': 'ai', 'content': 'Hello, ' + state['outputs']['initial'] + '.'}]}",  # noqa: E501
+)
+
+tool_graph = StateGraph(State)
+tool_graph.add_node("python_code", python_code_node)
+tool_graph.add_edge(START, "python_code")
+tool_graph.add_edge("python_code", END)
+
+python_code_graph = tool_graph.compile()
+
+
+@tool(parse_docstring=True)
+def greet(name: str) -> dict:
+    """Greet the user.
+
+    Args:
+        name: The name of the user to greet.
+    """
+    result = asyncio.run(
+        python_code_graph.ainvoke(
+            {"messages": [], "outputs": {"initial": name}}, config={}
+        )
+    )
+    return result["outputs"]["PythonCode"]
+
+
+agent_node = Agent(
+    name="agent",
+    model_settings=model_settings,
+    tools=[greet],
+    system_prompt="Your name is John Doe.",
+    checkpointer="memory",
+)
+
+config = {"configurable": {"thread_id": "123"}}
+result = await agent_node(  # noqa: F704, PLE1142
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": ("Hello, my name is John Doe"),
+            }
+        ]
+    },
+    config,
+)
+
+result["messages"]
