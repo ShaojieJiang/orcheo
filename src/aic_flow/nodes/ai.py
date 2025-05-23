@@ -19,18 +19,18 @@ class StructuredOutput(BaseModel):
     """Structured output config for the agent."""
 
     type: Literal["json_schema", "json_dict", "pydantic", "typed_dict"]
-    schema: str
+    schema_str: str
 
     def get_schema_type(self) -> dict | BaseModel:
         """Get the schema type based on the schema type and content."""
         if self.type == "json_schema":
-            return json.loads(self.schema)
+            return json.loads(self.schema_str)
         else:
             # Execute the schema as Python code and get the last defined object
             namespace = {}
             schema = (
                 "from pydantic import BaseModel\nfrom typing_extensions import TypedDict\n"
-                + self.schema
+                + self.schema_str
             )
             exec(schema, namespace)
             return list(namespace.values())[-1]
