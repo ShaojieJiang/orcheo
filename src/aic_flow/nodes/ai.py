@@ -48,17 +48,21 @@ class Agent(AINode):
     """Node for executing an AI agent with tools."""
 
     description: str = "Execute an AI agent with tools"
-    model_params: dict
+    model_settings: dict
+    """Model settings for the agent."""
     system_prompt: str | None = None
+    """System prompt for the agent."""
     checkpointer: str | None = None
+    """Checkpointer used to save the agent's state."""
     tools: list[BaseTool] = field(default_factory=list)
+    """Tools used by the agent."""
     structured_output: dict | StructuredOutput | None = None
     """Structured output for the agent."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         # TODO: Prepare all the components
-        model = init_chat_model(**self.model_params)
+        model = init_chat_model(**self.model_settings)
         match self.checkpointer:
             case "memory":
                 checkpointer = InMemorySaver()
