@@ -28,7 +28,7 @@ class BaseNode(BaseModel):
         """Run the node as a tool."""
         pass
 
-    def tool_arun(self, *args: Any, **kwargs: Any) -> Any:
+    async def tool_arun(self, *args: Any, **kwargs: Any) -> Any:
         """Async run the node as a tool."""
         pass
 
