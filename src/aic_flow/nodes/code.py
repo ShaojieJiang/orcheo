@@ -10,6 +10,7 @@ from aic_flow.nodes.registry import NodeMetadata, registry
 @registry.register(
     NodeMetadata(
         name="PythonCode",
+        description="Execute Python code",
         category="code",
     )
 )
@@ -35,7 +36,3 @@ def _execute():
         exec(wrapper, {"state": state}, local_vars)
         result = local_vars["_execute"]()  # type: ignore[typeddict-item]
         return result
-
-    def _run(self, code: str) -> None:
-        """Run the code and return results."""
-        pass  # TODO: Implement

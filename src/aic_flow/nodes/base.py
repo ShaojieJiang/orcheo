@@ -3,12 +3,15 @@
 from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 from aic_flow.graph.state import State
 
 
-class BaseNode(BaseTool):
+class BaseNode(BaseModel):
     """Base class for all nodes in the flow."""
+
+    name: str
+    """Unique name of the node."""
 
     def decode_variables(self, state: State) -> None:
         """Decode the variables in attributes of the node."""
@@ -21,11 +24,19 @@ class BaseNode(BaseTool):
                     result = result[part]
                 self.__dict__[key] = result
 
+    def tool_run(self, *args: Any, **kwargs: Any) -> Any:
+        """Run the node as a tool."""
+        pass
+
+    def tool_arun(self, *args: Any, **kwargs: Any) -> Any:
+        """Async run the node as a tool."""
+        pass
+
 
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
 
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:  # type: ignore[override]
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
         result = await self.execute(state, config)
@@ -41,7 +52,7 @@ class AINode(BaseNode):
 class TaskNode(BaseNode):
     """Base class for all non-AI task nodes in the flow."""
 
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:  # type: ignore[override]
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
         self.decode_variables(state)
         result = await self.execute(state, config)

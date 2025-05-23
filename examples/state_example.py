@@ -11,7 +11,7 @@ from aic_flow.nodes.base import TaskNode
 class Node1(TaskNode):
     """Node 1."""
 
-    async def run(self, state: State, config: RunnableConfig) -> dict:
+    async def execute(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return {"a": 1}
 
@@ -19,7 +19,7 @@ class Node1(TaskNode):
 class Node2(TaskNode):
     """Node 2."""
 
-    async def run(self, state: State, config: RunnableConfig) -> dict:
+    async def execute(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return "b"
 
@@ -27,7 +27,7 @@ class Node2(TaskNode):
 class Node3(TaskNode):
     """Node 3."""
 
-    async def run(self, state: State, config: RunnableConfig) -> dict:
+    async def execute(self, state: State, config: RunnableConfig) -> dict:
         """Run the node."""
         return ["c"]
 
@@ -35,9 +35,9 @@ class Node3(TaskNode):
 def main() -> None:
     """Main function."""
     graph = StateGraph(State)
-    graph.add_node("node1", Node1("node1"))
-    graph.add_node("node2", Node2("node2"))
-    graph.add_node("node3", Node3("node3"))
+    graph.add_node("node1", Node1(name="node1"))
+    graph.add_node("node2", Node2(name="node2"))
+    graph.add_node("node3", Node3(name="node3"))
 
     graph.add_edge(START, "node1")
     graph.add_edge("node1", "node2")
