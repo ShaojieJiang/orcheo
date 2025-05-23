@@ -209,6 +209,9 @@ result["messages"][-2]
 # %% [markdown]
 # ## Use sub-graph as a tool
 
+# %% [markdown]
+# ### Define a sub-graph
+
 # %%
 python_code_node = PythonCode(
     name="PythonCode",
@@ -223,6 +226,11 @@ tool_graph.add_edge("python_code", END)
 python_code_graph = tool_graph.compile()
 
 
+# %% [markdown]
+# ### Wrap the sub-graph as a tool
+
+
+# %%
 @tool(parse_docstring=True)
 def greet(name: str) -> dict:
     """Greet the user.
@@ -238,6 +246,10 @@ def greet(name: str) -> dict:
     return result["outputs"]["PythonCode"]
 
 
+# %% [markdown]
+# ### Use the tool in an agent
+
+# %%
 agent_node = Agent(
     name="agent",
     model_settings=model_settings,
