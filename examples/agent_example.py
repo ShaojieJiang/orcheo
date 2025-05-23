@@ -20,6 +20,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from langchain_core.tools import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
 from aic_flow.graph.state import State
 from aic_flow.nodes.ai import Agent
@@ -205,6 +206,64 @@ result = await agent_node(  # noqa: F704, PLE1142
 )
 
 result["messages"][-2]
+
+# %% [markdown]
+# ## Use tools from MCP servers
+
+# %% [markdown]
+# ### Initialize the MCP client
+
+# %%
+mcp_servers = {
+    "filesystem": {
+        "command": "npx",
+        "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "~/Desktop",
+        ],
+        "transport": "stdio",
+    },
+    "git": {
+        "command": "uvx",
+        "args": ["mcp-server-git"],
+        "transport": "stdio",
+    },
+}
+
+client = MultiServerMCPClient(mcp_servers)
+
+tools = await client.get_tools()  # noqa: F704, PLE1142
+
+# %% [markdown]
+# ### Pass the tools to the agent
+
+# %%
+agent_node = Agent(
+    name="agent",
+    model_settings=model_settings,
+    tools=tools,
+    system_prompt="You have access to the filesystem and git.",
+    checkpointer="memory",
+)
+
+config = {"configurable": {"thread_id": "123"}}
+result = await agent_node(  # noqa: F704, PLE1142
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Hello, tell me what's on my desktop and what's the git "
+                    "status of it."
+                ),
+            }
+        ]
+    },
+    config,
+)
+
+print(result["messages"][-1].content)
 
 # %% [markdown]
 # ## Use sub-graph as a tool
