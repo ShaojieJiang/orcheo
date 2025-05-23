@@ -54,7 +54,6 @@ class MessageTelegramSchema(BaseModel):
 @registry.register(
     NodeMetadata(
         name="MessageTelegram",
-        description="Send message to Telegram",
         category="messaging",
     )
 )
@@ -68,9 +67,11 @@ class MessageTelegram(TaskNode):
     message: str | None = None
     parse_mode: str | None = None
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to Telegram and return status."""
-        return self.tool_run(self.chat_id, self.message, self.parse_mode)
+        assert self.chat_id is not None
+        assert self.message is not None
+        return self._run(self.chat_id, self.message, self.parse_mode)
 
     def _run(self, chat_id: str, message: str, parse_mode: str | None = None) -> dict:
         """Send message to Telegram and return status."""

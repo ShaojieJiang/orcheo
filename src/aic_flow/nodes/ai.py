@@ -18,16 +18,16 @@ from aic_flow.nodes.registry import NodeMetadata, registry
 class StructuredOutput(BaseModel):
     """Structured output config for the agent."""
 
-    type: Literal["json_schema", "json_dict", "pydantic", "typed_dict"]
+    schema_type: Literal["json_schema", "json_dict", "pydantic", "typed_dict"]
     schema_str: str
 
-    def get_schema_type(self) -> dict | BaseModel:
+    def get_schema_type(self) -> dict | type[BaseModel]:
         """Get the schema type based on the schema type and content."""
-        if self.type == "json_schema":
+        if self.schema_type == "json_schema":
             return json.loads(self.schema_str)
         else:
             # Execute the schema as Python code and get the last defined object
-            namespace = {}
+            namespace: dict[str, Any] = {}
             schema = (
                 "from pydantic import BaseModel\n"
                 + "from typing_extensions import TypedDict\n"
@@ -40,7 +40,6 @@ class StructuredOutput(BaseModel):
 @registry.register(
     NodeMetadata(
         name="Agent",
-        description="Execute an AI agent with tools",
         category="ai",
     )
 )
@@ -59,7 +58,7 @@ class Agent(AINode):
     structured_output: dict | StructuredOutput | None = None
     """Structured output for the agent."""
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         # TODO: Prepare all the components
         model = init_chat_model(**self.model_settings)
@@ -100,6 +99,6 @@ class Agent(AINode):
         self,
         state: Annotated[AgentState, InjectedState],
         config: RunnableConfig,
-    ) -> dict[str, Any]:
+    ) -> None:
         """Execute the agent and return results."""
         pass  # TODO: implement when using agent as a tool

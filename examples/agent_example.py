@@ -47,7 +47,7 @@ json_dict = {
 """
 
 so_config = {
-    "type": "json_dict",
+    "schema_type": "json_dict",
     "schema_str": so_schema,
 }
 
@@ -83,7 +83,7 @@ oai_json_schema = {
 """
 
 so_config = {
-    "type": "json_dict",
+    "schema_type": "json_dict",
     "schema_str": so_schema,
 }
 
@@ -113,7 +113,7 @@ class Person(BaseModel):
 """
 
 so_config = {
-    "type": "json_dict",
+    "schema_type": "json_dict",
     "schema_str": so_schema,
 }
 
@@ -143,7 +143,7 @@ class Person(TypedDict):
 """
 
 so_config = {
-    "type": "json_dict",
+    "schema_type": "typed_dict",
     "schema_str": so_schema,
 }
 

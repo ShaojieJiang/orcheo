@@ -21,24 +21,19 @@ class BaseNode(BaseTool):
                     result = result[part]
                 self.__dict__[key] = result
 
-    @abstractmethod
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the node."""
-        pass  # pragma: no cover
-
 
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
 
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:  # type: ignore[override]
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
-        result = await self.run(state, config)
+        result = await self.execute(state, config)
         result["outputs"] = {self.name: result}
         return result
 
     @abstractmethod
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Run the node."""
         pass  # pragma: no cover
 
@@ -46,13 +41,13 @@ class AINode(BaseNode):
 class TaskNode(BaseNode):
     """Base class for all non-AI task nodes in the flow."""
 
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:  # type: ignore[override]
         """Execute the node and wrap the result in a outputs key."""
         self.decode_variables(state)
-        result = await self.run(state, config)
+        result = await self.execute(state, config)
         return {"outputs": {self.name: result}}
 
     @abstractmethod
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def execute(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Run the node."""
         pass  # pragma: no cover

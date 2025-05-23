@@ -14,7 +14,6 @@ class NodeMetadata(BaseModel):
     """
 
     name: str
-    description: str
     category: str = "general"
 
 
