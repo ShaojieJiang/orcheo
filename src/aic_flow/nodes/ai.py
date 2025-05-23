@@ -1,15 +1,15 @@
 """AI Agent node."""
 
 import json
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import field
+from typing import Annotated, Any, Literal
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import InjectedState, create_react_agent
+from langgraph.prebuilt.chat_agent_executor import AgentState
 from pydantic import BaseModel
-from typing_extensions import Literal
 from aic_flow.graph.state import State
 from aic_flow.nodes.base import AINode
 from aic_flow.nodes.registry import NodeMetadata, registry
@@ -29,7 +29,8 @@ class StructuredOutput(BaseModel):
             # Execute the schema as Python code and get the last defined object
             namespace = {}
             schema = (
-                "from pydantic import BaseModel\nfrom typing_extensions import TypedDict\n"
+                "from pydantic import BaseModel\n"
+                + "from typing_extensions import TypedDict\n"
                 + self.schema_str
             )
             exec(schema, namespace)
@@ -43,11 +44,11 @@ class StructuredOutput(BaseModel):
         category="ai",
     )
 )
-@dataclass
 class Agent(AINode):
     """Node for executing an AI agent with tools."""
 
-    model_config: dict
+    description: str = "Execute an AI agent with tools"
+    model_params: dict
     system_prompt: str | None = None
     checkpointer: str | None = None
     tools: list[BaseTool] = field(default_factory=list)
@@ -57,7 +58,7 @@ class Agent(AINode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         # TODO: Prepare all the components
-        model = init_chat_model(**self.model_config)
+        model = init_chat_model(**self.model_params)
         match self.checkpointer:
             case "memory":
                 checkpointer = InMemorySaver()
@@ -71,7 +72,7 @@ class Agent(AINode):
             case _:
                 raise ValueError(f"Invalid checkpointer: {self.checkpointer}")
 
-        if type(self.structured_output) is dict:
+        if isinstance(self.structured_output, dict):
             structured_output = StructuredOutput(**self.structured_output)
         response_format = (
             None
@@ -90,3 +91,11 @@ class Agent(AINode):
         # Execute agent with state as input
         result = await agent.ainvoke(state, config)
         return result
+
+    def _run(
+        self,
+        state: Annotated[AgentState, InjectedState],
+        config: RunnableConfig,
+    ) -> dict[str, Any]:
+        """Execute the agent and return results."""
+        pass  # TODO: implement when using agent as a tool

@@ -1,17 +1,14 @@
 """Base node implementation for AIC Flow."""
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from aic_flow.graph.state import State
 
 
-@dataclass
-class BaseNode(ABC):
+class BaseNode(BaseTool):
     """Base class for all nodes in the flow."""
-
-    name: str
 
     def decode_variables(self, state: State) -> None:
         """Decode the variables in attributes of the node."""
@@ -30,7 +27,6 @@ class BaseNode(ABC):
         pass  # pragma: no cover
 
 
-@dataclass
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
 
@@ -47,7 +43,6 @@ class AINode(BaseNode):
         pass  # pragma: no cover
 
 
-@dataclass
 class TaskNode(BaseNode):
     """Base class for all non-AI task nodes in the flow."""
 

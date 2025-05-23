@@ -1,10 +1,8 @@
 """Telegram messaging node for AIC Flow."""
 
 import asyncio
-from dataclasses import dataclass
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from telegram import Bot
 from aic_flow.graph.state import State
@@ -60,9 +58,10 @@ class MessageTelegramSchema(BaseModel):
         category="messaging",
     )
 )
-class MessageTelegram(TaskNode, BaseTool):
+class MessageTelegram(TaskNode):
     """Node for sending Telegram messages."""
 
+    description: str = "Send message to Telegram"
     token: str
     args_schema = MessageTelegramSchema
     chat_id: str | None = None
