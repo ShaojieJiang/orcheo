@@ -3,6 +3,7 @@
 The design philosophy of this project can be summarised as follows:
 1. Backend-first: The backend is the core of the project, and the frontend is a powerful extension but optional. Developers can also design their own frontend or clients to interact with the backend.
 2. Low-code and code-first: Normal users and developers can just specify configuration to use the platform. Advanced developers can use components in the Python SDK in code-first manner.
+3. Simple cross-node protocol: The nodes in the graph are connected by a simple protocol, making it easy to add new nodes and extend the platform.
 
 ## Backend
 
