@@ -19,7 +19,15 @@ from aic_flow.nodes.registry import NodeMetadata, registry
     )
 )
 class SlackNode(TaskNode):
-    """Slack node."""
+    """Slack node.
+
+    To use this node, you need to set the following environment variables:
+    - SLACK_BOT_TOKEN: Required. The Bot User OAuth Token starting with xoxb-.
+    - SLACK_TEAM_ID: Required. Your Slack workspace ID starting with T.
+    - SLACK_CHANNEL_IDS: Optional. Comma-separated list of channel IDs to limit
+    channel access (e.g., "C01234567, C76543210"). If not set, all public
+    channels will be listed.
+    """
 
     tool_name: Literal[
         "slack_list_channels",
