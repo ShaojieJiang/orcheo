@@ -42,7 +42,8 @@ dependencies = [
   "selenium>=4.32.0",
   "python-telegram-bot>=22.0",
   "langchain-mcp-adapters>=0.1.1",
-  "feedparser>=6.0.11"
+  "feedparser>=6.0.11",
+  "fastmcp>=2.10.5"
 ]
 description = "Add your description here"
 name = "aic-flow"
