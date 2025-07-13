@@ -79,7 +79,7 @@ async def test_slack_node_run_success(slack_node):
                 # Verify the result is converted to dict
                 assert result == {
                     "content": [{"text": "Message sent successfully"}],
-                    "isError": False,
+                    "is_error": False,
                     "error": None,
                 }
 
@@ -152,7 +152,7 @@ async def test_slack_node_run_different_tool(slack_node):
 
                 assert result == {
                     "content": [{"channels": ["#general", "#random"]}],
-                    "isError": False,
+                    "is_error": False,
                     "error": None,
                 }
 
@@ -183,7 +183,7 @@ async def test_slack_node_run_error_case(slack_node):
                 # Verify error result is properly returned
                 assert result == {
                     "content": [],
-                    "isError": True,
+                    "is_error": True,
                     "error": "Channel not found",
                 }
 
@@ -219,6 +219,6 @@ async def test_slack_node_run_empty_kwargs(slack_node):
 
                 assert result == {
                     "content": [{"text": "Success"}],
-                    "isError": False,
+                    "is_error": False,
                     "error": None,
                 }
