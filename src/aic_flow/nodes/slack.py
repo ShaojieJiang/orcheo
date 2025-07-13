@@ -39,7 +39,7 @@ class SlackNode(TaskNode):
         "slack_get_users",
         "slack_get_user_profile",
     ]
-    """The name of the tool to use."""
+    """The name of the tool supported by the MCP server."""
     kwargs: dict = {}
     """The keyword arguments to pass to the tool."""
 
