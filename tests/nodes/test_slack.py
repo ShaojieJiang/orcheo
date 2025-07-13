@@ -54,7 +54,11 @@ async def test_slack_node_run_success(slack_node):
         ) as mock_client_class:
             with patch.dict(
                 os.environ,
-                {"SLACK_BOT_TOKEN": "test_token", "SLACK_TEAM_ID": "test_team"},
+                {
+                    "SLACK_BOT_TOKEN": "test_token",
+                    "SLACK_TEAM_ID": "test_team",
+                    "SLACK_CHANNEL_IDS": "test_channel_ids",
+                },
             ):
                 result = await slack_node.run({}, None)
 
@@ -64,6 +68,7 @@ async def test_slack_node_run_success(slack_node):
                     env_vars={
                         "SLACK_BOT_TOKEN": "test_token",
                         "SLACK_TEAM_ID": "test_team",
+                        "SLACK_CHANNEL_IDS": "test_channel_ids",
                     },
                 )
 
@@ -112,6 +117,7 @@ async def test_slack_node_run_missing_env_vars(slack_node):
                     env_vars={
                         "SLACK_BOT_TOKEN": "",
                         "SLACK_TEAM_ID": "",
+                        "SLACK_CHANNEL_IDS": "",
                     },
                 )
 
@@ -141,7 +147,11 @@ async def test_slack_node_run_different_tool(slack_node):
         with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
-                {"SLACK_BOT_TOKEN": "test_token", "SLACK_TEAM_ID": "test_team"},
+                {
+                    "SLACK_BOT_TOKEN": "test_token",
+                    "SLACK_TEAM_ID": "test_team",
+                    "SLACK_CHANNEL_IDS": "test_channel_ids",
+                },
             ):
                 result = await slack_node.run({}, None)
 
@@ -176,7 +186,11 @@ async def test_slack_node_run_error_case(slack_node):
         with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
-                {"SLACK_BOT_TOKEN": "test_token", "SLACK_TEAM_ID": "test_team"},
+                {
+                    "SLACK_BOT_TOKEN": "test_token",
+                    "SLACK_TEAM_ID": "test_team",
+                    "SLACK_CHANNEL_IDS": "test_channel_ids",
+                },
             ):
                 result = await slack_node.run({}, None)
 
@@ -210,7 +224,11 @@ async def test_slack_node_run_empty_kwargs(slack_node):
         with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
-                {"SLACK_BOT_TOKEN": "test_token", "SLACK_TEAM_ID": "test_team"},
+                {
+                    "SLACK_BOT_TOKEN": "test_token",
+                    "SLACK_TEAM_ID": "test_team",
+                    "SLACK_CHANNEL_IDS": "test_channel_ids",
+                },
             ):
                 result = await slack_node.run({}, None)
 
