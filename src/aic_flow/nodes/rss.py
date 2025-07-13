@@ -26,7 +26,6 @@ class RSSNode(TaskNode):
         rss_updates = []
         for source in self.sources:
             feed = feedparser.parse(source)
-            for entry in feed.entries:
-                rss_updates.append(entry)
+            rss_updates.extend(feed.entries)
 
         return rss_updates
