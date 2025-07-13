@@ -59,6 +59,8 @@ class TaskNode(BaseNode):
         return {"outputs": {self.name: result}}
 
     @abstractmethod
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(
+        self, state: State, config: RunnableConfig
+    ) -> dict[str, Any] | list[Any]:
         """Run the node."""
         pass  # pragma: no cover
