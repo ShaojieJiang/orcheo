@@ -41,7 +41,7 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 - Workflow versioning and templates
 
 **Backend (Dual-Mode Architecture)**
-- **Python Library Mode**: Direct LangGraph integration for code-first developers
+- **Python Library Mode**: Node library for LangGraph integration, letting code-first developers focus on node definitions while LangGraph handles graph and state management
 - **Standalone Server Mode**: FastAPI-based REST API for low-code applications
 - Workflow execution engine powered by LangGraph
 - Secure credential vault for API keys, OAuth tokens, and 3rd party service authentication
@@ -58,9 +58,13 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 - **Communication**: Email, Slack, Telegram, Discord
 - **Utilities**: Code (Python/JavaScript), Delay, Debug
 
+**Advanced Workflow Features (v1.0)**
+- Loops and iterative processing
+- Sub-workflows and workflow composition
+- Parallel branches and concurrent execution
+
 ### 1.4 Out-of-Scope (v1.0)
 
-- Advanced workflow features (loops, sub-workflows, parallel branches)
 - Enterprise SSO and advanced RBAC
 - Multi-tenancy and team workspaces
 - Advanced monitoring and alerting
@@ -98,7 +102,7 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 
 **Backend Stack:**
 - **Server Mode**: FastAPI with asyncio for low-code users
-- **Library Mode**: Direct LangGraph integration for code-first developers
+- **Library Mode**: Node library for LangGraph integration, with developers handling graph and state management directly
 - LangGraph for workflow execution engine
 - SQLite for development, PostgreSQL for production
 - Redis for caching and job queues (server mode)
@@ -114,23 +118,25 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 5. **Monitoring**: Real-time updates via WebSocket connections
 
 **Code-First Path (Python Library):**
-1. **Definition**: Developers define workflows programmatically using Python SDK
+1. **Definition**: Developers define custom nodes using Orcheo's node library and use LangGraph directly for graph and state management
 2. **Direct Execution**: LangGraph workflows run directly in developer's environment
 3. **Integration**: Optional server integration for persistence and monitoring
 4. **Deployment**: Workflows can run standalone or integrate with server infrastructure
 
 ---
 
-## 3 · User Personas & Use Cases
+## 3 · User Stories
 
-| Persona                     | Primary Use Case                                        |
+| User                        | User Story                                             |
 | --------------------------- | ------------------------------------------------------ |
-| **Maya** – Business Analyst | Creates data processing workflows using visual canvas   |
-| **Dev** – Full-Stack Developer | Uses Python SDK for complex integrations and custom nodes |
-| **Sam** – Marketing Manager | Builds automation workflows through low-code interface   |
-| **Alex** – DevOps Engineer  | Programmatically defines deployment pipelines in Python   |
-| **Lisa** – Data Scientist   | Code-first approach for AI model chaining and analysis          |
-| **Tom** – SaaS Founder      | Hybrid approach: visual design + custom Python components     |
+| **Maya** – Business Analyst | As a business analyst, I want to create data processing workflows using a visual canvas so that I can build complex data pipelines without writing code |
+| **Sam** – Marketing Manager | As a marketing manager, I want to build automation workflows through a low-code interface so that I can streamline marketing processes without technical dependencies |
+| **Tom** – SaaS Founder      | As a SaaS founder, I want a hybrid approach combining visual design with custom Python components so that I can rapidly prototype while maintaining technical flexibility |
+| **Dev** – Full-Stack Developer | As a full-stack developer, I want to use a Python SDK for complex integrations and custom nodes so that I can extend workflows with programmatic control |
+| **Jake** – Backend Developer | As a backend developer, I want to orchestrate API calls and internal services with secure credential management so that I can build reliable system integrations without exposing sensitive data |
+| **Chris** – Integration Specialist | As an integration specialist, I want to configure webhook endpoints and cron schedules with monitoring and error handling so that I can ensure reliable automated workflows between systems |
+| **Lisa** – Data Scientist   | As a data scientist, I want a code-first approach for AI model chaining and analysis so that I can build sophisticated ML workflows with full control |
+| **Amy** – ML/AI Engineer    | As an ML/AI engineer, I want to build and trace multi-step AI agent workflows with detailed execution logs so that I can debug model performance and optimize AI-powered data pipelines |
 
 ---
 
@@ -157,7 +163,7 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 - Import/export workflow definitions (JSON)
 - Workflow templates and examples library
 - Version history with diff visualization
-- Workflow sharing via public links
+- Workflow sharing via exported files
 
 ### 4.2 Backend - Dual-Mode Architecture
 
@@ -179,18 +185,23 @@ Build Orcheo as a comprehensive workflow automation platform that uniquely bridg
 
 **Library Mode (Python SDK) - For Code-First Developers**
 
-*Direct Workflow Definition*
+*Node Definition Focus*
 ```python
-from orcheo import Workflow, AINode, HTTPNode
+from orcheo import AINode, HTTPNode
+from langgraph import StateGraph
 
-# Define workflow programmatically
-workflow = Workflow("data-processing")
-workflow.add_node(HTTPNode("fetch-data", url="api.example.com"))
-workflow.add_node(AINode("analyze", model="gpt-4"))
-workflow.connect("fetch-data", "analyze")
+# Define custom nodes using Orcheo's node library
+fetch_node = HTTPNode("fetch-data", url="api.example.com")
+analyze_node = AINode("analyze", model="gpt-4")
 
-# Execute directly
-result = await workflow.run()
+# Graph and state management handled by LangGraph
+graph = StateGraph(state_schema)
+graph.add_node("fetch", fetch_node)
+graph.add_node("analyze", analyze_node)
+graph.add_edge("fetch", "analyze")
+
+# Execute using LangGraph
+result = await graph.invoke(initial_state)
 ```
 
 *Optional Server Integration*
@@ -243,7 +254,6 @@ result = await workflow.run()
 - File operations (read, write, transform)
 - Email sending (SMTP, services)
 - Slack, Discord, Telegram messaging
-- Google Workspace, Microsoft 365
 
 **Logic Nodes**
 - Conditional branching (If/Else)
@@ -300,42 +310,42 @@ result = await workflow.run()
 
 ## 6 · Success Metrics
 
-### 6.1 Adoption Metrics (6 months post-launch)
+### 6.1 Development Metrics (6 months post-development)
 
 | Metric | Target |
 |--------|--------|
-| Active users | 1,000+ |
-| Workflows created | 5,000+ |
-| Monthly executions | 100,000+ |
-| Node library size | 50+ nodes |
-| Community contributions | 20+ nodes |
+| Personal workflows | 20+ |
+| Monthly executions | 1,000+ |
+| Node library size | 20+ nodes |
+| Integration coverage | 10+ services |
+| Automation success rate | >90% |
 
 ### 6.2 Technical Metrics
 
 | Metric | Target |
 |--------|--------|
-| API uptime | >99.9% |
-| Average API response time | <150ms |
-| Frontend load time | <3 seconds |
-| Execution success rate | >95% |
-| Test coverage | >90% |
+| Local development stability | >95% uptime |
+| Average execution time | <5 seconds |
+| Frontend responsiveness | <2 seconds |
+| Workflow success rate | >90% |
+| Test coverage | >80% |
 
-### 6.3 User Experience Metrics
+### 6.3 Development Experience Metrics
 
 | Metric | Target |
 |--------|--------|
-| Time to first workflow | <10 minutes |
-| Workflow completion rate | >80% |
-| User retention (30-day) | >60% |
-| Support ticket volume | <5% of users |
-| Net Promoter Score | >50 |
+| Time to first workflow | <5 minutes |
+| Workflow iteration speed | <2 minutes |
+| Development productivity | 3x manual processes |
+| Error debugging efficiency | <10 minutes average |
+| Feature completeness | Core use cases covered |
 
 ---
 
 ## 7 · Development Timeline
 
 ### Phase 1: Foundation (Months 1-3)
-- **Python SDK**: Core LangGraph workflow library with 3rd party integration nodes
+- **Python SDK**: Node library for LangGraph integration with 3rd party service nodes
 - **Open-Source Dev Server**: Local development server as free LangGraph Studio alternative
 - **Visual Canvas**: Basic React Flow implementation with essential nodes
 - **Server API**: Backend for persistence and low-code workflow management
@@ -399,7 +409,6 @@ result = await workflow.run()
 ## 10 · Future Roadmap (Post v1.0)
 
 ### v1.1 - Advanced Features
-- Workflow loops and sub-workflows
 - Advanced debugging tools
 - Team workspaces and collaboration
 - Workflow marketplace
