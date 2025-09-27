@@ -1,432 +1,158 @@
-# Product Requirements Document
+# Orcheo – Hybrid Workflow Automation Platform PRD
 
-- **Product**: **Orcheo – Visual Workflow Automation Platform**
-- **Version**: 1.0
-- **Author**: Shaojie Jiang & Claude
-- **Date**: 6 September 2025
-- **Reviewers**: Shaojie Jiang, Claude
+## METADATA
+- **Authors:** Shaojie Jiang, Claude, Codex
+- **Project name (if applicable):** Orcheo – Hybrid Workflow Automation Platform
+- **Product Summary:** Orcheo delivers a hybrid workflow automation experience that combines a low-code visual designer with a Python SDK built on LangGraph, enabling teams to orchestrate AI-driven automations without sacrificing depth or control. The platform emphasizes secure integration management, real-time observability, and an extensible node ecosystem to cover common business and developer use cases.
+- **Owner (if different than authors):** Shaojie Jiang
+- **Date Started:** 1 May 2025
 
-| Rev | Date         | Author(s)           | Notes                           |
+## RELEVANT LINKS & STAKEHOLDERS
+| Documents | Link | Owner | Name |
+|-----------|------|-------|------|
+| Prior Artifacts | TBD | PM | Shaojie Jiang |
+| PRD / Design Review | TBD | PM | Shaojie Jiang |
+| Design File/Deck | TBD | Designer | TBD |
+| Eng Requirement Doc | TBD | Tech Lead | TBD |
+| Marketing Requirement Doc | TBD | PMM | TBD |
+| Experiment Plan | TBD | DS | TBD |
+| Product Rollout Docs | TBD | Product Ops | TBD |
+
+## PROBLEM DEFINITION
+### Objectives
+Deliver a unified workflow automation platform that bridges low-code visual tooling with code-first extensibility. Validate that an AI-first foundation meaningfully improves automation adoption and execution success compared to incumbent solutions.
+
+### Target users
+Operations and innovation teams that need approachable automation tooling, and developer-platform teams seeking programmable control over AI-enabled workflows.
+
+### User Stories
+| As a... | I want to... | So that... | Priority | Acceptance Criteria |
+|---------|--------------|------------|----------|---------------------|
+| Full-stack developer (Dev) | Use the Python SDK for complex integrations and custom nodes | I can extend workflows programmatically with tests and version control | P0 | SDK offers typed node authoring, local execution, and deployment hooks that stay in sync with server workflows |
+| Backend developer (Jake) | Orchestrate API calls with secure credential management | I can integrate services safely without exposing secrets | P0 | Credential vault issues scoped tokens, masks secrets in logs, and enforces rotation policies for API-driven workflows |
+| Data scientist (Lisa) | Chain AI models and analyses via a code-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
+| Integration specialist (Chris) | Configure webhook and cron triggers with monitoring and alerts | I can keep cross-system automations reliable | P0 | Trigger setup supports retries, failure notifications, and visibility into recent executions |
+| SaaS founder (Tom) | Combine visual workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix canvas-built steps with SDK-authored nodes and deploy as a single versioned flow |
+| Business analyst (Maya) | Build multi-step data workflows on the visual canvas | I can launch data pipelines without writing code | P1 | A data workflow with transforms and conditionals can be created, validated, and executed entirely from the canvas |
+| Marketing manager (Sam) | Assemble campaign automations through a low-code interface | I can streamline marketing processes without waiting on engineering | P1 | Templates plus drag-and-drop nodes let me schedule and publish an automation without touching the SDK |
+| ML engineer (Amy) | Trace multi-step AI agent workflows with detailed logs | I can debug and optimize AI-powered automations | P1 | Execution viewer provides per-step prompts, responses, token metrics, and the ability to replay a run |
+
+### Context, Problems, Opportunities
+Current automation platforms force teams to choose between ease of use and advanced programmability, while AI-native capabilities are often bolted on rather than foundational. Orcheo targets this gap with an architecture that treats AI and LangGraph orchestration as core primitives, giving visual-first users guardrailed power and developers the depth they expect. Competitive analysis (Zapier, Airflow, n8n) highlights demand for faster experimentation, richer integration coverage, and lightweight deployment options—areas Orcheo addresses through a dual-mode backend and extensible node ecosystem.
+
+### Product goals and Non-goals
+**Goals**
+- Deliver a cohesive dual experience that combines the visual designer and Python SDK while keeping LangGraph orchestration consistent across both modes.
+- Anchor the platform on an AI-first architecture with an extensible node catalog so teams can cover common integrations without sacrificing depth.
+- Provide production-grade integration management with secure credential handling to support reliable, testable automations.
+- Ship baseline execution visibility and trigger coverage (webhook, cron, manual) that validate reliability for core automation patterns.
+- Advanced monitoring, alerting, or step-level debugging toolsets.
+
+**Non-goals**
+- Enterprise SSO and advanced RBAC controls.
+- Multi-tenancy, shared workspaces, or collaboration features beyond single-tenant usage.
+- Marketplace monetization or community node distribution at launch.
+- Native mobile clients or deep on-premises deployment support in v1.0.
+
+## PRODUCT DEFINITION
+### Requirements
+#### Frontend (React Flow Canvas)
+- Drag-and-drop workflow designer with validation, execution monitoring, and template-driven onboarding.
+- Canvas tooling covers pan/zoom/minimap navigation, grid snapping, undo/redo shortcuts, node search/filtering, collapsible configuration panels, duplication, and custom styling.
+- Workflow ops include save/load, JSON import-export, templates/examples, version history diffs, and shareable exports.
+- Node library surfacing 20+ integrations across AI, data, communication, and control nodes.
+- Credential management UI, workflow versioning, and reusable sub-workflows.
+
+#### Backend (Dual-Mode Architecture)
+- Python library mode exposing LangGraph-powered node definitions and execution orchestration.
+- Standalone FastAPI server provides workflow CRUD (`POST/GET/PUT/DELETE /workflows`), execution control (`POST /workflows/{id}/execute`, `GET/DELETE /executions/{id}`) and WebSocket streaming on `/ws/executions/{id}`.
+- Trigger layer ships webhook validation (multi-verb support, request filtering, custom responses, rate limiting), cron scheduling (timezone aware, overlap guards, pause/resume), and manual runs with batch inputs plus debug mode.
+- Execution engine with history, retries, and support for loops, branching, and parallelization.
+
+#### Credential & Security Handling
+- AES-256 encrypted vault with per-workflow scoping, token rotation, and masked logs.
+- Pre-built credential templates for popular services with validation before execution.
+- Automatic OAuth refresh and credential testing to guard against misconfiguration.
+
+#### Core Node Types (v1.0)
+- Triggers: Webhook, Cron, Manual, HTTP Polling.
+- AI / LLM: OpenAI, Anthropic, Custom AI Agent, Text Processing.
+- Data & Logic: HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable.
+- Storage & Communication: MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord.
+- Utilities: Python/JavaScript code execution, Delay, Debug, Sub-workflow orchestration.
+
+### Execution Flows
+- **Visual designer path:** Canvas-built workflows convert to LangGraph format, validate server-side, persist, run via triggers, and emit live updates over WebSocket.
+- **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, optionally register with the server for persistence, credential reuse, and monitoring.
+
+### Designs (if applicable)
+Figma mocks and copy docs are in progress; link will be attached after initial canvas prototype.
+
+### [Optional] Other Teams Impacted
+Not applicable.
+
+## TECHNICAL CONSIDERATIONS
+### Data Requirements
+The platform primarily orchestrates external API data and transient workflow state; no custom model training data is required initially. Credential vault metadata and execution traces must be stored securely for analytics and debugging.
+
+### Algorithm selection
+Rely on hosted LLM APIs (OpenAI, Anthropic) combined with LangGraph orchestration for deterministic agent flows. Rule-based logic nodes and optional custom code blocks handle non-AI branching where probabilistic models are unnecessary.
+
+### Model performance requirements
+LLM-powered nodes should achieve >90% task success rate on scripted prompts, with latency under 5 seconds for synchronous executions. Guardrails must ensure deterministic fallbacks when AI confidence is low.
+
+### Engineering resource
+Initial delivery centers on a single full-stack builder covering product, backend, frontend, and DevOps, with occasional contract design or security reviews. Timeline assumes staggered milestones that account for context switching and prioritization by one primary contributor.
+
+## MARKET DEFINITION
+### Total Addressable Market
+Targets SMB to mid-market teams and internal developer platforms seeking hybrid automation; near-term focus on North America and Europe where SaaS adoption is highest. Highly regulated on-premise-only environments remain out of scope for v1.0 due to hosting requirements.
+
+### Launch Exceptions
+| Market | Status | Considerations & Summary |
+|--------|--------|--------------------------|
+| Highly regulated industries requiring on-prem | In discussion | Hosting and compliance constraints defer launch until certified deployment model exists |
+
+## LAUNCH PLAN
+### Experiment Plan
+Pilot with a closed beta of existing community members to validate usability of both canvas and SDK flows, followed by staged A/B testing of AI-assisted node recommendations versus manual configuration.
+
+### Success metrics
+| KPIs | Target & Rationale |
+|------|--------------------|
+| Primary – uv/PyPI installs & GitHub stars | ≥2,000 uv (or PyPI) installs and ≥1,000 GitHub stars within six months to evidence community traction |
+| Secondary – Quickstart completion rate | ≥60% of new community members complete the CLI quickstart within 14 days (instrumented or self-reported), proving accessible onboarding |
+| Guardrail – Critical run-failure backlog | ≤2 open P0/P1 automation failure issues older than 14 days to preserve trust in reliability |
+
+### Estimated Geo Launch Phases (if applicable)
+| XP launch | [Insert Month] |   |
+|-----------|----------------|---|
+| **Phase 1 Launch** | Month 8 | North America & EU beta customers leveraging cloud-hosted deployment |
+| **Phase 2 Launch** | Month 10 | Broader rollout to additional regions and partners once credential vault hardening and monitoring complete |
+
+### Pricing strategy (if applicable)
+Adopt a usage-based freemium model: free tier for personal workflows, paid tiers unlocking team features, advanced integrations, and higher execution quotas. Detailed pricing research remains TBD.
+
+## HYPOTHESIS & RISKS
+Primary hypothesis: Providing a dual-mode automation experience (visual + SDK) backed by AI-native nodes will accelerate workflow creation and increase automation success rates for both business and engineering users. Confidence is medium-high based on user interviews and market analysis of existing pain points.
+Secondary hypothesis: Secure credential management and real-time observability will reduce operational friction enough to drive >20% uplift in retained workflows quarter over quarter. Confidence is medium pending beta validation.
+
+**Operational risks & mitigations**
+- React Flow performance under large graphs → mitigate with early load testing and canvas optimization.
+- LangGraph integration complexity → mitigate through proof-of-concept spikes and incremental rollout.
+- Node development bottlenecks → mitigate via contribution framework and prioritized integration roadmap.
+- Security vulnerabilities → mitigate with vault penetration tests and secure coding reviews.
+- Adoption hurdles → mitigate with continuous user research and template-driven onboarding.
+
+## APPENDIX
+### Revision history
+| Rev | Date | Author(s) | Notes |
 | --- | ------------ | ------------------- | ------------------------------- |
-| 0.1 | 1 May 2025   | Shaojie Jiang                | Initial skeleton                |
-| 0.2 | 21 Jul 2025  | Shaojie Jiang, ChatGPT, Kiro| Backend-first approach pivot    |
-| 1.0 | 6 Sep 2025   | Shaojie Jiang, Claude | Comprehensive workflow automation platform |
-
----
-
-## 1 · Overview
-
-### 1.1 Problem Statement
-
-The workflow automation market includes established players like Zapier and Microsoft Power Automate (SaaS platforms), enterprise solutions, and open-source tools like Apache Airflow and n8n. However, current solutions often force users to choose between simplicity and power, or between visual interfaces and programmatic control. There's an opportunity to build a platform that bridges these gaps with modern AI capabilities, serving both low-code users through visual design and code-first developers through programmatic APIs.
-
-### 1.2 Goal
-
-Build Orcheo as a comprehensive workflow automation platform that uniquely bridges the gap between low-code visual tools and code-first programmatic approaches, differentiating from existing market solutions through modern AI-first design and robust LangGraph infrastructure.
-
-**Core Value Proposition:**
-- **Dual Development Experience**: Low-code visual designer for business users + Python SDK for developers
-- **AI-first architecture** with native LangGraph integration for intelligent workflows
-- **Flexible deployment** - Use as Python library or standalone server
-- **Extensible node ecosystem** with growing library of pre-built integrations
-- **Integration-ready** with secure credential management for 3rd party APIs, execution persistence, and monitoring
-- **Multiple trigger methods** supporting webhooks, cron schedules, and manual execution
-
-### 1.3 Scope (v1.0)
-
-**Frontend (React Flow Canvas)**
-- Visual workflow designer with drag-and-drop interface
-- Node library with 20+ essential integrations
-- Workflow validation with real-time error checking
-- Execution monitoring with live status updates
-- Credential management UI
-- Workflow versioning and templates
-
-**Backend (Dual-Mode Architecture)**
-- **Python Library Mode**: Node library for LangGraph integration, letting code-first developers focus on node definitions while LangGraph handles graph and state management
-- **Standalone Server Mode**: FastAPI-based REST API for low-code applications
-- Workflow execution engine powered by LangGraph
-- Secure credential vault for API keys, OAuth tokens, and 3rd party service authentication
-- Multiple trigger systems (webhooks, cron, manual)
-- Execution persistence and history
-- Real-time WebSocket updates
-
-**Core Node Types (v1.0)**
-- **Triggers**: Webhook, Cron, Manual, HTTP Polling
-- **AI/LLM**: OpenAI, Anthropic, Custom AI Agent, Text Processing
-- **Data**: HTTP Request, JSON Processing, Data Transform
-- **Logic**: If/Else, Switch, Merge, Set Variable
-- **Database**: MongoDB, PostgreSQL, SQLite
-- **Communication**: Email, Slack, Telegram, Discord
-- **Utilities**: Code (Python/JavaScript), Delay, Debug
-
-**Advanced Workflow Features (v1.0)**
-- Loops and iterative processing
-- Sub-workflows and workflow composition
-- Parallel branches and concurrent execution
-
-### 1.4 Out-of-Scope (v1.0)
-
-- Enterprise SSO and advanced RBAC
-- Multi-tenancy and team workspaces
-- Advanced monitoring and alerting
-- Marketplace for community nodes
-- Mobile applications
-- On-premises deployment options
-- Advanced debugging tools (breakpoints, step-through)
-
----
-
-## 2 · Architecture Overview
-
-### 2.1 System Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │  Backend Server │    │   Execution     │
-│   (React +      │◄──►│   (FastAPI +    │◄──►│   (LangGraph    │
-│   React Flow)   │    │    SQLite)      │    │   + Celery)     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │
-         │               ┌─────────────────┐
-         └──────────────►│ Python Library  │
-                         │   (LangGraph    │
-                         │    Direct)      │
-                         └─────────────────┘
-```
-
-**Frontend Stack:**
-- React 18+ with TypeScript
-- React Flow for canvas interactions
-- Zustand for state management
-- TanStack Query for server state
-- Tailwind CSS + shadcn/ui components
-
-**Backend Stack:**
-- **Server Mode**: FastAPI with asyncio for low-code users
-- **Library Mode**: Node library for LangGraph integration, with developers handling graph and state management directly
-- LangGraph for workflow execution engine
-- SQLite for development, PostgreSQL for production
-- Redis for caching and job queues (server mode)
-- Celery for background task processing (server mode)
-
-### 2.2 Data Flow
-
-**Low-Code Path (Visual Designer):**
-1. **Design Phase**: User creates workflows in React Flow canvas
-2. **Translation**: Frontend converts React Flow graph to LangGraph-compatible format
-3. **Storage**: Backend validates and stores workflow definitions
-4. **Execution**: Triggers invoke LangGraph execution engine via server
-5. **Monitoring**: Real-time updates via WebSocket connections
-
-**Code-First Path (Python Library):**
-1. **Definition**: Developers define custom nodes using Orcheo's node library and use LangGraph directly for graph and state management
-2. **Direct Execution**: LangGraph workflows run directly in developer's environment
-3. **Integration**: Optional server integration for persistence and monitoring
-4. **Deployment**: Workflows can run standalone or integrate with server infrastructure
-
----
-
-## 3 · User Stories
-
-| User                        | User Story                                             |
-| --------------------------- | ------------------------------------------------------ |
-| **Maya** – Business Analyst | As a business analyst, I want to create data processing workflows using a visual canvas so that I can build complex data pipelines without writing code |
-| **Sam** – Marketing Manager | As a marketing manager, I want to build automation workflows through a low-code interface so that I can streamline marketing processes without technical dependencies |
-| **Tom** – SaaS Founder      | As a SaaS founder, I want a hybrid approach combining visual design with custom Python components so that I can rapidly prototype while maintaining technical flexibility |
-| **Dev** – Full-Stack Developer | As a full-stack developer, I want to use a Python SDK for complex integrations and custom nodes so that I can extend workflows with programmatic control |
-| **Jake** – Backend Developer | As a backend developer, I want to orchestrate API calls and internal services with secure credential management so that I can build reliable system integrations without exposing sensitive data |
-| **Chris** – Integration Specialist | As an integration specialist, I want to configure webhook endpoints and cron schedules with monitoring and error handling so that I can ensure reliable automated workflows between systems |
-| **Lisa** – Data Scientist   | As a data scientist, I want a code-first approach for AI model chaining and analysis so that I can build sophisticated ML workflows with full control |
-| **Amy** – ML/AI Engineer    | As an ML/AI engineer, I want to build and trace multi-step AI agent workflows with detailed execution logs so that I can debug model performance and optimize AI-powered data pipelines |
-
----
-
-## 4 · Functional Requirements
-
-### 4.1 Frontend - Visual Workflow Designer
-
-**Canvas Interface**
-- Drag-and-drop nodes from sidebar to canvas
-- Visual connections between node inputs/outputs
-- Pan, zoom, and minimap navigation
-- Grid snapping and alignment helpers
-- Undo/redo functionality with keyboard shortcuts
-
-**Node Management**
-- Node search and categorization
-- Real-time input validation and error display
-- Collapsible node configuration panels
-- Node duplication and deletion
-- Custom node styling and labeling
-
-**Workflow Operations**
-- Save, load, and duplicate workflows
-- Import/export workflow definitions (JSON)
-- Workflow templates and examples library
-- Version history with diff visualization
-- Workflow sharing via exported files
-
-### 4.2 Backend - Dual-Mode Architecture
-
-**Server Mode (FastAPI) - For Low-Code Users**
-
-*Workflow Management API*
-- `POST /workflows` - Create new workflow
-- `GET /workflows/{id}` - Retrieve workflow definition
-- `PUT /workflows/{id}` - Update workflow
-- `DELETE /workflows/{id}` - Delete workflow
-- `GET /workflows` - List workflows with pagination
-
-*Execution Management*
-- `POST /workflows/{id}/execute` - Manual execution
-- `GET /executions/{id}` - Get execution status
-- `GET /executions` - List execution history
-- `DELETE /executions/{id}` - Cancel running execution
-- WebSocket `/ws/executions/{id}` - Real-time updates
-
-**Library Mode (Python SDK) - For Code-First Developers**
-
-*Node Definition Focus*
-```python
-from orcheo import AINode, HTTPNode
-from langgraph import StateGraph
-
-# Define custom nodes using Orcheo's node library
-fetch_node = HTTPNode("fetch-data", url="api.example.com")
-analyze_node = AINode("analyze", model="gpt-4")
-
-# Graph and state management handled by LangGraph
-graph = StateGraph(state_schema)
-graph.add_node("fetch", fetch_node)
-graph.add_node("analyze", analyze_node)
-graph.add_edge("fetch", "analyze")
-
-# Execute using LangGraph
-result = await graph.invoke(initial_state)
-```
-
-*Optional Server Integration*
-- Register workflows with server for persistence
-- Stream execution logs to server for monitoring
-- Leverage server credential management
-- Access shared workflow templates and nodes
-
-**3rd Party Integration Credentials**
-- Encrypted storage of API keys, OAuth tokens, and service credentials (AES-256)
-- Pre-built credential templates for popular services (Slack, Google, AWS, etc.)
-- Credential testing and validation before workflow execution
-- Scoped credential access per workflow to prevent unauthorized usage
-- Automatic OAuth token refresh and credential rotation
-
-### 4.3 Trigger Systems
-
-**Webhook Triggers**
-- Dynamic webhook URL generation
-- Request validation and filtering
-- Support for GET, POST, PUT, DELETE methods
-- Custom response configuration
-- Rate limiting and security headers
-
-**Cron Triggers**
-- Standard cron expression syntax
-- Timezone-aware scheduling
-- Execution history and failure handling
-- Overlap prevention options
-- Pause/resume functionality
-
-**Manual Triggers**
-- One-click execution from UI
-- Batch execution with different inputs
-- Execution with custom variables
-- Debug mode with step-by-step execution
-
-### 4.4 Node Library
-
-**AI/LLM Nodes**
-- OpenAI integration (GPT-4, embeddings, DALL-E)
-- Anthropic Claude integration
-- Custom AI agent with tool calling
-- Text summarization and analysis
-- Sentiment analysis and classification
-
-**Integration Nodes**
-- HTTP Request with authentication
-- Database connectors (SQL, NoSQL)
-- File operations (read, write, transform)
-- Email sending (SMTP, services)
-- Slack, Discord, Telegram messaging
-
-**Logic Nodes**
-- Conditional branching (If/Else)
-- Switch node for multi-path routing
-- Data merging and aggregation
-- Variable setting and manipulation
-- Error handling and retry logic
-
----
-
-## 5 · Technical Specifications
-
-### 5.1 Frontend Requirements
-
-**Performance**
-- Canvas renders 500+ nodes smoothly (60fps)
-- Node search results in <100ms
-- Workflow save/load in <2 seconds
-- Real-time execution updates with <200ms latency
-
-**Browser Compatibility**
-- Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
-- Progressive Web App (PWA) capabilities
-- Offline workflow editing (with sync on reconnect)
-
-**Accessibility**
-- WCAG 2.1 AA compliance
-- Keyboard navigation for all canvas operations
-- Screen reader support for workflow structure
-- High contrast mode support
-
-### 5.2 Backend Requirements
-
-**Performance**
-- API response time <200ms (95th percentile)
-- Support 1000+ concurrent workflow executions
-- Handle 10K+ workflows per instance
-- Execution logs queryable within 5 seconds
-
-**Security**
-- JWT-based authentication
-- Rate limiting (100 req/min per user)
-- Input sanitization and validation
-- Secure credential encryption at rest
-- HTTPS-only communication
-
-**Scalability**
-- Horizontal scaling via load balancer
-- Database connection pooling
-- Background job processing with Celery
-- Redis caching for frequently accessed data
-
----
-
-## 6 · Success Metrics
-
-### 6.1 Development Metrics (6 months post-development)
-
-| Metric | Target |
-|--------|--------|
-| Personal workflows | 20+ |
-| Monthly executions | 1,000+ |
-| Node library size | 20+ nodes |
-| Integration coverage | 10+ services |
-| Automation success rate | >90% |
-
-### 6.2 Technical Metrics
-
-| Metric | Target |
-|--------|--------|
-| Local development stability | >95% uptime |
-| Average execution time | <5 seconds |
-| Frontend responsiveness | <2 seconds |
-| Workflow success rate | >90% |
-| Test coverage | >80% |
-
-### 6.3 Development Experience Metrics
-
-| Metric | Target |
-|--------|--------|
-| Time to first workflow | <5 minutes |
-| Workflow iteration speed | <2 minutes |
-| Development productivity | 3x manual processes |
-| Error debugging efficiency | <10 minutes average |
-| Feature completeness | Core use cases covered |
-
----
-
-## 7 · Development Timeline
-
-### Phase 1: Foundation (Months 1-3)
-- **Python SDK**: Node library for LangGraph integration with 3rd party service nodes
-- **Open-Source Dev Server**: Local development server as free LangGraph Studio alternative
-- **Visual Canvas**: Basic React Flow implementation with essential nodes
-- **Server API**: Backend for persistence and low-code workflow management
-- Essential integration nodes (Slack, HTTP, OpenAI, PostgreSQL, etc.)
-- 3rd party service credential management
-
-### Phase 2: Integration (Months 4-5)
-- **Server Features**: Webhook and cron trigger systems, credential vault for integrations
-- **SDK Enhancement**: Advanced 3rd party integrations (Google Workspace, AWS, MongoDB, etc.)
-- **Dev Server Features**: Execution tracing, performance metrics, debugging tools
-- Advanced node library (20+ integrations) across both platforms
-- Real-time execution monitoring and WebSocket streaming
-
-### Phase 3: Polish (Months 6-7)
-- Advanced canvas features (templates, versioning)
-- Comprehensive error handling and debugging
-- Security hardening and compliance
-- Documentation and tutorial creation
-- Beta testing and feedback incorporation
-
-### Phase 4: Launch (Month 8)
-- Production deployment and monitoring
-- Performance testing and optimization
-- Community engagement and support setup
-- Marketing and user acquisition
-- Post-launch iteration planning
-
----
-
-## 8 · Risk Assessment
-
-| Risk | Probability | Impact | Mitigation |
-|------|------------|---------|------------|
-| React Flow performance issues | Medium | High | Early prototyping and performance testing |
-| LangGraph integration complexity | High | Medium | Proof of concept and iterative development |
-| Node development bottleneck | Medium | Medium | Community contribution framework |
-| Security vulnerabilities | Low | High | Security audit and pen testing |
-| User adoption challenges | Medium | High | User research and iterative UX improvements |
-
----
-
-## 9 · Technical Dependencies
-
-### 9.1 Frontend Dependencies
-- `react-flow` - Canvas and node management
-- `@tanstack/react-query` - Server state management
-- `zustand` - Client state management
-- `tailwindcss` - Styling framework
-- `shadcn/ui` - Component library
-
-### 9.2 Backend Dependencies
-- `fastapi` - Web framework
-- `langgraph` - Workflow execution engine
-- `langchain` - AI integration framework
-- `sqlalchemy` - Database ORM
-- `celery` - Background task processing
-- `redis` - Caching and message broker
-
----
-
-## 10 · Future Roadmap (Post v1.0)
-
-### v1.1 - Advanced Features
-- Advanced debugging tools
-- Team workspaces and collaboration
-- Workflow marketplace
-
-### v1.2 - Enterprise
-- SSO and advanced authentication
-- Audit logging and compliance
-- Advanced monitoring and alerting
-- On-premises deployment options
-
-### v2.0 - AI-Enhanced
-- AI-assisted workflow creation
-- Smart node recommendations
-- Automatic error resolution
-- Natural language workflow queries
-
----
-
-*This PRD serves as the foundational document for building Orcheo as a comprehensive workflow automation platform that bridges low-code visual design with code-first programmatic development.*
+| 0.1 | 1 May 2025 | Shaojie Jiang | Initial skeleton |
+| 0.2 | 21 Jul 2025 | Shaojie Jiang, ChatGPT, Kiro | Backend-first approach pivot |
+| 1.0 | 6 Sep 2025 | Shaojie Jiang, Claude | Comprehensive workflow automation platform |
+
+### Future roadmap (post v1.0)
+- **v1.1 – Advanced Features:** Advanced debugging tools, team workspaces, workflow marketplace.
+- **v1.2 – Enterprise:** SSO, audit logging, advanced monitoring, on-prem deployment options.
+- **v2.0 – AI-Enhanced:** AI-assisted workflow creation, smart node recommendations, automatic error resolution, natural language workflow queries.
