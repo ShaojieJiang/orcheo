@@ -23,7 +23,10 @@
 Deliver a unified workflow automation platform that bridges low-code visual tooling with code-first extensibility. Validate that an AI-first foundation meaningfully improves automation adoption and execution success compared to incumbent solutions.
 
 ### Target users
-Operations and innovation teams that need approachable automation tooling, and developer-platform teams seeking programmable control over AI-enabled workflows.
+- **Developer-platform engineers** who rely on the Python SDK (full-stack, backend, SaaS founders) to extend workflows with custom nodes, secure integrations, and version-controlled deployments.
+- **Operations and integration specialists** responsible for cross-system automations that demand reliable triggers, credential governance, and actionable monitoring.
+- **Data and AI practitioners** such as data scientists and ML engineers who need to orchestrate multi-model pipelines with reproducibility and deep observability.
+- **Business and go-to-market owners** including business analysts and marketing managers who need a canvas-driven, low-code experience to launch automations without writing code.
 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
