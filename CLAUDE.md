@@ -21,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture Overview
 
-AIC Flow is a workflow orchestration platform built on LangGraph with a node-based architecture:
+Orcheo is a workflow orchestration platform built on LangGraph with a node-based architecture:
 
 ### Core Components
 - **Nodes**: Individual workflow units inheriting from BaseNode, AINode, or TaskNode
