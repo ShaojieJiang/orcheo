@@ -22,10 +22,10 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
-from aic_flow.graph.state import State
-from aic_flow.nodes.ai import Agent
-from aic_flow.nodes.code import PythonCode
-from aic_flow.nodes.telegram import MessageTelegram
+from orcheo.graph.state import State
+from orcheo.nodes.ai import Agent
+from orcheo.nodes.code import PythonCode
+from orcheo.nodes.telegram import MessageTelegram
 
 
 load_dotenv()

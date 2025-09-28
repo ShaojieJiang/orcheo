@@ -3,8 +3,8 @@
 from unittest.mock import AsyncMock, patch
 import pytest
 from telegram import Message
-from aic_flow.graph.state import State
-from aic_flow.nodes.telegram import MessageTelegram, escape_markdown
+from orcheo.graph.state import State
+from orcheo.nodes.telegram import MessageTelegram, escape_markdown
 
 
 def test_escape_markdown():
@@ -35,7 +35,7 @@ async def test_telegram_node_send_message(telegram_node):
     mock_bot = AsyncMock()
     mock_bot.send_message = AsyncMock(return_value=mock_message)
 
-    with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
         result = await telegram_node.run(State(), None)
 
         assert result == {"message_id": 42, "status": "sent"}
@@ -51,7 +51,7 @@ async def test_telegram_node_error_handling(telegram_node):
         side_effect=Exception("Bad Request: message text is empty")
     )
 
-    with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
         with pytest.raises(
             ValueError, match="Telegram API error: Bad Request: message text is empty"
         ):
@@ -73,7 +73,7 @@ async def test_telegram_node_send_message_with_parse_mode():
     mock_bot = AsyncMock()
     mock_bot.send_message = AsyncMock(return_value=mock_message)
 
-    with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
         result = await telegram_node.run(State(), None)
 
         assert result == {"message_id": 42, "status": "sent"}
@@ -92,7 +92,7 @@ async def test_telegram_node_tool_run(telegram_node):
     mock_bot = AsyncMock()
     mock_bot.send_message = AsyncMock(return_value=mock_message)
 
-    with patch("aic_flow.nodes.telegram.Bot", return_value=mock_bot):
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
         with patch("asyncio.run") as mock_asyncio_run:
             # Mock asyncio.run to directly call the async function
             async def mock_run(coro):

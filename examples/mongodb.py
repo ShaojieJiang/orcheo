@@ -4,8 +4,8 @@ import asyncio
 import time
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
-from aic_flow.graph.state import State
-from aic_flow.nodes.mongodb import MongoDBNode
+from orcheo.graph.state import State
+from orcheo.nodes.mongodb import MongoDBNode
 
 
 async def main():
@@ -15,7 +15,7 @@ async def main():
     # Create the MongoDB node (session will be created on first use)
     mongodb_node = MongoDBNode(
         name="mongodb_node",
-        database="AIC",
+        database="Orcheo",
         collection="rss_feeds",
         operation="find",
         query={"read": False},

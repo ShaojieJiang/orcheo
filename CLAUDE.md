@@ -49,7 +49,7 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - **External Services**: Telegram Bot, Slack, MongoDB, RSS feeds
 
 ## File Structure
-- `src/aic_flow/` - Main package
+- `src/orcheo/` - Main package
   - `nodes/` - Node implementations and registry
   - `graph/` - State management and graph builder
   - `main.py` - FastAPI application entry

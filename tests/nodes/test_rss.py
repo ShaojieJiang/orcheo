@@ -3,7 +3,7 @@
 from unittest.mock import Mock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
-from aic_flow.nodes.rss import RSSNode
+from orcheo.nodes.rss import RSSNode
 
 
 @pytest.mark.asyncio
@@ -36,7 +36,7 @@ async def test_rss_node_run():
     mock_feed2.entries = [mock_entry3]
 
     # Mock feedparser.parse to return different feeds for different URLs
-    with patch("aic_flow.nodes.rss.feedparser.parse") as mock_parse:
+    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
         mock_parse.side_effect = [mock_feed1, mock_feed2]
 
         # Execute
@@ -67,7 +67,7 @@ async def test_rss_node_run_empty_feeds():
     mock_feed = Mock()
     mock_feed.entries = []
 
-    with patch("aic_flow.nodes.rss.feedparser.parse") as mock_parse:
+    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
         mock_parse.return_value = mock_feed
 
         # Execute
@@ -86,7 +86,7 @@ async def test_rss_node_run_no_sources():
     state = {}
     config = RunnableConfig()
 
-    with patch("aic_flow.nodes.rss.feedparser.parse") as mock_parse:
+    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
         # Execute
         result = await node.run(state, config)
 

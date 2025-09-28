@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
-from aic_flow.main import execute_workflow, workflow_websocket
+from orcheo.main import execute_workflow, workflow_websocket
 
 
 class AsyncIteratorMock:
@@ -55,7 +55,7 @@ async def test_execute_workflow():
 
     with (
         patch("aiosqlite.connect", return_value=mock_conn),
-        patch("aic_flow.main.build_graph", return_value=mock_graph),
+        patch("orcheo.main.build_graph", return_value=mock_graph),
     ):
         await execute_workflow(
             workflow_id, graph_config, inputs, execution_id, mock_websocket
@@ -74,7 +74,7 @@ async def test_workflow_websocket():
     }
 
     # Mock execute_workflow
-    with patch("aic_flow.main.execute_workflow") as mock_execute:
+    with patch("orcheo.main.execute_workflow") as mock_execute:
         mock_execute.return_value = None
         await workflow_websocket(mock_websocket, "test-workflow")
 

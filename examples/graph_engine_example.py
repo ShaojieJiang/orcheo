@@ -1,4 +1,4 @@
-"""Example of a simple workflow using AIC Flow.
+"""Example of a simple workflow using Orcheo.
 
 To run this example, you need to have the backend running: `make dev-backend`.
 """

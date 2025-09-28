@@ -1,4 +1,4 @@
-"""FastAPI server for AIC Flow."""
+"""FastAPI server for Orcheo."""
 
 import asyncio
 import logging
@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from aic_flow.graph.builder import build_graph
+from orcheo.graph.builder import build_graph
 
 
 # Configure logging

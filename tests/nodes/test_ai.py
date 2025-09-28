@@ -3,8 +3,8 @@
 from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
-from aic_flow.graph.state import State
-from aic_flow.nodes.ai import Agent, StructuredOutput
+from orcheo.graph.state import State
+from orcheo.nodes.ai import Agent, StructuredOutput
 
 
 @pytest.fixture
@@ -53,8 +53,8 @@ class TestModel(BaseModel):
 
 
 @pytest.mark.asyncio
-@patch("aic_flow.nodes.ai.init_chat_model")
-@patch("aic_flow.nodes.ai.create_react_agent")
+@patch("orcheo.nodes.ai.init_chat_model")
+@patch("orcheo.nodes.ai.create_react_agent")
 async def test_run_with_structured_output(
     mock_create_agent, mock_init_model, agent, mock_model, mock_agent
 ):
@@ -80,8 +80,8 @@ async def test_run_with_structured_output(
 
 
 @pytest.mark.asyncio
-@patch("aic_flow.nodes.ai.init_chat_model")
-@patch("aic_flow.nodes.ai.create_react_agent")
+@patch("orcheo.nodes.ai.init_chat_model")
+@patch("orcheo.nodes.ai.create_react_agent")
 async def test_run_with_memory_checkpointer(
     mock_create_agent, mock_init_model, agent, mock_model, mock_agent
 ):
@@ -104,8 +104,8 @@ async def test_run_with_memory_checkpointer(
 
 
 @pytest.mark.asyncio
-@patch("aic_flow.nodes.ai.init_chat_model")
-@patch("aic_flow.nodes.ai.create_react_agent")
+@patch("orcheo.nodes.ai.init_chat_model")
+@patch("orcheo.nodes.ai.create_react_agent")
 async def test_run_without_checkpointer(
     mock_create_agent, mock_init_model, agent, mock_model, mock_agent
 ):

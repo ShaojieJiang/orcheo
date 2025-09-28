@@ -9,9 +9,9 @@ from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
-from aic_flow.graph.state import State
-from aic_flow.nodes.base import AINode, BaseNode
-from aic_flow.nodes.registry import NodeMetadata, registry
+from orcheo.graph.state import State
+from orcheo.nodes.base import AINode, BaseNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
 class StructuredOutput(BaseModel):

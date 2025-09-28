@@ -48,10 +48,10 @@ dependencies = [
   "pymongo>=4.13.2"
 ]
 description = "Add your description here"
-name = "aic-flow"
+name = "orcheo"
 readme = "README.md"
 requires-python = ">=3.12"
-url = "https://github.com/AI-Colleagues/aic_flow"
+url = "https://github.com/AI-Colleagues/orcheo"
 version = "0.0.1"
 
 [tool.coverage.report]
@@ -65,7 +65,7 @@ exclude_lines = [
 [tool.coverage.run]
 branch = true
 command_line = "-m pytest"
-source = ["aic_flow"]
+source = ["orcheo"]
 
 [tool.mypy]
 disallow_untyped_defs = true
@@ -107,7 +107,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["aic_flow"]
+known-first-party = ["orcheo"]
 lines-after-imports = 2
 no-lines-before = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
