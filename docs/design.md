@@ -61,6 +61,7 @@ Orcheo delivers a unified automation surface where visual designers can assemble
 
 ### 1.4 References
 - **Product Requirements Document**: ["Orcheo – Hybrid Workflow Automation Platform PRD" (prd.md)](../prd.md), version 1.0, dated 6 Sep 2025.
+- **Roadmap**: ["Orcheo Roadmap" (roadmap.md)](../roadmap.md), last updated 28 Sep 2025.
 - **Design document template**: https://github.com/jam01/SDD-Template/blob/master/template.md
 
 ### 1.5 Document Overview
@@ -100,7 +101,7 @@ Configuration data (workflow graphs, node metadata) is stored in the Config DB w
 Key patterns include event-driven orchestration (message broker + workers), circuit breaker with retry handling for external calls, and strategy pattern for node execution engines (AI nodes vs. deterministic tasks). Infrastructure follows a layered onion architecture to maintain separation between API, orchestration, and persistence concerns.
 
 #### 2.2.7 Interface
-External interfaces comprise REST APIs for workflow management, credential administration, and execution control; WebSockets for live trace streaming; and SDK abstractions that wrap these endpoints in typed Python clients. Integrations expose connector interfaces that standardize authentication handshakes and payload schemas.
+External interfaces comprise REST APIs for workflow management, credential administration, and execution control; WebSockets for live trace streaming; and SDK abstractions that wrap these endpoints in typed Python clients. Key backend entry points include `POST/GET/PUT/DELETE /workflows` for CRUD operations, `POST /workflows/{id}/execute` plus `GET/DELETE /executions/{id}` for run coordination, and WebSocket streaming on `/ws/executions/{id}` for live telemetry. Integrations expose connector interfaces that standardize authentication handshakes and payload schemas.
 
 #### 2.2.8 Structure
 The system enforces clear separation between presentation (canvas, SDK CLI), application services (FastAPI endpoints), and execution runtime. Shared libraries define graph schemas and node contracts, ensuring parity between visual and code-based authoring. Feature flags gate beta functionality per rollout phase.

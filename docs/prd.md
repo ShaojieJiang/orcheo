@@ -10,6 +10,7 @@
 ## RELEVANT LINKS & STAKEHOLDERS
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
+| Roadmap & Project Board | [docs/roadmap.md](./roadmap.md) | PM | Shaojie Jiang |
 | Prior Artifacts | TBD | PM | Shaojie Jiang |
 | PRD / Design Review | TBD | PM | Shaojie Jiang |
 | Design File/Deck | TBD | Designer | TBD |
@@ -68,7 +69,7 @@ Current automation platforms force teams to choose between ease of use and advan
 
 #### Backend (Dual-Mode Architecture)
 - Python library mode exposing LangGraph-powered node definitions and execution orchestration.
-- Standalone FastAPI server provides workflow CRUD (`POST/GET/PUT/DELETE /workflows`), execution control (`POST /workflows/{id}/execute`, `GET/DELETE /executions/{id}`) and WebSocket streaming on `/ws/executions/{id}`.
+- Standalone FastAPI server provides workflow CRUD, execution control, and WebSocket streaming for execution telemetry.
 - Trigger layer ships webhook validation (multi-verb support, request filtering, custom responses, rate limiting), cron scheduling (timezone aware, overlap guards, pause/resume), and manual runs with batch inputs plus debug mode.
 - Execution engine with history, retries, and support for loops, branching, and parallelization.
 
