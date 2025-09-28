@@ -3,8 +3,8 @@
 import asyncio
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
-from aic_flow.graph.state import State
-from aic_flow.nodes.slack import SlackNode
+from orcheo.graph.state import State
+from orcheo.nodes.slack import SlackNode
 
 
 if __name__ == "__main__":

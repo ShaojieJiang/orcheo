@@ -1,9 +1,9 @@
-"""Graph builder module for AIC Flow."""
+"""Graph builder module for Orcheo."""
 
 from typing import Any
 from langgraph.graph import END, START, StateGraph
-from aic_flow.graph.state import State
-from aic_flow.nodes.registry import registry
+from orcheo.graph.state import State
+from orcheo.nodes.registry import registry
 
 
 def build_graph(graph_json: dict[str, Any]) -> StateGraph:

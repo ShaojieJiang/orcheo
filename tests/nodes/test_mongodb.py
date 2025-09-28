@@ -9,8 +9,8 @@ from pymongo.results import (
     InsertOneResult,
     UpdateResult,
 )
-from aic_flow.graph.state import State
-from aic_flow.nodes.mongodb import MongoDBNode
+from orcheo.graph.state import State
+from orcheo.nodes.mongodb import MongoDBNode
 
 
 class TestMongoDBResultConversion:
@@ -25,7 +25,7 @@ class TestMongoDBResultConversion:
         self.mock_client = MagicMock()
         self.mock_client.__getitem__.return_value = self.mock_database
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_cursor_to_list_dict(self, mock_mongo_client):
         """Test conversion of cursor results to list[dict]."""
         # Mock MongoDB client
@@ -56,7 +56,7 @@ class TestMongoDBResultConversion:
         assert result[0] == {"_id": "1", "name": "doc1"}
         assert result[1] == {"_id": "2", "name": "doc2"}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_command_cursor_to_list_dict(self, mock_mongo_client):
         """Test conversion of command cursor results to list[dict]."""
         # Mock MongoDB client
@@ -85,7 +85,7 @@ class TestMongoDBResultConversion:
         assert result[0] == {"_id": "1", "count": 5}
         assert result[1] == {"_id": "2", "count": 3}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_insert_result_to_dict(self, mock_mongo_client):
         """Test conversion of insert result to dict."""
         # Mock MongoDB client
@@ -110,7 +110,7 @@ class TestMongoDBResultConversion:
         assert result["inserted_id"] == "507f1f77bcf86cd799439011"
         assert result["acknowledged"] is True
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_insert_many_result_to_dict(self, mock_mongo_client):
         """Test conversion of insert many result to dict."""
         # Mock MongoDB client
@@ -141,7 +141,7 @@ class TestMongoDBResultConversion:
         ]
         assert result["acknowledged"] is True
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_update_result_to_dict(self, mock_mongo_client):
         """Test conversion of update result to dict."""
         # Mock MongoDB client
@@ -170,7 +170,7 @@ class TestMongoDBResultConversion:
         assert result["upserted_id"] is None
         assert result["acknowledged"] is True
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_delete_result_to_dict(self, mock_mongo_client):
         """Test conversion of delete result to dict."""
         # Mock MongoDB client
@@ -195,7 +195,7 @@ class TestMongoDBResultConversion:
         assert result["deleted_count"] == 1
         assert result["acknowledged"] is True
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_bulk_write_result_to_dict(self, mock_mongo_client):
         """Test conversion of bulk write result to dict."""
         # Mock MongoDB client
@@ -230,7 +230,7 @@ class TestMongoDBResultConversion:
         assert result["upserted_ids"] == {"0": "507f1f77bcf86cd799439011"}
         assert result["acknowledged"] is True
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_bulk_write_result_no_upserted_ids(self, mock_mongo_client):
         """Test conversion of bulk write result with no upserted_ids."""
         # Mock MongoDB client
@@ -258,7 +258,7 @@ class TestMongoDBResultConversion:
         assert isinstance(result, dict)
         assert result["upserted_ids"] == {}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_primitive_to_dict(self, mock_mongo_client):
         """Test conversion of primitive values to dict."""
         # Mock MongoDB client
@@ -288,7 +288,7 @@ class TestMongoDBResultConversion:
         result = node._convert_result_to_dict(3.14)
         assert result == {"result": 3.14}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_none_to_dict(self, mock_mongo_client):
         """Test conversion of None result to dict."""
         # Mock MongoDB client
@@ -305,7 +305,7 @@ class TestMongoDBResultConversion:
         result = node._convert_result_to_dict(None)
         assert result == {"result": None}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_list_to_list_dict(self, mock_mongo_client):
         """Test conversion of list results to list[dict]."""
         # Mock MongoDB client
@@ -334,7 +334,7 @@ class TestMongoDBResultConversion:
         assert result[0] == {"key1": "val1"}
         assert result[1] == {"key2": "val2"}
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_object_with_dict_to_dict(self, mock_mongo_client):
         """Test conversion of objects with __dict__ to dict."""
         # Mock MongoDB client
@@ -360,7 +360,7 @@ class TestMongoDBResultConversion:
         assert result["attr1"] == "value1"
         assert result["attr2"] == 42
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_convert_unknown_object_to_dict(self, mock_mongo_client):
         """Test conversion of unknown objects to dict using string representation."""
         # Mock MongoDB client
@@ -386,7 +386,7 @@ class TestMongoDBResultConversion:
         assert isinstance(result, dict)
         assert result["result"] == "complex_object_representation"
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_run_method(self, mock_mongo_client):
         """Test the run method of MongoDB node."""
         # Mock MongoDB client
@@ -420,7 +420,7 @@ class TestMongoDBResultConversion:
         # Verify the operation was called with the correct query
         self.mock_collection.find.assert_called_once_with({"status": "active"})
 
-    @patch("aic_flow.nodes.mongodb.MongoClient")
+    @patch("orcheo.nodes.mongodb.MongoClient")
     def test_del_method(self, mock_mongo_client):
         """Test the __del__ method closes the client."""
         # Mock MongoDB client

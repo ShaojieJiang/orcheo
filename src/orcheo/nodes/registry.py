@@ -1,4 +1,4 @@
-"""Registry implementation for AIC Flow nodes."""
+"""Registry implementation for Orcheo nodes."""
 
 from collections.abc import Callable
 from pydantic import BaseModel

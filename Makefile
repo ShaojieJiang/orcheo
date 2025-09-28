@@ -1,8 +1,8 @@
 .PHONY: dev-backend test lint format
 
 lint:
-	ruff check src/aic_flow
-	mypy src/aic_flow
+	ruff check src/orcheo
+	mypy src/orcheo
 	ruff format . --check
 	# npx eslint --fix "src/frontend/**/*.{js,jsx,ts,tsx}" --rule "import/order: error" --rule "unused-imports/no-unused-imports: error"
 
@@ -19,4 +19,4 @@ doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080
 
 dev-backend:
-	uvicorn aic_flow.main:app --reload --port 8000
+	uvicorn orcheo.main:app --reload --port 8000

@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "aic-flow"
+name = "orcheo"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

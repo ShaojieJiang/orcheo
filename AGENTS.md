@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Source: `src/aic_flow/` — core package. Key areas: `graph/` (state, builder), `nodes/` (task/AI/integrations), `main.py` (FastAPI app/WebSocket).
+- Source: `src/orcheo/` — core package. Key areas: `graph/` (state, builder), `nodes/` (task/AI/integrations), `main.py` (FastAPI app/WebSocket).
 - Tests: `tests/` — mirrors package layout (e.g., `tests/graph/`, `tests/nodes/`).
 - Docs & examples: `docs/`, `examples/`, experimental `playground/`.
 - Config: `pyproject.toml` (tooling), `.pre-commit-config.yaml`, `.env` (local secrets), `Makefile` (common tasks).
@@ -19,7 +19,7 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 ## Coding Style & Naming Conventions
 - Python 3.12, type hints required (mypy: `disallow_untyped_defs = true`).
 - Formatting/linting via Ruff; line length 88; Google-style docstrings.
-- Import rules: no relative imports (TID252); use absolute package paths (`from aic_flow...`).
+- Import rules: no relative imports (TID252); use absolute package paths (`from orcheo...`).
 - Naming: modules/files `snake_case.py`; classes `PascalCase`; functions/vars `snake_case`.
 - Keep functions focused; prefer small units with clear docstrings and types.
 

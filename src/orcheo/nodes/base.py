@@ -1,10 +1,10 @@
-"""Base node implementation for AIC Flow."""
+"""Base node implementation for Orcheo."""
 
 from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
-from aic_flow.graph.state import State
+from orcheo.graph.state import State
 
 
 class BaseNode(BaseModel):

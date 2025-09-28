@@ -6,9 +6,9 @@ from typing import Literal
 from fastmcp import Client
 from fastmcp.client.transports import NpxStdioTransport
 from langchain_core.runnables import RunnableConfig
-from aic_flow.graph.state import State
-from aic_flow.nodes.base import TaskNode
-from aic_flow.nodes.registry import NodeMetadata, registry
+from orcheo.graph.state import State
+from orcheo.nodes.base import TaskNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
 @registry.register(

@@ -3,7 +3,7 @@
 import asyncio
 import os
 from dotenv import load_dotenv
-from aic_flow.graph.builder import build_graph
+from orcheo.graph.builder import build_graph
 
 
 load_dotenv()
@@ -16,7 +16,7 @@ graph_config = {
             "name": "print",
             "type": "PythonCode",
             "code": """
-return {"message": "Hello AIC!"}
+return {"message": "Hello Orcheo!"}
 """,
         },
         {

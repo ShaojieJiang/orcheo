@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from aic_flow.nodes.slack import SlackNode
+from orcheo.nodes.slack import SlackNode
 
 
 @dataclass
@@ -47,10 +47,10 @@ async def test_slack_node_run_success(slack_node):
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
     with patch(
-        "aic_flow.nodes.slack.NpxStdioTransport", return_value=mock_transport
+        "orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport
     ) as mock_transport_class:
         with patch(
-            "aic_flow.nodes.slack.Client", return_value=mock_context_manager
+            "orcheo.nodes.slack.Client", return_value=mock_context_manager
         ) as mock_client_class:
             with patch.dict(
                 os.environ,
@@ -105,9 +105,9 @@ async def test_slack_node_run_missing_env_vars(slack_node):
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
     with patch(
-        "aic_flow.nodes.slack.NpxStdioTransport", return_value=mock_transport
+        "orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport
     ) as mock_transport_class:
-        with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(os.environ, {}, clear=True):
                 await slack_node.run({}, None)
 
@@ -143,8 +143,8 @@ async def test_slack_node_run_different_tool(slack_node):
     mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("aic_flow.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
                 {
@@ -182,8 +182,8 @@ async def test_slack_node_run_error_case(slack_node):
     mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("aic_flow.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
                 {
@@ -220,8 +220,8 @@ async def test_slack_node_run_empty_kwargs(slack_node):
     mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("aic_flow.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("aic_flow.nodes.slack.Client", return_value=mock_context_manager):
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
             with patch.dict(
                 os.environ,
                 {

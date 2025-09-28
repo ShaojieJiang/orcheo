@@ -1,12 +1,12 @@
-"""Telegram messaging node for AIC Flow."""
+"""Telegram messaging node for Orcheo."""
 
 import asyncio
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from telegram import Bot
-from aic_flow.graph.state import State
-from aic_flow.nodes.base import TaskNode
-from aic_flow.nodes.registry import NodeMetadata, registry
+from orcheo.graph.state import State
+from orcheo.nodes.base import TaskNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
 def escape_markdown(text: str) -> str:

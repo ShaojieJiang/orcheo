@@ -4,8 +4,8 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
-from aic_flow.graph.state import State
-from aic_flow.nodes.base import AINode, TaskNode
+from orcheo.graph.state import State
+from orcheo.nodes.base import AINode, TaskNode
 
 
 class MockTaskNode(TaskNode):
