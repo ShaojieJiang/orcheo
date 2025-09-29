@@ -4,12 +4,14 @@ import asyncio
 import logging
 import uuid
 from typing import Any
-import aiosqlite
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
+from orcheo.persistence import create_checkpointer
 
 
 # Configure logging
@@ -19,6 +21,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+settings = get_settings()
 
 app = FastAPI()
 
@@ -47,8 +51,7 @@ async def execute_workflow(
         logger.info(f"Initial inputs: {inputs}")
 
         # Create graph from config
-        async with aiosqlite.connect("checkpoints.sqlite") as conn:
-            checkpointer = AsyncSqliteSaver(conn)
+        async with create_checkpointer(settings) as checkpointer:
             graph = build_graph(graph_config)
             compiled_graph = graph.compile(checkpointer=checkpointer)
 
