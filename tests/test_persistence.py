@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 from dynaconf import Dynaconf
 from orcheo import config
