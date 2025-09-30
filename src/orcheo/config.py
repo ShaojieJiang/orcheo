@@ -1,10 +1,8 @@
 """Runtime configuration helpers for Orcheo."""
 
 from __future__ import annotations
-
 from functools import lru_cache
 from typing import Literal, cast
-
 from dynaconf import Dynaconf
 
 
@@ -21,7 +19,6 @@ _DEFAULTS: dict[str, object] = {
 
 def _build_loader() -> Dynaconf:
     """Create a Dynaconf loader wired to environment variables only."""
-
     return Dynaconf(
         envvar_prefix="ORCHEO",
         settings_files=[],  # No config files, env vars only
@@ -30,13 +27,8 @@ def _build_loader() -> Dynaconf:
     )
 
 
-# Initialize Dynaconf with environment variable prefix
-settings_loader = _build_loader()
-
-
 def _normalize_settings(source: Dynaconf) -> Dynaconf:
     """Validate and fill defaults on the raw Dynaconf settings."""
-
     backend_raw = source.get("CHECKPOINT_BACKEND", _DEFAULTS["CHECKPOINT_BACKEND"])
     backend = str(backend_raw or _DEFAULTS["CHECKPOINT_BACKEND"]).lower()
     if backend not in {"sqlite", "postgres"}:
@@ -79,15 +71,11 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
 @lru_cache(maxsize=1)
 def _load_settings() -> Dynaconf:
     """Load settings once and cache the normalized Dynaconf instance."""
-
-    return _normalize_settings(settings_loader)
+    return _normalize_settings(_build_loader())
 
 
 def get_settings(*, refresh: bool = False) -> Dynaconf:
     """Return the cached Dynaconf settings, reloading them if requested."""
-
     if refresh:
-        global settings_loader
-        settings_loader = _build_loader()
         _load_settings.cache_clear()
     return _load_settings()

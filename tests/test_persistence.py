@@ -66,7 +66,9 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_create_checkpointer_invalid_backend() -> None:
     """An unsupported backend should raise an error."""
 
-    bad_settings = Dynaconf(envvar_prefix="ORCHEO", environments=False, load_dotenv=False, settings_files=[])
+    bad_settings = Dynaconf(
+        envvar_prefix="ORCHEO", environments=False, load_dotenv=False, settings_files=[]
+    )
     bad_settings.set("CHECKPOINT_BACKEND", cast(str, "invalid"))
     bad_settings.set("SQLITE_PATH", "irrelevant")
     bad_settings.set("POSTGRES_DSN", None)
