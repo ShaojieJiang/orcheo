@@ -1,6 +1,6 @@
 """Example of a simple workflow using Orcheo.
 
-To run this example, you need to have the backend running: `make dev-backend`.
+To run this example, you need to have the backend running: `make dev-server`.
 """
 
 import asyncio

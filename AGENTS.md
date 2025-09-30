@@ -11,7 +11,7 @@
 - Lint/typecheck/format (check): `make lint`
 - Auto-format and organize imports: `make format`
 - Run tests with coverage: `make test`
-- Run dev API (FastAPI): `make dev-backend` then visit `http://localhost:8000`
+- Run dev API (FastAPI): `make dev-server` then visit `http://localhost:8000`
 - Serve docs locally: `make doc` (MkDocs at `http://localhost:8080`)
 
 Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k nodes`.

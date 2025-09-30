@@ -1,5 +1,6 @@
 """Tests for the persistence helper utilities."""
 
+from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 import pytest
@@ -28,6 +29,37 @@ async def test_create_checkpointer_sqlite(monkeypatch: pytest.MonkeyPatch) -> No
         assert checkpointer == ("sqlite_saver", fake_conn)
 
     saver_mock.assert_called_once_with(fake_conn)
+    fake_conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_checkpointer_sqlite_creates_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SQLite backend should ensure the target directory exists before connecting."""
+
+    target_dir = tmp_path / "nested"
+    sqlite_file = target_dir / "orcheo.sqlite3"
+
+    monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_SQLITE_PATH", str(sqlite_file))
+
+    fake_conn = MagicMock()
+    fake_conn.close = AsyncMock()
+
+    connect_mock = AsyncMock(return_value=fake_conn)
+    monkeypatch.setattr("orcheo.persistence.aiosqlite.connect", connect_mock)
+    monkeypatch.setattr("orcheo.persistence.AsyncSqliteSaver", MagicMock())
+
+    settings = config.get_settings(refresh=True)
+
+    assert not target_dir.exists()
+
+    async with create_checkpointer(settings):
+        pass
+
+    assert target_dir.exists()
+    connect_mock.assert_awaited_once_with(str(sqlite_file))
     fake_conn.close.assert_awaited_once()
 
 
