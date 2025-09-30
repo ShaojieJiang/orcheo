@@ -30,7 +30,10 @@ def _build_loader() -> Dynaconf:
 def _normalize_settings(source: Dynaconf) -> Dynaconf:
     """Validate and fill defaults on the raw Dynaconf settings."""
     backend_raw = source.get("CHECKPOINT_BACKEND", _DEFAULTS["CHECKPOINT_BACKEND"])
-    backend = str(backend_raw or _DEFAULTS["CHECKPOINT_BACKEND"]).lower()
+    if backend_raw is None:
+        backend = str(_DEFAULTS["CHECKPOINT_BACKEND"]).lower()
+    else:
+        backend = str(backend_raw).lower()
     if backend not in {"sqlite", "postgres"}:
         msg = "ORCHEO_CHECKPOINT_BACKEND must be either 'sqlite' or 'postgres'."
         raise ValueError(msg)

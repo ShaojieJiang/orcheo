@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-settings = get_settings()
-
 app = FastAPI()
 
 # Enable CORS
@@ -49,6 +47,7 @@ async def execute_workflow(
         logger.info(f"Initial inputs: {inputs}")
 
         # Create graph from config
+        settings = get_settings()
         async with create_checkpointer(settings) as checkpointer:
             graph = build_graph(graph_config)
             compiled_graph = graph.compile(checkpointer=checkpointer)
