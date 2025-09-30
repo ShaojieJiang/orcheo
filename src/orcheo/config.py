@@ -1,13 +1,22 @@
 """Runtime configuration helpers for Orcheo."""
 
 from __future__ import annotations
-import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal, cast
+from typing import Literal
+
+from dynaconf import Dynaconf
 
 
 CheckpointBackend = Literal["sqlite", "postgres"]
+
+# Initialize Dynaconf with environment variable prefix
+settings_loader = Dynaconf(
+    envvar_prefix="ORCHEO",
+    settings_files=[],  # No config files, env vars only
+    load_dotenv=True,
+    environments=False,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,21 +30,20 @@ class PersistenceSettings:
     @classmethod
     def from_env(cls) -> PersistenceSettings:
         """Build persistence settings using environment variables."""
-        backend = os.getenv("ORCHEO_CHECKPOINT_BACKEND", "sqlite").lower()
+        backend = settings_loader.get("CHECKPOINT_BACKEND", "sqlite").lower()
         if backend not in {"sqlite", "postgres"}:
             msg = "ORCHEO_CHECKPOINT_BACKEND must be either 'sqlite' or 'postgres'."
             raise ValueError(msg)
 
-        sqlite_path = os.getenv("ORCHEO_SQLITE_PATH", "checkpoints.sqlite")
-        postgres_dsn = os.getenv("ORCHEO_POSTGRES_DSN")
+        sqlite_path = settings_loader.get("SQLITE_PATH", "checkpoints.sqlite")
+        postgres_dsn = settings_loader.get("POSTGRES_DSN")
 
         if backend == "postgres" and not postgres_dsn:
             msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
             raise ValueError(msg)
 
-        backend_value = cast(CheckpointBackend, backend)
         return cls(
-            backend=backend_value,
+            backend=backend,  # type: ignore[arg-type]
             sqlite_path=sqlite_path,
             postgres_dsn=postgres_dsn,
         )
@@ -53,8 +61,8 @@ class Settings:
     def from_env(cls) -> Settings:
         """Build settings by reading from the environment."""
         persistence = PersistenceSettings.from_env()
-        host = os.getenv("ORCHEO_HOST", "0.0.0.0")
-        port = int(os.getenv("ORCHEO_PORT", "8000"))
+        host = settings_loader.get("HOST", "0.0.0.0")
+        port = settings_loader.get("PORT", 8000)
 
         return cls(persistence=persistence, host=host, port=port)
 
@@ -68,5 +76,6 @@ def _load_settings() -> Settings:
 def get_settings(*, refresh: bool = False) -> Settings:
     """Return the cached settings, reloading them if requested."""
     if refresh:
+        settings_loader.reload()
         _load_settings.cache_clear()
     return _load_settings()

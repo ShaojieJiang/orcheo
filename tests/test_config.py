@@ -12,6 +12,10 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
     monkeypatch.delenv("ORCHEO_PORT", raising=False)
 
+    # Clear dynaconf cache to ensure clean state
+    config.settings_loader.reload()
+    config._load_settings.cache_clear()
+
     settings = config.Settings.from_env()
 
     assert settings.persistence.backend == "sqlite"
@@ -24,6 +28,7 @@ def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid persistence backend values raise a helpful error."""
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "invalid")
+    config.settings_loader.reload()
 
     with pytest.raises(ValueError):
         config.Settings.from_env()
@@ -34,6 +39,7 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+    config.settings_loader.reload()
 
     with pytest.raises(ValueError):
         config.Settings.from_env()
