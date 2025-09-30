@@ -45,7 +45,8 @@ dependencies = [
   "feedparser>=6.0.11",
   "fastmcp>=2.10.5",
   "mcp[cli]>=1.12.0",
-  "pymongo>=4.13.2"
+  "pymongo>=4.13.2",
+  "dynaconf>=3.2.4"
 ]
 description = "Add your description here"
 name = "orcheo"

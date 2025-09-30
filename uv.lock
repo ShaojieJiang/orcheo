@@ -8,101 +8,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "orcheo"
-version = "0.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "aiosqlite" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "feedparser" },
-    { name = "langchain" },
-    { name = "langchain-community" },
-    { name = "langchain-mcp-adapters" },
-    { name = "langchain-openai" },
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-postgres" },
-    { name = "langgraph-checkpoint-sqlite" },
-    { name = "mcp", extra = ["cli"] },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "pymongo" },
-    { name = "python-dotenv" },
-    { name = "python-telegram-bot" },
-    { name = "selenium" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "bump2version" },
-    { name = "diff-cover" },
-    { name = "isort" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "smokeshow" },
-    { name = "types-requests" },
-]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-gen-files" },
-    { name = "mkdocs-jupyter" },
-    { name = "mkdocs-material" },
-    { name = "mkdocstrings", extra = ["python"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.21.0" },
-    { name = "fastapi", specifier = ">=0.104.0" },
-    { name = "fastmcp", specifier = ">=2.10.5" },
-    { name = "feedparser", specifier = ">=6.0.11" },
-    { name = "langchain", specifier = ">=0.1.0" },
-    { name = "langchain-community", specifier = ">=0.0.10" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.1" },
-    { name = "langchain-openai", specifier = ">=0.0.5" },
-    { name = "langgraph", specifier = ">=0.0.10" },
-    { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.7" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.12.0" },
-    { name = "openai", specifier = ">=1.0.0" },
-    { name = "pydantic", specifier = ">=2.4.2" },
-    { name = "pymongo", specifier = ">=4.13.2" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "python-telegram-bot", specifier = ">=22.0" },
-    { name = "selenium", specifier = ">=4.32.0" },
-    { name = "uvicorn", specifier = ">=0.24.0" },
-    { name = "websockets", specifier = ">=12.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "bump2version" },
-    { name = "diff-cover", specifier = ">=9.2.4" },
-    { name = "isort" },
-    { name = "mypy", specifier = ">=1.11.2" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio", specifier = ">=0.23.8" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
-    { name = "ruff", specifier = ">=0.11.3" },
-    { name = "smokeshow", specifier = ">=0.5.0" },
-    { name = "types-requests" },
-]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-gen-files" },
-    { name = "mkdocs-jupyter" },
-    { name = "mkdocs-material" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.28.1" },
-]
-
-[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -617,6 +522,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ae/ed/aefcc8cd0ba62a0560c3c18c33925362d46c6075480bfa4df87b28e169a9/docutils-0.21.2.tar.gz", hash = "sha256:3a6b18732edf182daa3cd12775bbb338cf5691468f91eeeb109deff6ebfa986f", size = 2204444 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/d7/9322c609343d929e75e7e5e6255e614fcc67572cfd083959cdef3b7aad79/docutils-0.21.2-py3-none-any.whl", hash = "sha256:dafca5b9e384f0e419294eb4d2ff9fa826435bf15f15b7bd45723e8ad76811b2", size = 587408 },
+]
+
+[[package]]
+name = "dynaconf"
+version = "3.2.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/eb/e9d1249ff56b11e63fd8c7d0fcc1f94704e21693c16862bf0ebfb07bd61a/dynaconf-3.2.11.tar.gz", hash = "sha256:4cfc6a730c533bf1a1d0bf266ae202133a22236bb3227d23eff4b8542d4034a5", size = 234694 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/64/580c74003a356c5662e7b1da43ecd7cbda6e8f970c87b30c5a654c8ccb53/dynaconf-3.2.11-py2.py3-none-any.whl", hash = "sha256:660de90879d4da236f79195692a7d197957224d7acf922bcc6899187dc7b4a27", size = 236536 },
 ]
 
 [[package]]
@@ -1850,6 +1764,103 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/02/2e/58d83848dd1a79cb92ed8e63f6ba901ca282c5f09d04af9423ec26c56fd7/openapi_pydantic-0.5.1.tar.gz", hash = "sha256:ff6835af6bde7a459fb93eb93bb92b8749b754fc6e51b2f1590a19dc3005ee0d", size = 60892 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/cf/03675d8bd8ecbf4445504d8071adab19f5f993676795708e36402ab38263/openapi_pydantic-0.5.1-py3-none-any.whl", hash = "sha256:a3a09ef4586f5bd760a8df7f43028b60cafb6d9f61de2acba9574766255ab146", size = 96381 },
+]
+
+[[package]]
+name = "orcheo"
+version = "0.0.1"
+source = { editable = "." }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "dynaconf" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "feedparser" },
+    { name = "langchain" },
+    { name = "langchain-community" },
+    { name = "langchain-mcp-adapters" },
+    { name = "langchain-openai" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "langgraph-checkpoint-sqlite" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "pymongo" },
+    { name = "python-dotenv" },
+    { name = "python-telegram-bot" },
+    { name = "selenium" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "bump2version" },
+    { name = "diff-cover" },
+    { name = "isort" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "smokeshow" },
+    { name = "types-requests" },
+]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-gen-files" },
+    { name = "mkdocs-jupyter" },
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings", extra = ["python"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.21.0" },
+    { name = "dynaconf", specifier = ">=3.2.4" },
+    { name = "fastapi", specifier = ">=0.104.0" },
+    { name = "fastmcp", specifier = ">=2.10.5" },
+    { name = "feedparser", specifier = ">=6.0.11" },
+    { name = "langchain", specifier = ">=0.1.0" },
+    { name = "langchain-community", specifier = ">=0.0.10" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.1" },
+    { name = "langchain-openai", specifier = ">=0.0.5" },
+    { name = "langgraph", specifier = ">=0.0.10" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.21" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.7" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.12.0" },
+    { name = "openai", specifier = ">=1.0.0" },
+    { name = "pydantic", specifier = ">=2.4.2" },
+    { name = "pymongo", specifier = ">=4.13.2" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "python-telegram-bot", specifier = ">=22.0" },
+    { name = "selenium", specifier = ">=4.32.0" },
+    { name = "uvicorn", specifier = ">=0.24.0" },
+    { name = "websockets", specifier = ">=12.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bump2version" },
+    { name = "diff-cover", specifier = ">=9.2.4" },
+    { name = "isort" },
+    { name = "mypy", specifier = ">=1.11.2" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio", specifier = ">=0.23.8" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "ruff", specifier = ">=0.11.3" },
+    { name = "smokeshow", specifier = ">=0.5.0" },
+    { name = "types-requests" },
+]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-gen-files" },
+    { name = "mkdocs-jupyter" },
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.28.1" },
 ]
 
 [[package]]
