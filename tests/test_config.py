@@ -1,7 +1,6 @@
 """Tests for configuration helpers."""
 
 import pytest
-
 from orcheo import config
 
 
@@ -50,4 +49,3 @@ def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_SQLITE_PATH", "updated.db")
     refreshed = config.get_settings(refresh=True)
     assert refreshed.persistence.sqlite_path == "updated.db"
-

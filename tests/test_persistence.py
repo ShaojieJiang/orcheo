@@ -1,10 +1,9 @@
 """Tests for the persistence helper utilities."""
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-
-from orcheo.config import Settings
+from orcheo.config import CheckpointBackend, PersistenceSettings, Settings
 from orcheo.persistence import create_checkpointer
 
 
@@ -60,3 +59,20 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     fake_pool.connection.assert_called_once()
     fake_conn_cm.__aenter__.assert_awaited_once()
     fake_pool.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_checkpointer_invalid_backend() -> None:
+    """An unsupported backend should raise an error."""
+
+    bad_settings = Settings(
+        persistence=PersistenceSettings(
+            backend=cast(CheckpointBackend, "invalid"),
+            sqlite_path="irrelevant",
+            postgres_dsn=None,
+        )
+    )
+
+    with pytest.raises(ValueError):
+        async with create_checkpointer(bad_settings):
+            raise AssertionError("context should not yield")

@@ -1,32 +1,16 @@
 """Tests for main module."""
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
 from orcheo.main import execute_workflow, workflow_websocket
 
 
-class AsyncIteratorMock:
-    def __init__(self, items):
-        self.items = items
-        self.index = 0
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if self.index >= len(self.items):
-            raise StopAsyncIteration
-        item = self.items[self.index]
-        self.index += 1
-        return item
-
-
 @pytest.mark.asyncio
 async def test_execute_workflow():
     # Mock dependencies
     mock_websocket = AsyncMock(spec=WebSocket)
-    mock_conn = AsyncMock()
     mock_graph = MagicMock()
 
     # Test data
@@ -49,17 +33,23 @@ async def test_execute_workflow():
     mock_compiled_graph.astream = mock_astream
     mock_graph.compile.return_value = mock_compiled_graph
 
-    # Mock context managers
-    mock_conn.__aenter__.return_value = mock_conn
-    mock_conn.__aexit__.return_value = None
+    mock_checkpointer = object()
+
+    @asynccontextmanager
+    async def fake_checkpointer(_settings):
+        yield mock_checkpointer
 
     with (
-        patch("aiosqlite.connect", return_value=mock_conn),
+        patch("orcheo.main.create_checkpointer", fake_checkpointer),
         patch("orcheo.main.build_graph", return_value=mock_graph),
     ):
         await execute_workflow(
             workflow_id, graph_config, inputs, execution_id, mock_websocket
         )
+
+    mock_graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)
+    mock_websocket.send_json.assert_any_call(steps[0])
+    mock_websocket.send_json.assert_any_call(steps[1])
 
 
 @pytest.mark.asyncio
