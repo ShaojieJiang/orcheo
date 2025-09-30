@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from orcheo.config import Settings
+from dynaconf import Dynaconf
+from orcheo.config import CheckpointBackend
 
 
 AsyncPostgresSaver: Any | None
@@ -24,19 +25,19 @@ except Exception:  # pragma: no cover - fallback when dependency missing
 
 
 @asynccontextmanager
-async def create_checkpointer(settings: Settings) -> AsyncIterator[Any]:
+async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
     """Create a LangGraph checkpointer based on the configured backend."""
-    persistence = settings.persistence
+    backend = cast(CheckpointBackend, settings.checkpoint_backend)
 
-    if persistence.backend == "sqlite":
-        conn = await aiosqlite.connect(persistence.sqlite_path)
+    if backend == "sqlite":
+        conn = await aiosqlite.connect(str(settings.sqlite_path))
         try:
             yield AsyncSqliteSaver(conn)
         finally:
             await conn.close()
         return
 
-    if persistence.backend == "postgres":
+    if backend == "postgres":
         if (
             AsyncPostgresSaver is None or AsyncConnectionPool is None
         ):  # pragma: no cover
@@ -45,7 +46,7 @@ async def create_checkpointer(settings: Settings) -> AsyncIterator[Any]:
             )
             raise RuntimeError(msg)
 
-        dsn = persistence.postgres_dsn
+        dsn = settings.postgres_dsn
         if dsn is None:  # pragma: no cover - defensive, validated earlier
             msg = "Postgres backend requires ORCHEO_POSTGRES_DSN to be set."
             raise RuntimeError(msg)

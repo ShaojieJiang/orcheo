@@ -3,7 +3,8 @@
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 import pytest
-from orcheo.config import CheckpointBackend, PersistenceSettings, Settings
+from dynaconf import Dynaconf
+from orcheo import config
 from orcheo.persistence import create_checkpointer
 
 
@@ -21,7 +22,7 @@ async def test_create_checkpointer_sqlite(monkeypatch: pytest.MonkeyPatch) -> No
     saver_mock = MagicMock(side_effect=lambda conn: ("sqlite_saver", conn))
     monkeypatch.setattr("orcheo.persistence.AsyncSqliteSaver", saver_mock)
 
-    settings = Settings.from_env()
+    settings = config.get_settings(refresh=True)
 
     async with create_checkpointer(settings) as checkpointer:
         assert checkpointer == ("sqlite_saver", fake_conn)
@@ -37,7 +38,7 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
 
-    settings = Settings.from_env()
+    settings = config.get_settings(refresh=True)
 
     fake_pool = MagicMock()
     fake_conn_cm = AsyncMock()
@@ -65,13 +66,10 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_create_checkpointer_invalid_backend() -> None:
     """An unsupported backend should raise an error."""
 
-    bad_settings = Settings(
-        persistence=PersistenceSettings(
-            backend=cast(CheckpointBackend, "invalid"),
-            sqlite_path="irrelevant",
-            postgres_dsn=None,
-        )
-    )
+    bad_settings = Dynaconf(envvar_prefix="ORCHEO", environments=False, load_dotenv=False, settings_files=[])
+    bad_settings.set("CHECKPOINT_BACKEND", cast(str, "invalid"))
+    bad_settings.set("SQLITE_PATH", "irrelevant")
+    bad_settings.set("POSTGRES_DSN", None)
 
     with pytest.raises(ValueError):
         async with create_checkpointer(bad_settings):

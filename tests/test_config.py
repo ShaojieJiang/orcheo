@@ -12,14 +12,10 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
     monkeypatch.delenv("ORCHEO_PORT", raising=False)
 
-    # Clear dynaconf cache to ensure clean state
-    config.settings_loader.reload()
-    config._load_settings.cache_clear()
+    settings = config.get_settings(refresh=True)
 
-    settings = config.Settings.from_env()
-
-    assert settings.persistence.backend == "sqlite"
-    assert settings.persistence.sqlite_path == "checkpoints.sqlite"
+    assert settings.checkpoint_backend == "sqlite"
+    assert settings.sqlite_path == "checkpoints.sqlite"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
 
@@ -28,10 +24,9 @@ def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid persistence backend values raise a helpful error."""
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "invalid")
-    config.settings_loader.reload()
 
     with pytest.raises(ValueError):
-        config.Settings.from_env()
+        config.get_settings(refresh=True)
 
 
 def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,10 +34,9 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
-    config.settings_loader.reload()
 
     with pytest.raises(ValueError):
-        config.Settings.from_env()
+        config.get_settings(refresh=True)
 
 
 def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,8 +44,8 @@ def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("ORCHEO_SQLITE_PATH", "initial.db")
     settings = config.get_settings(refresh=True)
-    assert settings.persistence.sqlite_path == "initial.db"
+    assert settings.sqlite_path == "initial.db"
 
     monkeypatch.setenv("ORCHEO_SQLITE_PATH", "updated.db")
     refreshed = config.get_settings(refresh=True)
-    assert refreshed.persistence.sqlite_path == "updated.db"
+    assert refreshed.sqlite_path == "updated.db"

@@ -1,81 +1,93 @@
 """Runtime configuration helpers for Orcheo."""
 
 from __future__ import annotations
-from dataclasses import dataclass
+
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, cast
 
 from dynaconf import Dynaconf
 
 
 CheckpointBackend = Literal["sqlite", "postgres"]
 
+_DEFAULTS: dict[str, object] = {
+    "CHECKPOINT_BACKEND": "sqlite",
+    "SQLITE_PATH": "checkpoints.sqlite",
+    "POSTGRES_DSN": None,
+    "HOST": "0.0.0.0",
+    "PORT": 8000,
+}
+
+
+def _build_loader() -> Dynaconf:
+    """Create a Dynaconf loader wired to environment variables only."""
+
+    return Dynaconf(
+        envvar_prefix="ORCHEO",
+        settings_files=[],  # No config files, env vars only
+        load_dotenv=True,
+        environments=False,
+    )
+
+
 # Initialize Dynaconf with environment variable prefix
-settings_loader = Dynaconf(
-    envvar_prefix="ORCHEO",
-    settings_files=[],  # No config files, env vars only
-    load_dotenv=True,
-    environments=False,
-)
+settings_loader = _build_loader()
 
 
-@dataclass(frozen=True, slots=True)
-class PersistenceSettings:
-    """Settings that describe how workflow checkpoints are stored."""
+def _normalize_settings(source: Dynaconf) -> Dynaconf:
+    """Validate and fill defaults on the raw Dynaconf settings."""
 
-    backend: CheckpointBackend = "sqlite"
-    sqlite_path: str = "checkpoints.sqlite"
-    postgres_dsn: str | None = None
+    backend_raw = source.get("CHECKPOINT_BACKEND", _DEFAULTS["CHECKPOINT_BACKEND"])
+    backend = str(backend_raw or _DEFAULTS["CHECKPOINT_BACKEND"]).lower()
+    if backend not in {"sqlite", "postgres"}:
+        msg = "ORCHEO_CHECKPOINT_BACKEND must be either 'sqlite' or 'postgres'."
+        raise ValueError(msg)
 
-    @classmethod
-    def from_env(cls) -> PersistenceSettings:
-        """Build persistence settings using environment variables."""
-        backend = settings_loader.get("CHECKPOINT_BACKEND", "sqlite").lower()
-        if backend not in {"sqlite", "postgres"}:
-            msg = "ORCHEO_CHECKPOINT_BACKEND must be either 'sqlite' or 'postgres'."
-            raise ValueError(msg)
+    normalized = Dynaconf(
+        envvar_prefix="ORCHEO",
+        settings_files=[],
+        load_dotenv=False,
+        environments=False,
+    )
+    normalized.set("CHECKPOINT_BACKEND", cast(CheckpointBackend, backend))
 
-        sqlite_path = settings_loader.get("SQLITE_PATH", "checkpoints.sqlite")
-        postgres_dsn = settings_loader.get("POSTGRES_DSN")
+    sqlite_path = source.get("SQLITE_PATH") or _DEFAULTS["SQLITE_PATH"]
+    normalized.set("SQLITE_PATH", str(sqlite_path))
 
-        if backend == "postgres" and not postgres_dsn:
+    host = source.get("HOST") or _DEFAULTS["HOST"]
+    normalized.set("HOST", str(host))
+
+    port_raw = source.get("PORT", _DEFAULTS["PORT"])
+    try:
+        port = int(port_raw)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        raise ValueError("ORCHEO_PORT must be an integer.") from exc
+    normalized.set("PORT", port)
+
+    if backend == "postgres":
+        dsn = source.get("POSTGRES_DSN")
+        if not dsn:
             msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
             raise ValueError(msg)
+        normalized.set("POSTGRES_DSN", str(dsn))
+    else:
+        normalized.set("POSTGRES_DSN", None)
 
-        return cls(
-            backend=backend,  # type: ignore[arg-type]
-            sqlite_path=sqlite_path,
-            postgres_dsn=postgres_dsn,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Settings:
-    """Aggregated application settings."""
-
-    persistence: PersistenceSettings
-    host: str = "0.0.0.0"
-    port: int = 8000
-
-    @classmethod
-    def from_env(cls) -> Settings:
-        """Build settings by reading from the environment."""
-        persistence = PersistenceSettings.from_env()
-        host = settings_loader.get("HOST", "0.0.0.0")
-        port = settings_loader.get("PORT", 8000)
-
-        return cls(persistence=persistence, host=host, port=port)
+    return normalized
 
 
 @lru_cache(maxsize=1)
-def _load_settings() -> Settings:
-    """Load settings once and cache the result."""
-    return Settings.from_env()
+def _load_settings() -> Dynaconf:
+    """Load settings once and cache the normalized Dynaconf instance."""
+
+    return _normalize_settings(settings_loader)
 
 
-def get_settings(*, refresh: bool = False) -> Settings:
-    """Return the cached settings, reloading them if requested."""
+def get_settings(*, refresh: bool = False) -> Dynaconf:
+    """Return the cached Dynaconf settings, reloading them if requested."""
+
     if refresh:
-        settings_loader.reload()
+        global settings_loader
+        settings_loader = _build_loader()
         _load_settings.cache_clear()
     return _load_settings()
