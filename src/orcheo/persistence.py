@@ -54,7 +54,7 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
         pool = AsyncConnectionPool(dsn)
         await pool.open()
         try:
-            async with pool.connection() as conn:  # type: ignore[attr-defined] - psycopg_pool connection type not recognized
+            async with pool.connection() as conn:  # type: ignore[attr-defined]
                 yield AsyncPostgresSaver(cast(Any, conn))
         finally:
             await pool.close()

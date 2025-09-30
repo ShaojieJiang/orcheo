@@ -41,6 +41,7 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     settings = config.get_settings(refresh=True)
 
     fake_pool = MagicMock()
+    fake_pool.open = AsyncMock()
     fake_conn_cm = AsyncMock()
     fake_conn_cm.__aenter__.return_value = "pg_connection"
     fake_conn_cm.__aexit__.return_value = None
@@ -59,6 +60,7 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
 
     fake_pool.connection.assert_called_once()
     fake_conn_cm.__aenter__.assert_awaited_once()
+    fake_pool.open.assert_awaited_once()
     fake_pool.close.assert_awaited_once()
 
 

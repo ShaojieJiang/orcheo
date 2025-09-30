@@ -1,6 +1,7 @@
 """Tests for configuration helpers."""
 
 import pytest
+from dynaconf import Dynaconf
 from orcheo import config
 
 
@@ -37,6 +38,17 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError):
         config.get_settings(refresh=True)
+
+
+def test_normalize_backend_none() -> None:
+    """Explicit `None` backend values should fall back to defaults."""
+
+    source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("CHECKPOINT_BACKEND", None)
+
+    normalized = config._normalize_settings(source)
+
+    assert normalized.checkpoint_backend == "sqlite"
 
 
 def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
