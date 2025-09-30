@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, cast
 import aiosqlite
 from dynaconf import Dynaconf
@@ -30,7 +31,10 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
     backend = cast(CheckpointBackend, settings.checkpoint_backend)
 
     if backend == "sqlite":
-        conn = await aiosqlite.connect(str(settings.sqlite_path))
+        sqlite_path = Path(str(settings.sqlite_path)).expanduser()
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+
+        conn = await aiosqlite.connect(str(sqlite_path))
         try:
             yield AsyncSqliteSaver(conn)
         finally:
