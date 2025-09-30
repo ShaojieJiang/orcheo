@@ -1,4 +1,4 @@
-.PHONY: dev-backend test lint format
+.PHONY: dev-server test lint format
 
 lint:
 	ruff check src/orcheo
@@ -18,5 +18,5 @@ test:
 doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080
 
-dev-backend:
+dev-server:
 	uvicorn orcheo.main:app --reload --port 8000

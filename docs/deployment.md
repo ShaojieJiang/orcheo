@@ -16,7 +16,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```
 3. **Start the API server**
    ```bash
-   make dev-backend
+   make dev-server
    ```
 4. **Run an example workflow**
    - Send a websocket message to `ws://localhost:8000/ws/workflow/<workflow_id>` with a payload matching the schema in `tests/test_main.py`.

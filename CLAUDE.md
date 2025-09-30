@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `pytest --cov --cov-report term-missing tests/` - Run tests with detailed coverage
 
 ### Development Server
-- `make dev-backend` - Start development server with hot reload on port 8000
+- `make dev-server` - Start development server with hot reload on port 8000
 - `make doc` - Serve documentation locally on port 8080
 
 ### Package Management

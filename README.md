@@ -26,7 +26,7 @@ SQLite for local development.
 3. **Run the API server**
 
    ```bash
-   make dev-backend
+   make dev-server
    ```
 
 4. **Verify the setup**
