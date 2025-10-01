@@ -51,7 +51,7 @@ that will power both the code-first SDK and the future canvas experience.
 
 - Document deployment recipes for Docker Compose and cloud hosting.
 - Extend configuration helpers to cover credential vault settings when that system
-  lands later in Milestone 1.
+  lands later in Milestone 1. **(Completed via Dynaconf vault configuration update.)**
 - Wire Postgres-backed persistence into CI to validate connection pooling under
   load tests once available infrastructure is provisioned.
 

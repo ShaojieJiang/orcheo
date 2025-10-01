@@ -23,6 +23,8 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 
 **Verification**: Run `uv run pytest` to validate the environment. The test suite opens an SQLite connection through the same helper used by the server.
 
+_Vault note_: The default `.env.example` keeps credentials in an in-memory vault suitable for quick iteration. Switch `ORCHEO_VAULT_BACKEND` to `file` when you want encrypted secrets to persist between restarts.
+
 ## Docker Compose (SQLite, multi-container)
 
 Use this recipe when you want an isolated environment that mimics production without provisioning a database. It pairs the FastAPI app with a volume-mounted SQLite database.
@@ -38,6 +40,10 @@ Use this recipe when you want an isolated environment that mimics production wit
          ORCHEO_PORT: "8000"
          ORCHEO_CHECKPOINT_BACKEND: sqlite
          ORCHEO_SQLITE_PATH: /data/orcheo.sqlite3
+         ORCHEO_VAULT_BACKEND: file
+         ORCHEO_VAULT_ENCRYPTION_KEY: change-me
+         ORCHEO_VAULT_LOCAL_PATH: /data/vault.sqlite
+         ORCHEO_VAULT_TOKEN_TTL_SECONDS: "3600"
        ports:
          - "8000:8000"
        volumes:
@@ -54,6 +60,8 @@ Use this recipe when you want an isolated environment that mimics production wit
 
 **Verification**: `docker compose exec orcheo uv run pytest tests/test_main.py` confirms the container is healthy.
 
+_Vault note_: The compose example writes encrypted secrets to `/data/vault.sqlite`. Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the volume alongside the checkpoint database.
+
 ## Managed Hosting (PostgreSQL, async pool)
 
 This deployment targets platforms such as Fly.io, Railway, or Kubernetes where Postgres is available as a managed service.
@@ -67,6 +75,11 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
    export ORCHEO_HOST=0.0.0.0
    export ORCHEO_PORT=8000
+   export ORCHEO_VAULT_BACKEND=aws_kms
+   export ORCHEO_VAULT_ENCRYPTION_KEY=alias/orcheo-runtime
+   export ORCHEO_VAULT_AWS_REGION=us-west-2
+   export ORCHEO_VAULT_AWS_KMS_KEY_ID=1234abcd-12ab-34cd-56ef-1234567890ab
+   export ORCHEO_VAULT_TOKEN_TTL_SECONDS=900
    ```
 3. **Run database migrations (if any)**
    - Check in migration scripts under `deploy/migrations` (placeholder today).
@@ -86,9 +99,11 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
 
 **Verification**: Run `uv run pytest tests/test_persistence.py` locally with the `ORCHEO_CHECKPOINT_BACKEND=postgres` environment variable set and a reachable Postgres DSN to mirror production behavior.
 
+_Vault note_: Managed environments should prefer KMS-integrated vaults. Configure IAM policies so only the Orcheo runtime can decrypt with the specified key.
+
 ## Operational Tips
 
-- **Secrets**: Prefer platform-specific secret managers (Fly Secrets, Railway variables, AWS Parameter Store) and never bake DSNs into images.
+- **Secrets**: Prefer platform-specific secret managers (Fly Secrets, Railway variables, AWS Parameter Store) and never bake DSNs or vault encryption keys into images.
 - **Observability**: Route application logs to structured logging (e.g., stdout + centralized collector) and enable tracing once Milestone 6 instrumentation lands.
 - **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database.
 - **Backups**: Schedule database backups (pg_dump or managed snapshots) to protect workflow history and run states.
