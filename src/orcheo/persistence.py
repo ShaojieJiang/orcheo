@@ -14,15 +14,18 @@ from orcheo.config import CheckpointBackend
 
 AsyncPostgresSaver: Any | None
 AsyncConnectionPool: Any | None
+DictRowFactory: Any | None
 
 try:  # pragma: no cover - optional dependency
     AsyncPostgresSaver = importlib.import_module(
         "langgraph.checkpoint.postgres.aio"
     ).AsyncPostgresSaver
     AsyncConnectionPool = importlib.import_module("psycopg_pool").AsyncConnectionPool
+    DictRowFactory = importlib.import_module("psycopg.rows").dict_row
 except Exception:  # pragma: no cover - fallback when dependency missing
     AsyncPostgresSaver = None
     AsyncConnectionPool = None
+    DictRowFactory = None
 
 
 @asynccontextmanager
@@ -43,7 +46,9 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
 
     if backend == "postgres":
         if (
-            AsyncPostgresSaver is None or AsyncConnectionPool is None
+            AsyncPostgresSaver is None
+            or AsyncConnectionPool is None
+            or DictRowFactory is None
         ):  # pragma: no cover
             msg = (
                 "Postgres backend requires psycopg_pool and langgraph postgres extras."
@@ -55,7 +60,15 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
             msg = "Postgres backend requires ORCHEO_POSTGRES_DSN to be set."
             raise RuntimeError(msg)
 
-        pool = AsyncConnectionPool(dsn)
+        pool = AsyncConnectionPool(
+            dsn,
+            open=False,
+            kwargs={
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "row_factory": DictRowFactory,
+            },
+        )
         await pool.open()
         try:
             async with pool.connection() as conn:  # type: ignore[attr-defined]
