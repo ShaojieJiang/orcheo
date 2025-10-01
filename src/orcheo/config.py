@@ -7,7 +7,10 @@ from dynaconf import Dynaconf
 
 
 CheckpointBackend = Literal["sqlite", "postgres"]
+"""Supported checkpoint storage backend types."""
+
 VaultBackend = Literal["inmemory", "file", "aws_kms"]
+"""Supported credential vault backend types."""
 
 _DEFAULTS: dict[str, object] = {
     "CHECKPOINT_BACKEND": "sqlite",
