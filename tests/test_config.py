@@ -8,6 +8,16 @@ from orcheo import config
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default settings fall back to SQLite and localhost server."""
 
+    def _build_loader_without_dotenv() -> Dynaconf:
+        return Dynaconf(
+            envvar_prefix="ORCHEO",
+            settings_files=[],
+            load_dotenv=False,
+            environments=False,
+        )
+
+    monkeypatch.setattr(config, "_build_loader", _build_loader_without_dotenv)
+
     monkeypatch.delenv("ORCHEO_CHECKPOINT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_SQLITE_PATH", raising=False)
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
@@ -141,3 +151,23 @@ def test_vault_token_ttl_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_VAULT_TOKEN_TTL_SECONDS", "900")
     settings = config.get_settings(refresh=True)
     assert settings.vault_token_ttl_seconds == 900
+
+
+def test_numeric_fields_accept_str_coercible_objects() -> None:
+    """Port and vault TTL should coerce objects that stringify to integers."""
+
+    class Intish:
+        def __init__(self, value: int) -> None:
+            self._value = value
+
+        def __str__(self) -> str:
+            return str(self._value)
+
+    source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("PORT", Intish(4711))
+    source.set("VAULT_TOKEN_TTL_SECONDS", Intish(1234))
+
+    normalized = config._normalize_settings(source)
+
+    assert normalized.port == 4711
+    assert normalized.vault_token_ttl_seconds == 1234

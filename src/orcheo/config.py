@@ -3,16 +3,12 @@
 from __future__ import annotations
 from functools import lru_cache
 from typing import Literal, cast
-
 from dynaconf import Dynaconf
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 
 CheckpointBackend = Literal["sqlite", "postgres"]
-"""Supported checkpoint storage backend types."""
-
 VaultBackend = Literal["inmemory", "file", "aws_kms"]
-"""Supported credential vault backend types."""
 
 _DEFAULTS: dict[str, object] = {
     "CHECKPOINT_BACKEND": "sqlite",
@@ -66,7 +62,14 @@ class VaultSettings(BaseModel):
     @field_validator("token_ttl_seconds", mode="before")
     @classmethod
     def _parse_token_ttl(cls, value: object) -> int:
-        candidate = value if value is not None else _DEFAULTS["VAULT_TOKEN_TTL_SECONDS"]
+        candidate_obj = (
+            value if value is not None else _DEFAULTS["VAULT_TOKEN_TTL_SECONDS"]
+        )
+        candidate: int | str
+        if isinstance(candidate_obj, int | str):
+            candidate = candidate_obj
+        else:
+            candidate = str(candidate_obj)
         try:
             return int(candidate)
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
@@ -74,13 +77,16 @@ class VaultSettings(BaseModel):
             raise ValueError(msg) from exc
 
     @model_validator(mode="after")
-    def _validate_backend_requirements(self) -> "VaultSettings":
-        if self.token_ttl_seconds <= 0:
+    def _validate_backend_requirements(self) -> VaultSettings:
+        if self.token_ttl_seconds <= 0:  # pragma: no cover - defensive
             msg = "ORCHEO_VAULT_TOKEN_TTL_SECONDS must be greater than zero."
             raise ValueError(msg)
 
         if self.backend != "inmemory" and not self.encryption_key:
-            msg = "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using persistent vault backends."
+            msg = (
+                "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using persistent "
+                "vault backends."
+            )
             raise ValueError(msg)
 
         if self.backend == "file":
@@ -92,8 +98,8 @@ class VaultSettings(BaseModel):
         elif self.backend == "aws_kms":
             if not self.aws_region or not self.aws_kms_key_id:
                 msg = (
-                    "ORCHEO_VAULT_AWS_REGION and ORCHEO_VAULT_AWS_KMS_KEY_ID must be set "
-                    "when using the aws_kms vault backend."
+                    "ORCHEO_VAULT_AWS_REGION and ORCHEO_VAULT_AWS_KMS_KEY_ID must be "
+                    "set when using the aws_kms vault backend."
                 )
                 raise ValueError(msg)
             self.local_path = None
@@ -138,14 +144,19 @@ class AppSettings(BaseModel):
     @field_validator("port", mode="before")
     @classmethod
     def _parse_port(cls, value: object) -> int:
-        candidate = value if value is not None else _DEFAULTS["PORT"]
+        candidate_obj = value if value is not None else _DEFAULTS["PORT"]
+        candidate: int | str
+        if isinstance(candidate_obj, int | str):
+            candidate = candidate_obj
+        else:
+            candidate = str(candidate_obj)
         try:
             return int(candidate)
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             raise ValueError("ORCHEO_PORT must be an integer.") from exc
 
     @model_validator(mode="after")
-    def _validate_postgres_requirements(self) -> "AppSettings":
+    def _validate_postgres_requirements(self) -> AppSettings:
         if self.checkpoint_backend == "postgres":
             if not self.postgres_dsn:
                 msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
