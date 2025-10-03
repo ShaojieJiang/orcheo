@@ -15,7 +15,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Finalize LangGraph-centric architecture decisions, persistence layer, and hosting model supporting both canvas and SDK. See [Milestone 1 Task 1](./milestone1_task1.md) for the detailed outcomes.
   - [x] Capture deployment recipes for local and hosted environments ([deployment guide](./deployment.md)).
   - [x] Extend configuration to cover vault-managed credential settings.
-  - [ ] Wire Postgres persistence checks into CI once infrastructure is ready.
+  - [x] Wire Postgres persistence checks into CI once infrastructure is ready.
 - [ ] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
 - [ ] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
 - [ ] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.

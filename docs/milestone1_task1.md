@@ -53,5 +53,6 @@ that will power both the code-first SDK and the future canvas experience.
 - Extend configuration helpers to cover credential vault settings when that system
   lands later in Milestone 1. **(Completed via Dynaconf vault configuration update.)**
 - Wire Postgres-backed persistence into CI to validate connection pooling under
-  load tests once available infrastructure is provisioned.
+  load tests once available infrastructure is provisioned. **(Completed via
+  GitHub Actions Postgres integration test job.)**
 
