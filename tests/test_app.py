@@ -1,10 +1,10 @@
-"""Tests for main module."""
+"""Tests for the FastAPI backend module."""
 
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
-from orcheo.main import execute_workflow, workflow_websocket
+from orcheo_backend.app import execute_workflow, workflow_websocket
 
 
 @pytest.mark.asyncio
@@ -40,8 +40,8 @@ async def test_execute_workflow():
         yield mock_checkpointer
 
     with (
-        patch("orcheo.main.create_checkpointer", fake_checkpointer),
-        patch("orcheo.main.build_graph", return_value=mock_graph),
+        patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.build_graph", return_value=mock_graph),
     ):
         await execute_workflow(
             workflow_id, graph_config, inputs, execution_id, mock_websocket
@@ -64,7 +64,7 @@ async def test_workflow_websocket():
     }
 
     # Mock execute_workflow
-    with patch("orcheo.main.execute_workflow") as mock_execute:
+    with patch("orcheo_backend.app.execute_workflow") as mock_execute:
         mock_execute.return_value = None
         await workflow_websocket(mock_websocket, "test-workflow")
 

@@ -1,15 +1,18 @@
 """Backend entrypoint package for the Orcheo FastAPI service."""
 
 from fastapi import FastAPI
-from orcheo.main import app as core_app
+from .app import app, create_app, execute_workflow, workflow_websocket
 
 
-__all__ = ["app", "create_app"]
+__all__ = [
+    "app",
+    "create_app",
+    "execute_workflow",
+    "workflow_websocket",
+    "get_app",
+]
 
 
-def create_app() -> FastAPI:
+def get_app() -> FastAPI:
     """Return the FastAPI application instance for deployment entrypoints."""
-    return core_app
-
-
-app: FastAPI = create_app()
+    return app

@@ -5,6 +5,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND_SRC = ROOT / "apps" / "backend" / "src"
 SDK_SRC = ROOT / "packages" / "sdk" / "src"
-if str(SDK_SRC) not in sys.path:
-    sys.path.insert(0, str(SDK_SRC))
+
+for path in (BACKEND_SRC, SDK_SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
