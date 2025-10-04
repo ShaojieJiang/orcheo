@@ -2,6 +2,9 @@
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
+[tool.uv.workspace]
+members = ["apps/backend", "packages/sdk"]
+
 [dependency-groups]
 dev = [
   "bump2version",
@@ -66,7 +69,7 @@ exclude_lines = [
 [tool.coverage.run]
 branch = true
 command_line = "-m pytest"
-source = ["orcheo", "orcheo_sdk"]
+source = ["orcheo", "orcheo_sdk", "orcheo_backend"]
 
 [tool.mypy]
 disallow_untyped_defs = true

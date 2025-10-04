@@ -1,7 +1,7 @@
 """Backend entrypoint package for the Orcheo FastAPI service."""
 
 from fastapi import FastAPI
-from .app import app, create_app, execute_workflow, workflow_websocket
+from orcheo_backend.app import app, create_app, execute_workflow, workflow_websocket
 
 
 __all__ = [

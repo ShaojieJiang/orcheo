@@ -1,8 +1,8 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format
 
 lint:
-	ruff check src/orcheo packages/sdk/src
-	mypy src/orcheo packages/sdk/src --install-types --non-interactive
+	ruff check src/orcheo packages/sdk/src apps/backend/src
+	mypy src/orcheo packages/sdk/src apps/backend/src --install-types --non-interactive
 	ruff format . --check
 
 canvas-lint:
