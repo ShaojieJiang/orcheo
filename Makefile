@@ -23,4 +23,4 @@ doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080
 
 dev-server:
-	uvicorn orcheo_backend.app:app --reload --port 8000
+	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
