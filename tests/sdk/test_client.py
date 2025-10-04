@@ -1,7 +1,6 @@
 """Tests for the lightweight Orcheo Python SDK."""
 
 import pytest
-
 from orcheo_sdk import OrcheoClient
 
 
@@ -33,9 +32,24 @@ def test_websocket_url_from_https() -> None:
     assert client.websocket_url("wf") == "wss://example.com/ws/workflow/wf"
 
 
+def test_websocket_url_requires_identifier(client: OrcheoClient) -> None:
+    with pytest.raises(ValueError):
+        client.websocket_url("   ")
+
+
+def test_websocket_url_from_no_protocol() -> None:
+    client = OrcheoClient(base_url="example.com")
+    assert client.websocket_url("wf") == "ws://example.com/ws/workflow/wf"
+
+
 def test_prepare_headers_merges_defaults(client: OrcheoClient) -> None:
     merged = client.prepare_headers({"Authorization": "Bearer token"})
     assert merged == {"X-Test": "1", "Authorization": "Bearer token"}
+
+
+def test_prepare_headers_without_overrides(client: OrcheoClient) -> None:
+    merged = client.prepare_headers()
+    assert merged == {"X-Test": "1"}
 
 
 def test_build_payload_supports_optional_execution_id(client: OrcheoClient) -> None:
