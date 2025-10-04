@@ -5,7 +5,7 @@ from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from dynaconf import Dynaconf
-from orcheo import config
+from orcheo import config, persistence
 from orcheo.persistence import create_checkpointer
 
 
@@ -83,6 +83,8 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(
         "orcheo.persistence.AsyncConnectionPool", MagicMock(return_value=fake_pool)
     )
+    if persistence.DictRowFactory is None:
+        monkeypatch.setattr("orcheo.persistence.DictRowFactory", MagicMock())
 
     saver_mock = MagicMock(side_effect=lambda conn: ("pg_saver", conn))
     monkeypatch.setattr("orcheo.persistence.AsyncPostgresSaver", saver_mock)

@@ -1,16 +1,20 @@
-.PHONY: dev-server test lint format
+.PHONY: dev-server test lint format canvas-lint canvas-format
 
 lint:
-	ruff check src/orcheo
-	mypy src/orcheo
+	ruff check src/orcheo packages/sdk/src apps/backend/src
+	mypy src/orcheo packages/sdk/src apps/backend/src --install-types --non-interactive
 	ruff format . --check
-	# npx eslint --fix "src/frontend/**/*.{js,jsx,ts,tsx}" --rule "import/order: error" --rule "unused-imports/no-unused-imports: error"
+
+canvas-lint:
+	npm --prefix apps/canvas run lint
+
+canvas-format:
+	npx --prefix apps/canvas prettier "src/**/*.{ts,tsx,js,jsx,css,md}" --write
 
 format:
 	ruff format .
 	ruff check . --select I001 --fix
 	ruff check . --select F401 --fix
-	# npx prettier --write "src/frontend/**/*.{js,jsx,ts,tsx,css,json}"
 
 test:
 	pytest --cov --cov-report term-missing tests/
@@ -19,4 +23,4 @@ doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080
 
 dev-server:
-	uvicorn orcheo.main:app --reload --port 8000
+	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
