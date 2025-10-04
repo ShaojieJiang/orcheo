@@ -18,7 +18,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
   - [x] Wire Postgres persistence checks into CI once infrastructure is ready.
 - [x] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
 - [x] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
-- [ ] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
+- [x] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
 - [ ] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts.
 - [ ] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
 

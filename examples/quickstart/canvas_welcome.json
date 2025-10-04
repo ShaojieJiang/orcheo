@@ -1,0 +1,17 @@
+{
+  "name": "Welcome Bot",
+  "description": "Visual path example that greets a new teammate via PythonCode.",
+  "nodes": [
+    {"name": "START", "type": "START"},
+    {
+      "name": "greet_user",
+      "type": "PythonCode",
+      "code": "return {'message': f\"Welcome {state['name']} to Orcheo!\"}"
+    },
+    {"name": "END", "type": "END"}
+  ],
+  "edges": [["START", "greet_user"], ["greet_user", "END"]],
+  "inputs": {
+    "name": "Ada"
+  }
+}
