@@ -13,6 +13,6 @@ __all__ = [
 ]
 
 
-def get_app() -> FastAPI:
+def get_app() -> FastAPI:  # pragma: no cover
     """Return the FastAPI application instance for deployment entrypoints."""
     return app

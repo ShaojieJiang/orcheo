@@ -2,9 +2,6 @@
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
-[tool.uv.workspace]
-members = ["apps/backend", "packages/sdk"]
-
 [dependency-groups]
 dev = [
   "bump2version",
@@ -123,3 +120,6 @@ max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.uv.workspace]
+members = ["apps/backend", "packages/sdk", "."]

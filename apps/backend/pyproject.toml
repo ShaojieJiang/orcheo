@@ -25,3 +25,6 @@ dev = [
 
 [project.scripts]
 orcheo-backend = "orcheo_backend:create_app"
+
+[tool.uv.sources]
+orcheo = {workspace = true}
