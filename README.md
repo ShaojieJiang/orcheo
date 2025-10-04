@@ -24,23 +24,29 @@ SQLite for local development.
    uv sync --all-groups
    ```
 
-2. **Configure environment variables**
+2. **Seed environment variables**
 
    ```bash
-   cp .env.example .env
+   uv run orcheo-seed-env
    ```
+
+   Pass `-- --force` to overwrite an existing `.env` file.
 
 3. **Run the API server**
 
    ```bash
-   make dev-server
+   uv run orcheo-dev-server
    ```
 
 4. **Verify the setup**
 
    ```bash
-   uv run pytest
+   uv run orcheo-test
    ```
+
+Opening the repository inside VS Code automatically offers to start the included
+dev container with uv and Node.js preinstalled. The new quickstart flows in
+`examples/quickstart/` demonstrate the visual designer and SDK user journeys.
 
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.

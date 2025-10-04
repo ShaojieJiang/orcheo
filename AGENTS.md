@@ -19,7 +19,7 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 ## Coding Style & Naming Conventions
 - Python 3.12, type hints required (mypy: `disallow_untyped_defs = true`).
 - Formatting/linting via Ruff; line length 88; Google-style docstrings.
-- Import rules: no relative imports (TID252); use absolute package paths (`from orcheo...`).
+- Import rules: no relative imports (TID252); always use absolute package paths (`from orcheo...`).
 - Naming: modules/files `snake_case.py`; classes `PascalCase`; functions/vars `snake_case`.
 - Keep functions focused; prefer small units with clear docstrings and types.
 
