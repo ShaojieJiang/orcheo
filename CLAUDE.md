@@ -64,6 +64,10 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - 100% test coverage expected
 - No relative imports allowed
 
+**CRITICAL**: After making any code changes:
+1. Run `make lint` and ensure it passes with ZERO errors or warnings
+2. Run `make test` and ensure all tests pass
+
 ## Important Notes
 - Uses async/await patterns throughout
 - State flows through nodes via decode_variables() method
