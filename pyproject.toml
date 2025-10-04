@@ -66,7 +66,7 @@ exclude_lines = [
 [tool.coverage.run]
 branch = true
 command_line = "-m pytest"
-source = ["orcheo", "orcheo_sdk"]
+source = ["orcheo", "orcheo_sdk", "orcheo_backend"]
 
 [tool.mypy]
 disallow_untyped_defs = true
@@ -108,7 +108,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["orcheo"]
+known-first-party = ["orcheo", "orcheo_backend"]
 lines-after-imports = 2
 no-lines-before = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
@@ -120,3 +120,6 @@ max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.uv.workspace]
+members = ["apps/backend", "packages/sdk", "."]
