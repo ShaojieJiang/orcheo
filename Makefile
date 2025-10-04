@@ -1,8 +1,8 @@
 .PHONY: dev-server test lint format
 
 lint:
-	ruff check src/orcheo
-	mypy src/orcheo
+	ruff check src/orcheo packages/sdk/src
+	mypy src/orcheo packages/sdk/src --install-types --non-interactive
 	ruff format . --check
 	# npx eslint --fix "src/frontend/**/*.{js,jsx,ts,tsx}" --rule "import/order: error" --rule "unused-imports/no-unused-imports: error"
 

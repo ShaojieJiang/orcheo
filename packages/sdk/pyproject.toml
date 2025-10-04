@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orcheo-sdk"
+version = "0.1.0"
+description = "Client helpers for the Orcheo workflow orchestration platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "mypy",
+    "ruff"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orcheo_sdk"]
