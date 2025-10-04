@@ -16,14 +16,17 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
   - [x] Capture deployment recipes for local and hosted environments ([deployment guide](./deployment.md)).
   - [x] Extend configuration to cover vault-managed credential settings.
   - [x] Wire Postgres persistence checks into CI once infrastructure is ready.
-- [ ] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
+- [x] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
 - [ ] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
 - [ ] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
+- [ ] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts.
+- [ ] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
 
 ### Milestone 2 – Backend Orchestration & Triggers
 - [ ] Implement Python SDK with typed node authoring, local execution parity, and deployment hooks that sync with the server.
 - [ ] Build FastAPI services for workflow CRUD, execution lifecycle, version diffing, and WebSocket streaming telemetry.
 - [ ] Deliver trigger layer covering webhook validation (verbs, filtering, rate limits), cron scheduler (timezone aware, overlap guards), manual/batch runs, and retry policies.
+- [ ] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
 - [ ] Add execution engine support for loops, branching, parallelization, run history, and replay/debug APIs.
 
 ### Milestone 3 – Credential Vault & Security

@@ -6,6 +6,13 @@
 
 Orcheo is a tool for creating and running workflows.
 
+## Repository layout
+
+- `src/orcheo/` – core orchestration engine and FastAPI implementation
+- `apps/backend/` – deployment wrapper exposing the FastAPI ASGI app
+- `packages/sdk/` – lightweight Python SDK for composing workflow requests
+- `apps/canvas/` – React + Vite scaffold for the visual workflow designer
+
 ## Quick start
 
 The project ships with everything needed to spin up the FastAPI runtime on

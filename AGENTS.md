@@ -30,6 +30,11 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 - Coverage: CI enforces 95% project coverage and 100% diff coverage. Add tests for new code and branches.
 - Run subsets: `uv run pytest tests/nodes -q`.
 
+**CRITICAL QUALITY REQUIREMENTS**:
+- `make lint` MUST pass with ZERO errors or warnings before completing any task
+- `make test` MUST pass with all tests green
+- Run both commands after ANY code modification
+
 ## Commit & Pull Request Guidelines
 - Commits: concise, imperative subject; include scope/ticket where helpful (e.g., `AF-12 Add RSSNode`). Keep changes focused.
 - PRs: clear description, rationale, and testing notes; link issues; include screenshots for UI (if any); update docs/examples when behavior changes.

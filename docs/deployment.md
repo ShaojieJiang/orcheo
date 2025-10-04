@@ -34,7 +34,7 @@ Use this recipe when you want an isolated environment that mimics production wit
    services:
      orcheo:
        build: .
-       command: uvicorn orcheo.main:app --host 0.0.0.0 --port 8000
+       command: uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000
        environment:
          ORCHEO_HOST: 0.0.0.0
          ORCHEO_PORT: "8000"
@@ -92,7 +92,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
      fly secrets set ORCHEO_POSTGRES_DSN=...
      fly deploy
      ```
-   - Ensure the container command starts uvicorn: `uvicorn orcheo.main:app --host 0.0.0.0 --port ${PORT}`.
+  - Ensure the container command starts uvicorn: `uvicorn orcheo_backend.app:app --host 0.0.0.0 --port ${PORT}`.
 5. **Health checks**
    - Expose `/docs` and `/openapi.json` for HTTP checks.
    - Use `/ws/workflow/{workflow_id}` for synthetic workflow runs during smoke tests.

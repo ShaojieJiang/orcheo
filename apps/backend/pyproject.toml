@@ -1,0 +1,30 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=67"]
+
+[project]
+dependencies = [
+  "fastapi>=0.104.0",
+  "uvicorn[standard]>=0.24.0",
+  "orcheo>=0.0.1"
+]
+description = "Deployment wrapper around the Orcheo FastAPI application"
+name = "orcheo-backend"
+readme = "README.md"
+requires-python = ">=3.12"
+version = "0.0.1"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "ruff",
+  "mypy"
+]
+
+[project.scripts]
+orcheo-backend = "orcheo_backend:create_app"
+
+[tool.uv.sources]
+orcheo = {workspace = true}
