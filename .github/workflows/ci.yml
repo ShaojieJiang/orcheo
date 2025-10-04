@@ -2,31 +2,146 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+    tags:
+      - 'v*'
   pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  id-token: write  # Required for PyPI trusted publishing
+  contents: read
 
 jobs:
-  python:
+  lint:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
         with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v3
+          enable-cache: true
+
       - name: Install dependencies
         run: uv sync --all-groups
-      - name: Ruff lint
-        run: uv run ruff check src/orcheo packages/sdk/src tests
-      - name: Ruff format check
-        run: uv run ruff format . --check
-      - name: MyPy
-        run: uv run mypy src/orcheo packages/sdk/src --install-types --non-interactive
-      - name: Pytest with coverage
-        run: uv run pytest --cov=orcheo --cov=orcheo_sdk --cov-report=xml
-      - name: Diff coverage
-        run: uv run diff-cover coverage.xml --compare-branch=origin/main --fail-under=100
+
+      - name: Check style against standards
+        run: uv run make lint
+
+  coverage:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run unit tests with coverage
+        run: |
+          uv run coverage run -m pytest
+          uv run coverage html --show-contexts --title "Coverage for ${{ github.sha }}"
+          uv run coverage xml
+          uv run diff-cover coverage.xml --html-report index.html
+
+      - name: Store coverage html
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov
+          include-hidden-files: true
+
+      - name: Store diff coverage html
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-coverage-html
+          path: index.html
+
+      - name: Check coverage
+        run: |
+          uv run coverage report --fail-under 95
+          uv run diff-cover coverage.xml --fail-under 100
+
+  postgres-persistence:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run Postgres persistence checks
+        env:
+          ORCHEO_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+          ORCHEO_CHECKPOINT_BACKEND: postgres
+        run: |
+          uv run pytest tests/integration/test_postgres_persistence.py -q
+
+  build-and-release:
+    needs: [lint, coverage, postgres-persistence]
+    if: "success() && startsWith(github.ref, 'refs/tags/')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: yezz123/setup-uv@v4
+
+      - name: Build project
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
 
   canvas:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:
