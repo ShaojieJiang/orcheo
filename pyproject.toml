@@ -57,12 +57,12 @@ url = "https://github.com/AI-Colleagues/orcheo"
 version = "0.0.1"
 
 [project.scripts]
-orcheo-dev-server = "orcheo.tooling.commands:dev_server"
-orcheo-lint = "orcheo.tooling.commands:lint"
-orcheo-format = "orcheo.tooling.commands:format_code"
-orcheo-test = "orcheo.tooling.commands:test"
 orcheo-canvas-lint = "orcheo.tooling.commands:canvas_lint"
+orcheo-dev-server = "orcheo.tooling.commands:dev_server"
+orcheo-format = "orcheo.tooling.commands:format_code"
+orcheo-lint = "orcheo.tooling.commands:lint"
 orcheo-seed-env = "orcheo.tooling.env:main"
+orcheo-test = "orcheo.tooling.commands:test"
 
 [tool.coverage.report]
 exclude_lines = [
@@ -76,6 +76,9 @@ exclude_lines = [
 branch = true
 command_line = "-m pytest"
 source = ["orcheo", "orcheo_sdk", "orcheo_backend"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orcheo"]
 
 [tool.mypy]
 disallow_untyped_defs = true
@@ -132,4 +135,3 @@ convention = "google"
 
 [tool.uv.workspace]
 members = ["apps/backend", "packages/sdk", "."]
-

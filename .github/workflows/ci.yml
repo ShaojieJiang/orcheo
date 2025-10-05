@@ -5,7 +5,9 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - 'core-v*'
+      - 'backend-v*'
+      - 'sdk-v*'
   pull_request:
     branches:
       - main
@@ -20,7 +22,7 @@ permissions:
 
 jobs:
   lint:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
     strategy:
@@ -42,7 +44,7 @@ jobs:
         run: uv run make lint
 
   coverage:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
     strategy:
@@ -88,7 +90,7 @@ jobs:
           uv run diff-cover coverage.xml --fail-under 100
 
   postgres-persistence:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
     services:
@@ -127,21 +129,48 @@ jobs:
 
   build-and-release:
     needs: [lint, coverage, postgres-persistence]
-    if: "success() && startsWith(github.ref, 'refs/tags/')"
+    if: "startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: yezz123/setup-uv@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build project
-        run: uv build
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
-      - name: Publish to PyPI
+      - name: Determine package context
+        id: package
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "$tag" == core-v* ]]; then
+            echo "package=orcheo" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == backend-v* ]]; then
+            echo "package=orcheo-backend" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == sdk-v* ]]; then
+            echo "package=orcheo-sdk" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported tag prefix: $tag" >&2
+            exit 1
+          fi
+          echo "dist_dir=dist/${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Build ${{ steps.package.outputs.package }}
+        run: |
+          uv build --package "${{ steps.package.outputs.package }}" --out-dir "${{ steps.package.outputs.dist_dir }}"
+
+      - name: Publish ${{ steps.package.outputs.package }} to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: ${{ steps.package.outputs.dist_dir }}
 
   canvas:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:

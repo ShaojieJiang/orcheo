@@ -1,8 +1,6 @@
 from collections.abc import Sequence
 from subprocess import CompletedProcess
-
 import pytest
-
 from orcheo.tooling import commands
 
 
