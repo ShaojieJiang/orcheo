@@ -50,3 +50,9 @@ dev container with uv and Node.js preinstalled. The new quickstart flows in
 
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
+
+## Releasing packages
+
+Follow [`docs/releasing.md`](docs/releasing.md) for the step-by-step guide to
+version, tag, and publish the `orcheo`, `orcheo-backend`, and `orcheo-sdk`
+packages independently via the automated CI workflows.

@@ -1,16 +1,12 @@
 """Tests for workflow and credential domain models."""
 
 from __future__ import annotations
-
-from uuid import uuid4
-
-import pytest
-
 from typing import Protocol
-
+from uuid import uuid4
+import pytest
 from orcheo.models import (
-    CredentialMetadata,
     CredentialCipher,
+    CredentialMetadata,
     EncryptionEnvelope,
     FernetCredentialCipher,
     Workflow,

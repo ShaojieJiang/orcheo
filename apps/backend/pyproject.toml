@@ -26,5 +26,11 @@ dev = [
 [project.scripts]
 orcheo-backend = "orcheo_backend:create_app"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.uv.sources]
 orcheo = {workspace = true}

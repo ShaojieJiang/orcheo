@@ -19,7 +19,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
 - [x] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
 - [x] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
-- [ ] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts.
+- [x] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts. See [releasing guide](./releasing.md) for the package-by-package workflow.
 - [ ] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
 
 ### Milestone 2 – Backend Orchestration & Triggers
