@@ -20,7 +20,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
 - [x] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
 - [x] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts. See [releasing guide](./releasing.md) for the package-by-package workflow.
-- [ ] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
+- [x] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
 
 ### Milestone 2 – Backend Orchestration & Triggers
 - [ ] Implement Python SDK with typed node authoring, local execution parity, and deployment hooks that sync with the server.
