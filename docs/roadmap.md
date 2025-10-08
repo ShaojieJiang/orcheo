@@ -23,7 +23,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Add smoke tests for the FastAPI deployment wrapper (import validation, app factory health) and expand CI coverage checks across workspace packages.
 
 ### Milestone 2 – Backend Orchestration & Triggers
-- [ ] Implement Python SDK with typed node authoring, local execution parity, and deployment hooks that sync with the server.
+- [x] Implement Python SDK with typed node authoring, local execution parity, and deployment hooks that sync with the server.
 - [ ] Build FastAPI services for workflow CRUD, execution lifecycle, version diffing, and WebSocket streaming telemetry.
 - [ ] Deliver trigger layer covering webhook validation (verbs, filtering, rate limits), cron scheduler (timezone aware, overlap guards), manual/batch runs, and retry policies.
 - [ ] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
