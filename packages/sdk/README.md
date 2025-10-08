@@ -24,10 +24,6 @@ class UppercaseNode(WorkflowNode[UppercaseConfig, str]):
 workflow = Workflow(name="demo")
 workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="Result: ")))
 
-# Execute locally
-result = workflow.run(inputs={"message": "hello"})
-print(result.get_output("upper"))  # -> "Result: HELLO"
-
 # Prepare deployment request metadata for the Orcheo backend
 client = OrcheoClient(base_url="http://localhost:8000")
 request = client.build_deployment_request(workflow)
@@ -79,10 +75,8 @@ assert graph_config["edges"] == [
 ]
 ```
 
-> **Note:** The SDK's `workflow.run()` and `workflow.arun()` helpers execute the
-> workflow locally, which is useful for quick validation during development.
-> After exporting the graph configuration you can deploy it so that the managed
-> Orcheo runtime performs production executions.
+> **Note:** Workflows should be deployed to the managed Orcheo runtime for
+> execution once you are happy with the authored graph configuration.
 
 ## Usage
 

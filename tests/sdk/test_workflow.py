@@ -7,7 +7,6 @@ from orcheo_sdk import (
     Workflow,
     WorkflowNode,
     WorkflowRunContext,
-    WorkflowRunResult,
     WorkflowState,
 )
 from pydantic import BaseModel
@@ -50,19 +49,6 @@ def test_workflow_requires_existing_dependencies() -> None:
         workflow.add_node(
             AppendNode("append", AppendConfig(suffix="")), depends_on=["missing"]
         )
-
-
-def test_workflow_run_executes_in_dependency_order() -> None:
-    workflow = Workflow(name="demo")
-    workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="Result: ")))
-    workflow.add_node(
-        AppendNode("final", AppendConfig(suffix="!")), depends_on=["upper"]
-    )
-
-    result = workflow.run(inputs={"message": "hello"})
-
-    assert result.run_order == ["upper", "final"]
-    assert result.get_output("final") == "Result: HELLO!"
 
 
 def test_to_graph_config_matches_langgraph_shape() -> None:
@@ -191,52 +177,3 @@ def test_workflow_node_model_json_schema_exposes_config() -> None:
 
     assert "properties" in schema
     assert "prefix" in schema["properties"]
-
-
-def test_workflow_run_handles_multiple_dependencies() -> None:
-    class CombineNode(WorkflowNode[AppendConfig, str]):
-        type_name = "Combine"
-
-        async def run(self, state: WorkflowState, context: WorkflowRunContext) -> str:
-            return (
-                f"{state.get_output('upper')}"
-                f"{state.get_output('second')}"
-                f"{self.config.suffix}"
-            )
-
-    workflow = Workflow(name="demo")
-    workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="")))
-    workflow.add_node(UppercaseNode("second", UppercaseConfig(prefix="")))
-    workflow.add_node(
-        CombineNode("combine", AppendConfig(suffix="!")),
-        depends_on=["upper", "second"],
-    )
-
-    result = workflow.run(inputs={"message": "hi"})
-
-    assert isinstance(result, WorkflowRunResult)
-    assert result.run_order[-1] == "combine"
-    assert result.get_output("combine") == "HIHI!"
-
-
-def test_workflow_run_detects_dependency_cycles() -> None:
-    workflow = Workflow(name="demo")
-    workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="")))
-    workflow.add_node(UppercaseNode("second", UppercaseConfig(prefix="")))
-
-    workflow._dependencies["upper"].add("second")
-    workflow._dependencies["second"].add("upper")
-    workflow._dependents["upper"].add("second")
-    workflow._dependents["second"].add("upper")
-
-    with pytest.raises(RuntimeError):
-        workflow.run()
-
-
-@pytest.mark.asyncio
-async def test_workflow_run_disallows_running_event_loop() -> None:
-    workflow = Workflow(name="demo")
-    workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="")))
-
-    with pytest.raises(RuntimeError):
-        workflow.run()

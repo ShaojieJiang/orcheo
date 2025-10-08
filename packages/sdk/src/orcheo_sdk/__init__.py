@@ -6,7 +6,6 @@ from orcheo_sdk.workflow import (
     Workflow,
     WorkflowNode,
     WorkflowRunContext,
-    WorkflowRunResult,
     WorkflowState,
 )
 
@@ -17,6 +16,5 @@ __all__ = [
     "Workflow",
     "WorkflowNode",
     "WorkflowRunContext",
-    "WorkflowRunResult",
     "WorkflowState",
 ]
