@@ -39,21 +39,24 @@ Edges between nodes are derived from the dependencies you provide when registeri
 each node. Every dependency is converted into an edge in the exported graph, so
 you only need to describe how data should flow between nodes:
 
-```
-Dependencies:           Graph Edges:
-┌─────────┐            ┌─────────┐
-│  START  │──────────► │  START  │
-└─────────┘            └─────────┘
-     │                      │
-     ├─── first             ├───► first ◄───┐
-     │                      │               │
-     └─── second            ├───► second ◄──┤
-                            │               │
-                            └───► combine ──┤
-                                     │      │
-                            ┌─────────┐     │
-                            │   END   │ ◄───┘
-                            └─────────┘
+```mermaid
+flowchart LR
+    subgraph Dependencies
+        START((START)) --> first
+        START --> second
+        first --> combine
+        second --> combine
+    end
+
+    subgraph Graph_Edges[Graph Edges]
+        S[START] --> first_edge[first]
+        S --> second_edge[second]
+        first_edge --> combine_edge[combine]
+        second_edge --> combine_edge
+        combine_edge --> E[END]
+    end
+
+    classDef default font-family:"monospace",font-size:12px;
 ```
 
 ```python
@@ -75,6 +78,11 @@ assert graph_config["edges"] == [
     ("second", "combine"),
 ]
 ```
+
+> **Note:** The SDK's `workflow.run()` and `workflow.arun()` helpers execute the
+> workflow locally, which is useful for quick validation during development.
+> After exporting the graph configuration you can deploy it so that the managed
+> Orcheo runtime performs production executions.
 
 ## Usage
 

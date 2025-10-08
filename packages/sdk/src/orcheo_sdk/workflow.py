@@ -109,7 +109,14 @@ class WorkflowNode(Generic[ConfigT, OutputT], ABC):
 
 
 class Workflow:
-    """Utility for composing and running workflows programmatically."""
+    """Utility for composing and running workflows programmatically.
+
+    The :meth:`run` and :meth:`arun` helpers execute workflows entirely in-process.
+    They provide a lightweight way to validate node logic locally before exporting
+    and deploying the workflow to the managed Orcheo runtime. Production
+    executions should continue to happen through the backend once a workflow is
+    deployed.
+    """
 
     def __init__(
         self,
@@ -205,7 +212,12 @@ class Workflow:
         *,
         execution_id: str | None = None,
     ) -> WorkflowRunResult:
-        """Execute the workflow asynchronously with the provided inputs."""
+        """Execute the workflow asynchronously with the provided inputs.
+
+        This is intended for local validation or test harnesses. Deployed
+        workflows should be triggered via the Orcheo service rather than this
+        client-side runner.
+        """
         state = WorkflowState(inputs=dict(inputs or {}), outputs={})
         indegree: dict[str, int] = {
             node_name: len(dependencies)
@@ -248,40 +260,43 @@ class Workflow:
         execution_id: str | None = None,
     ) -> WorkflowRunResult:
         """Synchronous helper that wraps :meth:`arun`.
-        
+
         Examples:
             Basic synchronous execution::
-            
+
                 workflow = Workflow(name="data_pipeline")
                 # ... add nodes to workflow ...
-                
+
                 # Run synchronously (blocks until completion)
                 result = workflow.run(inputs={"user_id": 123})
                 print(f"Final output: {result.get_output('final_node')}")
-            
+
             Asynchronous execution for better performance::
-            
+
                 async def main():
                     workflow = Workflow(name="data_pipeline")
                     # ... add nodes to workflow ...
-                    
+
                     # Run asynchronously (non-blocking)
                     result = await workflow.arun(inputs={"user_id": 123})
                     print(f"Execution order: {result.run_order}")
                     return result
-                
+
                 # Run the async function
                 result = asyncio.run(main())
-            
+
             Note: Cannot call run() from within an async context. Use arun() instead::
-            
+
                 async def invalid_usage():
                     workflow = Workflow(name="example")
                     # This will raise RuntimeError:
                     # result = workflow.run()  # ❌ Not allowed in async context
-                    
+
                     # Use this instead:
                     result = await workflow.arun()  # ✅ Correct async usage
+
+        These helpers are designed for local validation before deploying the
+        workflow to the managed Orcheo runtime.
         """
         try:
             asyncio.get_running_loop()
