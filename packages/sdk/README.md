@@ -39,6 +39,23 @@ Edges between nodes are derived from the dependencies you provide when registeri
 each node. Every dependency is converted into an edge in the exported graph, so
 you only need to describe how data should flow between nodes:
 
+```
+Dependencies:           Graph Edges:
+┌─────────┐            ┌─────────┐
+│  START  │──────────► │  START  │
+└─────────┘            └─────────┘
+     │                      │
+     ├─── first             ├───► first ◄───┐
+     │                      │               │
+     └─── second            ├───► second ◄──┤
+                            │               │
+                            └───► combine ──┤
+                                     │      │
+                            ┌─────────┐     │
+                            │   END   │ ◄───┘
+                            └─────────┘
+```
+
 ```python
 workflow = Workflow(name="fan-in")
 
