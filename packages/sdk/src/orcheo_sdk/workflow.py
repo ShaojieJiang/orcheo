@@ -247,7 +247,42 @@ class Workflow:
         *,
         execution_id: str | None = None,
     ) -> WorkflowRunResult:
-        """Synchronous helper that wraps :meth:`arun`."""
+        """Synchronous helper that wraps :meth:`arun`.
+        
+        Examples:
+            Basic synchronous execution::
+            
+                workflow = Workflow(name="data_pipeline")
+                # ... add nodes to workflow ...
+                
+                # Run synchronously (blocks until completion)
+                result = workflow.run(inputs={"user_id": 123})
+                print(f"Final output: {result.get_output('final_node')}")
+            
+            Asynchronous execution for better performance::
+            
+                async def main():
+                    workflow = Workflow(name="data_pipeline")
+                    # ... add nodes to workflow ...
+                    
+                    # Run asynchronously (non-blocking)
+                    result = await workflow.arun(inputs={"user_id": 123})
+                    print(f"Execution order: {result.run_order}")
+                    return result
+                
+                # Run the async function
+                result = asyncio.run(main())
+            
+            Note: Cannot call run() from within an async context. Use arun() instead::
+            
+                async def invalid_usage():
+                    workflow = Workflow(name="example")
+                    # This will raise RuntimeError:
+                    # result = workflow.run()  # ❌ Not allowed in async context
+                    
+                    # Use this instead:
+                    result = await workflow.arun()  # ✅ Correct async usage
+        """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
