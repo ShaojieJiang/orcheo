@@ -52,7 +52,7 @@ flowchart LR
         combine_edge --> E[END]
     end
 
-    classDef default font-family:"monospace",font-size:12px;
+    classDef default font-family:monospace,font-size:12px;
 ```
 
 ```python
