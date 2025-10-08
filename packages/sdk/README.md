@@ -36,21 +36,12 @@ each node. Every dependency is converted into an edge in the exported graph, so
 you only need to describe how data should flow between nodes:
 
 ```mermaid
-flowchart LR
-    subgraph Dependencies
-        START((START)) --> first
-        START --> second
-        first --> combine
-        second --> combine
-    end
-
-    subgraph Graph_Edges[Graph Edges]
-        S[START] --> first_edge[first]
-        S --> second_edge[second]
-        first_edge --> combine_edge[combine]
-        second_edge --> combine_edge
-        combine_edge --> E[END]
-    end
+flowchart TD
+    S[START] --> first_edge[first]
+    S --> second_edge[second]
+    first_edge --> combine_edge[combine]
+    second_edge --> combine_edge
+    combine_edge --> E[END]
 
     classDef default font-family:monospace,font-size:12px;
 ```
