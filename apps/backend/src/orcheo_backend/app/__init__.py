@@ -40,7 +40,7 @@ async def execute_workflow(
         compiled_graph = graph.compile(checkpointer=checkpointer)
 
         # Initialize state
-        state = {"messages": [], **inputs}
+        state: Any = {"messages": [], "outputs": {}, **inputs}
         logger.info("Initial state: %s", state)
 
         # Run graph with streaming

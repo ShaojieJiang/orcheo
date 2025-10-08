@@ -17,7 +17,7 @@ format:
 	ruff check . --select F401 --fix
 
 test:
-	pytest --cov --cov-report term-missing tests/
+	uv run pytest --cov --cov-report term-missing tests/
 
 doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080
