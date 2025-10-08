@@ -6,8 +6,12 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Generic, Literal, TypeVar
 from pydantic import BaseModel
+
+
+ConfigT = TypeVar("ConfigT", bound=BaseModel)
+OutputT = TypeVar("OutputT")
 
 
 @dataclass(slots=True)
@@ -62,7 +66,7 @@ class DeploymentRequest:
     headers: dict[str, str]
 
 
-class WorkflowNode[ConfigT: BaseModel, OutputT](ABC):
+class WorkflowNode(Generic[ConfigT, OutputT], ABC):
     """Base class for authoring typed workflow nodes."""
 
     type_name: ClassVar[str]

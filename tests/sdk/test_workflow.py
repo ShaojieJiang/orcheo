@@ -1,10 +1,7 @@
 """Tests for the workflow authoring helpers."""
 
 from __future__ import annotations
-
 import pytest
-from pydantic import BaseModel
-
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
@@ -13,6 +10,7 @@ from orcheo_sdk import (
     WorkflowRunResult,
     WorkflowState,
 )
+from pydantic import BaseModel
 
 
 class UppercaseConfig(BaseModel):
@@ -200,7 +198,11 @@ def test_workflow_run_handles_multiple_dependencies() -> None:
         type_name = "Combine"
 
         async def run(self, state: WorkflowState, context: WorkflowRunContext) -> str:
-            return f"{state.get_output('upper')}{state.get_output('second')}{self.config.suffix}"
+            return (
+                f"{state.get_output('upper')}"
+                f"{state.get_output('second')}"
+                f"{self.config.suffix}"
+            )
 
     workflow = Workflow(name="demo")
     workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="")))

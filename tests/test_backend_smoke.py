@@ -1,7 +1,6 @@
 """Smoke tests for the FastAPI deployment wrapper."""
 
 from importlib import import_module
-
 import pytest
 from fastapi import FastAPI
 from starlette.routing import WebSocketRoute
@@ -33,7 +32,7 @@ def test_get_app_matches_module_level_app() -> None:
     """Verify the exported get_app helper returns the module-level FastAPI instance."""
     backend_module = import_module("orcheo_backend")
     module = import_module("orcheo_backend.app")
-    get_app = getattr(backend_module, "get_app")
+    get_app = backend_module.get_app
 
     assert isinstance(module.app, FastAPI)
     assert get_app() is module.app
