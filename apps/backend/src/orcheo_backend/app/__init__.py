@@ -61,6 +61,14 @@ def _raise_not_found(detail: str, exc: Exception) -> NoReturn:
     ) from exc
 
 
+def _raise_conflict(detail: str, exc: Exception) -> NoReturn:
+    """Raise a standardized 409 HTTP error for conflicting run transitions."""
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=detail,
+    ) from exc
+
+
 async def execute_workflow(
     workflow_id: str,
     graph_config: dict[str, Any],
@@ -345,6 +353,8 @@ async def mark_run_started(
         return await repository.mark_run_started(run_id, actor=request.actor)
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
+    except ValueError as exc:
+        _raise_conflict(str(exc), exc)
 
 
 @_http_router.post("/runs/{run_id}/succeed", response_model=WorkflowRun)
@@ -362,6 +372,8 @@ async def mark_run_succeeded(
         )
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
+    except ValueError as exc:
+        _raise_conflict(str(exc), exc)
 
 
 @_http_router.post("/runs/{run_id}/fail", response_model=WorkflowRun)
@@ -379,6 +391,8 @@ async def mark_run_failed(
         )
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
+    except ValueError as exc:
+        _raise_conflict(str(exc), exc)
 
 
 @_http_router.post("/runs/{run_id}/cancel", response_model=WorkflowRun)
@@ -396,6 +410,8 @@ async def mark_run_cancelled(
         )
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
+    except ValueError as exc:
+        _raise_conflict(str(exc), exc)
 
 
 def create_app(
