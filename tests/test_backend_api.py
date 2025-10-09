@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -169,3 +169,123 @@ def test_workflow_run_lifecycle(api_client: TestClient) -> None:
     run_detail = api_client.get(f"/api/runs/{run_id}")
     assert run_detail.status_code == 200
     assert run_detail.json()["status"] == "succeeded"
+
+
+def test_not_found_responses(api_client: TestClient) -> None:
+    """The API surfaces standardized 404 errors when entities are missing."""
+
+    missing_id = "00000000-0000-0000-0000-000000000000"
+
+    workflow_response = api_client.get(f"/api/workflows/{missing_id}")
+    assert workflow_response.status_code == 404
+    assert workflow_response.json()["detail"] == "Workflow not found"
+
+    run_response = api_client.get(f"/api/runs/{missing_id}")
+    assert run_response.status_code == 404
+    assert run_response.json()["detail"] == "Workflow run not found"
+
+
+def test_version_and_run_error_responses(api_client: TestClient) -> None:
+    """Version and run routes propagate repository errors as 404 responses."""
+
+    missing = str(uuid4())
+
+    update_response = api_client.put(
+        f"/api/workflows/{missing}", json={"actor": "tester"}
+    )
+    assert update_response.status_code == 404
+
+    delete_response = api_client.delete(
+        f"/api/workflows/{missing}", params={"actor": "tester"}
+    )
+    assert delete_response.status_code == 404
+
+    create_version_missing = api_client.post(
+        f"/api/workflows/{missing}/versions",
+        json={
+            "graph": {},
+            "metadata": {},
+            "created_by": "tester",
+        },
+    )
+    assert create_version_missing.status_code == 404
+
+    list_versions_missing = api_client.get(f"/api/workflows/{missing}/versions")
+    assert list_versions_missing.status_code == 404
+
+    missing_version_for_missing_workflow = api_client.get(
+        f"/api/workflows/{missing}/versions/1"
+    )
+    assert missing_version_for_missing_workflow.status_code == 404
+
+    workflow = api_client.post(
+        "/api/workflows",
+        json={"name": "Error Flow", "actor": "tester"},
+    ).json()
+    workflow_id = workflow["id"]
+
+    api_client.post(
+        f"/api/workflows/{workflow_id}/versions",
+        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+    )
+
+    missing_version_response = api_client.get(
+        f"/api/workflows/{workflow_id}/versions/99"
+    )
+    assert missing_version_response.status_code == 404
+    assert missing_version_response.json()["detail"] == "Workflow version not found"
+
+    diff_missing_version = api_client.get(
+        f"/api/workflows/{workflow_id}/versions/1/diff/99"
+    )
+    assert diff_missing_version.status_code == 404
+
+    diff_missing_workflow = api_client.get(
+        f"/api/workflows/{missing}/versions/1/diff/1"
+    )
+    assert diff_missing_workflow.status_code == 404
+    assert diff_missing_workflow.json()["detail"] == "Workflow not found"
+
+    create_run_missing_version = api_client.post(
+        f"/api/workflows/{workflow_id}/runs",
+        json={
+            "workflow_version_id": str(uuid4()),
+            "triggered_by": "tester",
+            "input_payload": {},
+        },
+    )
+    assert create_run_missing_version.status_code == 404
+    assert create_run_missing_version.json()["detail"] == "Workflow version not found"
+
+    create_run_missing_workflow = api_client.post(
+        f"/api/workflows/{missing}/runs",
+        json={
+            "workflow_version_id": str(uuid4()),
+            "triggered_by": "tester",
+            "input_payload": {},
+        },
+    )
+    assert create_run_missing_workflow.status_code == 404
+    assert create_run_missing_workflow.json()["detail"] == "Workflow not found"
+
+    list_runs_missing = api_client.get(f"/api/workflows/{missing}/runs")
+    assert list_runs_missing.status_code == 404
+
+    for endpoint in [
+        "start",
+        "succeed",
+        "fail",
+        "cancel",
+    ]:
+        payload: dict[str, object] = {"actor": "tester"}
+        if endpoint == "succeed":
+            payload["output"] = None
+        if endpoint == "fail":
+            payload["error"] = "boom"
+        if endpoint == "cancel":
+            payload["reason"] = None
+        response = api_client.post(
+            f"/api/runs/{missing}/{endpoint}",
+            json=payload,
+        )
+        assert response.status_code == 404
