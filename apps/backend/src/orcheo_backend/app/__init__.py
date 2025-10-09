@@ -391,7 +391,7 @@ async def mark_run_failed(
         )
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
-    except ValueError as exc:  # pragma: no cover
+    except ValueError as exc:
         _raise_conflict(str(exc), exc)
 
 

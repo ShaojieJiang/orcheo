@@ -224,6 +224,16 @@ def test_workflow_run_invalid_transitions(api_client: TestClient) -> None:
     )
     assert succeed_response.status_code == 200
 
+    fail_after_completion = api_client.post(
+        f"/api/runs/{run_id}/fail",
+        json={"actor": "runner", "error": "boom"},
+    )
+    assert fail_after_completion.status_code == 409
+    assert (
+        fail_after_completion.json()["detail"]
+        == "Only pending or running runs can be marked as failed."
+    )
+
     cancel_after_completion = api_client.post(
         f"/api/runs/{run_id}/cancel",
         json={"actor": "runner", "reason": None},
