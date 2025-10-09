@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coverage-badge.samuelcolvin.workers.dev/ShaojieJiang/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/ShaojieJiang/orcheo)
-[![PyPI](https://img.shields.io/pypi/v/orcheo.svg)](https://pypi.python.org/pypi/orcheo)
+[![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?label=core)](https://pypi.org/project/orcheo/)
+[![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?label=backend)](https://pypi.org/project/orcheo-backend/)
+[![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?label=sdk)](https://pypi.org/project/orcheo-sdk/)
 
 Orcheo is a tool for creating and running workflows.
 

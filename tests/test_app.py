@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
-from orcheo_backend.app import execute_workflow, workflow_websocket
+from orcheo_backend.app import execute_workflow, get_repository, workflow_websocket
 
 
 @pytest.mark.asyncio
@@ -79,3 +79,11 @@ async def test_workflow_websocket():
         mock_websocket,
     )
     mock_websocket.close.assert_called_once()
+
+
+def test_get_repository_returns_singleton() -> None:
+    """The module-level repository accessor returns a singleton instance."""
+
+    first = get_repository()
+    second = get_repository()
+    assert first is second
