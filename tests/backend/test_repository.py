@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
+from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     RepositoryError,
@@ -367,3 +370,233 @@ def test_repository_error_hierarchy() -> None:
     assert issubclass(WorkflowNotFoundError, RepositoryError)
     assert issubclass(WorkflowVersionNotFoundError, RepositoryError)
     assert issubclass(WorkflowRunNotFoundError, RepositoryError)
+
+
+@pytest.mark.asyncio()
+async def test_get_latest_version_validation(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Latest version retrieval enforces workflow and version existence."""
+
+    workflow = await repository.create_workflow(
+        name="Latest", slug=None, description=None, tags=None, actor="tester"
+    )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.get_latest_version(workflow.id)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.get_latest_version(uuid4())
+
+    version = await repository.create_version(
+        workflow.id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    latest = await repository.get_latest_version(workflow.id)
+    assert latest.id == version.id
+    repository._versions.pop(version.id)
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.get_latest_version(workflow.id)
+
+
+@pytest.mark.asyncio()
+async def test_webhook_configuration_requires_workflow(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Configuring a webhook for a missing workflow raises an error."""
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.configure_webhook_trigger(uuid4(), WebhookTriggerConfig())
+
+
+@pytest.mark.asyncio()
+async def test_webhook_configuration_roundtrip(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Webhook configuration persists and returns deep copies."""
+
+    workflow = await repository.create_workflow(
+        name="Webhook", slug=None, description=None, tags=None, actor="tester"
+    )
+    config = WebhookTriggerConfig(allowed_methods={"POST", "GET"})
+
+    stored = await repository.configure_webhook_trigger(workflow.id, config)
+    assert set(stored.allowed_methods) == {"POST", "GET"}
+
+    fetched = await repository.get_webhook_trigger_config(workflow.id)
+    assert fetched == stored
+
+
+@pytest.mark.asyncio()
+async def test_handle_webhook_trigger_missing_resources(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Webhook handling raises when workflow or versions are missing."""
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.handle_webhook_trigger(
+            uuid4(),
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+    workflow = await repository.create_workflow(
+        name="Webhook Flow", slug=None, description=None, tags=None, actor="tester"
+    )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.handle_webhook_trigger(
+            workflow.id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+    version = await repository.create_version(
+        workflow.id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    await repository.configure_webhook_trigger(workflow.id, WebhookTriggerConfig())
+
+    repository._versions.pop(version.id)
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.handle_webhook_trigger(
+            workflow.id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+
+@pytest.mark.asyncio()
+async def test_cron_trigger_configuration_and_dispatch(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Cron trigger configuration is persisted and schedules runs."""
+
+    workflow = await repository.create_workflow(
+        name="Cron Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    saved = await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="0 12 * * *", timezone="UTC"),
+    )
+    assert saved.expression == "0 12 * * *"
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    )
+    assert len(runs) == 1
+    run = runs[0]
+    assert run.triggered_by == "cron"
+    assert run.input_payload["scheduled_for"] == "2025-01-01T12:00:00+00:00"
+
+    repeat = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    )
+    assert repeat == []
+
+
+@pytest.mark.asyncio()
+async def test_cron_trigger_overlap_guard(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Cron scheduler skips scheduling when an active run exists."""
+
+    workflow = await repository.create_workflow(
+        name="Overlap Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+    )
+
+    first = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    )
+    assert len(first) == 1
+    run_id = first[0].id
+
+    skipped = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 10, 0, tzinfo=UTC)
+    )
+    assert skipped == []
+
+    await repository.mark_run_started(run_id, actor="cron")
+    await repository.mark_run_succeeded(run_id, actor="cron", output=None)
+
+    next_runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
+    )
+    assert len(next_runs) == 1
+
+
+@pytest.mark.asyncio()
+async def test_cron_trigger_timezone_alignment(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Cron scheduler respects configured timezones when dispatching."""
+
+    workflow = await repository.create_workflow(
+        name="TZ Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="0 9 * * *", timezone="America/Los_Angeles"),
+    )
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 17, 0, tzinfo=UTC)
+    )
+    assert len(runs) == 1

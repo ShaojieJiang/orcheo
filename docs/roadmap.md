@@ -26,6 +26,10 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Implement Python SDK with typed node authoring, local execution parity, and deployment hooks that sync with the server.
 - [x] Build FastAPI services for workflow CRUD, execution lifecycle, version diffing, and WebSocket streaming telemetry.
 - [ ] Deliver trigger layer covering webhook validation (verbs, filtering, rate limits), cron scheduler (timezone aware, overlap guards), manual/batch runs, and retry policies.
+  - [x] Implement webhook trigger configuration with verb filtering, shared secrets, and rate limiting.
+  - [x] Build cron scheduler supporting timezone-aware execution and overlap protection.
+  - [ ] Support manual and batch run dispatch from the trigger layer.
+  - [ ] Introduce configurable retry policies for trigger-driven runs.
 - [ ] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
 - [ ] Add execution engine support for loops, branching, parallelization, run history, and replay/debug APIs.
 
