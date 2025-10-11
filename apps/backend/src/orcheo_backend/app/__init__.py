@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import uuid
 from typing import Annotated, Any, NoReturn
 from uuid import UUID
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, WebSocket, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
+from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -20,6 +32,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas import (
+    CronDispatchRequest,
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
@@ -67,6 +80,11 @@ def _raise_conflict(detail: str, exc: Exception) -> NoReturn:
         status_code=status.HTTP_409_CONFLICT,
         detail=detail,
     ) from exc
+
+
+def _raise_webhook_error(exc: WebhookValidationError) -> NoReturn:
+    """Normalize webhook validation errors into HTTP errors."""
+    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 async def execute_workflow(
@@ -412,6 +430,131 @@ async def mark_run_cancelled(
         _raise_not_found("Workflow run not found", exc)
     except ValueError as exc:
         _raise_conflict(str(exc), exc)
+
+
+@_http_router.put(
+    "/workflows/{workflow_id}/triggers/webhook/config",
+    response_model=WebhookTriggerConfig,
+)
+async def configure_webhook_trigger(
+    workflow_id: UUID,
+    request: WebhookTriggerConfig,
+    repository: RepositoryDep,
+) -> WebhookTriggerConfig:
+    """Persist webhook trigger configuration for the workflow."""
+    try:
+        return await repository.configure_webhook_trigger(workflow_id, request)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.get(
+    "/workflows/{workflow_id}/triggers/webhook/config",
+    response_model=WebhookTriggerConfig,
+)
+async def get_webhook_trigger_config(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> WebhookTriggerConfig:
+    """Return the configured webhook trigger definition."""
+    try:
+        return await repository.get_webhook_trigger_config(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.api_route(
+    "/workflows/{workflow_id}/triggers/webhook",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def invoke_webhook_trigger(
+    workflow_id: UUID,
+    request: Request,
+    repository: RepositoryDep,
+) -> WorkflowRun:
+    """Validate inbound webhook data and enqueue a workflow run."""
+    try:
+        raw_body = await request.body()
+    except Exception as exc:  # pragma: no cover - FastAPI handles body read
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to read request body",
+        ) from exc
+
+    payload: Any
+    if raw_body:
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = raw_body
+    else:
+        payload = {}
+
+    headers = {key: value for key, value in request.headers.items()}
+    query_params = {key: value for key, value in request.query_params.items()}
+    source_ip = request.client.host if request.client else None
+
+    try:
+        return await repository.handle_webhook_trigger(
+            workflow_id,
+            method=request.method,
+            headers=headers,
+            query_params=query_params,
+            payload=payload,
+            source_ip=source_ip,
+        )
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+    except WorkflowVersionNotFoundError as exc:
+        _raise_not_found("Workflow version not found", exc)
+    except WebhookValidationError as exc:
+        _raise_webhook_error(exc)
+
+
+@_http_router.put(
+    "/workflows/{workflow_id}/triggers/cron/config",
+    response_model=CronTriggerConfig,
+)
+async def configure_cron_trigger(
+    workflow_id: UUID,
+    request: CronTriggerConfig,
+    repository: RepositoryDep,
+) -> CronTriggerConfig:
+    """Persist cron trigger configuration for the workflow."""
+    try:
+        return await repository.configure_cron_trigger(workflow_id, request)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.get(
+    "/workflows/{workflow_id}/triggers/cron/config",
+    response_model=CronTriggerConfig,
+)
+async def get_cron_trigger_config(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> CronTriggerConfig:
+    """Return the configured cron trigger definition."""
+    try:
+        return await repository.get_cron_trigger_config(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.post(
+    "/triggers/cron/dispatch",
+    response_model=list[WorkflowRun],
+)
+async def dispatch_cron_triggers(
+    repository: RepositoryDep,
+    request: CronDispatchRequest | None = None,
+) -> list[WorkflowRun]:
+    """Evaluate cron schedules and enqueue any due runs."""
+    now = request.now if request else None
+    return await repository.dispatch_due_cron_runs(now=now)
 
 
 def create_app(

@@ -4,7 +4,13 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
-from orcheo_backend.app import execute_workflow, get_repository, workflow_websocket
+from orcheo_backend.app import (
+    create_app,
+    execute_workflow,
+    get_repository,
+    workflow_websocket,
+)
+from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
 @pytest.mark.asyncio
@@ -87,3 +93,13 @@ def test_get_repository_returns_singleton() -> None:
     first = get_repository()
     second = get_repository()
     assert first is second
+
+
+def test_create_app_allows_dependency_override() -> None:
+    """Passing a repository instance wires it into FastAPI dependency overrides."""
+
+    repository = InMemoryWorkflowRepository()
+    app = create_app(repository)
+
+    override = app.dependency_overrides[get_repository]
+    assert override() is repository

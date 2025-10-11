@@ -1,6 +1,7 @@
 """Pydantic request schemas for the FastAPI service."""
 
 from __future__ import annotations
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field
@@ -73,3 +74,9 @@ class WorkflowVersionDiffResponse(BaseModel):
     base_version: int
     target_version: int
     diff: list[str]
+
+
+class CronDispatchRequest(BaseModel):
+    """Request body for dispatching cron triggers."""
+
+    now: datetime | None = None

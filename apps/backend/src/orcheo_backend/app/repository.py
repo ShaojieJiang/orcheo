@@ -3,12 +3,19 @@
 from __future__ import annotations
 import asyncio
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from difflib import unified_diff
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
+from orcheo.triggers.webhook import (
+    WebhookRequest,
+    WebhookTriggerConfig,
+    WebhookTriggerState,
+)
 
 
 class RepositoryError(RuntimeError):
@@ -47,6 +54,9 @@ class InMemoryWorkflowRepository:
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
+        self._webhook_states: dict[UUID, WebhookTriggerState] = {}
+        self._cron_states: dict[UUID, CronTriggerState] = {}
+        self._cron_run_index: dict[UUID, UUID] = {}
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all workflows stored within the repository."""
@@ -209,6 +219,20 @@ class InMemoryWorkflowRepository:
                 raise WorkflowVersionNotFoundError(str(version_id))
             return version.model_copy(deep=True)
 
+    async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
+        """Return the most recent workflow version for the workflow."""
+        async with self._lock:
+            version_ids = self._workflow_versions.get(workflow_id)
+            if version_ids is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+            if not version_ids:
+                raise WorkflowVersionNotFoundError("latest")
+            latest_version_id = version_ids[-1]
+            version = self._versions.get(latest_version_id)
+            if version is None:
+                raise WorkflowVersionNotFoundError(str(latest_version_id))
+            return version.model_copy(deep=True)
+
     async def diff_versions(
         self, workflow_id: UUID, base_version: int, target_version: int
     ) -> VersionDiff:
@@ -265,6 +289,8 @@ class InMemoryWorkflowRepository:
             run.record_event(actor=triggered_by, action="run_created")
             self._runs[run.id] = run
             self._version_runs.setdefault(workflow_version_id, []).append(run.id)
+            if triggered_by == "cron":
+                self._cron_run_index[run.id] = workflow_id
             return run.model_copy(deep=True)
 
     async def list_runs_for_workflow(self, workflow_id: UUID) -> list[WorkflowRun]:
@@ -311,10 +337,12 @@ class InMemoryWorkflowRepository:
         output: dict[str, Any] | None,
     ) -> WorkflowRun:
         """Mark the specified run as succeeded with optional output."""
-        return await self._update_run(
+        run = await self._update_run(
             run_id,
             lambda run: run.mark_succeeded(actor=actor, output=output),
         )
+        self._release_cron_run(run_id)
+        return run
 
     async def mark_run_failed(
         self,
@@ -324,10 +352,12 @@ class InMemoryWorkflowRepository:
         error: str,
     ) -> WorkflowRun:
         """Transition the run to a failed state."""
-        return await self._update_run(
+        run = await self._update_run(
             run_id,
             lambda run: run.mark_failed(actor=actor, error=error),
         )
+        self._release_cron_run(run_id)
+        return run
 
     async def mark_run_cancelled(
         self,
@@ -337,10 +367,12 @@ class InMemoryWorkflowRepository:
         reason: str | None,
     ) -> WorkflowRun:
         """Cancel a run, optionally including a reason."""
-        return await self._update_run(
+        run = await self._update_run(
             run_id,
             lambda run: run.mark_cancelled(actor=actor, reason=reason),
         )
+        self._release_cron_run(run_id)
+        return run
 
     async def reset(self) -> None:
         """Clear all stored workflows, versions, and runs."""
@@ -350,6 +382,153 @@ class InMemoryWorkflowRepository:
             self._versions.clear()
             self._runs.clear()
             self._version_runs.clear()
+            self._webhook_states.clear()
+            self._cron_states.clear()
+            self._cron_run_index.clear()
+
+    def _release_cron_run(self, run_id: UUID) -> None:
+        """Release overlap tracking for the provided cron run."""
+        workflow_id = self._cron_run_index.pop(run_id, None)
+        if workflow_id is None:
+            return
+        state = self._cron_states.get(workflow_id)
+        if state is None:
+            return
+        state.release_run(run_id)
+
+    async def configure_webhook_trigger(
+        self, workflow_id: UUID, config: WebhookTriggerConfig
+    ) -> WebhookTriggerConfig:
+        """Persist webhook trigger configuration for a workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
+            state.update_config(config)
+            return state.config
+
+    async def get_webhook_trigger_config(
+        self, workflow_id: UUID
+    ) -> WebhookTriggerConfig:
+        """Return the webhook configuration for the workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
+            return state.config
+
+    async def handle_webhook_trigger(
+        self,
+        workflow_id: UUID,
+        *,
+        method: str,
+        headers: Mapping[str, str],
+        query_params: Mapping[str, str],
+        payload: Any,
+        source_ip: str | None,
+    ) -> WorkflowRun:
+        """Validate webhook input and enqueue a workflow run."""
+        async with self._lock:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+
+            version_ids = self._workflow_versions.get(workflow_id)
+            if not version_ids:
+                raise WorkflowVersionNotFoundError("latest")
+            latest_version_id = version_ids[-1]
+            version = self._versions.get(latest_version_id)
+            if version is None:
+                raise WorkflowVersionNotFoundError(str(latest_version_id))
+
+            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
+            request = WebhookRequest(
+                method=method,
+                headers=headers,
+                query_params=query_params,
+                payload=payload,
+                source_ip=source_ip,
+            )
+            state.validate(request)
+
+            normalized_payload = state.serialize_payload(payload)
+            run = WorkflowRun(
+                workflow_version_id=version.id,
+                triggered_by="webhook",
+                input_payload={
+                    "body": normalized_payload,
+                    "headers": request.normalized_headers(),
+                    "query_params": request.normalized_query(),
+                    "source_ip": source_ip,
+                },
+            )
+            run.record_event(actor="webhook", action="run_created")
+            self._runs[run.id] = run
+            self._version_runs.setdefault(version.id, []).append(run.id)
+            return run.model_copy(deep=True)
+
+    async def configure_cron_trigger(
+        self, workflow_id: UUID, config: CronTriggerConfig
+    ) -> CronTriggerConfig:
+        """Persist cron trigger configuration for a workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            state = self._cron_states.setdefault(workflow_id, CronTriggerState())
+            state.update_config(config)
+            return state.config
+
+    async def get_cron_trigger_config(self, workflow_id: UUID) -> CronTriggerConfig:
+        """Return the configured cron trigger definition."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            state = self._cron_states.setdefault(workflow_id, CronTriggerState())
+            return state.config
+
+    async def dispatch_due_cron_runs(
+        self, *, now: datetime | None = None
+    ) -> list[WorkflowRun]:
+        """Evaluate cron schedules and enqueue runs that are due."""
+        reference = now or datetime.now(tz=UTC)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=UTC)
+
+        async with self._lock:
+            runs: list[WorkflowRun] = []
+            for workflow_id, state in self._cron_states.items():
+                if workflow_id not in self._workflows:
+                    continue
+                due_at = state.peek_due(now=reference)
+                if due_at is None:
+                    continue
+                if not state.can_dispatch():
+                    continue
+
+                version_ids = self._workflow_versions.get(workflow_id)
+                if not version_ids:
+                    continue
+                latest_version_id = version_ids[-1]
+                version = self._versions.get(latest_version_id)
+                if version is None:
+                    continue
+
+                fire_at = state.consume_due()
+                run = WorkflowRun(
+                    workflow_version_id=version.id,
+                    triggered_by="cron",
+                    input_payload={
+                        "scheduled_for": fire_at.isoformat(),
+                        "timezone": state.config.timezone,
+                    },
+                )
+                run.record_event(actor="cron", action="run_created")
+                self._runs[run.id] = run
+                self._version_runs.setdefault(version.id, []).append(run.id)
+                self._cron_run_index[run.id] = workflow_id
+                state.register_run(run.id)
+                runs.append(run.model_copy(deep=True))
+            return runs
 
 
 __all__ = [
