@@ -1,14 +1,11 @@
 """End-to-end API tests for the Orcheo FastAPI backend."""
 
 from __future__ import annotations
-
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
-
 import pytest
 from fastapi.testclient import TestClient
-
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
@@ -555,6 +552,29 @@ def test_webhook_trigger_accepts_non_json_body(api_client: TestClient) -> None:
     runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
     run_payload = runs_response.json()[0]["input_payload"]
     assert run_payload["body"] == {"raw": "��"}
+
+
+def test_cron_trigger_config_endpoints_require_known_workflow(
+    api_client: TestClient,
+) -> None:
+    """Cron configuration endpoints return 404 for unknown workflows."""
+
+    missing_id = uuid4()
+
+    update_response = api_client.put(
+        f"/api/workflows/{missing_id}/triggers/cron/config",
+        json={
+            "expression": "0 12 * * *",
+            "timezone": "UTC",
+            "allow_overlapping": False,
+        },
+    )
+    assert update_response.status_code == 404
+    assert update_response.json()["detail"] == "Workflow not found"
+
+    fetch_response = api_client.get(f"/api/workflows/{missing_id}/triggers/cron/config")
+    assert fetch_response.status_code == 404
+    assert fetch_response.json()["detail"] == "Workflow not found"
 
 
 def test_cron_trigger_configuration_roundtrip(api_client: TestClient) -> None:
