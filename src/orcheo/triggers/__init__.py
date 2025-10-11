@@ -1,12 +1,12 @@
 """Trigger configuration and validation utilities."""
 
-from .cron import (
+from orcheo.triggers.cron import (
     CronOverlapError,
     CronTriggerConfig,
     CronTriggerState,
     CronValidationError,
 )
-from .webhook import (
+from orcheo.triggers.webhook import (
     MethodNotAllowedError,
     RateLimitConfig,
     RateLimitExceededError,
