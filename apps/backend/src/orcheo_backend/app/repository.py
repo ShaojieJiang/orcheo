@@ -465,7 +465,6 @@ class InMemoryWorkflowRepository:
             run.record_event(actor="webhook", action="run_created")
             self._runs[run.id] = run
             self._version_runs.setdefault(version.id, []).append(run.id)
-            self._cron_run_index.pop(run.id, None)
             return run.model_copy(deep=True)
 
     async def configure_cron_trigger(
