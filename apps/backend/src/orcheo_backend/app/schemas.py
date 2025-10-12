@@ -80,3 +80,45 @@ class CronDispatchRequest(BaseModel):
     """Request body for dispatching cron triggers."""
 
     now: datetime | None = None
+
+
+class RetryPolicyConfigBase(BaseModel):
+    """Shared fields for retry policy configuration payloads."""
+
+    max_attempts: int = Field(
+        default=3,
+        ge=1,
+        description="Total attempts including the initial execution.",
+    )
+    initial_delay_seconds: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Delay applied before the first retry attempt.",
+    )
+    backoff_factor: float = Field(
+        default=2.0,
+        ge=1.0,
+        description="Multiplier applied to the delay after each failed attempt.",
+    )
+    max_delay_seconds: float | None = Field(
+        default=300.0,
+        ge=0.0,
+        description="Optional ceiling for computed retry delays.",
+    )
+    jitter_factor: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Percentage of jitter applied to each delay as a fraction of the "
+            "computed delay."
+        ),
+    )
+
+
+class RetryPolicyConfigRequest(RetryPolicyConfigBase):
+    """Payload for configuring retry policy settings."""
+
+
+class RetryPolicyConfigResponse(RetryPolicyConfigBase):
+    """Response body containing retry policy configuration."""

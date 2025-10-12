@@ -3,10 +3,15 @@
 from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
+
 import pytest
+from fastapi import status
+from httpx import ASGITransport, AsyncClient
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
+from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
+from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     RepositoryError,
@@ -698,6 +703,71 @@ async def test_cron_trigger_requires_existing_workflow(
 
     with pytest.raises(WorkflowNotFoundError):
         await repository.get_cron_trigger_config(uuid4())
+
+
+@pytest.mark.asyncio()
+async def test_retry_policy_config_routes(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry policy routes persist and return configuration using the repository."""
+
+    workflow = await repository.create_workflow(
+        name="Retry Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+
+    app = create_app(repository)
+    endpoint = f"/api/workflows/{workflow.id}/triggers/retry/config"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        initial = await client.get(endpoint)
+        assert initial.status_code == status.HTTP_200_OK
+        assert initial.json() == RetryPolicyConfig().model_dump()
+
+        payload = {
+            "max_attempts": 5,
+            "initial_delay_seconds": 10.0,
+            "backoff_factor": 1.5,
+            "max_delay_seconds": 90.0,
+            "jitter_factor": 0.25,
+        }
+
+        updated = await client.put(endpoint, json=payload)
+        assert updated.status_code == status.HTTP_200_OK
+        assert updated.json() == payload
+
+        stored = await repository.get_retry_policy_config(workflow.id)
+        assert stored.max_attempts == payload["max_attempts"]
+        assert stored.initial_delay_seconds == payload["initial_delay_seconds"]
+
+        fetched = await client.get(endpoint)
+        assert fetched.status_code == status.HTTP_200_OK
+        assert fetched.json() == payload
+
+
+@pytest.mark.asyncio()
+async def test_retry_policy_config_routes_require_workflow(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry policy routes respond with not found when the workflow is missing."""
+
+    app = create_app(repository)
+    missing_id = uuid4()
+    endpoint = f"/api/workflows/{missing_id}/triggers/retry/config"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        get_response = await client.get(endpoint)
+        assert get_response.status_code == status.HTTP_404_NOT_FOUND
+
+        put_response = await client.put(endpoint, json=RetryPolicyConfig().model_dump())
+        assert put_response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.asyncio()

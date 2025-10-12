@@ -25,6 +25,7 @@ from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
+from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -34,6 +35,8 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.schemas import (
     CronDispatchRequest,
+    RetryPolicyConfigRequest,
+    RetryPolicyConfigResponse,
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
@@ -541,6 +544,40 @@ async def get_cron_trigger_config(
     """Return the configured cron trigger definition."""
     try:
         return await repository.get_cron_trigger_config(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.put(
+    "/workflows/{workflow_id}/triggers/retry/config",
+    response_model=RetryPolicyConfigResponse,
+)
+async def configure_retry_policy(
+    workflow_id: UUID,
+    request: RetryPolicyConfigRequest,
+    repository: RepositoryDep,
+) -> RetryPolicyConfigResponse:
+    """Persist retry policy configuration for a workflow."""
+    try:
+        config = RetryPolicyConfig(**request.model_dump())
+        stored = await repository.configure_retry_policy(workflow_id, config)
+        return RetryPolicyConfigResponse(**stored.model_dump())
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.get(
+    "/workflows/{workflow_id}/triggers/retry/config",
+    response_model=RetryPolicyConfigResponse,
+)
+async def get_retry_policy_config(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> RetryPolicyConfigResponse:
+    """Return the retry policy configuration for the workflow."""
+    try:
+        config = await repository.get_retry_policy_config(workflow_id)
+        return RetryPolicyConfigResponse(**config.model_dump())
     except WorkflowNotFoundError as exc:
         _raise_not_found("Workflow not found", exc)
 

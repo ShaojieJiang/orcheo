@@ -12,6 +12,7 @@ from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
 from orcheo.triggers.manual import ManualDispatchRequest
+from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import (
     WebhookRequest,
     WebhookTriggerConfig,
@@ -58,6 +59,7 @@ class InMemoryWorkflowRepository:
         self._webhook_states: dict[UUID, WebhookTriggerState] = {}
         self._cron_states: dict[UUID, CronTriggerState] = {}
         self._cron_run_index: dict[UUID, UUID] = {}
+        self._retry_configs: dict[UUID, RetryPolicyConfig] = {}
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all workflows stored within the repository."""
@@ -407,6 +409,7 @@ class InMemoryWorkflowRepository:
             self._webhook_states.clear()
             self._cron_states.clear()
             self._cron_run_index.clear()
+            self._retry_configs.clear()
 
     def _release_cron_run(self, run_id: UUID) -> None:
         """Release overlap tracking for the provided cron run."""
@@ -488,6 +491,27 @@ class InMemoryWorkflowRepository:
             self._runs[run.id] = run
             self._version_runs.setdefault(version.id, []).append(run.id)
             return run.model_copy(deep=True)
+
+    async def configure_retry_policy(
+        self, workflow_id: UUID, config: RetryPolicyConfig
+    ) -> RetryPolicyConfig:
+        """Persist retry policy configuration for a workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+
+            stored = config.model_copy(deep=True)
+            self._retry_configs[workflow_id] = stored
+            return stored.model_copy(deep=True)
+
+    async def get_retry_policy_config(self, workflow_id: UUID) -> RetryPolicyConfig:
+        """Return the retry policy configuration for the workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+
+            config = self._retry_configs.setdefault(workflow_id, RetryPolicyConfig())
+            return config.model_copy(deep=True)
 
     async def configure_cron_trigger(
         self, workflow_id: UUID, config: CronTriggerConfig
