@@ -317,7 +317,7 @@ class InMemoryWorkflowRepository:
         actor: str | None = None,
     ) -> WorkflowRun:
         """Create and store a workflow run. Caller must hold the lock."""
-        if workflow_id not in self._workflows:
+        if workflow_id not in self._workflows:  # pragma: no cover, defensive
             raise WorkflowNotFoundError(str(workflow_id))
 
         version = self._versions.get(workflow_version_id)
@@ -573,7 +573,7 @@ class InMemoryWorkflowRepository:
             for resolved in resolved_runs:
                 version = self._versions.get(resolved.workflow_version_id)
                 if version is None or version.workflow_id != request.workflow_id:
-                    raise WorkflowVersionNotFoundError(
+                    raise WorkflowVersionNotFoundError(  # pragma: no cover, defensive
                         str(resolved.workflow_version_id)
                     )
 

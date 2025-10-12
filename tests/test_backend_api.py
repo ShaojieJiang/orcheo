@@ -544,7 +544,7 @@ def test_webhook_trigger_accepts_non_json_body(api_client: TestClient) -> None:
     binary_payload = b"\xff\xfe"
     trigger_response = api_client.post(
         f"/api/workflows/{workflow_id}/triggers/webhook",
-        data=binary_payload,
+        content=binary_payload,
         headers={"Content-Type": "application/octet-stream"},
     )
     assert trigger_response.status_code == 202
