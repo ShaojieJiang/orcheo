@@ -4,7 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from orcheo.triggers.retry import RetryPolicyConfig
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -85,6 +86,8 @@ class CronDispatchRequest(BaseModel):
 class RetryPolicyConfigBase(BaseModel):
     """Shared fields for retry policy configuration payloads."""
 
+    model_config = ConfigDict(extra="forbid")
+
     max_attempts: int = Field(
         default=3,
         ge=1,
@@ -119,6 +122,15 @@ class RetryPolicyConfigBase(BaseModel):
 class RetryPolicyConfigRequest(RetryPolicyConfigBase):
     """Payload for configuring retry policy settings."""
 
+    def to_domain_model(self) -> RetryPolicyConfig:
+        """Convert the request payload into the domain configuration model."""
+        return RetryPolicyConfig.model_validate(self.model_dump())
+
 
 class RetryPolicyConfigResponse(RetryPolicyConfigBase):
     """Response body containing retry policy configuration."""
+
+    @classmethod
+    def from_domain_model(cls, config: RetryPolicyConfig) -> RetryPolicyConfigResponse:
+        """Construct a response payload from the domain configuration."""
+        return cls.model_validate(config.model_dump())
