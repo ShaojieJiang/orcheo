@@ -6,6 +6,12 @@ from orcheo.triggers.cron import (
     CronTriggerState,
     CronValidationError,
 )
+from orcheo.triggers.manual import (
+    ManualDispatchItem,
+    ManualDispatchRequest,
+    ManualDispatchRun,
+    ManualDispatchValidationError,
+)
 from orcheo.triggers.webhook import (
     MethodNotAllowedError,
     RateLimitConfig,
@@ -22,6 +28,10 @@ __all__ = [
     "CronTriggerState",
     "CronValidationError",
     "CronOverlapError",
+    "ManualDispatchItem",
+    "ManualDispatchRequest",
+    "ManualDispatchRun",
+    "ManualDispatchValidationError",
     "RateLimitConfig",
     "WebhookRequest",
     "WebhookTriggerConfig",
