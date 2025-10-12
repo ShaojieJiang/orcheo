@@ -566,9 +566,18 @@ class InMemoryWorkflowRepository:
             runs: list[WorkflowRun] = []
             triggered_by = request.trigger_label()
 
-            for resolved in request.resolve_runs(
+            resolved_runs = request.resolve_runs(
                 default_workflow_version_id=default_version_id
-            ):
+            )
+
+            for resolved in resolved_runs:
+                version = self._versions.get(resolved.workflow_version_id)
+                if version is None or version.workflow_id != request.workflow_id:
+                    raise WorkflowVersionNotFoundError(
+                        str(resolved.workflow_version_id)
+                    )
+
+            for resolved in resolved_runs:
                 run = self._create_run_locked(
                     workflow_id=request.workflow_id,
                     workflow_version_id=resolved.workflow_version_id,
