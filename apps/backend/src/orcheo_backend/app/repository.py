@@ -12,6 +12,7 @@ from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
 from orcheo.triggers.manual import ManualDispatchRequest
+from orcheo.triggers.retry import RetryDecision, RetryPolicyState
 from orcheo.triggers.webhook import (
     WebhookRequest,
     WebhookTriggerConfig,
@@ -58,6 +59,7 @@ class InMemoryWorkflowRepository:
         self._webhook_states: dict[UUID, WebhookTriggerState] = {}
         self._cron_states: dict[UUID, CronTriggerState] = {}
         self._cron_run_index: dict[UUID, UUID] = {}
+        self._retry_states: dict[UUID, RetryPolicyState] = {}
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all workflows stored within the repository."""
@@ -315,6 +317,10 @@ class InMemoryWorkflowRepository:
         triggered_by: str,
         input_payload: Mapping[str, Any],
         actor: str | None = None,
+        attempt_number: int = 1,
+        retry_parent_run_id: UUID | None = None,
+        retry_root_run_id: UUID | None = None,
+        retry_scheduled_for: datetime | None = None,
     ) -> WorkflowRun:
         """Create and store a workflow run. Caller must hold the lock."""
         if workflow_id not in self._workflows:  # pragma: no cover, defensive
@@ -328,13 +334,44 @@ class InMemoryWorkflowRepository:
             workflow_version_id=workflow_version_id,
             triggered_by=triggered_by,
             input_payload=dict(input_payload),
+            attempt_number=attempt_number,
+            retry_parent_run_id=retry_parent_run_id,
+            retry_root_run_id=retry_root_run_id,
+            retry_scheduled_for=retry_scheduled_for,
         )
+        if run.retry_root_run_id is None:
+            run.retry_root_run_id = run.id
         run.record_event(actor=actor or triggered_by, action="run_created")
         self._runs[run.id] = run
         self._version_runs.setdefault(workflow_version_id, []).append(run.id)
         if triggered_by == "cron":
             self._cron_run_index[run.id] = workflow_id
         return run
+
+    def _resolve_retry_root_id(self, run: WorkflowRun) -> UUID:
+        """Return the identifier representing the retry group for the run."""
+        root_id = run.retry_root_run_id
+        if root_id is None:
+            run.retry_root_run_id = run.id
+            return run.id
+        return root_id
+
+    def _next_retry_for_run_locked(self, run: WorkflowRun) -> RetryDecision | None:
+        """Return the next retry decision for the provided failed run."""
+        root_id = self._resolve_retry_root_id(run)
+        state = self._retry_states.get(root_id)
+        if state is None:
+            state = RetryPolicyState()
+            self._retry_states[root_id] = state
+        decision = state.next_retry(failed_at=run.completed_at)
+        if decision is None:
+            self._retry_states.pop(root_id, None)
+        return decision
+
+    def _clear_retry_state_for_run_locked(self, run: WorkflowRun) -> None:
+        """Remove retry tracking for the run's retry group."""
+        root_id = self._resolve_retry_root_id(run)
+        self._retry_states.pop(root_id, None)
 
     async def _update_run(
         self, run_id: UUID, updater: Callable[[WorkflowRun], None]
@@ -359,10 +396,12 @@ class InMemoryWorkflowRepository:
         output: dict[str, Any] | None,
     ) -> WorkflowRun:
         """Mark the specified run as succeeded with optional output."""
-        run = await self._update_run(
-            run_id,
-            lambda run: run.mark_succeeded(actor=actor, output=output),
-        )
+
+        def updater(run: WorkflowRun) -> None:
+            run.mark_succeeded(actor=actor, output=output)
+            self._clear_retry_state_for_run_locked(run)
+
+        run = await self._update_run(run_id, updater)
         self._release_cron_run(run_id)
         return run
 
@@ -374,12 +413,59 @@ class InMemoryWorkflowRepository:
         error: str,
     ) -> WorkflowRun:
         """Transition the run to a failed state."""
-        run = await self._update_run(
-            run_id,
-            lambda run: run.mark_failed(actor=actor, error=error),
-        )
-        self._release_cron_run(run_id)
-        return run
+        async with self._lock:
+            run = self._runs.get(run_id)
+            if run is None:
+                raise WorkflowRunNotFoundError(str(run_id))
+
+            run.mark_failed(actor=actor, error=error)
+
+            version = self._versions.get(run.workflow_version_id)
+            if version is None:
+                raise WorkflowVersionNotFoundError(str(run.workflow_version_id))
+
+            workflow_id = version.workflow_id
+            indexed_workflow_id = self._cron_run_index.pop(run_id, None)
+            cron_state: CronTriggerState | None = None
+            if indexed_workflow_id is not None:
+                cron_state = self._cron_states.get(indexed_workflow_id)
+            elif run.triggered_by == "cron":
+                cron_state = self._cron_states.get(workflow_id)
+            if cron_state is not None:
+                cron_state.release_run(run_id)
+
+            decision = self._next_retry_for_run_locked(run)
+            if decision is None:
+                self._clear_retry_state_for_run_locked(run)
+                return run.model_copy(deep=True)
+
+            root_id = self._resolve_retry_root_id(run)
+            new_run = self._create_run_locked(
+                workflow_id=workflow_id,
+                workflow_version_id=run.workflow_version_id,
+                triggered_by=run.triggered_by,
+                input_payload=run.input_payload,
+                actor=actor,
+                attempt_number=run.attempt_number + 1,
+                retry_parent_run_id=run.id,
+                retry_root_run_id=root_id,
+                retry_scheduled_for=decision.scheduled_for,
+            )
+
+            run.record_event(
+                actor=actor,
+                action="retry_scheduled",
+                metadata={
+                    "retry_run_id": str(new_run.id),
+                    "attempt_number": new_run.attempt_number,
+                    "scheduled_for": decision.scheduled_for.isoformat(),
+                },
+            )
+
+            if run.triggered_by == "cron" and cron_state is not None:
+                cron_state.register_run(new_run.id)
+
+            return run.model_copy(deep=True)
 
     async def mark_run_cancelled(
         self,
@@ -389,10 +475,12 @@ class InMemoryWorkflowRepository:
         reason: str | None,
     ) -> WorkflowRun:
         """Cancel a run, optionally including a reason."""
-        run = await self._update_run(
-            run_id,
-            lambda run: run.mark_cancelled(actor=actor, reason=reason),
-        )
+
+        def updater(run: WorkflowRun) -> None:
+            run.mark_cancelled(actor=actor, reason=reason)
+            self._clear_retry_state_for_run_locked(run)
+
+        run = await self._update_run(run_id, updater)
         self._release_cron_run(run_id)
         return run
 
@@ -407,6 +495,7 @@ class InMemoryWorkflowRepository:
             self._webhook_states.clear()
             self._cron_states.clear()
             self._cron_run_index.clear()
+            self._retry_states.clear()
 
     def _release_cron_run(self, run_id: UUID) -> None:
         """Release overlap tracking for the provided cron run."""

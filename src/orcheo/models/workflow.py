@@ -147,6 +147,10 @@ class WorkflowRun(TimestampedAuditModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+    attempt_number: int = Field(default=1, ge=1)
+    retry_parent_run_id: UUID | None = None
+    retry_root_run_id: UUID | None = None
+    retry_scheduled_for: datetime | None = None
 
     def mark_started(self, *, actor: str) -> None:
         """Transition the run into the running state."""

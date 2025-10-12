@@ -238,7 +238,148 @@ async def test_run_lifecycle(repository: InMemoryWorkflowRepository) -> None:
     assert cancelled.error == "stop"
 
     runs = await repository.list_runs_for_workflow(workflow.id)
-    assert {run.status for run in runs} == {"succeeded", "failed", "cancelled"}
+    assert {run.status for run in runs} == {
+        "succeeded",
+        "failed",
+        "cancelled",
+        "pending",
+    }
+
+
+@pytest.mark.asyncio()
+async def test_run_failure_schedules_retries_until_exhausted(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Failed runs schedule retries until the policy exhausts attempts."""
+
+    workflow = await repository.create_workflow(
+        name="Retry Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={"payload": True},
+    )
+
+    first_failed = await repository.mark_run_failed(
+        run.id, actor="runner", error="boom"
+    )
+    assert first_failed.status == "failed"
+    assert first_failed.completed_at is not None
+
+    version_run_ids = repository._version_runs[version.id]
+    assert len(version_run_ids) == 2
+    first_retry_id = version_run_ids[-1]
+    first_retry = await repository.get_run(first_retry_id)
+    assert first_retry.attempt_number == 2
+    assert first_retry.retry_parent_run_id == run.id
+    assert first_retry.retry_root_run_id == run.id
+    assert first_retry.retry_scheduled_for is not None
+    assert first_retry.retry_scheduled_for >= first_failed.completed_at
+    assert first_retry.input_payload == {"payload": True}
+    assert first_retry.status == "pending"
+
+    second_failed = await repository.mark_run_failed(
+        first_retry.id, actor="runner", error="boom again"
+    )
+    assert second_failed.status == "failed"
+    assert second_failed.completed_at is not None
+
+    version_run_ids = repository._version_runs[version.id]
+    assert len(version_run_ids) == 3
+    second_retry_id = version_run_ids[-1]
+    second_retry = await repository.get_run(second_retry_id)
+    assert second_retry.attempt_number == 3
+    assert second_retry.retry_parent_run_id == first_retry.id
+    assert second_retry.retry_root_run_id == run.id
+    assert second_retry.input_payload == {"payload": True}
+    assert second_retry.retry_scheduled_for is not None
+    assert second_retry.retry_scheduled_for >= second_failed.completed_at
+
+    final_failed = await repository.mark_run_failed(
+        second_retry.id, actor="runner", error="final"
+    )
+    assert final_failed.status == "failed"
+    assert len(repository._version_runs[version.id]) == 3
+
+    root_id = second_retry.retry_root_run_id
+    assert root_id is not None
+    assert root_id not in repository._retry_states
+
+
+@pytest.mark.asyncio()
+async def test_cron_retry_respects_overlap_and_payload(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Cron retries inherit payloads and maintain overlap protections."""
+
+    workflow = await repository.create_workflow(
+        name="Cron Retry",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="cron",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="cron",
+    )
+
+    await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="0 6 * * *", timezone="UTC"),
+    )
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 6, 0, tzinfo=UTC)
+    )
+    assert len(runs) == 1
+    cron_run = runs[0]
+
+    failed = await repository.mark_run_failed(
+        cron_run.id, actor="cron", error="cron boom"
+    )
+    assert failed.status == "failed"
+    assert failed.completed_at is not None
+    assert cron_run.id not in repository._cron_run_index
+    assert cron_run.id in repository._retry_states
+
+    version_run_ids = repository._version_runs[version.id]
+    assert len(version_run_ids) == 2
+    retry_run_id = version_run_ids[-1]
+    retry_run = await repository.get_run(retry_run_id)
+    assert retry_run.triggered_by == "cron"
+    assert retry_run.input_payload == cron_run.input_payload
+    assert retry_run.attempt_number == 2
+    assert retry_run.retry_parent_run_id == cron_run.id
+    assert retry_run.retry_root_run_id == cron_run.id
+    assert retry_run.retry_scheduled_for is not None
+    assert retry_run.retry_scheduled_for >= failed.completed_at
+    assert repository._cron_run_index[retry_run.id] == workflow.id
+
+    cron_state = repository._cron_states[workflow.id]
+    assert retry_run.id in cron_state._active_runs
+
+    skipped = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 2, 6, 0, tzinfo=UTC)
+    )
+    assert skipped == []
 
 
 @pytest.mark.asyncio()
