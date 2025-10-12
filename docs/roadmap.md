@@ -44,12 +44,14 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [ ] Implement workflow operations: save/load, JSON import/export, template onboarding, shareable exports, and version diff viewer.
 - [ ] Integrate credential management UI, reusable sub-workflows, and publish-time validation.
 - [ ] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
+- [ ] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
 
 ### Milestone 5 – Node Ecosystem & Integrations
 - [ ] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
-- [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management and latency guardrails.
+- [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
 - [ ] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [ ] Add utility nodes (Python/JavaScript execution sandbox, Delay, Debug, Sub-workflow orchestration) with tests, docs, and templates.
+- [ ] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting.
 
 ### Milestone 6 – Observability, Testing & Launch Prep
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
@@ -64,4 +66,4 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ---
 
-_Last updated: 2025-09-28_
+_Last updated: 2025-10-05_
