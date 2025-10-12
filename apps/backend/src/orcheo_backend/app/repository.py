@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
+from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import (
     WebhookRequest,
     WebhookTriggerConfig,
@@ -269,28 +270,20 @@ class InMemoryWorkflowRepository:
         workflow_version_id: UUID,
         triggered_by: str,
         input_payload: dict[str, Any],
+        actor: str | None = None,
     ) -> WorkflowRun:
         """Create a workflow run tied to a version."""
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
 
-            version = self._versions.get(workflow_version_id)
-            if version is None:
-                raise WorkflowVersionNotFoundError(str(workflow_version_id))
-            if version.workflow_id != workflow_id:
-                raise WorkflowVersionNotFoundError(str(workflow_version_id))
-
-            run = WorkflowRun(
+            run = self._create_run_locked(
+                workflow_id=workflow_id,
                 workflow_version_id=workflow_version_id,
                 triggered_by=triggered_by,
-                input_payload=dict(input_payload),
+                input_payload=input_payload,
+                actor=actor,
             )
-            run.record_event(actor=triggered_by, action="run_created")
-            self._runs[run.id] = run
-            self._version_runs.setdefault(workflow_version_id, []).append(run.id)
-            if triggered_by == "cron":
-                self._cron_run_index[run.id] = workflow_id
             return run.model_copy(deep=True)
 
     async def list_runs_for_workflow(self, workflow_id: UUID) -> list[WorkflowRun]:
@@ -313,6 +306,35 @@ class InMemoryWorkflowRepository:
             if run is None:
                 raise WorkflowRunNotFoundError(str(run_id))
             return run.model_copy(deep=True)
+
+    def _create_run_locked(
+        self,
+        *,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        triggered_by: str,
+        input_payload: Mapping[str, Any],
+        actor: str | None = None,
+    ) -> WorkflowRun:
+        """Create and store a workflow run. Caller must hold the lock."""
+        if workflow_id not in self._workflows:
+            raise WorkflowNotFoundError(str(workflow_id))
+
+        version = self._versions.get(workflow_version_id)
+        if version is None or version.workflow_id != workflow_id:
+            raise WorkflowVersionNotFoundError(str(workflow_version_id))
+
+        run = WorkflowRun(
+            workflow_version_id=workflow_version_id,
+            triggered_by=triggered_by,
+            input_payload=dict(input_payload),
+        )
+        run.record_event(actor=actor or triggered_by, action="run_created")
+        self._runs[run.id] = run
+        self._version_runs.setdefault(workflow_version_id, []).append(run.id)
+        if triggered_by == "cron":
+            self._cron_run_index[run.id] = workflow_id
+        return run
 
     async def _update_run(
         self, run_id: UUID, updater: Callable[[WorkflowRun], None]
@@ -514,19 +536,46 @@ class InMemoryWorkflowRepository:
                     continue
 
                 fire_at = state.consume_due()
-                run = WorkflowRun(
+                run = self._create_run_locked(
+                    workflow_id=workflow_id,
                     workflow_version_id=version.id,
                     triggered_by="cron",
                     input_payload={
                         "scheduled_for": fire_at.isoformat(),
                         "timezone": state.config.timezone,
                     },
+                    actor="cron",
                 )
-                run.record_event(actor="cron", action="run_created")
-                self._runs[run.id] = run
-                self._version_runs.setdefault(version.id, []).append(run.id)
-                self._cron_run_index[run.id] = workflow_id
                 state.register_run(run.id)
+                runs.append(run.model_copy(deep=True))
+            return runs
+
+    async def dispatch_manual_runs(
+        self, request: ManualDispatchRequest
+    ) -> list[WorkflowRun]:
+        """Dispatch one or more manual runs for a workflow."""
+        async with self._lock:
+            if request.workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(request.workflow_id))
+
+            version_ids = self._workflow_versions.get(request.workflow_id)
+            if not version_ids:
+                raise WorkflowVersionNotFoundError(str(request.workflow_id))
+
+            default_version_id = version_ids[-1]
+            runs: list[WorkflowRun] = []
+            triggered_by = request.trigger_label()
+
+            for resolved in request.resolve_runs(
+                default_workflow_version_id=default_version_id
+            ):
+                run = self._create_run_locked(
+                    workflow_id=request.workflow_id,
+                    workflow_version_id=resolved.workflow_version_id,
+                    triggered_by=triggered_by,
+                    input_payload=resolved.input_payload,
+                    actor=request.actor,
+                )
                 runs.append(run.model_copy(deep=True))
             return runs
 

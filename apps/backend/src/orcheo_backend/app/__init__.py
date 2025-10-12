@@ -24,6 +24,7 @@ from orcheo.graph.builder import build_graph
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -555,6 +556,22 @@ async def dispatch_cron_triggers(
     """Evaluate cron schedules and enqueue any due runs."""
     now = request.now if request else None
     return await repository.dispatch_due_cron_runs(now=now)
+
+
+@_http_router.post(
+    "/triggers/manual/dispatch",
+    response_model=list[WorkflowRun],
+)
+async def dispatch_manual_runs(
+    request: ManualDispatchRequest, repository: RepositoryDep
+) -> list[WorkflowRun]:
+    """Dispatch one or more manual workflow runs."""
+    try:
+        return await repository.dispatch_manual_runs(request)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+    except WorkflowVersionNotFoundError as exc:
+        _raise_not_found("Workflow version not found", exc)
 
 
 def create_app(

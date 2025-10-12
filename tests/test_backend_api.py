@@ -677,3 +677,102 @@ def test_cron_trigger_timezone_dispatch(api_client: TestClient) -> None:
     )
     assert dispatch_response.status_code == 200
     assert len(dispatch_response.json()) == 1
+
+
+def test_manual_trigger_dispatch_single_run(api_client: TestClient) -> None:
+    """Manual trigger endpoint creates a run with the latest version."""
+
+    workflow_id, _ = _create_workflow_with_version(api_client)
+
+    dispatch_response = api_client.post(
+        "/api/triggers/manual/dispatch",
+        json={
+            "workflow_id": workflow_id,
+            "actor": "operator",
+            "runs": [{"input_payload": {"foo": "bar"}}],
+        },
+    )
+    assert dispatch_response.status_code == 200
+    runs = dispatch_response.json()
+    assert len(runs) == 1
+    run = runs[0]
+    assert run["triggered_by"] == "manual"
+    assert run["input_payload"] == {"foo": "bar"}
+
+    detail_response = api_client.get(f"/api/runs/{run['id']}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["audit_log"][0]["actor"] == "operator"
+
+
+def test_manual_trigger_dispatch_batch(api_client: TestClient) -> None:
+    """Batch manual dispatch honors explicit version overrides."""
+
+    workflow_id, version_one = _create_workflow_with_version(api_client)
+    version_two_response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions",
+        json={
+            "graph": {"nodes": ["start", "branch"], "edges": []},
+            "metadata": {},
+            "created_by": "tester",
+        },
+    )
+    assert version_two_response.status_code == 201
+    version_two = version_two_response.json()["id"]
+
+    dispatch_response = api_client.post(
+        "/api/triggers/manual/dispatch",
+        json={
+            "workflow_id": workflow_id,
+            "actor": "batcher",
+            "runs": [
+                {
+                    "workflow_version_id": version_one,
+                    "input_payload": {"index": 1},
+                },
+                {
+                    "workflow_version_id": version_two,
+                    "input_payload": {"index": 2},
+                },
+            ],
+        },
+    )
+    assert dispatch_response.status_code == 200
+    runs = dispatch_response.json()
+    assert [run["triggered_by"] for run in runs] == ["manual_batch", "manual_batch"]
+    assert [run["workflow_version_id"] for run in runs] == [
+        version_one,
+        version_two,
+    ]
+
+
+def test_manual_trigger_dispatch_errors(api_client: TestClient) -> None:
+    """Manual dispatch returns 404 when workflow or versions are missing."""
+
+    missing_workflow = uuid4()
+    missing_response = api_client.post(
+        "/api/triggers/manual/dispatch",
+        json={
+            "workflow_id": str(missing_workflow),
+            "actor": "tester",
+            "runs": [{}],
+        },
+    )
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"] == "Workflow not found"
+
+    workflow_response = api_client.post(
+        "/api/workflows",
+        json={"name": "Manual Errors", "actor": "author"},
+    )
+    workflow_id = workflow_response.json()["id"]
+
+    no_version_response = api_client.post(
+        "/api/triggers/manual/dispatch",
+        json={
+            "workflow_id": workflow_id,
+            "actor": "tester",
+            "runs": [{}],
+        },
+    )
+    assert no_version_response.status_code == 404
+    assert no_version_response.json()["detail"] == "Workflow version not found"
