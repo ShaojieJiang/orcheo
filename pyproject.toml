@@ -55,7 +55,7 @@ name = "orcheo"
 readme = "README.md"
 requires-python = ">=3.12"
 url = "https://github.com/AI-Colleagues/orcheo"
-version = "0.2.0"
+version = "0.3.0"
 
 [project.scripts]
 orcheo-canvas-lint = "orcheo.tooling.commands:canvas_lint"
