@@ -519,6 +519,7 @@ class InMemoryWorkflowRepository:
                     },
                     actor="cron",
                 )
+                self._trigger_layer.commit_cron_dispatch(workflow_id)
                 runs.append(run.model_copy(deep=True))
             return runs
 

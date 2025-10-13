@@ -77,6 +77,10 @@ def test_cron_dispatch_and_overlap_controls() -> None:
         )
     ]
 
+    # Cron occurrences remain pending until they are explicitly committed.
+    repeat_plans = layer.collect_due_cron_dispatches(now=reference)
+    assert repeat_plans == plans
+
     run_id = uuid4()
     layer.track_run(workflow_id, run_id)
     layer.register_cron_run(run_id)
@@ -86,6 +90,7 @@ def test_cron_dispatch_and_overlap_controls() -> None:
         layer.track_run(workflow_id, conflicting_run)
         layer.register_cron_run(conflicting_run)
 
+    layer.commit_cron_dispatch(workflow_id)
     layer.release_cron_run(run_id)
     next_plans = layer.collect_due_cron_dispatches(
         now=datetime(2025, 1, 2, 9, 0, tzinfo=UTC)

@@ -864,6 +864,21 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
     runs = await repository.dispatch_due_cron_runs(now=naive_now)
     assert runs == []
 
+    # Once the missing version is created the original occurrence is dispatched.
+    await repository.create_version(
+        workflow_without_versions.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    retried_runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 11, 0, tzinfo=UTC)
+    )
+    assert len(retried_runs) == 1
+    assert retried_runs[0].triggered_by == "cron"
+
 
 @pytest.mark.asyncio()
 async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(

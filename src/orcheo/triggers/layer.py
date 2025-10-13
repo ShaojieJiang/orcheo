@@ -119,15 +119,22 @@ class TriggerLayer:
             due_at = state.peek_due(now=now)
             if due_at is None or not state.can_dispatch():
                 continue
-            scheduled_for = state.consume_due()
             plans.append(
                 CronDispatchPlan(
                     workflow_id=workflow_id,
-                    scheduled_for=scheduled_for,
+                    scheduled_for=due_at,
                     timezone=state.config.timezone,
                 )
             )
         return plans
+
+    def commit_cron_dispatch(self, workflow_id: UUID) -> None:
+        """Advance the cron schedule after a run has been enqueued."""
+        state = self._cron_states.get(workflow_id)
+        if state is None:
+            return
+
+        state.consume_due()
 
     def register_cron_run(self, run_id: UUID) -> None:
         """Register a cron-triggered run so overlap guards are enforced."""
