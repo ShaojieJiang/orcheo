@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
 from orcheo.triggers.cron import CronTriggerConfig
-from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
+from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -542,6 +542,54 @@ async def test_list_entities_error_paths(
 
     with pytest.raises(WorkflowNotFoundError):
         await repository.list_runs_for_workflow(missing_id)
+
+
+@pytest.mark.asyncio()
+async def test_retry_configuration_requires_existing_workflow(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry configuration helpers enforce workflow existence."""
+
+    missing_id = uuid4()
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.configure_retry_policy(missing_id, RetryPolicyConfig())
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.get_retry_policy_config(missing_id)
+
+
+@pytest.mark.asyncio()
+async def test_schedule_retry_for_run_requires_existing_run(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry scheduling for unknown runs raises the expected error."""
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.schedule_retry_for_run(uuid4())
+
+
+@pytest.mark.asyncio()
+async def test_retry_policy_round_trip(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry policy configuration can be stored and retrieved."""
+
+    workflow = await repository.create_workflow(
+        name="Retry Policy",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="qa",
+    )
+    config = RetryPolicyConfig(max_attempts=4, initial_delay_seconds=12.5)
+
+    stored = await repository.configure_retry_policy(workflow.id, config)
+    assert stored.max_attempts == 4
+    assert stored.initial_delay_seconds == 12.5
+
+    fetched = await repository.get_retry_policy_config(workflow.id)
+    assert fetched.max_attempts == 4
+    assert fetched.initial_delay_seconds == 12.5
 
 
 @pytest.mark.asyncio()
