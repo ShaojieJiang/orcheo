@@ -34,6 +34,7 @@ Deliver a unified workflow automation platform that bridges low-code visual tool
 |---------|--------------|------------|----------|---------------------|
 | Full-stack developer (Dev) | Use the Python SDK for complex integrations and custom nodes | I can extend workflows programmatically with tests and version control | P0 | SDK offers typed node authoring, local execution, and deployment hooks that stay in sync with server workflows |
 | Backend developer (Jake) | Orchestrate API calls with secure credential management | I can integrate services safely without exposing secrets | P0 | Credential vault issues scoped tokens, masks secrets in logs, and enforces rotation policies for API-driven workflows |
+| LangGraph developer (Nina) | Submit Python scripts defining graphs directly to the backend | I can reuse the same code-first authoring flow when deploying to Orcheo | P0 | Backend accepts LangGraph-compatible Python scripts, validates them, and returns import status or actionable errors |
 | Data scientist (Lisa) | Chain AI models and analyses via a code-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
 | Integration specialist (Chris) | Configure webhook and cron triggers with monitoring and alerts | I can keep cross-system automations reliable | P0 | Trigger setup supports retries, failure notifications, and visibility into recent executions |
 | SaaS founder (Tom) | Combine visual workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix canvas-built steps with SDK-authored nodes and deploy as a single versioned flow |
@@ -70,6 +71,8 @@ Current automation platforms force teams to choose between ease of use and advan
 #### Backend (Dual-Mode Architecture)
 - Python library mode exposing LangGraph-powered node definitions and execution orchestration.
 - Standalone FastAPI server provides workflow CRUD, execution control, and WebSocket streaming for execution telemetry.
+- Backend accepts LangGraph-compatible Python script submissions for graph definition, mirroring LangGraph dev workflows so remote authoring feels identical to local SDK usage.
+- Python SDK ships an `HttpWorkflowExecutor` that wraps workflow run APIs with `httpx`, automatic bearer authentication, and configurable retry/backoff semantics for reliable remote dispatches.
 - Trigger layer ships webhook validation (multi-verb support, request filtering, custom responses, rate limiting), cron scheduling (timezone aware, overlap guards, pause/resume), and manual runs with batch inputs plus debug mode.
 - Execution engine with history, retries, and support for loops, branching, and parallelization.
 
@@ -87,7 +90,7 @@ Current automation platforms force teams to choose between ease of use and advan
 
 ### Execution Flows
 - **Visual designer path:** Canvas-built workflows convert to LangGraph format, validate server-side, persist, run via triggers, and emit live updates over WebSocket.
-- **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, optionally register with the server for persistence, credential reuse, and monitoring.
+- **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, and submit the same Python scripts to the server for persistence, credential reuse, and monitoring without rewriting the graph definition.
 
 ### Designs (if applicable)
 Figma mocks and copy docs are in progress; link will be attached after initial canvas prototype.

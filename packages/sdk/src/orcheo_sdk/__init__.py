@@ -1,6 +1,10 @@
 """Python SDK for interacting with the Orcheo backend."""
 
-from orcheo_sdk.client import OrcheoClient
+from orcheo_sdk.client import (
+    HttpWorkflowExecutor,
+    OrcheoClient,
+    WorkflowExecutionError,
+)
 from orcheo_sdk.workflow import (
     DeploymentRequest,
     Workflow,
@@ -12,7 +16,9 @@ from orcheo_sdk.workflow import (
 
 __all__ = [
     "DeploymentRequest",
+    "HttpWorkflowExecutor",
     "OrcheoClient",
+    "WorkflowExecutionError",
     "Workflow",
     "WorkflowNode",
     "WorkflowRunContext",
