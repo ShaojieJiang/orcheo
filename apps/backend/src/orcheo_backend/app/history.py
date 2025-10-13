@@ -63,6 +63,12 @@ class RunHistoryRecord(BaseModel):
         self.completed_at = _utcnow()
         self.error = error
 
+    def mark_cancelled(self, *, reason: str | None = None) -> None:
+        """Mark the execution as cancelled with an optional reason."""
+        self.status = "cancelled"
+        self.completed_at = _utcnow()
+        self.error = reason
+
 
 class InMemoryRunHistoryStore:
     """Async-safe in-memory store for execution histories."""
@@ -113,6 +119,15 @@ class InMemoryRunHistoryStore:
         async with self._lock:
             record = self._require_record(execution_id)
             record.mark_failed(error)
+            return record.model_copy(deep=True)
+
+    async def mark_cancelled(
+        self, execution_id: str, *, reason: str | None = None
+    ) -> RunHistoryRecord:
+        """Mark the execution as cancelled."""
+        async with self._lock:
+            record = self._require_record(execution_id)
+            record.mark_cancelled(reason=reason)
             return record.model_copy(deep=True)
 
     async def get_history(self, execution_id: str) -> RunHistoryRecord:

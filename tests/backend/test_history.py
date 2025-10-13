@@ -21,6 +21,17 @@ def test_run_history_record_mark_failed_sets_error() -> None:
     assert record.completed_at is not None
 
 
+def test_run_history_record_mark_cancelled_sets_status() -> None:
+    """Marking a record as cancelled updates status and timestamp."""
+
+    record = RunHistoryRecord(workflow_id="wf", execution_id="exec")
+    record.mark_cancelled(reason="shutdown")
+
+    assert record.status == "cancelled"
+    assert record.error == "shutdown"
+    assert record.completed_at is not None
+
+
 @pytest.mark.asyncio
 async def test_start_run_duplicate_execution_id_raises() -> None:
     """Starting the same execution twice surfaces a descriptive error."""
@@ -46,6 +57,22 @@ async def test_mark_failed_returns_copy_and_persists() -> None:
     history = await store.get_history("exec")
     assert history.status == "error"
     assert history.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_mark_cancelled_returns_copy_and_persists() -> None:
+    """Marking a run as cancelled stores the status change and returns a copy."""
+
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    result = await store.mark_cancelled("exec", reason="cancelled")
+    assert result.status == "cancelled"
+    assert result.error == "cancelled"
+
+    history = await store.get_history("exec")
+    assert history.status == "cancelled"
+    assert history.error == "cancelled"
 
 
 @pytest.mark.asyncio

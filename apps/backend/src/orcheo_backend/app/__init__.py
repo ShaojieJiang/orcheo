@@ -170,6 +170,12 @@ async def execute_workflow(
                 except Exception as exc:  # pragma: no cover
                     logger.error("Error processing messages: %s", exc)
                     raise
+        except asyncio.CancelledError as exc:
+            reason = str(exc) or "Workflow execution cancelled"
+            cancellation_payload = {"status": "cancelled", "reason": reason}
+            await history_store.append_step(execution_id, cancellation_payload)
+            await history_store.mark_cancelled(execution_id, reason=reason)
+            raise
         except Exception as exc:
             error_payload = {"status": "error", "error": str(exc)}
             await history_store.append_step(execution_id, error_payload)
