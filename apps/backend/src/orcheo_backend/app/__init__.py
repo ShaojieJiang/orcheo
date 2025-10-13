@@ -26,6 +26,11 @@ from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
+from orcheo_backend.app.history import (
+    InMemoryRunHistoryStore,
+    RunHistoryNotFoundError,
+    RunHistoryRecord,
+)
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -37,6 +42,9 @@ from orcheo_backend.app.schemas import (
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
+    RunHistoryResponse,
+    RunHistoryStepResponse,
+    RunReplayRequest,
     RunSucceedRequest,
     WorkflowCreateRequest,
     WorkflowRunCreateRequest,
@@ -57,6 +65,9 @@ load_dotenv()
 _ws_router = APIRouter()
 _http_router = APIRouter(prefix="/api")
 _repository = InMemoryWorkflowRepository()
+_history_store_ref: dict[str, InMemoryRunHistoryStore] = {
+    "store": InMemoryRunHistoryStore()
+}
 
 
 def get_repository() -> InMemoryWorkflowRepository:
@@ -65,6 +76,14 @@ def get_repository() -> InMemoryWorkflowRepository:
 
 
 RepositoryDep = Annotated[InMemoryWorkflowRepository, Depends(get_repository)]
+
+
+def get_history_store() -> InMemoryRunHistoryStore:
+    """Return the singleton execution history store."""
+    return _history_store_ref["store"]
+
+
+HistoryStoreDep = Annotated[InMemoryRunHistoryStore, Depends(get_history_store)]
 
 
 def _raise_not_found(detail: str, exc: Exception) -> NoReturn:
@@ -88,6 +107,30 @@ def _raise_webhook_error(exc: WebhookValidationError) -> NoReturn:
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+def _history_to_response(
+    record: RunHistoryRecord, *, from_step: int = 0
+) -> RunHistoryResponse:
+    """Convert a history record into a serialisable response."""
+    steps = [
+        RunHistoryStepResponse(
+            index=step.index,
+            at=step.at,
+            payload=step.payload,
+        )
+        for step in record.steps[from_step:]
+    ]
+    return RunHistoryResponse(
+        execution_id=record.execution_id,
+        workflow_id=record.workflow_id,
+        status=record.status,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        error=record.error,
+        inputs=record.inputs,
+        steps=steps,
+    )
+
+
 async def execute_workflow(
     workflow_id: str,
     graph_config: dict[str, Any],
@@ -100,6 +143,11 @@ async def execute_workflow(
     logger.info("Initial inputs: %s", inputs)
 
     settings = get_settings()
+    history_store = get_history_store()
+    await history_store.start_run(
+        workflow_id=workflow_id, execution_id=execution_id, inputs=inputs
+    )
+
     async with create_checkpointer(settings) as checkpointer:
         graph = build_graph(graph_config)
         compiled_graph = graph.compile(checkpointer=checkpointer)
@@ -110,18 +158,28 @@ async def execute_workflow(
 
         # Run graph with streaming
         config = {"configurable": {"thread_id": execution_id}}
-        async for step in compiled_graph.astream(
-            state,
-            config=config,  # type: ignore[arg-type]
-            stream_mode="updates",
-        ):  # pragma: no cover
-            try:
-                await websocket.send_json(step)
-            except Exception as exc:  # pragma: no cover
-                logger.error("Error processing messages: %s", exc)
-                raise
+        try:
+            async for step in compiled_graph.astream(
+                state,
+                config=config,  # type: ignore[arg-type]
+                stream_mode="updates",
+            ):  # pragma: no cover
+                await history_store.append_step(execution_id, step)
+                try:
+                    await websocket.send_json(step)
+                except Exception as exc:  # pragma: no cover
+                    logger.error("Error processing messages: %s", exc)
+                    raise
+        except Exception as exc:
+            error_payload = {"status": "error", "error": str(exc)}
+            await history_store.append_step(execution_id, error_payload)
+            await history_store.mark_failed(execution_id, str(exc))
+            raise
 
-    await websocket.send_json({"status": "completed"})  # pragma: no cover
+    completion_payload = {"status": "completed"}
+    await history_store.append_step(execution_id, completion_payload)
+    await history_store.mark_completed(execution_id)
+    await websocket.send_json(completion_payload)  # pragma: no cover
 
 
 @_ws_router.websocket("/ws/workflow/{workflow_id}")
@@ -361,6 +419,38 @@ async def get_workflow_run(
         _raise_not_found("Workflow run not found", exc)
 
 
+@_http_router.get(
+    "/executions/{execution_id}/history",
+    response_model=RunHistoryResponse,
+)
+async def get_execution_history(
+    execution_id: str, history_store: HistoryStoreDep
+) -> RunHistoryResponse:
+    """Return the recorded execution history for a workflow run."""
+    try:
+        record = await history_store.get_history(execution_id)
+    except RunHistoryNotFoundError as exc:
+        _raise_not_found("Execution history not found", exc)
+    return _history_to_response(record)
+
+
+@_http_router.post(
+    "/executions/{execution_id}/replay",
+    response_model=RunHistoryResponse,
+)
+async def replay_execution(
+    execution_id: str,
+    request: RunReplayRequest,
+    history_store: HistoryStoreDep,
+) -> RunHistoryResponse:
+    """Return a sliced view of the execution history for replay clients."""
+    try:
+        record = await history_store.get_history(execution_id)
+    except RunHistoryNotFoundError as exc:
+        _raise_not_found("Execution history not found", exc)
+    return _history_to_response(record, from_step=request.from_step)
+
+
 @_http_router.post("/runs/{run_id}/start", response_model=WorkflowRun)
 async def mark_run_started(
     run_id: UUID,
@@ -576,6 +666,8 @@ async def dispatch_manual_runs(
 
 def create_app(
     repository: InMemoryWorkflowRepository | None = None,
+    *,
+    history_store: InMemoryRunHistoryStore | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""
     application = FastAPI()
@@ -590,6 +682,9 @@ def create_app(
 
     if repository is not None:
         application.dependency_overrides[get_repository] = lambda: repository
+    if history_store is not None:
+        application.dependency_overrides[get_history_store] = lambda: history_store
+        _history_store_ref["store"] = history_store
 
     application.include_router(_http_router)
     application.include_router(_ws_router)
