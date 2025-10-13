@@ -70,6 +70,53 @@ async def test_execute_workflow():
 
 
 @pytest.mark.asyncio
+async def test_execute_workflow_failure_records_error() -> None:
+    """Failures during execution are captured within the history store."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_graph = MagicMock()
+
+    class _FailingStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("boom")
+
+    def failing_astream(*args, **kwargs):
+        return _FailingStream()
+
+    mock_compiled_graph = MagicMock()
+    mock_compiled_graph.astream = failing_astream
+    mock_graph.compile.return_value = mock_compiled_graph
+
+    @asynccontextmanager
+    async def fake_checkpointer(_settings):
+        yield object()
+
+    history_store = InMemoryRunHistoryStore()
+
+    with (
+        patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.build_graph", return_value=mock_graph),
+        patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+    ):
+        with pytest.raises(RuntimeError, match="boom"):
+            await execute_workflow(
+                "wf",
+                {"nodes": []},
+                {"input": "data"},
+                "exec-1",
+                mock_websocket,
+            )
+
+    history = await history_store.get_history("exec-1")
+    assert history.status == "error"
+    assert history.error == "boom"
+    assert history.steps[-1].payload == {"status": "error", "error": "boom"}
+
+
+@pytest.mark.asyncio
 async def test_workflow_websocket():
     # Mock dependencies
     mock_websocket = AsyncMock(spec=WebSocket)
@@ -160,3 +207,29 @@ def test_execution_history_endpoints_return_steps() -> None:
     assert len(replay["steps"]) == 2
     assert replay["steps"][0]["index"] == 1
     assert replay["steps"][0]["payload"] == {"node": "second"}
+
+
+def test_execution_history_not_found_returns_404() -> None:
+    """Missing history records return a 404 response."""
+
+    repository = InMemoryWorkflowRepository()
+    history_store = InMemoryRunHistoryStore()
+    app = create_app(repository, history_store=history_store)
+    client = TestClient(app)
+
+    response = client.get("/api/executions/missing/history")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Execution history not found"
+
+
+def test_replay_execution_not_found_returns_404() -> None:
+    """Replay API mirrors 404 behaviour for unknown executions."""
+
+    repository = InMemoryWorkflowRepository()
+    history_store = InMemoryRunHistoryStore()
+    app = create_app(repository, history_store=history_store)
+    client = TestClient(app)
+
+    response = client.post("/api/executions/missing/replay", json={"from_step": 0})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Execution history not found"
