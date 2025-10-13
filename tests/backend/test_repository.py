@@ -4,8 +4,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
-from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
+from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
+from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -447,6 +448,55 @@ async def test_manual_dispatch_rejects_unknown_versions(
 
 
 @pytest.mark.asyncio()
+async def test_configure_retry_policy_and_schedule_decision(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry policy configuration surfaces scheduling decisions."""
+
+    workflow = await repository.create_workflow(
+        name="Retry Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    config = RetryPolicyConfig(
+        max_attempts=2,
+        initial_delay_seconds=10.0,
+        jitter_factor=0.0,
+    )
+    stored = await repository.configure_retry_policy(workflow.id, config)
+    assert stored.max_attempts == 2
+
+    run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="webhook",
+        input_payload={},
+        actor="tester",
+    )
+
+    first = await repository.schedule_retry_for_run(
+        run.id, failed_at=datetime(2025, 1, 1, 10, 0, tzinfo=UTC)
+    )
+    assert first is not None
+    assert first.retry_number == 1
+
+    second = await repository.schedule_retry_for_run(
+        run.id, failed_at=datetime(2025, 1, 1, 10, 10, tzinfo=UTC)
+    )
+    assert second is None
+
+
+@pytest.mark.asyncio()
 async def test_create_run_with_cron_source_tracks_overlap(
     repository: InMemoryWorkflowRepository,
 ) -> None:
@@ -473,11 +523,11 @@ async def test_create_run_with_cron_source_tracks_overlap(
         triggered_by="cron",
         input_payload={},
     )
-    assert repository._cron_run_index[run.id] == workflow.id
+    assert repository._trigger_layer._cron_run_index[run.id] == workflow.id
 
     await repository.mark_run_started(run.id, actor="cron")
     await repository.mark_run_succeeded(run.id, actor="cron", output=None)
-    assert run.id not in repository._cron_run_index
+    assert run.id not in repository._trigger_layer._cron_run_index
 
 
 @pytest.mark.asyncio()
@@ -492,6 +542,54 @@ async def test_list_entities_error_paths(
 
     with pytest.raises(WorkflowNotFoundError):
         await repository.list_runs_for_workflow(missing_id)
+
+
+@pytest.mark.asyncio()
+async def test_retry_configuration_requires_existing_workflow(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry configuration helpers enforce workflow existence."""
+
+    missing_id = uuid4()
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.configure_retry_policy(missing_id, RetryPolicyConfig())
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.get_retry_policy_config(missing_id)
+
+
+@pytest.mark.asyncio()
+async def test_schedule_retry_for_run_requires_existing_run(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry scheduling for unknown runs raises the expected error."""
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.schedule_retry_for_run(uuid4())
+
+
+@pytest.mark.asyncio()
+async def test_retry_policy_round_trip(
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Retry policy configuration can be stored and retrieved."""
+
+    workflow = await repository.create_workflow(
+        name="Retry Policy",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="qa",
+    )
+    config = RetryPolicyConfig(max_attempts=4, initial_delay_seconds=12.5)
+
+    stored = await repository.configure_retry_policy(workflow.id, config)
+    assert stored.max_attempts == 4
+    assert stored.initial_delay_seconds == 12.5
+
+    fetched = await repository.get_retry_policy_config(workflow.id)
+    assert fetched.max_attempts == 4
+    assert fetched.initial_delay_seconds == 12.5
 
 
 @pytest.mark.asyncio()
@@ -755,7 +853,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
     naive_now = datetime(2025, 1, 1, 11, 0)
 
     # Entry without a persisted workflow.
-    repository._cron_states[uuid4()] = CronTriggerState()
+    repository._trigger_layer.configure_cron(uuid4(), CronTriggerConfig())
 
     # Workflow without versions.
     workflow_without_versions = await repository.create_workflow(
@@ -765,8 +863,9 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         tags=None,
         actor="owner",
     )
-    repository._cron_states[workflow_without_versions.id] = CronTriggerState(
-        CronTriggerConfig(expression="0 11 * * *", timezone="UTC")
+    repository._trigger_layer.configure_cron(
+        workflow_without_versions.id,
+        CronTriggerConfig(expression="0 11 * * *", timezone="UTC"),
     )
 
     # Workflow with a missing latest version object.
@@ -785,8 +884,9 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         created_by="owner",
     )
     repository._versions.pop(orphaned_version.id)
-    repository._cron_states[workflow_missing_version.id] = CronTriggerState(
-        CronTriggerConfig(expression="0 11 * * *", timezone="UTC")
+    repository._trigger_layer.configure_cron(
+        workflow_missing_version.id,
+        CronTriggerConfig(expression="0 11 * * *", timezone="UTC"),
     )
 
     # Workflow that is not yet due.
@@ -804,12 +904,28 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         notes=None,
         created_by="owner",
     )
-    repository._cron_states[workflow_not_due.id] = CronTriggerState(
-        CronTriggerConfig(expression="0 12 * * *", timezone="UTC")
+    repository._trigger_layer.configure_cron(
+        workflow_not_due.id,
+        CronTriggerConfig(expression="0 12 * * *", timezone="UTC"),
     )
 
     runs = await repository.dispatch_due_cron_runs(now=naive_now)
     assert runs == []
+
+    # Once the missing version is created the original occurrence is dispatched.
+    await repository.create_version(
+        workflow_without_versions.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    retried_runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 11, 0, tzinfo=UTC)
+    )
+    assert len(retried_runs) == 1
+    assert retried_runs[0].triggered_by == "cron"
 
 
 @pytest.mark.asyncio()
@@ -837,8 +953,9 @@ async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(
         workflow.id,
         CronTriggerConfig(expression="0 7 * * *", timezone="UTC"),
     )
-    state = repository._cron_states[workflow.id]
-    state.register_run(uuid4())
+    active_run_id = uuid4()
+    repository._trigger_layer.track_run(workflow.id, active_run_id)
+    repository._trigger_layer.register_cron_run(active_run_id)
 
     runs = await repository.dispatch_due_cron_runs(
         now=datetime(2025, 1, 1, 7, 0, tzinfo=UTC)

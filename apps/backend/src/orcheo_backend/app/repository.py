@@ -10,13 +10,11 @@ from difflib import unified_diff
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
-from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
+from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.layer import TriggerLayer
 from orcheo.triggers.manual import ManualDispatchRequest
-from orcheo.triggers.webhook import (
-    WebhookRequest,
-    WebhookTriggerConfig,
-    WebhookTriggerState,
-)
+from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
+from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 
 
 class RepositoryError(RuntimeError):
@@ -55,9 +53,7 @@ class InMemoryWorkflowRepository:
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
-        self._webhook_states: dict[UUID, WebhookTriggerState] = {}
-        self._cron_states: dict[UUID, CronTriggerState] = {}
-        self._cron_run_index: dict[UUID, UUID] = {}
+        self._trigger_layer = TriggerLayer()
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all workflows stored within the repository."""
@@ -332,8 +328,9 @@ class InMemoryWorkflowRepository:
         run.record_event(actor=actor or triggered_by, action="run_created")
         self._runs[run.id] = run
         self._version_runs.setdefault(workflow_version_id, []).append(run.id)
+        self._trigger_layer.track_run(workflow_id, run.id)
         if triggered_by == "cron":
-            self._cron_run_index[run.id] = workflow_id
+            self._trigger_layer.register_cron_run(run.id)
         return run
 
     async def _update_run(
@@ -364,6 +361,7 @@ class InMemoryWorkflowRepository:
             lambda run: run.mark_succeeded(actor=actor, output=output),
         )
         self._release_cron_run(run_id)
+        self._trigger_layer.clear_retry_state(run_id)
         return run
 
     async def mark_run_failed(
@@ -394,6 +392,7 @@ class InMemoryWorkflowRepository:
             lambda run: run.mark_cancelled(actor=actor, reason=reason),
         )
         self._release_cron_run(run_id)
+        self._trigger_layer.clear_retry_state(run_id)
         return run
 
     async def reset(self) -> None:
@@ -404,19 +403,11 @@ class InMemoryWorkflowRepository:
             self._versions.clear()
             self._runs.clear()
             self._version_runs.clear()
-            self._webhook_states.clear()
-            self._cron_states.clear()
-            self._cron_run_index.clear()
+            self._trigger_layer.reset()
 
     def _release_cron_run(self, run_id: UUID) -> None:
         """Release overlap tracking for the provided cron run."""
-        workflow_id = self._cron_run_index.pop(run_id, None)
-        if workflow_id is None:
-            return
-        state = self._cron_states.get(workflow_id)
-        if state is None:
-            return
-        state.release_run(run_id)
+        self._trigger_layer.release_cron_run(run_id)
 
     async def configure_webhook_trigger(
         self, workflow_id: UUID, config: WebhookTriggerConfig
@@ -425,9 +416,7 @@ class InMemoryWorkflowRepository:
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
-            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
-            state.update_config(config)
-            return state.config
+            return self._trigger_layer.configure_webhook(workflow_id, config)
 
     async def get_webhook_trigger_config(
         self, workflow_id: UUID
@@ -436,8 +425,7 @@ class InMemoryWorkflowRepository:
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
-            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
-            return state.config
+            return self._trigger_layer.get_webhook_config(workflow_id)
 
     async def handle_webhook_trigger(
         self,
@@ -463,7 +451,6 @@ class InMemoryWorkflowRepository:
             if version is None:
                 raise WorkflowVersionNotFoundError(str(latest_version_id))
 
-            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
             request = WebhookRequest(
                 method=method,
                 headers=headers,
@@ -471,22 +458,16 @@ class InMemoryWorkflowRepository:
                 payload=payload,
                 source_ip=source_ip,
             )
-            state.validate(request)
-
-            normalized_payload = state.serialize_payload(payload)
-            run = WorkflowRun(
-                workflow_version_id=version.id,
-                triggered_by="webhook",
-                input_payload={
-                    "body": normalized_payload,
-                    "headers": request.normalized_headers(),
-                    "query_params": request.normalized_query(),
-                    "source_ip": source_ip,
-                },
+            dispatch = self._trigger_layer.prepare_webhook_dispatch(
+                workflow_id, request
             )
-            run.record_event(actor="webhook", action="run_created")
-            self._runs[run.id] = run
-            self._version_runs.setdefault(version.id, []).append(run.id)
+            run = self._create_run_locked(
+                workflow_id=workflow_id,
+                workflow_version_id=version.id,
+                triggered_by=dispatch.triggered_by,
+                input_payload=dispatch.input_payload,
+                actor=dispatch.actor,
+            )
             return run.model_copy(deep=True)
 
     async def configure_cron_trigger(
@@ -496,17 +477,14 @@ class InMemoryWorkflowRepository:
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
-            state = self._cron_states.setdefault(workflow_id, CronTriggerState())
-            state.update_config(config)
-            return state.config
+            return self._trigger_layer.configure_cron(workflow_id, config)
 
     async def get_cron_trigger_config(self, workflow_id: UUID) -> CronTriggerConfig:
         """Return the configured cron trigger definition."""
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
-            state = self._cron_states.setdefault(workflow_id, CronTriggerState())
-            return state.config
+            return self._trigger_layer.get_cron_config(workflow_id)
 
     async def dispatch_due_cron_runs(
         self, *, now: datetime | None = None
@@ -518,15 +496,11 @@ class InMemoryWorkflowRepository:
 
         async with self._lock:
             runs: list[WorkflowRun] = []
-            for workflow_id, state in self._cron_states.items():
+            plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
+            for plan in plans:
+                workflow_id = plan.workflow_id
                 if workflow_id not in self._workflows:
                     continue
-                due_at = state.peek_due(now=reference)
-                if due_at is None:
-                    continue
-                if not state.can_dispatch():
-                    continue
-
                 version_ids = self._workflow_versions.get(workflow_id)
                 if not version_ids:
                     continue
@@ -535,18 +509,17 @@ class InMemoryWorkflowRepository:
                 if version is None:
                     continue
 
-                fire_at = state.consume_due()
                 run = self._create_run_locked(
                     workflow_id=workflow_id,
                     workflow_version_id=version.id,
                     triggered_by="cron",
                     input_payload={
-                        "scheduled_for": fire_at.isoformat(),
-                        "timezone": state.config.timezone,
+                        "scheduled_for": plan.scheduled_for.isoformat(),
+                        "timezone": plan.timezone,
                     },
                     actor="cron",
                 )
-                state.register_run(run.id)
+                self._trigger_layer.commit_cron_dispatch(workflow_id)
                 runs.append(run.model_copy(deep=True))
             return runs
 
@@ -564,11 +537,11 @@ class InMemoryWorkflowRepository:
 
             default_version_id = version_ids[-1]
             runs: list[WorkflowRun] = []
-            triggered_by = request.trigger_label()
-
-            resolved_runs = request.resolve_runs(
-                default_workflow_version_id=default_version_id
+            plan = self._trigger_layer.prepare_manual_dispatch(
+                request, default_workflow_version_id=default_version_id
             )
+            triggered_by = plan.triggered_by
+            resolved_runs = plan.runs
 
             for resolved in resolved_runs:
                 version = self._versions.get(resolved.workflow_version_id)
@@ -583,10 +556,35 @@ class InMemoryWorkflowRepository:
                     workflow_version_id=resolved.workflow_version_id,
                     triggered_by=triggered_by,
                     input_payload=resolved.input_payload,
-                    actor=request.actor,
+                    actor=plan.actor,
                 )
                 runs.append(run.model_copy(deep=True))
             return runs
+
+    async def configure_retry_policy(
+        self, workflow_id: UUID, config: RetryPolicyConfig
+    ) -> RetryPolicyConfig:
+        """Persist retry policy configuration for the workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            return self._trigger_layer.configure_retry_policy(workflow_id, config)
+
+    async def get_retry_policy_config(self, workflow_id: UUID) -> RetryPolicyConfig:
+        """Return the retry policy configuration for the workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            return self._trigger_layer.get_retry_policy_config(workflow_id)
+
+    async def schedule_retry_for_run(
+        self, run_id: UUID, *, failed_at: datetime | None = None
+    ) -> RetryDecision | None:
+        """Return the next retry decision for the specified run."""
+        async with self._lock:
+            if run_id not in self._runs:
+                raise WorkflowRunNotFoundError(str(run_id))
+            return self._trigger_layer.next_retry_for_run(run_id, failed_at=failed_at)
 
 
 __all__ = [
