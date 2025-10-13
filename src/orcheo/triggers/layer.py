@@ -1,8 +1,9 @@
 """Unified trigger orchestration layer for workflow executions."""
 
 from __future__ import annotations
-from dataclasses import dataclass
-from datetime import UTC, datetime
+import logging
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
@@ -46,17 +47,34 @@ class CronDispatchPlan:
     timezone: str
 
 
+@dataclass(slots=True)
+class StateCleanupConfig:
+    """Configuration for automatic state cleanup."""
+
+    max_retry_states: int = 1000
+    max_completed_workflows: int = 500
+    cleanup_interval_hours: int = 1
+    completed_workflow_ttl_hours: int = 24
+
+
 class TriggerLayer:
     """Coordinate trigger configuration, validation, and dispatch state."""
 
-    def __init__(self) -> None:
+    def __init__(self, cleanup_config: StateCleanupConfig | None = None) -> None:
         """Initialize trigger state stores for the layer."""
+        self._logger = logging.getLogger(__name__)
+        self._cleanup_config = cleanup_config or StateCleanupConfig()
+        
         self._webhook_states: dict[UUID, WebhookTriggerState] = {}
         self._cron_states: dict[UUID, CronTriggerState] = {}
         self._cron_run_index: dict[UUID, UUID] = {}
         self._retry_configs: dict[UUID, RetryPolicyConfig] = {}
         self._retry_states: dict[UUID, RetryPolicyState] = {}
         self._run_workflows: dict[UUID, UUID] = {}
+        
+        # Track completed workflows for cleanup
+        self._completed_workflows: dict[UUID, datetime] = {}
+        self._last_cleanup: datetime = datetime.now(UTC)
 
     # ------------------------------------------------------------------
     # Webhook triggers
@@ -78,20 +96,29 @@ class TriggerLayer:
         self, workflow_id: UUID, request: WebhookRequest
     ) -> TriggerDispatch:
         """Validate an inbound webhook request and return the dispatch payload."""
-        state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
-        state.validate(request)
+        if workflow_id is None:
+            raise ValueError("workflow_id cannot be None")
+        if request is None:
+            raise ValueError("request cannot be None")
+            
+        try:
+            state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
+            state.validate(request)
 
-        normalized_payload = state.serialize_payload(request.payload)
-        return TriggerDispatch(
-            triggered_by="webhook",
-            actor="webhook",
-            input_payload={
-                "body": normalized_payload,
-                "headers": request.normalized_headers(),
-                "query_params": request.normalized_query(),
-                "source_ip": request.source_ip,
-            },
-        )
+            normalized_payload = state.serialize_payload(request.payload)
+            return TriggerDispatch(
+                triggered_by="webhook",
+                actor="webhook",
+                input_payload={
+                    "body": normalized_payload,
+                    "headers": request.normalized_headers(),
+                    "query_params": request.normalized_query(),
+                    "source_ip": request.source_ip,
+                },
+            )
+        except Exception as e:
+            self._logger.error(f"Failed to prepare webhook dispatch for workflow {workflow_id}: {e}")
+            raise
 
     # ------------------------------------------------------------------
     # Cron triggers
@@ -111,40 +138,57 @@ class TriggerLayer:
 
     def collect_due_cron_dispatches(self, *, now: datetime) -> list[CronDispatchPlan]:
         """Return cron dispatch plans that are due at the provided reference time."""
+        if now is None:
+            raise ValueError("now parameter cannot be None")
+            
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
 
         plans: list[CronDispatchPlan] = []
         for workflow_id, state in self._cron_states.items():
-            due_at = state.peek_due(now=now)
-            if due_at is None or not state.can_dispatch():
-                continue
-            plans.append(
-                CronDispatchPlan(
-                    workflow_id=workflow_id,
-                    scheduled_for=due_at,
-                    timezone=state.config.timezone,
+            try:
+                due_at = state.peek_due(now=now)
+                if due_at is None or not state.can_dispatch():
+                    continue
+                plans.append(
+                    CronDispatchPlan(
+                        workflow_id=workflow_id,
+                        scheduled_for=due_at,
+                        timezone=state.config.timezone,
+                    )
                 )
-            )
+            except Exception as e:
+                self._logger.error(f"Error checking cron dispatch for workflow {workflow_id}: {e}")
+                continue
         return plans
 
     def commit_cron_dispatch(self, workflow_id: UUID) -> None:
         """Advance the cron schedule after a run has been enqueued."""
+        if workflow_id is None:
+            raise ValueError("workflow_id cannot be None")
+            
         state = self._cron_states.get(workflow_id)
         if state is None:
+            self._logger.warning(f"Cannot commit cron dispatch for workflow {workflow_id}: no cron state found")
             return
 
-        state.consume_due()
+        try:
+            state.consume_due()
+        except Exception as e:
+            self._logger.error(f"Failed to commit cron dispatch for workflow {workflow_id}: {e}")
+            raise
 
     def register_cron_run(self, run_id: UUID) -> None:
         """Register a cron-triggered run so overlap guards are enforced."""
         workflow_id = self._run_workflows.get(run_id)
         if workflow_id is None:
+            self._logger.warning(f"Cannot register cron run {run_id}: workflow not tracked")
             return
 
         state = self._cron_states.get(workflow_id)
         self._cron_run_index[run_id] = workflow_id
         if state is None:
+            self._logger.warning(f"Cannot register cron run {run_id}: no cron state for workflow {workflow_id}")
             return
 
         state.register_run(run_id)
@@ -165,14 +209,23 @@ class TriggerLayer:
         self, request: ManualDispatchRequest, *, default_workflow_version_id: UUID
     ) -> ManualDispatchPlan:
         """Resolve manual dispatch runs and return the dispatch plan."""
-        resolved_runs = request.resolve_runs(
-            default_workflow_version_id=default_workflow_version_id
-        )
-        return ManualDispatchPlan(
-            triggered_by=request.trigger_label(),
-            actor=request.actor,
-            runs=resolved_runs,
-        )
+        if request is None:
+            raise ValueError("request cannot be None")
+        if default_workflow_version_id is None:
+            raise ValueError("default_workflow_version_id cannot be None")
+            
+        try:
+            resolved_runs = request.resolve_runs(
+                default_workflow_version_id=default_workflow_version_id
+            )
+            return ManualDispatchPlan(
+                triggered_by=request.trigger_label(),
+                actor=request.actor,
+                runs=resolved_runs,
+            )
+        except Exception as e:
+            self._logger.error(f"Failed to prepare manual dispatch: {e}")
+            raise
 
     # ------------------------------------------------------------------
     # Retry policies
@@ -196,29 +249,119 @@ class TriggerLayer:
         """Track a newly created run for cron overlap and retry scheduling."""
         self._run_workflows[run_id] = workflow_id
         config = self._retry_configs.get(workflow_id)
+        
+        # Handle None config explicitly
+        if config is None:
+            self._logger.debug(f"No retry policy configured for workflow {workflow_id}, using defaults")
+            config = RetryPolicyConfig()
+            
         self._retry_states[run_id] = RetryPolicyState(config)
+        
+        # Trigger cleanup if needed
+        self._maybe_cleanup_states()
 
     def next_retry_for_run(
         self, run_id: UUID, *, failed_at: datetime | None = None
     ) -> RetryDecision | None:
         """Return the next retry decision for the provided run."""
+        if run_id is None:
+            raise ValueError("run_id cannot be None")
+            
         state = self._retry_states.get(run_id)
         if state is None:
+            self._logger.debug(f"No retry state found for run {run_id}")
             return None
-        decision = state.next_retry(failed_at=failed_at)
-        if decision is None:
-            self._retry_states.pop(run_id, None)
-            self._run_workflows.pop(run_id, None)
-        return decision
+            
+        try:
+            decision = state.next_retry(failed_at=failed_at)
+            if decision is None:
+                self._logger.debug(f"Retry attempts exhausted for run {run_id}")
+                self._retry_states.pop(run_id, None)
+                self._run_workflows.pop(run_id, None)
+            return decision
+        except Exception as e:
+            self._logger.error(f"Error computing retry decision for run {run_id}: {e}")
+            raise
 
     def clear_retry_state(self, run_id: UUID) -> None:
         """Remove retry tracking for the specified run."""
+        workflow_id = self._run_workflows.pop(run_id, None)
         self._retry_states.pop(run_id, None)
-        self._run_workflows.pop(run_id, None)
+        
+        if workflow_id is not None:
+            self._completed_workflows[workflow_id] = datetime.now(UTC)
 
     # ------------------------------------------------------------------
     # Reset helpers
     # ------------------------------------------------------------------
+    def remove_workflow(self, workflow_id: UUID) -> None:
+        """Remove all state associated with a workflow."""
+        self._logger.info(f"Removing all state for workflow {workflow_id}")
+        
+        # Remove webhook and cron states
+        self._webhook_states.pop(workflow_id, None)
+        self._cron_states.pop(workflow_id, None)
+        self._retry_configs.pop(workflow_id, None)
+        
+        # Remove run tracking for this workflow
+        runs_to_remove = [run_id for run_id, wf_id in self._run_workflows.items() if wf_id == workflow_id]
+        for run_id in runs_to_remove:
+            self._retry_states.pop(run_id, None)
+            self._run_workflows.pop(run_id, None)
+            self._cron_run_index.pop(run_id, None)
+            
+        # Mark as completed for cleanup tracking
+        self._completed_workflows[workflow_id] = datetime.now(UTC)
+
+    def _maybe_cleanup_states(self) -> None:
+        """Perform state cleanup if needed based on time and size thresholds."""
+        now = datetime.now(UTC)
+        time_since_cleanup = now - self._last_cleanup
+        
+        should_cleanup_by_time = time_since_cleanup >= timedelta(hours=self._cleanup_config.cleanup_interval_hours)
+        should_cleanup_by_size = len(self._retry_states) > self._cleanup_config.max_retry_states
+        
+        if should_cleanup_by_time or should_cleanup_by_size:
+            self._cleanup_completed_workflows(now)
+            self._last_cleanup = now
+
+    def _cleanup_completed_workflows(self, now: datetime) -> None:
+        """Remove expired completed workflow state."""
+        ttl = timedelta(hours=self._cleanup_config.completed_workflow_ttl_hours)
+        expired_workflows = [
+            workflow_id for workflow_id, completed_at in self._completed_workflows.items()
+            if now - completed_at > ttl
+        ]
+        
+        for workflow_id in expired_workflows:
+            self._completed_workflows.pop(workflow_id, None)
+            
+        if expired_workflows:
+            self._logger.info(f"Cleaned up {len(expired_workflows)} expired workflow states")
+            
+        # Also cleanup if we have too many completed workflows
+        if len(self._completed_workflows) > self._cleanup_config.max_completed_workflows:
+            # Remove oldest completed workflows
+            sorted_workflows = sorted(self._completed_workflows.items(), key=lambda x: x[1])
+            excess_count = len(self._completed_workflows) - self._cleanup_config.max_completed_workflows
+            
+            for workflow_id, _ in sorted_workflows[:excess_count]:
+                self._completed_workflows.pop(workflow_id, None)
+                
+            self._logger.info(f"Cleaned up {excess_count} oldest completed workflows")
+
+    def get_state_metrics(self) -> dict[str, int]:
+        """Return current state metrics for monitoring."""
+        return {
+            "webhook_states": len(self._webhook_states),
+            "cron_states": len(self._cron_states),
+            "retry_configs": len(self._retry_configs),
+            "retry_states": len(self._retry_states),
+            "run_workflows": len(self._run_workflows),
+            "completed_workflows": len(self._completed_workflows),
+            "cron_run_index": len(self._cron_run_index),
+        }
+
     def reset(self) -> None:
         """Clear all stored trigger state."""
         self._webhook_states.clear()
@@ -227,11 +370,14 @@ class TriggerLayer:
         self._retry_configs.clear()
         self._retry_states.clear()
         self._run_workflows.clear()
+        self._completed_workflows.clear()
+        self._last_cleanup = datetime.now(UTC)
 
 
 __all__ = [
     "CronDispatchPlan",
     "ManualDispatchPlan",
+    "StateCleanupConfig",
     "TriggerDispatch",
     "TriggerLayer",
 ]

@@ -9,6 +9,7 @@ from orcheo.triggers.cron import (
 from orcheo.triggers.layer import (
     CronDispatchPlan,
     ManualDispatchPlan,
+    StateCleanupConfig,
     TriggerDispatch,
     TriggerLayer,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "RetryPolicyValidationError",
     "RetryDecision",
     "RateLimitConfig",
+    "StateCleanupConfig",
     "WebhookRequest",
     "WebhookTriggerConfig",
     "WebhookValidationError",
