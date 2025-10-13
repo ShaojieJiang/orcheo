@@ -1945,6 +1945,9 @@ provides-extras = ["dev"]
 name = "orcheo-sdk"
 version = "0.2.0"
 source = { editable = "packages/sdk" }
+dependencies = [
+    { name = "httpx" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -1956,6 +1959,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },

@@ -30,8 +30,9 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
   - [x] Build cron scheduler supporting timezone-aware execution and overlap protection.
   - [x] Support manual and batch run dispatch from the trigger layer.
   - [x] Introduce configurable retry policies for trigger-driven runs.
-- [ ] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
+- [x] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
 - [ ] Add execution engine support for loops, branching, parallelization, run history, and replay/debug APIs.
+- [ ] Expose backend ingestion that accepts LangGraph Python scripts, converts them to workflow graphs, and preserves parity with LangGraph dev's authoring experience.
 
 ### Milestone 3 – Credential Vault & Security
 - [ ] Ship AES-256 encrypted credential vault with per-workflow scoping, rotation policies, and masked logging.

@@ -3,7 +3,9 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [project]
-dependencies = []
+dependencies = [
+  "httpx>=0.27.0",
+]
 description = "Client helpers for the Orcheo workflow orchestration platform"
 name = "orcheo-sdk"
 readme = "README.md"
