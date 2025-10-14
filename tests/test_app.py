@@ -117,6 +117,58 @@ async def test_execute_workflow_failure_records_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_workflow_cancelled_records_reason() -> None:
+    """Cancellations propagate the reason and update execution history."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_graph = MagicMock()
+    cancellation_reason = "client requested stop"
+
+    class _CancellingStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise asyncio.CancelledError(cancellation_reason)
+
+    def cancelling_astream(*args, **kwargs):
+        return _CancellingStream()
+
+    mock_compiled_graph = MagicMock()
+    mock_compiled_graph.astream = cancelling_astream
+    mock_graph.compile.return_value = mock_compiled_graph
+
+    @asynccontextmanager
+    async def fake_checkpointer(_settings):
+        yield object()
+
+    history_store = InMemoryRunHistoryStore()
+
+    with (
+        patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.build_graph", return_value=mock_graph),
+        patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await execute_workflow(
+                "wf-cancel",
+                {"nodes": []},
+                {},
+                "exec-cancel",
+                mock_websocket,
+            )
+
+    history = await history_store.get_history("exec-cancel")
+    assert history.status == "cancelled"
+    assert history.error == cancellation_reason
+    assert len(history.steps) == 1
+    assert history.steps[0].payload == {
+        "status": "cancelled",
+        "reason": cancellation_reason,
+    }
+
+
+@pytest.mark.asyncio
 async def test_workflow_websocket():
     # Mock dependencies
     mock_websocket = AsyncMock(spec=WebSocket)
