@@ -31,10 +31,11 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
   - [x] Support manual and batch run dispatch from the trigger layer.
   - [x] Introduce configurable retry policies for trigger-driven runs.
 - [x] Layer in SDK HTTP execution helpers (httpx client, retry/backoff, auth headers) paired with integration tests against local backend deployments.
-- [ ] Add execution engine support for loops, branching, parallelization, run history, and replay/debug APIs.
+- [x] Add execution engine support for loops, branching, parallelization, run history, and replay/debug APIs.
 - [ ] Expose backend ingestion that accepts LangGraph Python scripts, converts them to workflow graphs, and preserves parity with LangGraph dev's authoring experience.
 
 ### Milestone 3 – Credential Vault & Security
+- [ ] Introduce a SQLite-backed developer repository with a pluggable storage abstraction so local workflows persist without requiring Postgres while keeping production defaults intact.
 - [ ] Ship AES-256 encrypted credential vault with per-workflow scoping, rotation policies, and masked logging.
 - [ ] Implement OAuth refresh flows, credential validation/testing, and health checks to block misconfigured automations.
 - [ ] Create credential templates and UI/API for secure storage, token issuance, and secret governance alerts.

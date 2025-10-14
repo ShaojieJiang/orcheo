@@ -68,6 +68,33 @@ class RunCancelRequest(RunActionRequest):
     reason: str | None = None
 
 
+class RunHistoryStepResponse(BaseModel):
+    """Response payload describing a single run history step."""
+
+    index: int
+    at: datetime
+    payload: dict[str, Any]
+
+
+class RunHistoryResponse(BaseModel):
+    """Execution history response returned by the API."""
+
+    execution_id: str
+    workflow_id: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    error: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    steps: list[RunHistoryStepResponse] = Field(default_factory=list)
+
+
+class RunReplayRequest(BaseModel):
+    """Request body for replaying a run from a given step index."""
+
+    from_step: int = Field(default=0, ge=0)
+
+
 class WorkflowVersionDiffResponse(BaseModel):
     """Response payload for workflow version diffs."""
 
