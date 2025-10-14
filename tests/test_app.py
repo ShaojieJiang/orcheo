@@ -1,17 +1,21 @@
 """Tests for the FastAPI backend module."""
 
 import asyncio
+import textwrap
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import WebSocket
 from fastapi.testclient import TestClient
+
 from orcheo_backend.app import (
     create_app,
     execute_workflow,
     get_repository,
     workflow_websocket,
 )
+from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
@@ -219,6 +223,52 @@ def test_create_app_allows_dependency_override() -> None:
 
     override = app.dependency_overrides[get_repository]
     assert override() is repository
+
+
+def test_ingest_workflow_version_endpoint_creates_version() -> None:
+    """LangGraph scripts can be submitted to create workflow versions."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="LangGraph", slug=None, description=None, tags=[], actor="tester"
+        )
+    )
+
+    app = create_app(repository)
+    client = TestClient(app)
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "metadata": {"language": "python"},
+            "notes": "Initial LangGraph import",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 201
+    version = response.json()
+    assert version["metadata"] == {"language": "python"}
+    assert version["notes"] == "Initial LangGraph import"
+    assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
+    assert "summary" in version["graph"]
 
 
 def test_execution_history_endpoints_return_steps() -> None:

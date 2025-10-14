@@ -57,6 +57,15 @@ class NodeRegistry:
         """
         return self._nodes.get(name)
 
+    def get_metadata_by_callable(self, obj: Callable) -> NodeMetadata | None:
+        """Return metadata associated with a registered callable."""
+        for name, registered in self._nodes.items():
+            if registered is obj:
+                return self._metadata.get(name)
+            if isinstance(registered, type) and isinstance(obj, registered):
+                return self._metadata.get(name)
+        return None
+
 
 # Global registry instance
 registry = NodeRegistry()

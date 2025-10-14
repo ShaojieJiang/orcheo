@@ -36,6 +36,16 @@ class WorkflowVersionCreateRequest(BaseModel):
     created_by: str
 
 
+class WorkflowVersionIngestRequest(BaseModel):
+    """Payload for ingesting a LangGraph Python script."""
+
+    script: str
+    entrypoint: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
+    created_by: str
+
+
 class WorkflowRunCreateRequest(BaseModel):
     """Payload for creating a new workflow execution run."""
 
