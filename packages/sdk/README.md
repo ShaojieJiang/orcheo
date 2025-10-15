@@ -13,12 +13,8 @@ class UppercaseConfig(BaseModel):
     prefix: str
 
 
-class UppercaseNode(WorkflowNode[UppercaseConfig, str]):
+class UppercaseNode(WorkflowNode[UppercaseConfig]):
     type_name = "Uppercase"
-
-    async def run(self, state, context) -> str:
-        message = state.get_input("message", "")
-        return f"{self.config.prefix}{message.upper()}"
 
 
 workflow = Workflow(name="demo")

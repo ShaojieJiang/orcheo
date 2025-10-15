@@ -12,14 +12,11 @@ streaming back over the websocket connection.
 from __future__ import annotations
 import asyncio
 import json
-from typing import Any
 import websockets
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
     WorkflowNode,
-    WorkflowRunContext,
-    WorkflowState,
 )
 from pydantic import BaseModel
 
@@ -30,19 +27,10 @@ class PythonCodeConfig(BaseModel):
     code: str
 
 
-class PythonCodeNode(WorkflowNode[PythonCodeConfig, dict[str, Any]]):
+class PythonCodeNode(WorkflowNode[PythonCodeConfig]):
     """Convenience wrapper that exports PythonCode nodes from the SDK."""
 
     type_name = "PythonCode"
-
-    async def run(  # pragma: no cover - executed remotely by the Orcheo backend
-        self,
-        state: WorkflowState,
-        context: WorkflowRunContext,
-    ) -> dict[str, Any]:
-        """SDK nodes only export configuration; execution happens on the server."""
-        msg = "PythonCodeNode.run should not execute locally in this example"
-        raise RuntimeError(msg)
 
 
 def build_workflow() -> Workflow:
