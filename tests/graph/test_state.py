@@ -48,5 +48,6 @@ def test_state() -> None:
     state = compiled_graph.get_state(config)
     assert state.values == {
         "messages": [],
+        "inputs": {},
         "outputs": {"node1": {"a": 1}, "node2": "b", "node3": ["c"]},
     }
