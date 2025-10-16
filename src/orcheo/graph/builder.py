@@ -4,12 +4,24 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from langgraph.graph import END, START, StateGraph
+from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.state import State
 from orcheo.nodes.registry import registry
 
 
 def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
-    """Build a LangGraph graph from a JSON configuration."""
+    """Build a LangGraph graph from a configuration payload."""
+    if graph_json.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+        source = graph_json.get("source")
+        if not isinstance(source, str) or not source.strip():
+            msg = "Script graph configuration requires a non-empty source"
+            raise ValueError(msg)
+        entrypoint_value = graph_json.get("entrypoint")
+        if entrypoint_value is not None and not isinstance(entrypoint_value, str):
+            msg = "Entrypoint must be a string when provided"
+            raise ValueError(msg)
+        return load_graph_from_script(source, entrypoint=entrypoint_value)
+
     graph = StateGraph(State)
     nodes = list(graph_json.get("nodes", []))
     edges = list(graph_json.get("edges", []))

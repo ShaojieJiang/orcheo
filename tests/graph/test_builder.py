@@ -29,6 +29,25 @@ def test_build_graph_unknown_node_type() -> None:
         builder.build_graph({"nodes": [{"name": "foo", "type": "missing"}]})
 
 
+def test_build_graph_script_format_empty_source() -> None:
+    """Script format with empty source raises ValueError."""
+
+    with pytest.raises(ValueError, match="non-empty source"):
+        builder.build_graph({"format": "langgraph-script", "source": ""})
+
+    with pytest.raises(ValueError, match="non-empty source"):
+        builder.build_graph({"format": "langgraph-script", "source": "   "})
+
+
+def test_build_graph_script_format_invalid_entrypoint_type() -> None:
+    """Script format with non-string entrypoint raises ValueError."""
+
+    with pytest.raises(ValueError, match="Entrypoint must be a string"):
+        builder.build_graph(
+            {"format": "langgraph-script", "source": "valid_code", "entrypoint": 123}
+        )
+
+
 def test_normalise_edges_validation() -> None:
     """Edge normalisation rejects malformed entries."""
 

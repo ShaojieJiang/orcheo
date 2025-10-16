@@ -1833,6 +1833,7 @@ dependencies = [
     { name = "pymongo" },
     { name = "python-dotenv" },
     { name = "python-telegram-bot" },
+    { name = "restrictedpython" },
     { name = "selenium" },
     { name = "uvicorn" },
     { name = "websockets" },
@@ -1882,6 +1883,7 @@ requires-dist = [
     { name = "pymongo", specifier = ">=4.13.2" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-telegram-bot", specifier = ">=22.0" },
+    { name = "restrictedpython", specifier = ">=7.2" },
     { name = "selenium", specifier = ">=4.32.0" },
     { name = "uvicorn", specifier = ">=0.24.0" },
     { name = "websockets", specifier = ">=12.0" },
@@ -2682,6 +2684,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl", hash = "sha256:cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06", size = 54481, upload-time = "2023-05-01T04:11:28.427Z" },
+]
+
+[[package]]
+name = "restrictedpython"
+version = "8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/f3/3cfd684abf456f536a842e4fabe1ca360a8e94d1fc329f261c34c1d98825/restrictedpython-8.0.tar.gz", hash = "sha256:3af2312bc67e5fced887fb85b006c89861da72488128b155beea81eb6a0a9b24", size = 448747, upload-time = "2025-01-23T07:15:53.14Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/31/b33804f873742ab20c8ed82a75652bf60a6205116dfec8bb092a6ebef084/RestrictedPython-8.0-py3-none-any.whl", hash = "sha256:ed3d894efd7d6cac0a5f13f75583b8458378d400d7dd4c083b59233eba85fe69", size = 27238, upload-time = "2025-01-23T07:15:50.428Z" },
 ]
 
 [[package]]

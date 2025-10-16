@@ -21,6 +21,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
@@ -51,6 +52,7 @@ from orcheo_backend.app.schemas import (
     WorkflowUpdateRequest,
     WorkflowVersionCreateRequest,
     WorkflowVersionDiffResponse,
+    WorkflowVersionIngestRequest,
 )
 
 
@@ -309,6 +311,40 @@ async def create_workflow_version(
         return await repository.create_version(
             workflow_id,
             graph=request.graph,
+            metadata=request.metadata,
+            notes=request.notes,
+            created_by=request.created_by,
+        )
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+
+@_http_router.post(
+    "/workflows/{workflow_id}/versions/ingest",
+    response_model=WorkflowVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def ingest_workflow_version(
+    workflow_id: UUID,
+    request: WorkflowVersionIngestRequest,
+    repository: RepositoryDep,
+) -> WorkflowVersion:
+    """Create a workflow version from a LangGraph Python script."""
+    try:
+        graph_payload = ingest_langgraph_script(
+            request.script,
+            entrypoint=request.entrypoint,
+        )
+    except ScriptIngestionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        return await repository.create_version(
+            workflow_id,
+            graph=graph_payload,
             metadata=request.metadata,
             notes=request.notes,
             created_by=request.created_by,
