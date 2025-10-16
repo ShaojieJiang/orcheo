@@ -1,4 +1,4 @@
-import asyncio
+import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -30,7 +30,8 @@ class Node3(TaskNode):
         return ["c"]
 
 
-def test_state() -> None:
+@pytest.mark.asyncio
+async def test_state() -> None:
     graph = StateGraph(State)
     graph.add_node("node1", Node1(name="node1"))
     graph.add_node("node2", Node2(name="node2"))
@@ -44,9 +45,14 @@ def test_state() -> None:
     checkpointer = InMemorySaver()
     compiled_graph = graph.compile(checkpointer=checkpointer)
     config = {"configurable": {"thread_id": 1}}
-    asyncio.run(compiled_graph.ainvoke({}, config))
+    await compiled_graph.ainvoke({"inputs": {}}, config)
     state = compiled_graph.get_state(config)
     assert state.values == {
         "messages": [],
-        "outputs": {"node1": {"a": 1}, "node2": "b", "node3": ["c"]},
+        "inputs": {},
+        "results": {
+            "node1": {"a": 1},
+            "node2": "b",
+            "node3": ["c"],
+        },
     }

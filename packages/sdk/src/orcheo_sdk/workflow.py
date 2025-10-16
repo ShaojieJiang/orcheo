@@ -1,45 +1,14 @@
 """Workflow authoring primitives for the Orcheo Python SDK."""
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from collections.abc import Mapping, MutableMapping, Sequence
+from abc import ABC
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 from pydantic import BaseModel
 
 
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
-OutputT = TypeVar("OutputT")
-
-
-@dataclass(slots=True)
-class WorkflowState:
-    """Runtime view of workflow inputs and generated outputs."""
-
-    inputs: Mapping[str, Any]
-    outputs: MutableMapping[str, Any]
-
-    def get_input(self, key: str, default: Any | None = None) -> Any:
-        """Return an input value or a default when not provided."""
-        if key in self.inputs:
-            return self.inputs[key]
-        return default
-
-    def get_output(self, node_name: str) -> Any:
-        """Return the output produced by a prior node."""
-        return self.outputs[node_name]
-
-    def snapshot(self) -> dict[str, Any]:
-        """Return a merged snapshot of inputs and outputs."""
-        return {**self.inputs, **self.outputs}
-
-
-@dataclass(slots=True)
-class WorkflowRunContext:
-    """Metadata passed to each node invocation."""
-
-    execution_id: str | None
-    metadata: Mapping[str, Any]
 
 
 @dataclass(slots=True)
@@ -52,7 +21,7 @@ class DeploymentRequest:
     headers: dict[str, str]
 
 
-class WorkflowNode(Generic[ConfigT, OutputT], ABC):
+class WorkflowNode(Generic[ConfigT], ABC):
     """Base class for authoring typed workflow nodes."""
 
     type_name: ClassVar[str]
@@ -71,13 +40,6 @@ class WorkflowNode(Generic[ConfigT, OutputT], ABC):
             raise ValueError(msg)
         self.name = name
         self.config = config
-
-    @abstractmethod
-    async def run(
-        self, state: WorkflowState, context: WorkflowRunContext
-    ) -> OutputT:  # pragma: no cover - subclasses override
-        """Execute the node using the latest workflow state."""
-        raise NotImplementedError
 
     def export(self) -> dict[str, Any]:
         """Return the JSON-serialisable representation of the node."""
@@ -108,7 +70,7 @@ class Workflow:
             msg = "workflow name cannot be empty"
             raise ValueError(msg)
         self.name = name
-        self._nodes: dict[str, WorkflowNode[Any, Any]] = {}
+        self._nodes: dict[str, WorkflowNode[Any]] = {}
         self._dependencies: dict[str, set[str]] = {}
         self._dependents: dict[str, set[str]] = {}
         self._metadata: dict[str, Any] = dict(metadata or {})
@@ -120,7 +82,7 @@ class Workflow:
 
     def add_node(
         self,
-        node: WorkflowNode[Any, Any],
+        node: WorkflowNode[Any],
         *,
         depends_on: Sequence[str] | None = None,
     ) -> None:
@@ -148,7 +110,7 @@ class Workflow:
             self._dependents.setdefault(dependency, set()).add(name)
         self._dependents.setdefault(name, set())
 
-    def nodes(self) -> list[WorkflowNode[Any, Any]]:
+    def nodes(self) -> list[WorkflowNode[Any]]:
         """Return the nodes registered in insertion order."""
         return [self._nodes[name] for name in self._nodes]
 

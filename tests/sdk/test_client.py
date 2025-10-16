@@ -76,6 +76,22 @@ def test_build_payload_without_execution_id(client: OrcheoClient) -> None:
     assert "execution_id" not in payload
 
 
+def test_build_payload_returns_run_workflow_shape(client: OrcheoClient) -> None:
+    graph_config = {"nodes": [{"name": "first"}], "edges": []}
+    inputs = {"name": "Ada"}
+
+    payload = client.build_payload(graph_config, inputs)
+
+    assert payload["type"] == "run_workflow"
+    assert payload["graph_config"] == graph_config
+    assert payload["inputs"] == inputs
+    # Ensure the payload does not share references with the provided mappings.
+    graph_config["nodes"].append({"name": "mutated"})
+    inputs["name"] = "Grace"
+    assert payload["graph_config"]["nodes"] == [{"name": "first"}]
+    assert payload["inputs"] == {"name": "Ada"}
+
+
 def test_http_executor_triggers_run_against_backend() -> None:
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)

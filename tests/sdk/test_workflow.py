@@ -6,8 +6,6 @@ from orcheo_sdk import (
     OrcheoClient,
     Workflow,
     WorkflowNode,
-    WorkflowRunContext,
-    WorkflowState,
 )
 from pydantic import BaseModel
 
@@ -16,24 +14,16 @@ class UppercaseConfig(BaseModel):
     prefix: str
 
 
-class UppercaseNode(WorkflowNode[UppercaseConfig, str]):
+class UppercaseNode(WorkflowNode[UppercaseConfig]):
     type_name = "Uppercase"
-
-    async def run(self, state: WorkflowState, context: WorkflowRunContext) -> str:
-        message = state.get_input("message", "")
-        return f"{self.config.prefix}{str(message).upper()}"
 
 
 class AppendConfig(BaseModel):
     suffix: str
 
 
-class AppendNode(WorkflowNode[AppendConfig, str]):
+class AppendNode(WorkflowNode[AppendConfig]):
     type_name = "Append"
-
-    async def run(self, state: WorkflowState, context: WorkflowRunContext) -> str:
-        base = state.get_output("upper")
-        return f"{base}{self.config.suffix}"
 
 
 def test_workflow_requires_unique_node_names() -> None:
@@ -107,7 +97,7 @@ def test_client_builds_update_requests() -> None:
 
 
 def test_node_requires_pydantic_config() -> None:
-    class BadNode(WorkflowNode[str, str]):
+    class BadNode(WorkflowNode[str]):
         type_name = "Bad"
 
     with pytest.raises(TypeError):
@@ -126,21 +116,9 @@ def test_client_requires_non_empty_workflow_id_for_updates() -> None:
         client.build_deployment_request(workflow, workflow_id="  ")
 
 
-def test_workflow_state_snapshot_and_defaults() -> None:
-    state = WorkflowState(inputs={"message": "hi"}, outputs={"upper": "HI"})
-
-    assert state.get_input("message") == "hi"
-    assert state.get_input("missing", default="fallback") == "fallback"
-    assert state.get_output("upper") == "HI"
-    assert state.snapshot() == {"message": "hi", "upper": "HI"}
-
-
 def test_workflow_node_validations() -> None:
-    class NoTypeNode(WorkflowNode[UppercaseConfig, str]):
+    class NoTypeNode(WorkflowNode[UppercaseConfig]):
         type_name = ""  # type: ignore[assignment]
-
-        async def run(self, state: WorkflowState, context: WorkflowRunContext) -> str:
-            return "noop"
 
     with pytest.raises(ValueError):
         NoTypeNode("valid", UppercaseConfig(prefix=""))

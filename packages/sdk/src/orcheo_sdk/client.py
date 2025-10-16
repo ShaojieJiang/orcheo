@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable, Mapping, MutableMapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal
 import httpx
@@ -72,8 +73,8 @@ class OrcheoClient:
         """Return the JSON payload required by the workflow WebSocket."""
         payload: dict[str, Any] = {
             "type": "run_workflow",
-            "graph_config": dict(graph_config),
-            "inputs": dict(inputs),
+            "graph_config": deepcopy(graph_config),
+            "inputs": deepcopy(inputs),
         }
         if execution_id:
             payload["execution_id"] = execution_id

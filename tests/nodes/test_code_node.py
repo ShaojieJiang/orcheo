@@ -8,7 +8,7 @@ async def test_basic_code_execution():
     state = {}
     node = PythonCode(name="python_node", code="return 3")
     output = await node(state, None)
-    assert output["outputs"] == {"python_node": 3}
+    assert output["results"] == {"python_node": 3}
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_code_without_result():
 @pytest.mark.asyncio
 async def test_code_with_state():
     state = {
-        "outputs": [
+        "results": [
             {"x": 1, "y": 2},
             {"x": 2, "y": 3},
         ]
@@ -30,8 +30,8 @@ async def test_code_with_state():
     node = PythonCode(
         name="python_node",
         code="""
-x = state["outputs"][-1]["x"]
-y = state["outputs"][-1]["y"]
+x = state["results"][-1]["x"]
+y = state["results"][-1]["y"]
 a = x * 2
 b = y + 1
 result = a + b
@@ -39,7 +39,7 @@ return result
 """,
     )
     output = await node(state, None)
-    assert output["outputs"] == {"python_node": 8}
+    assert output["results"] == {"python_node": 8}
 
 
 @pytest.mark.asyncio
@@ -62,4 +62,4 @@ return result
 """,
     )
     output = await node(state, None)
-    assert output["outputs"] == {"python_node": 3.141592653589793}
+    assert output["results"] == {"python_node": 3.141592653589793}

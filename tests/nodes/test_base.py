@@ -40,7 +40,7 @@ class MockAINode(AINode):
 
 def test_decode_variables():
     # Setup
-    state = State({"outputs": {"node1": {"data": {"value": "test_value"}}}})
+    state = State({"results": {"node1": {"data": {"value": "test_value"}}}})
 
     # Test node with variable reference
     node = MockTaskNode(name="test", input_var="{{node1.data.value}}")
@@ -58,7 +58,7 @@ def test_decode_variables():
 @pytest.mark.asyncio
 async def test_ai_node_call():
     # Setup
-    state = State({"outputs": {}})
+    state = State({"results": {}})
     config = RunnableConfig()
     node = MockAINode(name="test_ai", input_var="test_value")
 
@@ -68,7 +68,7 @@ async def test_ai_node_call():
     # Assert
     assert result == {
         "messages": {"result": "test_value"},
-        "outputs": {"test_ai": {"result": "test_value"}},
+        "results": {"test_ai": {"result": "test_value"}},
     }
 
 

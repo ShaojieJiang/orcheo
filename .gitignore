@@ -184,3 +184,6 @@ dist-ssr/
 
 # LangGraph
 checkpoints.sqlite
+
+# Orcheo
+.orcheo/
