@@ -84,3 +84,22 @@ def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
 
     with pytest.raises(ScriptIngestionError):
         ingest_langgraph_script(script)
+
+
+def test_ingest_script_rejects_forbidden_imports() -> None:
+    """Scripts attempting to import forbidden modules are rejected."""
+
+    script = textwrap.dedent(
+        """
+        import os
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        graph = StateGraph(State)
+        graph.set_entry_point("first")
+        graph.set_finish_point("first")
+        """
+    )
+
+    with pytest.raises(ScriptIngestionError):
+        ingest_langgraph_script(script)

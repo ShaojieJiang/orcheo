@@ -1,7 +1,10 @@
 """Utilities for ingesting LangGraph Python scripts."""
 
 from __future__ import annotations
+import builtins
+import importlib
 import inspect
+from types import MappingProxyType
 from typing import Any
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -10,6 +13,137 @@ from orcheo.nodes.registry import registry
 
 
 LANGGRAPH_SCRIPT_FORMAT = "langgraph-script"
+
+_SAFE_MODULE_PREFIXES: tuple[str, ...] = (
+    "langgraph",
+    "orcheo",
+    "typing",
+    "typing_extensions",
+    "collections",
+    "dataclasses",
+    "datetime",
+    "functools",
+    "itertools",
+    "math",
+    "operator",
+    "pydantic",
+)
+
+
+def _create_sandbox_namespace() -> dict[str, Any]:
+    """Return a namespace configured with restricted builtins for script exec."""
+
+    def _restricted_import(
+        name: str,
+        globals_: dict[str, Any] | None = None,
+        locals_: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        """Import ``name`` when it matches an allow-listed module prefix."""
+        if level != 0:
+            msg = "Relative imports are not supported in LangGraph scripts"
+            raise ScriptIngestionError(msg)
+
+        if not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for prefix in _SAFE_MODULE_PREFIXES
+        ):
+            msg = f"Import of module '{name}' is not permitted in LangGraph scripts"
+            raise ScriptIngestionError(msg)
+
+        module = importlib.import_module(name)
+
+        # Mirror the standard ``__import__`` behaviour by returning the
+        # imported module even when ``fromlist`` is provided. Attribute access
+        # is handled by the Python runtime afterwards.
+        return module
+
+    safe_builtins = {
+        "None": None,
+        "True": True,
+        "False": False,
+        "NotImplemented": NotImplemented,
+        "Ellipsis": Ellipsis,
+        "abs": abs,
+        "all": all,
+        "any": any,
+        "bool": bool,
+        "callable": callable,
+        "chr": chr,
+        "classmethod": classmethod,
+        "complex": complex,
+        "dict": dict,
+        "divmod": divmod,
+        "enumerate": enumerate,
+        "filter": filter,
+        "float": float,
+        "format": format,
+        "frozenset": frozenset,
+        "getattr": getattr,
+        "hasattr": hasattr,
+        "hash": hash,
+        "hex": hex,
+        "id": id,
+        "int": int,
+        "isinstance": isinstance,
+        "issubclass": issubclass,
+        "iter": iter,
+        "len": len,
+        "list": list,
+        "map": map,
+        "max": max,
+        "min": min,
+        "next": next,
+        "object": object,
+        "ord": ord,
+        "pow": pow,
+        "print": print,
+        "property": property,
+        "range": range,
+        "repr": repr,
+        "reversed": reversed,
+        "round": round,
+        "set": set,
+        "setattr": setattr,
+        "slice": slice,
+        "sorted": sorted,
+        "staticmethod": staticmethod,
+        "str": str,
+        "sum": sum,
+        "super": super,
+        "tuple": tuple,
+        "type": type,
+        "vars": vars,
+        "zip": zip,
+        "BaseException": BaseException,
+        "Exception": Exception,
+        "ArithmeticError": ArithmeticError,
+        "AssertionError": AssertionError,
+        "AttributeError": AttributeError,
+        "ImportError": ImportError,
+        "ModuleNotFoundError": ModuleNotFoundError,
+        "IndexError": IndexError,
+        "KeyError": KeyError,
+        "LookupError": LookupError,
+        "MemoryError": MemoryError,
+        "NameError": NameError,
+        "NotImplementedError": NotImplementedError,
+        "RuntimeError": RuntimeError,
+        "StopAsyncIteration": StopAsyncIteration,
+        "StopIteration": StopIteration,
+        "TypeError": TypeError,
+        "ValueError": ValueError,
+        "__build_class__": builtins.__build_class__,
+        "__import__": _restricted_import,
+    }
+
+    namespace: dict[str, Any] = {
+        "__builtins__": MappingProxyType(safe_builtins),
+        "__name__": "__orcheo_ingest__",
+        "__package__": None,
+    }
+    return namespace
 
 
 class ScriptIngestionError(RuntimeError):
@@ -56,10 +190,12 @@ def load_graph_from_script(
         ScriptIngestionError: if the script cannot be executed or no graph can
             be resolved from the resulting namespace.
     """
-    namespace: dict[str, Any] = {"__name__": "__orcheo_ingest__"}
+    namespace = _create_sandbox_namespace()
 
     try:
         exec(compile(source, "<langgraph-script>", "exec"), namespace)
+    except ScriptIngestionError:
+        raise
     except Exception as exc:  # pragma: no cover - exercised via tests
         message = "Failed to execute LangGraph script"
         raise ScriptIngestionError(message) from exc
