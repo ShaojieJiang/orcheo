@@ -11,13 +11,11 @@ summary.
 """
 
 from __future__ import annotations
-
 import asyncio
 import json
 import textwrap
-from typing import Any
 import uuid
-
+from typing import Any
 import httpx
 import websockets
 from websockets import exceptions as ws_exceptions
@@ -26,20 +24,26 @@ from websockets import exceptions as ws_exceptions
 LANGGRAPH_SCRIPT = textwrap.dedent(
     """
     from langgraph.graph import StateGraph
-    from orcheo.graph.state import State
 
-    def _greet_user(state: State) -> dict[str, str]:
-        name = state["inputs"].get("name", "there")
+    # Using plain dict as state for simpler, more natural node functions.
+    # Note: RestrictedPython doesn't support TypedDict with annotations,
+    # so we use dict directly. This is more portable but doesn't provide
+    # type safety.
+
+    def greet_user(state):
+        # Backend passes inputs nested under "inputs" key
+        inputs = state.get("inputs", {})
+        name = inputs.get("name", "there")
         return {"greeting": f"Hello {name}!"}
 
-    def _format_message(state: State) -> dict[str, str]:
-        greeting = state["results"]["greet_user"]["greeting"]
+    def format_message(state):
+        greeting = state.get("greeting", "")
         return {"shout": greeting.upper()}
 
-    def build_graph() -> StateGraph[State]:
-        graph = StateGraph(State)
-        graph.add_node("greet_user", _greet_user)
-        graph.add_node("format_message", _format_message)
+    def build_graph():
+        graph = StateGraph(dict)
+        graph.add_node("greet_user", greet_user)
+        graph.add_node("format_message", format_message)
         graph.add_edge("greet_user", "format_message")
         graph.set_entry_point("greet_user")
         graph.set_finish_point("format_message")
@@ -85,10 +89,29 @@ def _ingest_langgraph_version(client: httpx.Client, workflow_id: str) -> dict[st
     response.raise_for_status()
     version: dict[str, Any] = response.json()
     print(
-        "Registered workflow version "
-        f"{version['version_number']} for workflow {workflow_id}"
+        f"Registered workflow version {version['version']} for workflow {workflow_id}"
     )
     return version
+
+
+def _handle_status_update(update: dict[str, Any]) -> tuple[str, bool]:
+    """Handle status updates and return (final_status, should_break)."""
+    status = update.get("status")
+    if not status:
+        return ("unknown", False)
+
+    final_status = str(status)
+    if status == "error":
+        detail = update.get("error") or "Unknown error"
+        print(f"[status] error: {detail}")
+    elif status == "cancelled":
+        reason = update.get("reason") or "No reason provided"
+        print(f"[status] cancelled: {reason}")
+    else:
+        print(f"[status] {status}")
+
+    should_break = status in {"completed", "error", "cancelled"}
+    return (final_status, should_break)
 
 
 async def _stream_workflow_execution(
@@ -98,7 +121,6 @@ async def _stream_workflow_execution(
     inputs: dict[str, Any],
 ) -> str:
     """Run the workflow over WebSocket and print streaming updates."""
-
     websocket_url = f"{WEBSOCKET_BASE_URL}/{workflow_id}"
     execution_id = str(uuid.uuid4())
     payload = {
@@ -125,16 +147,8 @@ async def _stream_workflow_execution(
                 update = json.loads(message)
                 status = update.get("status")
                 if status:
-                    final_status = str(status)
-                    if status == "error":
-                        detail = update.get("error") or "Unknown error"
-                        print(f"[status] error: {detail}")
-                    elif status == "cancelled":
-                        reason = update.get("reason") or "No reason provided"
-                        print(f"[status] cancelled: {reason}")
-                    else:
-                        print(f"[status] {status}")
-                    if status in {"completed", "error", "cancelled"}:
+                    final_status, should_break = _handle_status_update(update)
+                    if should_break:
                         break
                     continue
 
@@ -152,7 +166,7 @@ async def _stream_workflow_execution(
         )
         print(f"Connection error: {exc}")
         final_status = "connection_error"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(
             "Timed out while establishing or closing the WebSocket connection. "
             "Retry once the server is reachable."
