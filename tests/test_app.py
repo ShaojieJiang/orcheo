@@ -1,19 +1,27 @@
 """Tests for the FastAPI backend module."""
 
 import asyncio
+import textwrap
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID, uuid4
 import pytest
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket, status
 from fastapi.testclient import TestClient
+from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import (
     create_app,
     execute_workflow,
     get_repository,
+    ingest_workflow_version,
     workflow_websocket,
 )
 from orcheo_backend.app.history import InMemoryRunHistoryStore
-from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.repository import (
+    InMemoryWorkflowRepository,
+    WorkflowNotFoundError,
+)
+from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
 
 
 @pytest.mark.asyncio
@@ -221,6 +229,52 @@ def test_create_app_allows_dependency_override() -> None:
     assert override() is repository
 
 
+def test_ingest_workflow_version_endpoint_creates_version() -> None:
+    """LangGraph scripts can be submitted to create workflow versions."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="LangGraph", slug=None, description=None, tags=[], actor="tester"
+        )
+    )
+
+    app = create_app(repository)
+    client = TestClient(app)
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "metadata": {"language": "python"},
+            "notes": "Initial LangGraph import",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 201
+    version = response.json()
+    assert version["metadata"] == {"language": "python"}
+    assert version["notes"] == "Initial LangGraph import"
+    assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
+    assert "summary" in version["graph"]
+
+
 def test_execution_history_endpoints_return_steps() -> None:
     """Execution history endpoints expose stored replay data."""
 
@@ -285,3 +339,114 @@ def test_replay_execution_not_found_returns_404() -> None:
     response = client.post("/api/executions/missing/replay", json={"from_step": 0})
     assert response.status_code == 404
     assert response.json()["detail"] == "Execution history not found"
+
+
+def test_ingest_workflow_version_invalid_script_returns_400() -> None:
+    """Invalid LangGraph scripts return a 400 error."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="Bad Script", slug=None, description=None, tags=[], actor="tester"
+        )
+    )
+
+    app = create_app(repository)
+    client = TestClient(app)
+
+    invalid_script = "this is not valid python code!!!"
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": invalid_script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "detail" in response.json()
+
+
+def test_ingest_workflow_version_missing_workflow_returns_404() -> None:
+    """Ingesting a script for a non-existent workflow returns 404."""
+
+    repository = InMemoryWorkflowRepository()
+    app = create_app(repository)
+    client = TestClient(app)
+
+    from uuid import uuid4
+
+    missing_id = str(uuid4())
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{missing_id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workflow not found"
+
+
+@pytest.mark.asyncio
+async def test_ingest_workflow_version_raises_not_found_error() -> None:
+    """Repository lookups raising ``WorkflowNotFoundError`` propagate as 404s."""
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    request = WorkflowVersionIngestRequest(
+        script=script,
+        entrypoint="build_graph",
+        created_by="tester",
+    )
+
+    class FailingRepository(InMemoryWorkflowRepository):
+        async def create_version(
+            self,
+            workflow_id: UUID,
+            *,
+            graph: dict[str, object],
+            metadata: dict[str, object],
+            notes: str | None,
+            created_by: str,
+        ):
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    repository = FailingRepository()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(uuid4(), request, repository)
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == "Workflow not found"
