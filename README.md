@@ -48,7 +48,9 @@ SQLite for local development.
 
 Opening the repository inside VS Code automatically offers to start the included
 dev container with uv and Node.js preinstalled. The new quickstart flows in
-`examples/quickstart/` demonstrate the visual designer and SDK user journeys.
+`examples/quickstart/` demonstrate the visual designer and SDK user journeys,
+and `examples/ingest_langgraph.py` shows how to push a Python LangGraph script
+directly to the backend importer.
 
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
