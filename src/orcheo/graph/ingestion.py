@@ -90,6 +90,9 @@ def _create_sandbox_namespace() -> dict[str, Any]:
             "staticmethod": staticmethod,
             "NotImplemented": NotImplemented,
             "Ellipsis": Ellipsis,
+            "dict": dict,
+            "list": list,
+            "set": set,
         }
     )
 

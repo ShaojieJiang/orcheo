@@ -10,19 +10,16 @@ streaming back over the websocket connection.
 """
 
 from __future__ import annotations
-
 import asyncio
 import json
-
 import websockets
-from websockets import exceptions as ws_exceptions
-
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
     WorkflowNode,
 )
 from pydantic import BaseModel
+from websockets import exceptions as ws_exceptions
 
 
 class PythonCodeConfig(BaseModel):
@@ -106,7 +103,7 @@ async def run() -> None:
             "Ensure `make dev-server` is running before executing this script."
         )
         print(f"Connection error: {exc}")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(
             "Timed out while establishing or closing the WebSocket connection. "
             "Retry once the server is reachable."
