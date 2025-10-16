@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 import builtins
+import contextlib
 import importlib
 import inspect
-from types import MappingProxyType
-from typing import Any
+import signal
+import sys
+import threading
+import time
+from collections.abc import Callable, Generator
+from functools import lru_cache
+from types import CodeType, FrameType, MappingProxyType
+from typing import Any, cast
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
@@ -19,6 +26,14 @@ from orcheo.nodes.registry import registry
 
 
 LANGGRAPH_SCRIPT_FORMAT = "langgraph-script"
+
+# Maximum UTF-8 encoded size for LangGraph scripts submitted through the importer.
+DEFAULT_SCRIPT_SIZE_LIMIT = 128 * 1024  # 128 KiB
+
+# Maximum wall-clock time spent executing a LangGraph script during ingestion.
+DEFAULT_EXECUTION_TIMEOUT_SECONDS = 60.0
+
+TraceFunc = Callable[[FrameType | None, str, object], object]
 
 _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "langgraph",
@@ -102,6 +117,8 @@ def ingest_langgraph_script(
     source: str,
     *,
     entrypoint: str | None = None,
+    max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
+    execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Return a workflow graph payload produced from a LangGraph Python script.
 
@@ -110,7 +127,12 @@ def ingest_langgraph_script(
     visualisation and quick inspection while the original script is required to
     faithfully rebuild the graph during execution.
     """
-    graph = load_graph_from_script(source, entrypoint=entrypoint)
+    graph = load_graph_from_script(
+        source,
+        entrypoint=entrypoint,
+        max_script_bytes=max_script_bytes,
+        execution_timeout_seconds=execution_timeout_seconds,
+    )
     summary = _summarise_state_graph(graph)
     return {
         "format": LANGGRAPH_SCRIPT_FORMAT,
@@ -124,6 +146,8 @@ def load_graph_from_script(
     source: str,
     *,
     entrypoint: str | None = None,
+    max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
+    execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> StateGraph:
     """Execute a LangGraph Python script and return the discovered ``StateGraph``.
 
@@ -133,18 +157,30 @@ def load_graph_from_script(
             resolves to a ``StateGraph``. When omitted, the loader attempts to
             discover a single ``StateGraph`` instance defined in the module
             namespace.
+        max_script_bytes: Maximum UTF-8 encoded size allowed for the script. Set
+            to ``None`` to disable the limit.
+        execution_timeout_seconds: Wall-clock timeout applied while executing the
+            script. Set to ``None`` or a non-positive value to disable the
+            timeout.
 
     Raises:
         ScriptIngestionError: if the script cannot be executed or no graph can
             be resolved from the resulting namespace.
     """
+    _validate_script_size(source, max_script_bytes)
+
     namespace = _create_sandbox_namespace()
 
     try:
-        compiled = compile_restricted(source, "<langgraph-script>", "exec")
-        exec(compiled, namespace)
+        compiled = _compile_langgraph_script(source)
+        with _execution_timeout(execution_timeout_seconds):
+            exec(compiled, namespace)
     except ScriptIngestionError:
         raise
+    except TimeoutError as exc:
+        # pragma: no cover - deterministic message asserted in tests
+        message = "LangGraph script execution exceeded the configured timeout"
+        raise ScriptIngestionError(message) from exc
     except Exception as exc:  # pragma: no cover - exercised via tests
         message = "Failed to execute LangGraph script"
         raise ScriptIngestionError(message) from exc
@@ -179,6 +215,82 @@ def load_graph_from_script(
         raise ScriptIngestionError(msg)
 
     return resolved_graphs[0]
+
+
+@lru_cache(maxsize=128)
+def _compile_langgraph_script(source: str) -> CodeType:
+    """Compile a LangGraph script under RestrictedPython with caching."""
+    return compile_restricted(source, "<langgraph-script>", "exec")
+
+
+def _validate_script_size(source: str, max_script_bytes: int | None) -> None:
+    """Raise ``ScriptIngestionError`` when the script exceeds the byte limit."""
+    if max_script_bytes is None:
+        return
+
+    if max_script_bytes <= 0:
+        msg = "LangGraph script size limit must be a positive integer"
+        raise ScriptIngestionError(msg)
+
+    encoded_length = len(source.encode("utf-8"))
+    if encoded_length > max_script_bytes:
+        msg = f"LangGraph script exceeds the permitted size of {max_script_bytes} bytes"
+        raise ScriptIngestionError(msg)
+
+
+@contextlib.contextmanager
+def _execution_timeout(timeout_seconds: float | None) -> Generator[None, None, None]:
+    """Enforce a wall-clock timeout around script execution."""
+    if timeout_seconds is None or timeout_seconds <= 0:
+        yield
+        return
+
+    use_signal = (
+        hasattr(signal, "setitimer")
+        and threading.current_thread() is threading.main_thread()
+    )
+
+    if use_signal:
+        previous_handler = signal.getsignal(signal.SIGALRM)
+
+        def _handle_timeout(_signum: int, _frame: FrameType | None) -> None:
+            raise TimeoutError(
+                "LangGraph script execution timed out"
+            )  # pragma: no cover
+
+        try:
+            signal.signal(signal.SIGALRM, _handle_timeout)
+            signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+        return
+
+    deadline = time.perf_counter() + timeout_seconds
+
+    def _trace_timeout(_frame: FrameType | None, event: str, _arg: object) -> TraceFunc:
+        if event == "line" and time.perf_counter() > deadline:
+            raise TimeoutError("LangGraph script execution timed out")
+        return _trace_timeout
+
+    previous_trace = cast(TraceFunc | None, sys.gettrace())
+    previous_thread_trace = cast(TraceFunc | None, threading.gettrace())
+
+    sys.settrace(cast(Any, _trace_timeout))
+    threading.settrace(cast(Any, _trace_timeout))
+    try:
+        yield
+    finally:
+        if previous_trace is None:
+            sys.settrace(cast(Any, None))
+        else:
+            sys.settrace(cast(Any, previous_trace))
+
+        if previous_thread_trace is None:
+            threading.settrace(cast(Any, None))
+        else:
+            threading.settrace(cast(Any, previous_thread_trace))
 
 
 def _is_graph_candidate(obj: Any, module_name: str) -> bool:
@@ -308,6 +420,8 @@ def _normalise_vertex(value: str) -> str:
 
 
 __all__ = [
+    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
+    "DEFAULT_SCRIPT_SIZE_LIMIT",
     "LANGGRAPH_SCRIPT_FORMAT",
     "ScriptIngestionError",
     "ingest_langgraph_script",

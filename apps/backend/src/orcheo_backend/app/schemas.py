@@ -4,7 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -44,6 +45,18 @@ class WorkflowVersionIngestRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
     created_by: str
+
+    @field_validator("script")
+    @classmethod
+    def _enforce_script_size(cls, value: str) -> str:
+        size = len(value.encode("utf-8"))
+        if size > DEFAULT_SCRIPT_SIZE_LIMIT:
+            msg = (
+                "LangGraph script exceeds the maximum allowed size of "
+                f"{DEFAULT_SCRIPT_SIZE_LIMIT} bytes"
+            )
+            raise ValueError(msg)
+        return value
 
 
 class WorkflowRunCreateRequest(BaseModel):
