@@ -9,6 +9,12 @@ from typing import Any
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
+from RestrictedPython import compile_restricted, safe_builtins
+from RestrictedPython.Eval import default_guarded_getitem, default_guarded_getiter
+from RestrictedPython.Guards import (
+    guarded_iter_unpack_sequence,
+    guarded_unpack_sequence,
+)
 from orcheo.nodes.registry import registry
 
 
@@ -59,89 +65,31 @@ def _create_sandbox_namespace() -> dict[str, Any]:
         # is handled by the Python runtime afterwards.
         return module
 
-    safe_builtins = {
-        "None": None,
-        "True": True,
-        "False": False,
-        "NotImplemented": NotImplemented,
-        "Ellipsis": Ellipsis,
-        "abs": abs,
-        "all": all,
-        "any": any,
-        "bool": bool,
-        "callable": callable,
-        "chr": chr,
-        "classmethod": classmethod,
-        "complex": complex,
-        "dict": dict,
-        "divmod": divmod,
-        "enumerate": enumerate,
-        "filter": filter,
-        "float": float,
-        "format": format,
-        "frozenset": frozenset,
-        "getattr": getattr,
-        "hasattr": hasattr,
-        "hash": hash,
-        "hex": hex,
-        "id": id,
-        "int": int,
-        "isinstance": isinstance,
-        "issubclass": issubclass,
-        "iter": iter,
-        "len": len,
-        "list": list,
-        "map": map,
-        "max": max,
-        "min": min,
-        "next": next,
-        "object": object,
-        "ord": ord,
-        "pow": pow,
-        "print": print,
-        "property": property,
-        "range": range,
-        "repr": repr,
-        "reversed": reversed,
-        "round": round,
-        "set": set,
-        "setattr": setattr,
-        "slice": slice,
-        "sorted": sorted,
-        "staticmethod": staticmethod,
-        "str": str,
-        "sum": sum,
-        "super": super,
-        "tuple": tuple,
-        "type": type,
-        "vars": vars,
-        "zip": zip,
-        "BaseException": BaseException,
-        "Exception": Exception,
-        "ArithmeticError": ArithmeticError,
-        "AssertionError": AssertionError,
-        "AttributeError": AttributeError,
-        "ImportError": ImportError,
-        "ModuleNotFoundError": ModuleNotFoundError,
-        "IndexError": IndexError,
-        "KeyError": KeyError,
-        "LookupError": LookupError,
-        "MemoryError": MemoryError,
-        "NameError": NameError,
-        "NotImplementedError": NotImplementedError,
-        "RuntimeError": RuntimeError,
-        "StopAsyncIteration": StopAsyncIteration,
-        "StopIteration": StopIteration,
-        "TypeError": TypeError,
-        "ValueError": ValueError,
-        "__build_class__": builtins.__build_class__,
-        "__import__": _restricted_import,
-    }
+    builtin_snapshot = {name: value for name, value in safe_builtins.items()}
+    builtin_snapshot.update(
+        {
+            "__build_class__": builtins.__build_class__,
+            "__import__": _restricted_import,
+            "property": property,
+            "classmethod": classmethod,
+            "staticmethod": staticmethod,
+            "NotImplemented": NotImplemented,
+            "Ellipsis": Ellipsis,
+        }
+    )
 
     namespace: dict[str, Any] = {
-        "__builtins__": MappingProxyType(safe_builtins),
+        "__builtins__": MappingProxyType(builtin_snapshot),
         "__name__": "__orcheo_ingest__",
         "__package__": None,
+        "_getattr_": getattr,
+        "_getattr_static_": getattr,
+        "_setattr_": setattr,
+        "_getitem_": default_guarded_getitem,
+        "_getiter_": default_guarded_getiter,
+        "_iter_unpack_sequence_": guarded_iter_unpack_sequence,
+        "_unpack_sequence_": guarded_unpack_sequence,
+        "_print_": print,
     }
     return namespace
 
@@ -193,7 +141,8 @@ def load_graph_from_script(
     namespace = _create_sandbox_namespace()
 
     try:
-        exec(compile(source, "<langgraph-script>", "exec"), namespace)
+        compiled = compile_restricted(source, "<langgraph-script>", "exec")
+        exec(compiled, namespace)
     except ScriptIngestionError:
         raise
     except Exception as exc:  # pragma: no cover - exercised via tests
