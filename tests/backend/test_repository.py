@@ -1,9 +1,11 @@
 """Unit tests for the in-memory workflow repository implementation."""
 
 from __future__ import annotations
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
+import pytest_asyncio
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -11,24 +13,60 @@ from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     RepositoryError,
+    SqliteWorkflowRepository,
     VersionDiff,
     WorkflowNotFoundError,
+    WorkflowRepository,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
 
 
-@pytest.fixture()
-def repository() -> InMemoryWorkflowRepository:
-    """Return a fresh repository instance for each test."""
+async def _remove_version(repository: WorkflowRepository, version_id: UUID) -> None:
+    """Remove a workflow version for backend-specific implementations."""
 
-    return InMemoryWorkflowRepository()
+    if isinstance(repository, InMemoryWorkflowRepository):
+        repository._versions.pop(version_id, None)
+        for versions in repository._workflow_versions.values():
+            if version_id in versions:
+                versions.remove(version_id)
+        repository._version_runs.pop(version_id, None)
+        return
+
+    if isinstance(repository, SqliteWorkflowRepository):
+        async with repository._connection() as conn:  # type: ignore[attr-defined]
+            await conn.execute(
+                "DELETE FROM workflow_versions WHERE id = ?", (str(version_id),)
+            )
+            await conn.execute(
+                "DELETE FROM workflow_runs WHERE workflow_version_id = ?",
+                (str(version_id),),
+            )
+        return
+
+    raise AssertionError(f"Unsupported repository type: {type(repository)!r}")
+
+
+@pytest_asyncio.fixture(params=["memory", "sqlite"])
+async def repository(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> AsyncIterator[WorkflowRepository]:
+    """Return a repository instance backed by the configured backend."""
+
+    if request.param == "memory":
+        repo: WorkflowRepository = InMemoryWorkflowRepository()
+    else:
+        db_path = tmp_path_factory.mktemp("repo") / "workflows.sqlite"
+        repo = SqliteWorkflowRepository(db_path)
+
+    try:
+        yield repo
+    finally:
+        await repo.reset()
 
 
 @pytest.mark.asyncio()
-async def test_create_and_list_workflows(
-    repository: InMemoryWorkflowRepository,
-) -> None:
+async def test_create_and_list_workflows(repository: WorkflowRepository) -> None:
     """Workflows can be created and listed with deep copies returned."""
 
     created = await repository.create_workflow(
@@ -52,7 +90,7 @@ async def test_create_and_list_workflows(
 
 @pytest.mark.asyncio()
 async def test_update_and_archive_workflow(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Updating a workflow touches each branch of metadata normalization."""
 
@@ -95,7 +133,7 @@ async def test_update_and_archive_workflow(
 
 
 @pytest.mark.asyncio()
-async def test_update_missing_workflow(repository: InMemoryWorkflowRepository) -> None:
+async def test_update_missing_workflow(repository: WorkflowRepository) -> None:
     """Updating a missing workflow raises an explicit error."""
 
     with pytest.raises(WorkflowNotFoundError):
@@ -110,7 +148,7 @@ async def test_update_missing_workflow(repository: InMemoryWorkflowRepository) -
 
 
 @pytest.mark.asyncio()
-async def test_version_management(repository: InMemoryWorkflowRepository) -> None:
+async def test_version_management(repository: WorkflowRepository) -> None:
     """Version CRUD supports numbering, listing, and retrieval."""
 
     workflow = await repository.create_workflow(
@@ -164,7 +202,7 @@ async def test_version_management(repository: InMemoryWorkflowRepository) -> Non
 
 @pytest.mark.asyncio()
 async def test_create_version_without_workflow(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Creating a version for an unknown workflow fails."""
 
@@ -179,7 +217,7 @@ async def test_create_version_without_workflow(
 
 
 @pytest.mark.asyncio()
-async def test_run_lifecycle(repository: InMemoryWorkflowRepository) -> None:
+async def test_run_lifecycle(repository: WorkflowRepository) -> None:
     """Runs can transition through success, failure, and cancellation."""
 
     workflow = await repository.create_workflow(
@@ -243,7 +281,7 @@ async def test_run_lifecycle(repository: InMemoryWorkflowRepository) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_run_error_paths(repository: InMemoryWorkflowRepository) -> None:
+async def test_run_error_paths(repository: WorkflowRepository) -> None:
     """All run error branches raise the correct exceptions."""
 
     missing_workflow_id = uuid4()
@@ -319,7 +357,7 @@ async def test_run_error_paths(repository: InMemoryWorkflowRepository) -> None:
 
 @pytest.mark.asyncio()
 async def test_manual_dispatch_defaults_to_latest_version(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Manual dispatch without explicit version targets the latest one."""
 
@@ -364,7 +402,7 @@ async def test_manual_dispatch_defaults_to_latest_version(
 
 @pytest.mark.asyncio()
 async def test_manual_dispatch_supports_batch_runs(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Batch dispatch respects explicit version overrides and ordering."""
 
@@ -416,7 +454,7 @@ async def test_manual_dispatch_supports_batch_runs(
 
 @pytest.mark.asyncio()
 async def test_manual_dispatch_rejects_unknown_versions(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Dispatch raises when referencing missing versions or workflows."""
 
@@ -449,7 +487,7 @@ async def test_manual_dispatch_rejects_unknown_versions(
 
 @pytest.mark.asyncio()
 async def test_configure_retry_policy_and_schedule_decision(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Retry policy configuration surfaces scheduling decisions."""
 
@@ -498,7 +536,7 @@ async def test_configure_retry_policy_and_schedule_decision(
 
 @pytest.mark.asyncio()
 async def test_create_run_with_cron_source_tracks_overlap(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron-sourced runs register overlap tracking even without stored state."""
 
@@ -532,7 +570,7 @@ async def test_create_run_with_cron_source_tracks_overlap(
 
 @pytest.mark.asyncio()
 async def test_list_entities_error_paths(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Listing versions or runs for unknown workflows surfaces not found errors."""
 
@@ -546,7 +584,7 @@ async def test_list_entities_error_paths(
 
 @pytest.mark.asyncio()
 async def test_retry_configuration_requires_existing_workflow(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Retry configuration helpers enforce workflow existence."""
 
@@ -560,7 +598,7 @@ async def test_retry_configuration_requires_existing_workflow(
 
 @pytest.mark.asyncio()
 async def test_schedule_retry_for_run_requires_existing_run(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Retry scheduling for unknown runs raises the expected error."""
 
@@ -570,7 +608,7 @@ async def test_schedule_retry_for_run_requires_existing_run(
 
 @pytest.mark.asyncio()
 async def test_retry_policy_round_trip(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Retry policy configuration can be stored and retrieved."""
 
@@ -594,7 +632,7 @@ async def test_retry_policy_round_trip(
 
 @pytest.mark.asyncio()
 async def test_reset_clears_internal_state(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Reset removes all previously stored workflows, versions, and runs."""
 
@@ -635,7 +673,7 @@ def test_repository_error_hierarchy() -> None:
 
 @pytest.mark.asyncio()
 async def test_get_latest_version_validation(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Latest version retrieval enforces workflow and version existence."""
 
@@ -658,7 +696,7 @@ async def test_get_latest_version_validation(
     )
     latest = await repository.get_latest_version(workflow.id)
     assert latest.id == version.id
-    repository._versions.pop(version.id)
+    await _remove_version(repository, version.id)
 
     with pytest.raises(WorkflowVersionNotFoundError):
         await repository.get_latest_version(workflow.id)
@@ -666,7 +704,7 @@ async def test_get_latest_version_validation(
 
 @pytest.mark.asyncio()
 async def test_webhook_configuration_requires_workflow(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Configuring a webhook for a missing workflow raises an error."""
 
@@ -676,7 +714,7 @@ async def test_webhook_configuration_requires_workflow(
 
 @pytest.mark.asyncio()
 async def test_webhook_configuration_roundtrip(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Webhook configuration persists and returns deep copies."""
 
@@ -694,7 +732,7 @@ async def test_webhook_configuration_roundtrip(
 
 @pytest.mark.asyncio()
 async def test_handle_webhook_trigger_missing_resources(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Webhook handling raises when workflow or versions are missing."""
 
@@ -731,7 +769,7 @@ async def test_handle_webhook_trigger_missing_resources(
     )
     await repository.configure_webhook_trigger(workflow.id, WebhookTriggerConfig())
 
-    repository._versions.pop(version.id)
+    await _remove_version(repository, version.id)
 
     with pytest.raises(WorkflowVersionNotFoundError):
         await repository.handle_webhook_trigger(
@@ -746,7 +784,7 @@ async def test_handle_webhook_trigger_missing_resources(
 
 @pytest.mark.asyncio()
 async def test_cron_trigger_configuration_and_dispatch(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron trigger configuration is persisted and schedules runs."""
 
@@ -787,7 +825,7 @@ async def test_cron_trigger_configuration_and_dispatch(
 
 @pytest.mark.asyncio()
 async def test_cron_trigger_requires_existing_workflow(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron trigger helpers raise when the workflow is unknown."""
 
@@ -800,7 +838,7 @@ async def test_cron_trigger_requires_existing_workflow(
 
 @pytest.mark.asyncio()
 async def test_cron_trigger_overlap_guard(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron scheduler skips scheduling when an active run exists."""
 
@@ -846,7 +884,7 @@ async def test_cron_trigger_overlap_guard(
 
 @pytest.mark.asyncio()
 async def test_dispatch_due_cron_runs_handles_edge_cases(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron dispatcher gracefully skips invalid and incomplete state entries."""
 
@@ -883,7 +921,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         notes=None,
         created_by="owner",
     )
-    repository._versions.pop(orphaned_version.id)
+    await _remove_version(repository, orphaned_version.id)
     repository._trigger_layer.configure_cron(
         workflow_missing_version.id,
         CronTriggerConfig(expression="0 11 * * *", timezone="UTC"),
@@ -930,7 +968,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
 
 @pytest.mark.asyncio()
 async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron dispatcher skips scheduling when overlap guard is active."""
 
@@ -965,7 +1003,7 @@ async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(
 
 @pytest.mark.asyncio()
 async def test_cron_trigger_timezone_alignment(
-    repository: InMemoryWorkflowRepository,
+    repository: WorkflowRepository,
 ) -> None:
     """Cron scheduler respects configured timezones when dispatching."""
 

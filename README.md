@@ -55,6 +55,21 @@ directly to the backend importer, execute it, and stream live updates.
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
 
+## Workflow repository configuration
+
+The FastAPI backend now supports pluggable workflow repositories so local
+development can persist state without depending on Postgres. By default the app
+uses a SQLite database located at `~/.orcheo/workflows.sqlite`. Adjust the
+following environment variables to switch behaviour:
+
+- `ORCHEO_REPOSITORY_BACKEND`: accepts `sqlite` (default) or `inmemory` for
+  ephemeral testing.
+- `ORCHEO_REPOSITORY_SQLITE_PATH`: override the SQLite file path when using the
+  SQLite backend.
+
+Refer to `.env.example` for sample values and to `docs/deployment.md` for
+deployment-specific guidance.
+
 ## Releasing packages
 
 Follow [`docs/releasing.md`](docs/releasing.md) for the step-by-step guide to

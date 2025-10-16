@@ -25,6 +25,8 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 
 _Vault note_: The default `.env.example` keeps credentials in an in-memory vault suitable for quick iteration. Switch `ORCHEO_VAULT_BACKEND` to `file` when you want encrypted secrets to persist between restarts.
 
+_Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file.
+
 ## Docker Compose (SQLite, multi-container)
 
 Use this recipe when you want an isolated environment that mimics production without provisioning a database. It pairs the FastAPI app with a volume-mounted SQLite database.
@@ -40,6 +42,8 @@ Use this recipe when you want an isolated environment that mimics production wit
          ORCHEO_PORT: "8000"
          ORCHEO_CHECKPOINT_BACKEND: sqlite
          ORCHEO_SQLITE_PATH: /data/orcheo.sqlite3
+         ORCHEO_REPOSITORY_BACKEND: sqlite
+         ORCHEO_REPOSITORY_SQLITE_PATH: /data/workflows.sqlite3
          ORCHEO_VAULT_BACKEND: file
          ORCHEO_VAULT_ENCRYPTION_KEY: change-me
          ORCHEO_VAULT_LOCAL_PATH: /data/vault.sqlite
@@ -73,6 +77,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    ```bash
    export ORCHEO_CHECKPOINT_BACKEND=postgres
    export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
+   export ORCHEO_REPOSITORY_BACKEND=inmemory
    export ORCHEO_HOST=0.0.0.0
    export ORCHEO_PORT=8000
    export ORCHEO_VAULT_BACKEND=aws_kms
