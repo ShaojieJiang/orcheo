@@ -1,18 +1,15 @@
 """Tests for LangGraph script ingestion helpers."""
 
 from __future__ import annotations
-
 import textwrap
 from types import SimpleNamespace
-
 import pytest
-
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
     LANGGRAPH_SCRIPT_FORMAT,
     ScriptIngestionError,
-    _serialise_branch,
     _resolve_graph,
+    _serialise_branch,
     _unwrap_runnable,
     ingest_langgraph_script,
 )

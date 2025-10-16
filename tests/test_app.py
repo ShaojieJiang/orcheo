@@ -4,18 +4,16 @@ import asyncio
 import textwrap
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 from fastapi import WebSocket
 from fastapi.testclient import TestClient
-
+from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import (
     create_app,
     execute_workflow,
     get_repository,
     workflow_websocket,
 )
-from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
@@ -335,3 +333,69 @@ def test_replay_execution_not_found_returns_404() -> None:
     response = client.post("/api/executions/missing/replay", json={"from_step": 0})
     assert response.status_code == 404
     assert response.json()["detail"] == "Execution history not found"
+
+
+def test_ingest_workflow_version_invalid_script_returns_400() -> None:
+    """Invalid LangGraph scripts return a 400 error."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="Bad Script", slug=None, description=None, tags=[], actor="tester"
+        )
+    )
+
+    app = create_app(repository)
+    client = TestClient(app)
+
+    invalid_script = "this is not valid python code!!!"
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": invalid_script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "detail" in response.json()
+
+
+def test_ingest_workflow_version_missing_workflow_returns_404() -> None:
+    """Ingesting a script for a non-existent workflow returns 404."""
+
+    repository = InMemoryWorkflowRepository()
+    app = create_app(repository)
+    client = TestClient(app)
+
+    from uuid import uuid4
+
+    missing_id = str(uuid4())
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{missing_id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workflow not found"
