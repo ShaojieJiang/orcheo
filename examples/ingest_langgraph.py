@@ -1,5 +1,9 @@
 """Submit and execute a LangGraph Python script via the Orcheo backend.
 
+This example reads the LangGraph definition from vanilla_langgraph.py and
+submits it to the Orcheo backend for ingestion, then executes the workflow
+and streams the results.
+
 Prerequisites:
     1. Install dependencies: `uv sync --all-groups`
     2. Run the backend locally: `make dev-server`
@@ -13,43 +17,29 @@ summary.
 from __future__ import annotations
 import asyncio
 import json
-import textwrap
 import uuid
+from pathlib import Path
 from typing import Any
 import httpx
 import websockets
 from websockets import exceptions as ws_exceptions
 
 
-LANGGRAPH_SCRIPT = textwrap.dedent(
-    """
-    from langgraph.graph import StateGraph
+# Read the LangGraph script from vanilla_langgraph.py
+# We need to strip out the if __name__ == "__main__" block since
+# RestrictedPython doesn't allow variables starting with "_"
+SCRIPT_PATH = Path(__file__).parent / "vanilla_langgraph.py"
+script_content = SCRIPT_PATH.read_text()
 
-    # Using plain dict as state for simpler, more natural node functions.
-    # Note: RestrictedPython doesn't support TypedDict with annotations,
-    # so we use dict directly. This is more portable but doesn't provide
-    # type safety.
+# Remove the if __name__ == "__main__" block and everything after it
+lines = script_content.split("\n")
+filtered_lines = []
+for line in lines:
+    if line.strip().startswith('if __name__ == "__main__"'):
+        break
+    filtered_lines.append(line)
 
-    def greet_user(state):
-        # Backend passes inputs nested under "inputs" key
-        inputs = state.get("inputs", {})
-        name = inputs.get("name", "there")
-        return {"greeting": f"Hello {name}!"}
-
-    def format_message(state):
-        greeting = state.get("greeting", "")
-        return {"shout": greeting.upper()}
-
-    def build_graph():
-        graph = StateGraph(dict)
-        graph.add_node("greet_user", greet_user)
-        graph.add_node("format_message", format_message)
-        graph.add_edge("greet_user", "format_message")
-        graph.set_entry_point("greet_user")
-        graph.set_finish_point("format_message")
-        return graph
-    """
-)
+LANGGRAPH_SCRIPT = "\n".join(filtered_lines)
 
 API_BASE_URL = "http://localhost:8000/api"
 WEBSOCKET_BASE_URL = "ws://localhost:8000/ws/workflow"

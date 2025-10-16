@@ -21,7 +21,11 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
-from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion import (
+    LANGGRAPH_SCRIPT_FORMAT,
+    ScriptIngestionError,
+    ingest_langgraph_script,
+)
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
@@ -154,12 +158,21 @@ async def execute_workflow(
         graph = build_graph(graph_config)
         compiled_graph = graph.compile(checkpointer=checkpointer)
 
-        # Initialize state
-        state: Any = {
-            "messages": [],
-            "results": {},
-            "inputs": inputs,
-        }
+        # Initialize state based on graph format
+        # LangGraph scripts: pass inputs directly, letting the script define state
+        # Orcheo workflows: use State class with structured fields
+        is_langgraph_script = graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
+        if is_langgraph_script:
+            # For LangGraph scripts, pass inputs as-is to respect the script's
+            # state schema definition. The script has full control over state.
+            state: Any = inputs
+        else:
+            # Orcheo workflows use the State class with predefined fields
+            state = {
+                "messages": [],
+                "results": {},
+                "inputs": inputs,
+            }
         logger.info("Initial state: %s", state)
 
         # Run graph with streaming
