@@ -173,5 +173,7 @@ if __name__ == "__main__":
     # graph.add_edge("MarkFeedlyAsRead", END)
 
     compiled_graph = graph.compile()
-    result = asyncio.run(compiled_graph.ainvoke({"input": {}}))
-    print(result["node_outputs"]["MarkFeedlyAsRead"]["status"])
+    result = asyncio.run(
+        compiled_graph.ainvoke({"inputs": {}, "results": {}, "messages": []})
+    )
+    print(result["results"]["MarkFeedlyAsRead"]["status"])

@@ -8,8 +8,8 @@ from langgraph.graph import MessagesState
 class State(MessagesState):
     """State for the graph."""
 
-    workflow_inputs: dict[str, Any]
-    node_outputs: Annotated[dict[str, Any], dict_reducer]
+    inputs: dict[str, Any]
+    results: Annotated[dict[str, Any], dict_reducer]
 
 
 def dict_reducer(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:

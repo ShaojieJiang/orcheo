@@ -155,8 +155,8 @@ async def execute_workflow(
         # Initialize state
         state: Any = {
             "messages": [],
-            "node_outputs": {},
-            "workflow_inputs": inputs,
+            "results": {},
+            "inputs": inputs,
         }
         logger.info("Initial state: %s", state)
 

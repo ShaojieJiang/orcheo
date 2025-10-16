@@ -44,12 +44,12 @@ def test_state() -> None:
     checkpointer = InMemorySaver()
     compiled_graph = graph.compile(checkpointer=checkpointer)
     config = {"configurable": {"thread_id": 1}}
-    asyncio.run(compiled_graph.ainvoke({"workflow_inputs": {}}, config))
+    asyncio.run(compiled_graph.ainvoke({"inputs": {}}, config))
     state = compiled_graph.get_state(config)
     assert state.values == {
         "messages": [],
-        "workflow_inputs": {},
-        "node_outputs": {
+        "inputs": {},
+        "results": {
             "node1": {"a": 1},
             "node2": "b",
             "node3": ["c"],

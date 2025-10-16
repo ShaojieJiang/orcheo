@@ -276,7 +276,7 @@ python_code_node = PythonCode(
     name="PythonCode",
     code=(
         "return {'messages': [{'role': 'ai', "
-        "'content': 'Hello, ' + state['node_outputs']['initial'] + '.'}]}"
+        "'content': 'Hello, ' + state['results']['initial'] + '.'}]}"
     ),  # noqa: E501
 )
 
@@ -304,13 +304,13 @@ def greet(name: str) -> dict:
         python_code_graph.ainvoke(
             {
                 "messages": [],
-                "node_outputs": {"initial": name},
-                "workflow_inputs": {},
+                "results": {"initial": name},
+                "inputs": {},
             },
             config={},
         )
     )
-    return result["node_outputs"]["PythonCode"]
+    return result["results"]["PythonCode"]
 
 
 # %% [markdown]
