@@ -10,9 +10,13 @@ streaming back over the websocket connection.
 """
 
 from __future__ import annotations
+
 import asyncio
 import json
+
 import websockets
+from websockets import exceptions as ws_exceptions
+
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
@@ -71,20 +75,50 @@ async def run() -> None:
     graph_config = workflow.to_graph_config()
 
     client = OrcheoClient(base_url="http://localhost:8000")
-    websocket_url = client.websocket_url("sdk-demo")
+    workflow_identifier = "sdk-websocket-demo"
+    websocket_url = client.websocket_url(workflow_identifier)
     payload = client.build_payload(
         graph_config,
         inputs={"name": "Ada Lovelace"},
     )
 
-    async with websockets.connect(websocket_url) as websocket:
-        await websocket.send(json.dumps(payload))
+    try:
+        async with websockets.connect(
+            websocket_url,
+            open_timeout=5,
+            close_timeout=5,
+        ) as websocket:
+            await websocket.send(json.dumps(payload))
 
-        async for message in websocket:
-            update = json.loads(message)
-            print(f"Update: {update}")
-            if update.get("status") in {"completed", "error"}:
-                break
+            async for message in websocket:
+                update = json.loads(message)
+                print(f"Update: {update}")
+                status = update.get("status")
+                if status == "error":
+                    error_detail = update.get("error") or "Unknown error"
+                    print(f"Workflow execution failed: {error_detail}")
+                    break
+                if status == "completed":
+                    break
+    except (ConnectionRefusedError, OSError) as exc:
+        print(
+            "Failed to connect to the Orcheo server. "
+            "Ensure `make dev-server` is running before executing this script."
+        )
+        print(f"Connection error: {exc}")
+    except asyncio.TimeoutError:
+        print(
+            "Timed out while establishing or closing the WebSocket connection. "
+            "Retry once the server is reachable."
+        )
+    except ws_exceptions.InvalidStatusCode as exc:
+        print(
+            "The server rejected the WebSocket handshake. Verify the workflow "
+            "identifier and backend availability."
+        )
+        print(f"HTTP status: {exc.status_code}")
+    except ws_exceptions.WebSocketException as exc:
+        print(f"WebSocket communication error: {exc}")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,22 @@
 
 The Python SDK offers a strongly typed way to generate Orcheo workflow requests without forcing a specific HTTP client dependency.
 
+## Server-side workflow execution
+
+> **Breaking change:** The SDK no longer supports executing workflows locally within the client process. All executions now run on the
+> Orcheo backend. To migrate, deploy your workflow as before and trigger runs via the HTTP API while streaming updates over a WebSocket
+> connection. The new [`examples/quickstart/sdk_server_trigger.py`](../../examples/quickstart/sdk_server_trigger.py) script shows an end-to-end
+> interaction pattern, including payload construction and streaming result handling.
+
+High-level steps:
+
+1. Model the workflow graph using the SDK types shown below.
+2. Deploy the workflow to the Orcheo backend.
+3. Trigger runs using `OrcheoClient.workflow_trigger_url()` or the `HttpWorkflowExecutor`.
+4. Subscribe to live updates with `OrcheoClient.websocket_url()` and send the payload returned from `client.build_payload(...)`.
+
+The sections that follow focus on authoring the graph configuration and preparing the payloads required by the server APIs.
+
 ## Workflow authoring
 
 ```python
@@ -73,7 +89,11 @@ from orcheo_sdk import OrcheoClient
 client = OrcheoClient(base_url="http://localhost:8000")
 trigger_url = client.workflow_trigger_url("example-workflow")
 ws_url = client.websocket_url("example-workflow")
+payload = client.build_payload(graph_config, inputs={"name": "Ada"})
 ```
+
+Refer to [`examples/quickstart/sdk_server_trigger.py`](../../examples/quickstart/sdk_server_trigger.py) for a complete async implementation
+that streams updates, handles connection failures gracefully, and shuts down once the workflow run finishes.
 
 ## Development
 
