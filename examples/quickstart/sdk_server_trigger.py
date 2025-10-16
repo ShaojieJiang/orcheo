@@ -43,7 +43,7 @@ def build_workflow() -> Workflow:
             PythonCodeConfig(
                 code=(
                     "return {'message': "
-                    "f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
+                    "f\"Welcome {state['workflow_inputs']['name']} to Orcheo!\"}"
                 ),
             ),
         )
@@ -54,7 +54,7 @@ def build_workflow() -> Workflow:
             "format_message",
             PythonCodeConfig(
                 code=(
-                    "greeting = state['outputs']['greet_user']['message']\n"
+                    "greeting = state['node_outputs']['greet_user']['message']\n"
                     "return {'shout': greeting.upper()}"
                 ),
             ),

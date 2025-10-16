@@ -6,7 +6,7 @@
     {
       "name": "greet_user",
       "type": "PythonCode",
-      "code": "return {'message': f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
+      "code": "return {'message': f\"Welcome {state['workflow_inputs']['name']} to Orcheo!\"}"
     },
     {"name": "END", "type": "END"}
   ],

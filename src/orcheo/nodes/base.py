@@ -19,7 +19,7 @@ class BaseNode(BaseModel):
             if isinstance(value, str) and "{{" in value:
                 # Extract path from {{path.to.value}} format
                 path = value.strip("{}").split(".")
-                result = state["outputs"]
+                result = state["node_outputs"]
                 for part in path:
                     result = result[part]
                 self.__dict__[key] = result
@@ -40,7 +40,7 @@ class AINode(BaseNode):
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
         result = await self.run(state, config)
-        result["outputs"] = {self.name: result["messages"]}
+        result["node_outputs"] = {self.name: result["messages"]}
         return result
 
     @abstractmethod
@@ -56,7 +56,7 @@ class TaskNode(BaseNode):
         """Execute the node and wrap the result in a outputs key."""
         self.decode_variables(state)
         result = await self.run(state, config)
-        return {"outputs": {self.name: result}}
+        return {"node_outputs": {self.name: result}}
 
     @abstractmethod
     async def run(

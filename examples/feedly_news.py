@@ -174,4 +174,4 @@ if __name__ == "__main__":
 
     compiled_graph = graph.compile()
     result = asyncio.run(compiled_graph.ainvoke({"input": {}}))
-    print(result["outputs"]["MarkFeedlyAsRead"]["status"])
+    print(result["node_outputs"]["MarkFeedlyAsRead"]["status"])

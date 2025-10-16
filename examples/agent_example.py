@@ -274,7 +274,10 @@ print(result["messages"][-1].content)
 # %%
 python_code_node = PythonCode(
     name="PythonCode",
-    code="return {'messages': [{'role': 'ai', 'content': 'Hello, ' + state['outputs']['initial'] + '.'}]}",  # noqa: E501
+    code=(
+        "return {'messages': [{'role': 'ai', "
+        "'content': 'Hello, ' + state['node_outputs']['initial'] + '.'}]}"
+    ),  # noqa: E501
 )
 
 tool_graph = StateGraph(State)
@@ -299,10 +302,15 @@ def greet(name: str) -> dict:
     """
     result = asyncio.run(
         python_code_graph.ainvoke(
-            {"messages": [], "outputs": {"initial": name}}, config={}
+            {
+                "messages": [],
+                "node_outputs": {"initial": name},
+                "workflow_inputs": {},
+            },
+            config={},
         )
     )
-    return result["outputs"]["PythonCode"]
+    return result["node_outputs"]["PythonCode"]
 
 
 # %% [markdown]

@@ -16,7 +16,7 @@ def build_quickstart_graph() -> dict[str, Any]:
                 "type": "PythonCode",
                 "code": (
                     "return {'message': "
-                    "f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
+                    "f\"Welcome {state['workflow_inputs']['name']} to Orcheo!\"}"
                 ),
             },
             {"name": "END", "type": "END"},
@@ -30,9 +30,13 @@ async def run() -> None:
     graph = build_graph(build_quickstart_graph())
     app = graph.compile()
     result = await app.ainvoke(
-        {"inputs": {"name": "Ada"}, "messages": [], "outputs": {}}
+        {
+            "workflow_inputs": {"name": "Ada"},
+            "messages": [],
+            "node_outputs": {},
+        }
     )
-    print(result["outputs"]["greet_user"]["message"])  # noqa: T201 - demo output
+    print(result["node_outputs"]["greet_user"]["message"])  # noqa: T201 - demo output
 
 
 if __name__ == "__main__":
