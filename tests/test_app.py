@@ -4,18 +4,24 @@ import asyncio
 import textwrap
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID, uuid4
 import pytest
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import (
     create_app,
     execute_workflow,
     get_repository,
+    ingest_workflow_version,
     workflow_websocket,
 )
 from orcheo_backend.app.history import InMemoryRunHistoryStore
-from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.repository import (
+    InMemoryWorkflowRepository,
+    WorkflowNotFoundError,
+)
+from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
 
 
 @pytest.mark.asyncio
@@ -399,3 +405,48 @@ def test_ingest_workflow_version_missing_workflow_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Workflow not found"
+
+
+@pytest.mark.asyncio
+async def test_ingest_workflow_version_raises_not_found_error() -> None:
+    """Repository lookups raising ``WorkflowNotFoundError`` propagate as 404s."""
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    request = WorkflowVersionIngestRequest(
+        script=script,
+        entrypoint="build_graph",
+        created_by="tester",
+    )
+
+    class FailingRepository(InMemoryWorkflowRepository):
+        async def create_version(
+            self,
+            workflow_id: UUID,
+            *,
+            graph: dict[str, object],
+            metadata: dict[str, object],
+            notes: str | None,
+            created_by: str,
+        ):
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    repository = FailingRepository()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(uuid4(), request, repository)
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == "Workflow not found"
