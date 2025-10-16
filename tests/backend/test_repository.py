@@ -607,6 +607,53 @@ async def test_schedule_retry_for_run_requires_existing_run(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_repository_hydrates_failed_run_retry_state(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Failed runs maintain retry state after the SQLite repo restarts."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "workflow.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+    restart_repository: SqliteWorkflowRepository | None = None
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Retryable", slug=None, description=None, tags=None, actor="author"
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await repository.configure_retry_policy(
+            workflow.id,
+            RetryPolicyConfig(
+                max_attempts=2, initial_delay_seconds=1.0, jitter_factor=0.0
+            ),
+        )
+
+        (run,) = await repository.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow.id,
+                actor="tester",
+                runs=[ManualDispatchItem()],
+            )
+        )
+        await repository.mark_run_failed(run.id, actor="worker", error="boom")
+
+        restart_repository = SqliteWorkflowRepository(db_path)
+        decision = await restart_repository.schedule_retry_for_run(run.id)
+        assert decision is not None
+        assert decision.retry_number == 1
+    finally:
+        if restart_repository is not None:
+            await restart_repository.reset()
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_retry_policy_round_trip(
     repository: WorkflowRepository,
 ) -> None:

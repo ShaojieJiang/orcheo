@@ -874,9 +874,13 @@ class SqliteWorkflowRepository:
                 """
                 SELECT id, workflow_id, triggered_by, status
                   FROM workflow_runs
-                 WHERE status IN (?, ?)
+                 WHERE status IN (?, ?, ?)
                 """,
-                (WorkflowRunStatus.PENDING.value, WorkflowRunStatus.RUNNING.value),
+                (
+                    WorkflowRunStatus.PENDING.value,
+                    WorkflowRunStatus.RUNNING.value,
+                    WorkflowRunStatus.FAILED.value,
+                ),
             )
             for row in await cursor.fetchall():
                 run_id = UUID(row["id"])
