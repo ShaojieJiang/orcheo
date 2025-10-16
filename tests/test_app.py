@@ -3,6 +3,7 @@
 import asyncio
 import textwrap
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 import pytest
@@ -74,6 +75,56 @@ async def test_execute_workflow():
     history = await history_store.get_history(execution_id)
     assert history.status == "completed"
     assert [step.payload for step in history.steps[:-1]] == steps
+    assert history.steps[-1].payload == {"status": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
+    """LangGraph script executions pass the incoming inputs unchanged."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_graph = MagicMock()
+
+    graph_config = {"format": LANGGRAPH_SCRIPT_FORMAT}
+    inputs: dict[str, str] = {"input": "raw"}
+    execution_id = "script-exec"
+
+    steps = [{"status": "completed"}]
+    captured_state: Any | None = None
+
+    async def mock_astream(state: Any, *args: Any, **kwargs: Any):
+        nonlocal captured_state
+        captured_state = state
+        for step in steps:
+            yield step
+
+    mock_compiled_graph = MagicMock()
+    mock_compiled_graph.astream = mock_astream
+    mock_graph.compile.return_value = mock_compiled_graph
+
+    @asynccontextmanager
+    async def fake_checkpointer(_settings):
+        yield object()
+
+    history_store = InMemoryRunHistoryStore()
+
+    with (
+        patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.build_graph", return_value=mock_graph),
+        patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+    ):
+        await execute_workflow(
+            "langgraph-workflow",
+            graph_config,
+            inputs,
+            execution_id,
+            mock_websocket,
+        )
+
+    assert captured_state is inputs
+
+    history = await history_store.get_history(execution_id)
+    assert history.inputs == inputs
     assert history.steps[-1].payload == {"status": "completed"}
 
 
