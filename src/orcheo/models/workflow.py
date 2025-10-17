@@ -3,14 +3,16 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import re
-from base64 import urlsafe_b64encode
+from base64 import b64decode, b64encode, urlsafe_b64encode
 from collections.abc import Mapping, MutableMapping, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -259,13 +261,164 @@ class FernetCredentialCipher:
         return plaintext.decode("utf-8")
 
 
-class CredentialMetadata(TimestampedAuditModel):
-    """Metadata describing encrypted credentials associated with a workflow."""
+class AesGcmCredentialCipher:
+    """Credential cipher backed by AES-256 GCM."""
 
-    workflow_id: UUID
+    algorithm: str = "aes256-gcm.v1"
+
+    def __init__(self, *, key: str, key_id: str = "primary") -> None:
+        """Derive a 256-bit AES key from the provided secret."""
+        digest = hashlib.sha256(key.encode("utf-8")).digest()
+        self._aesgcm = AESGCM(digest)
+        self.key_id = key_id
+
+    def encrypt(self, plaintext: str) -> EncryptionEnvelope:
+        """Encrypt plaintext and return an envelope with nonce+ciphertext."""
+        nonce = os.urandom(12)
+        ciphertext = self._aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+        payload = b64encode(nonce + ciphertext).decode("utf-8")
+        return EncryptionEnvelope(
+            algorithm=self.algorithm,
+            key_id=self.key_id,
+            ciphertext=payload,
+        )
+
+    def decrypt(self, envelope: EncryptionEnvelope) -> str:
+        """Decrypt an :class:`EncryptionEnvelope` produced by this cipher."""
+        try:
+            decoded = b64decode(envelope.ciphertext.encode("utf-8"))
+        except Exception as exc:  # pragma: no cover - defensive
+            msg = "Encrypted payload is not valid base64 data."
+            raise ValueError(msg) from exc
+
+        if len(decoded) < 12:
+            msg = "Encrypted payload is too short to contain a nonce."
+            raise ValueError(msg)
+
+        nonce = decoded[:12]
+        ciphertext = decoded[12:]
+        try:
+            plaintext = self._aesgcm.decrypt(nonce, ciphertext, None)
+        except Exception as exc:  # pragma: no cover - defensive
+            msg = "Unable to decrypt credential payload with provided key."
+            raise ValueError(msg) from exc
+        return plaintext.decode("utf-8")
+
+
+class CredentialAccessContext(OrcheoBaseModel):
+    """Describes the caller attempting to access a credential."""
+
+    workflow_id: UUID | None = None
+    workspace_id: UUID | None = None
+    roles: list[str] = Field(default_factory=list)
+
+    @field_validator("roles", mode="after")
+    @classmethod
+    def _normalize_roles(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for role in value:
+            candidate = role.strip().lower()
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                normalized.append(candidate)
+        return normalized
+
+
+class CredentialScope(OrcheoBaseModel):
+    """Scope configuration declaring which callers may access a credential."""
+
+    workflow_ids: list[UUID] = Field(default_factory=list)
+    workspace_ids: list[UUID] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
+
+    @field_validator("workflow_ids", "workspace_ids", mode="after")
+    @classmethod
+    def _dedupe_uuid_list(cls, value: list[UUID]) -> list[UUID]:
+        seen: set[UUID] = set()
+        deduped: list[UUID] = []
+        for item in value:
+            if item not in seen:
+                seen.add(item)
+                deduped.append(item)
+        return deduped
+
+    @field_validator("roles", mode="after")
+    @classmethod
+    def _normalize_roles(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for role in value:
+            candidate = role.strip().lower()
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                normalized.append(candidate)
+        return normalized
+
+    @classmethod
+    def unrestricted(cls) -> CredentialScope:
+        """Return a scope that allows access from any context."""
+        return cls()
+
+    @classmethod
+    def for_workflows(cls, *workflow_ids: UUID) -> CredentialScope:
+        """Create a scope limited to the provided workflow identifiers."""
+        return cls(workflow_ids=list(workflow_ids))
+
+    @classmethod
+    def for_workspaces(cls, *workspace_ids: UUID) -> CredentialScope:
+        """Create a scope limited to the provided workspace identifiers."""
+        return cls(workspace_ids=list(workspace_ids))
+
+    @classmethod
+    def for_roles(cls, *roles: str) -> CredentialScope:
+        """Create a scope limited to callers possessing at least one role."""
+        return cls(roles=[role for role in roles])
+
+    def allows(self, context: CredentialAccessContext) -> bool:
+        """Return whether the provided access context satisfies the scope."""
+        if self.workflow_ids:
+            if (
+                context.workflow_id is None
+                or context.workflow_id not in self.workflow_ids
+            ):
+                return False
+        if self.workspace_ids:
+            if (
+                context.workspace_id is None
+                or context.workspace_id not in self.workspace_ids
+            ):
+                return False
+        if self.roles:
+            if not context.roles:
+                return False
+            context_roles = set(context.roles)
+            if not context_roles.intersection(self.roles):
+                return False
+        return True
+
+    def is_unrestricted(self) -> bool:
+        """Return whether the scope allows access from any context."""
+        return not (self.workflow_ids or self.workspace_ids or self.roles)
+
+    def scope_hint(self) -> str:
+        """Return a stable string hint representing the most specific scope."""
+        if self.workflow_ids:
+            return str(self.workflow_ids[0])
+        if self.workspace_ids:
+            return str(self.workspace_ids[0])
+        if self.roles:
+            return self.roles[0]
+        return "GLOBAL"
+
+
+class CredentialMetadata(TimestampedAuditModel):
+    """Metadata describing encrypted credentials with configurable scope."""
+
     name: str
     provider: str
     scopes: list[str] = Field(default_factory=list)
+    scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
     encryption: EncryptionEnvelope
     last_rotated_at: datetime | None = None
 
@@ -285,21 +438,21 @@ class CredentialMetadata(TimestampedAuditModel):
     def create(
         cls,
         *,
-        workflow_id: UUID,
         name: str,
         provider: str,
         scopes: Sequence[str],
         secret: str,
         cipher: CredentialCipher,
         actor: str,
+        scope: CredentialScope | None = None,
     ) -> CredentialMetadata:
         """Construct a credential metadata record with encrypted secret."""
         encryption = cipher.encrypt(secret)
         metadata = cls(
-            workflow_id=workflow_id,
             name=name,
             provider=provider,
             scopes=list(scopes),
+            scope=scope or CredentialScope.unrestricted(),
             encryption=encryption,
         )
         metadata.record_event(actor=actor, action="credential_created")
@@ -327,10 +480,10 @@ class CredentialMetadata(TimestampedAuditModel):
         """Return a redacted representation suitable for logs."""
         return {
             "id": str(self.id),
-            "workflow_id": str(self.workflow_id),
             "name": self.name,
             "provider": self.provider,
             "scopes": list(self.scopes),
+            "scope": self.scope.model_dump(),
             "last_rotated_at": self.last_rotated_at.isoformat()
             if self.last_rotated_at
             else None,

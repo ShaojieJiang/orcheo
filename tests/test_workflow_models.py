@@ -1,12 +1,16 @@
 """Tests for workflow and credential domain models."""
 
 from __future__ import annotations
+from base64 import b64encode
 from typing import Protocol
 from uuid import uuid4
 import pytest
 from orcheo.models import (
+    AesGcmCredentialCipher,
+    CredentialAccessContext,
     CredentialCipher,
     CredentialMetadata,
+    CredentialScope,
     EncryptionEnvelope,
     FernetCredentialCipher,
     Workflow,
@@ -117,10 +121,9 @@ def test_workflow_run_cancel_without_reason() -> None:
 
 
 def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
-    cipher = FernetCredentialCipher(key="super-secret-key", key_id="k1")
+    cipher = AesGcmCredentialCipher(key="super-secret-key", key_id="k1")
 
     metadata = CredentialMetadata.create(
-        workflow_id=uuid4(),
         name="OpenAI",
         provider="openai",
         scopes=["chat:write", "chat:write"],
@@ -142,12 +145,17 @@ def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
     assert "ciphertext" not in redacted["encryption"]
     assert redacted["encryption"]["algorithm"] == cipher.algorithm
     assert redacted["encryption"]["key_id"] == cipher.key_id
+    assert redacted["scope"] == {
+        "workflow_ids": [],
+        "workspace_ids": [],
+        "roles": [],
+    }
 
-    wrong_cipher = FernetCredentialCipher(key="other-key", key_id="k1")
+    wrong_cipher = AesGcmCredentialCipher(key="other-key", key_id="k1")
     with pytest.raises(ValueError):
         metadata.reveal(cipher=wrong_cipher)
 
-    mismatched_cipher = FernetCredentialCipher(key="super-secret-key", key_id="k2")
+    mismatched_cipher = AesGcmCredentialCipher(key="super-secret-key", key_id="k2")
     with pytest.raises(ValueError):
         metadata.reveal(cipher=mismatched_cipher)
 
@@ -175,3 +183,78 @@ def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
     dummy_cipher: CredentialCipher = DummyCipher()
     with pytest.raises(ValueError):
         metadata.encryption.decrypt(dummy_cipher)
+
+
+def test_credential_scope_allows_multiple_constraints() -> None:
+    workflow_id = uuid4()
+    workspace_id = uuid4()
+
+    unrestricted = CredentialScope.unrestricted()
+    assert unrestricted.is_unrestricted()
+    assert unrestricted.allows(CredentialAccessContext())
+
+    workflow_scope = CredentialScope.for_workflows(workflow_id, workflow_id)
+    assert workflow_scope.allows(CredentialAccessContext(workflow_id=workflow_id))
+    assert not workflow_scope.allows(CredentialAccessContext(workflow_id=uuid4()))
+
+    workspace_scope = CredentialScope.for_workspaces(workspace_id)
+    assert workspace_scope.allows(CredentialAccessContext(workspace_id=workspace_id))
+    assert not workspace_scope.allows(CredentialAccessContext())
+    assert workspace_scope.scope_hint() == str(workspace_id)
+
+    combined = CredentialScope(
+        workflow_ids=[workflow_id],
+        workspace_ids=[workspace_id],
+        roles=["Admin", "admin"],
+    )
+    context = CredentialAccessContext(
+        workflow_id=workflow_id,
+        workspace_id=workspace_id,
+        roles=["operator", "Admin"],
+    )
+    assert combined.allows(context)
+    assert combined.scope_hint() == str(workflow_id)
+    assert not combined.is_unrestricted()
+
+    mismatched_roles = CredentialAccessContext(
+        workflow_id=workflow_id,
+        workspace_id=workspace_id,
+        roles=["viewer"],
+    )
+    assert not combined.allows(mismatched_roles)
+
+    role_only_scope = CredentialScope.for_roles("Admin", "Admin", " ")
+    assert role_only_scope.scope_hint() == "admin"
+    assert role_only_scope.roles == ["admin"]
+    assert not role_only_scope.allows(CredentialAccessContext())
+
+    normalized_context = CredentialAccessContext(roles=["Admin", "admin", " "])
+    assert normalized_context.roles == ["admin"]
+
+
+def test_fernet_cipher_round_trip_and_algorithm_mismatch() -> None:
+    cipher = FernetCredentialCipher(key="my-fernet-key", key_id="fernet")
+
+    envelope = cipher.encrypt("top-secret")
+
+    assert envelope.algorithm == cipher.algorithm
+    assert envelope.key_id == cipher.key_id
+    assert cipher.decrypt(envelope) == "top-secret"
+    assert envelope.decrypt(cipher) == "top-secret"
+
+    aes_cipher = AesGcmCredentialCipher(key="another-key", key_id="fernet")
+    with pytest.raises(ValueError, match="Cipher algorithm mismatch"):
+        envelope.decrypt(aes_cipher)
+
+
+def test_aes_cipher_rejects_short_payloads() -> None:
+    cipher = AesGcmCredentialCipher(key="short-payload-key", key_id="k1")
+    bad_payload = b64encode(b"too-short").decode("utf-8")
+    envelope = EncryptionEnvelope(
+        algorithm=cipher.algorithm,
+        key_id=cipher.key_id,
+        ciphertext=bad_payload,
+    )
+
+    with pytest.raises(ValueError, match="too short"):
+        cipher.decrypt(envelope)

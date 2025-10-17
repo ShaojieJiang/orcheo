@@ -36,7 +36,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ### Milestone 3 – Credential Vault & Security
 - [x] Introduce a SQLite-backed developer repository with a pluggable storage abstraction so local workflows persist without requiring Postgres while keeping production defaults intact.
-- [ ] Ship AES-256 encrypted credential vault with per-workflow scoping, rotation policies, and masked logging.
+- [x] Ship AES-256 encrypted credential vault with shareable credentials, optional scope policies, rotation workflows, and masked logging.
 - [ ] Implement OAuth refresh flows, credential validation/testing, and health checks to block misconfigured automations.
 - [ ] Create credential templates and UI/API for secure storage, token issuance, and secret governance alerts.
 - [ ] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces.
