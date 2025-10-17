@@ -52,6 +52,17 @@ def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         config.get_settings(refresh=True)
 
 
+def test_settings_invalid_repository_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repository backend validation enforces supported options."""
+
+    monkeypatch.setenv("ORCHEO_REPOSITORY_BACKEND", "unsupported")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
 def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Using Postgres without a DSN should fail fast."""
 

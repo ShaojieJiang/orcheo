@@ -1,6 +1,7 @@
 """Unit tests for the in-memory workflow repository implementation."""
 
 from __future__ import annotations
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -484,6 +485,34 @@ async def test_manual_dispatch_rejects_unknown_versions(
             )
         )
 
+    other_workflow = await repository.create_workflow(
+        name="Foreign Versions",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="author",
+    )
+    foreign_version = await repository.create_version(
+        other_workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow.id,
+                actor="operator",
+                runs=[
+                    ManualDispatchItem(
+                        workflow_version_id=foreign_version.id,
+                    )
+                ],
+            )
+        )
+
 
 @pytest.mark.asyncio()
 async def test_configure_retry_policy_and_schedule_decision(
@@ -633,6 +662,18 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
                 max_attempts=2, initial_delay_seconds=1.0, jitter_factor=0.0
             ),
         )
+        await repository.configure_webhook_trigger(
+            workflow.id,
+            WebhookTriggerConfig(allowed_methods={"POST"}),
+        )
+        await repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+        )
+
+        (cron_run,) = await repository.dispatch_due_cron_runs(
+            now=datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        )
 
         (run,) = await repository.dispatch_manual_runs(
             ManualDispatchRequest(
@@ -647,10 +688,219 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
         decision = await restart_repository.schedule_retry_for_run(run.id)
         assert decision is not None
         assert decision.retry_number == 1
+        webhook_config = await restart_repository.get_webhook_trigger_config(
+            workflow.id
+        )
+        assert "POST" in webhook_config.allowed_methods
+        cron_config = await restart_repository.get_cron_trigger_config(workflow.id)
+        assert cron_config.expression == "0 9 * * *"
+        assert cron_run.id in restart_repository._trigger_layer._cron_run_index
     finally:
         if restart_repository is not None:
             await restart_repository.reset()
         await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_handle_webhook_trigger_success(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Webhook triggers enqueue runs with normalized payloads."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "webhook.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Webhook Flow",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await repository.configure_webhook_trigger(
+            workflow.id, WebhookTriggerConfig(allowed_methods={"POST"})
+        )
+
+        run = await repository.handle_webhook_trigger(
+            workflow.id,
+            method="POST",
+            headers={"X-Test": "value"},
+            query_params={"ok": "1"},
+            payload={"payload": True},
+            source_ip="127.0.0.1",
+        )
+
+        assert run.triggered_by == "webhook"
+        stored = await repository.get_run(run.id)
+        assert stored.input_payload["body"] == {"payload": True}
+        assert stored.input_payload["query_params"] == {"ok": "1"}
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_manual_dispatch_rejects_foreign_versions(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Manual dispatch guards against versions from other workflows."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "manual.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Primary",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        other_workflow = await repository.create_workflow(
+            name="Foreign",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        other_version = await repository.create_version(
+            other_workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        with pytest.raises(WorkflowVersionNotFoundError):
+            await repository.dispatch_manual_runs(
+                ManualDispatchRequest(
+                    workflow_id=workflow.id,
+                    actor="operator",
+                    runs=[
+                        ManualDispatchItem(
+                            workflow_version_id=other_version.id,
+                        )
+                    ],
+                )
+            )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_initialized_concurrent_calls(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Concurrent initialization requests exit early once setup completes."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "init.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        await asyncio.gather(
+            repository._ensure_initialized(), repository._ensure_initialized()
+        )
+        assert repository._initialized is True
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_latest_version_missing_instance() -> None:
+    """Missing latest version objects surface a dedicated error."""
+
+    repository = InMemoryWorkflowRepository()
+
+    workflow = await repository.create_workflow(
+        name="Latest", slug=None, description=None, tags=None, actor="tester"
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    repository._versions.pop(version.id)
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.get_latest_version(workflow.id)
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_handle_webhook_missing_version_object() -> None:
+    """Webhook dispatch raises when the latest version is missing."""
+
+    repository = InMemoryWorkflowRepository()
+
+    workflow = await repository.create_workflow(
+        name="Webhook", slug=None, description=None, tags=None, actor="tester"
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    await repository.configure_webhook_trigger(
+        workflow.id, WebhookTriggerConfig(allowed_methods={"POST"})
+    )
+
+    repository._versions.pop(version.id)
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.handle_webhook_trigger(
+            workflow.id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_cron_dispatch_skips_missing_versions() -> None:
+    """Cron dispatch ignores schedules when the latest version is missing."""
+
+    repository = InMemoryWorkflowRepository()
+
+    workflow = await repository.create_workflow(
+        name="Cron", slug=None, description=None, tags=None, actor="owner"
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+    await repository.configure_cron_trigger(
+        workflow.id, CronTriggerConfig(expression="0 12 * * *", timezone="UTC")
+    )
+
+    repository._versions.pop(version.id)
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    )
+    assert runs == []
 
 
 @pytest.mark.asyncio()
@@ -868,6 +1118,9 @@ async def test_cron_trigger_configuration_and_dispatch(
         now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
     )
     assert repeat == []
+
+    fetched = await repository.get_cron_trigger_config(workflow.id)
+    assert fetched.expression == "0 12 * * *"
 
 
 @pytest.mark.asyncio()
