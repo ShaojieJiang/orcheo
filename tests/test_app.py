@@ -1,6 +1,7 @@
 """Tests for the FastAPI backend module."""
 
 import asyncio
+import importlib
 import textwrap
 from contextlib import asynccontextmanager
 from typing import Any
@@ -11,6 +12,7 @@ from fastapi import HTTPException, WebSocket, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import (
+    _create_repository,
     create_app,
     execute_workflow,
     get_repository,
@@ -501,3 +503,32 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Workflow not found"
+
+
+backend_module = importlib.import_module("orcheo_backend.app")
+
+
+def test_create_repository_inmemory_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The application factory instantiates the in-memory repository when requested."""
+
+    class DummySettings:
+        repository_backend = "inmemory"
+        repository_sqlite_path = "ignored.sqlite"
+
+    monkeypatch.setattr(backend_module, "get_settings", lambda: DummySettings())
+
+    repository = _create_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+
+
+def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsupported repository backends raise a clear error."""
+
+    class DummySettings:
+        repository_backend = "postgres"
+        repository_sqlite_path = "ignored.sqlite"
+
+    monkeypatch.setattr(backend_module, "get_settings", lambda: DummySettings())
+
+    with pytest.raises(ValueError, match="Unsupported repository backend"):
+        _create_repository()

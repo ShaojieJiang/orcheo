@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any, NoReturn, cast
 from uuid import UUID
 from dotenv import load_dotenv
 from fastapi import (
@@ -39,9 +39,11 @@ from orcheo_backend.app.history import (
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
+    WorkflowRepository,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
     CronDispatchRequest,
     RunActionRequest,
@@ -70,18 +72,33 @@ load_dotenv()
 
 _ws_router = APIRouter()
 _http_router = APIRouter(prefix="/api")
-_repository = InMemoryWorkflowRepository()
+_repository: WorkflowRepository
 _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
     "store": InMemoryRunHistoryStore()
 }
 
 
-def get_repository() -> InMemoryWorkflowRepository:
+def _create_repository() -> WorkflowRepository:
+    settings = get_settings()
+    backend = cast(str, settings.repository_backend)
+    if backend == "sqlite":
+        path = cast(str, settings.repository_sqlite_path)
+        return SqliteWorkflowRepository(path)
+    if backend == "inmemory":
+        return InMemoryWorkflowRepository()
+    msg = "Unsupported repository backend configured."
+    raise ValueError(msg)
+
+
+_repository = _create_repository()
+
+
+def get_repository() -> WorkflowRepository:
     """Return the singleton workflow repository instance."""
     return _repository
 
 
-RepositoryDep = Annotated[InMemoryWorkflowRepository, Depends(get_repository)]
+RepositoryDep = Annotated[WorkflowRepository, Depends(get_repository)]
 
 
 def get_history_store() -> InMemoryRunHistoryStore:
@@ -724,7 +741,7 @@ async def dispatch_manual_runs(
 
 
 def create_app(
-    repository: InMemoryWorkflowRepository | None = None,
+    repository: WorkflowRepository | None = None,
     *,
     history_store: InMemoryRunHistoryStore | None = None,
 ) -> FastAPI:

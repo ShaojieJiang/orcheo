@@ -30,7 +30,8 @@ that will power both the code-first SDK and the future canvas experience.
   `psycopg_pool` and better concurrency guarantees.
 - **Configuration driven** – Persistence is now controlled through environment
   variables (`ORCHEO_CHECKPOINT_BACKEND`, `ORCHEO_SQLITE_PATH`,
-  `ORCHEO_POSTGRES_DSN`). This allows operators to toggle storage backends without
+  `ORCHEO_POSTGRES_DSN`, `ORCHEO_REPOSITORY_BACKEND`,
+  `ORCHEO_REPOSITORY_SQLITE_PATH`). This allows operators to toggle storage backends without
   code changes and creates a clear path for managed hosting.
 
 ### Hosting Model

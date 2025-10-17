@@ -8,11 +8,14 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 
 
 CheckpointBackend = Literal["sqlite", "postgres"]
+RepositoryBackend = Literal["inmemory", "sqlite"]
 VaultBackend = Literal["inmemory", "file", "aws_kms"]
 
 _DEFAULTS: dict[str, object] = {
     "CHECKPOINT_BACKEND": "sqlite",
     "SQLITE_PATH": "checkpoints.sqlite",
+    "REPOSITORY_BACKEND": "sqlite",
+    "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
     "POSTGRES_DSN": None,
     "HOST": "0.0.0.0",
     "PORT": 8000,
@@ -118,6 +121,12 @@ class AppSettings(BaseModel):
         default=cast(CheckpointBackend, _DEFAULTS["CHECKPOINT_BACKEND"])
     )
     sqlite_path: str = Field(default=cast(str, _DEFAULTS["SQLITE_PATH"]))
+    repository_backend: RepositoryBackend = Field(
+        default=cast(RepositoryBackend, _DEFAULTS["REPOSITORY_BACKEND"])
+    )
+    repository_sqlite_path: str = Field(
+        default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
+    )
     postgres_dsn: str | None = None
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
@@ -136,9 +145,27 @@ class AppSettings(BaseModel):
             raise ValueError(msg)
         return cast(CheckpointBackend, candidate)
 
+    @field_validator("repository_backend", mode="before")
+    @classmethod
+    def _coerce_repository_backend(cls, value: object) -> RepositoryBackend:
+        candidate = (
+            cast(str, value).lower()
+            if value is not None
+            else cast(str, _DEFAULTS["REPOSITORY_BACKEND"])
+        )
+        if candidate not in {"inmemory", "sqlite"}:
+            msg = "ORCHEO_REPOSITORY_BACKEND must be either 'inmemory' or 'sqlite'."
+            raise ValueError(msg)
+        return cast(RepositoryBackend, candidate)
+
     @field_validator("sqlite_path", "host", mode="before")
     @classmethod
     def _coerce_str(cls, value: object) -> str:
+        return str(value) if value is not None else ""
+
+    @field_validator("repository_sqlite_path", mode="before")
+    @classmethod
+    def _coerce_repo_sqlite_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
     @field_validator("port", mode="before")
@@ -166,6 +193,9 @@ class AppSettings(BaseModel):
             self.postgres_dsn = None
 
         self.sqlite_path = self.sqlite_path or cast(str, _DEFAULTS["SQLITE_PATH"])
+        self.repository_sqlite_path = self.repository_sqlite_path or cast(
+            str, _DEFAULTS["REPOSITORY_SQLITE_PATH"]
+        )
         self.host = self.host or cast(str, _DEFAULTS["HOST"])
         return self
 
@@ -186,6 +216,12 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         settings = AppSettings(
             checkpoint_backend=source.get("CHECKPOINT_BACKEND"),
             sqlite_path=source.get("SQLITE_PATH", _DEFAULTS["SQLITE_PATH"]),
+            repository_backend=source.get(
+                "REPOSITORY_BACKEND", _DEFAULTS["REPOSITORY_BACKEND"]
+            ),
+            repository_sqlite_path=source.get(
+                "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
+            ),
             postgres_dsn=source.get("POSTGRES_DSN"),
             host=source.get("HOST", _DEFAULTS["HOST"]),
             port=source.get("PORT", _DEFAULTS["PORT"]),
@@ -213,6 +249,8 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     )
     normalized.set("CHECKPOINT_BACKEND", settings.checkpoint_backend)
     normalized.set("SQLITE_PATH", settings.sqlite_path)
+    normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
+    normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
     normalized.set("HOST", settings.host)
     normalized.set("PORT", settings.port)
