@@ -1,6 +1,7 @@
 """Domain models representing workflows and credentials."""
 
 from orcheo.models.workflow import (
+    AesGcmCredentialCipher,
     AuditRecord,
     CredentialCipher,
     CredentialMetadata,
@@ -15,6 +16,7 @@ from orcheo.models.workflow import (
 
 __all__ = [
     "AuditRecord",
+    "AesGcmCredentialCipher",
     "CredentialCipher",
     "CredentialMetadata",
     "EncryptionEnvelope",

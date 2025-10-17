@@ -5,10 +5,10 @@ from typing import Protocol
 from uuid import uuid4
 import pytest
 from orcheo.models import (
+    AesGcmCredentialCipher,
     CredentialCipher,
     CredentialMetadata,
     EncryptionEnvelope,
-    FernetCredentialCipher,
     Workflow,
     WorkflowRun,
     WorkflowRunStatus,
@@ -117,7 +117,7 @@ def test_workflow_run_cancel_without_reason() -> None:
 
 
 def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
-    cipher = FernetCredentialCipher(key="super-secret-key", key_id="k1")
+    cipher = AesGcmCredentialCipher(key="super-secret-key", key_id="k1")
 
     metadata = CredentialMetadata.create(
         workflow_id=uuid4(),
@@ -143,11 +143,11 @@ def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
     assert redacted["encryption"]["algorithm"] == cipher.algorithm
     assert redacted["encryption"]["key_id"] == cipher.key_id
 
-    wrong_cipher = FernetCredentialCipher(key="other-key", key_id="k1")
+    wrong_cipher = AesGcmCredentialCipher(key="other-key", key_id="k1")
     with pytest.raises(ValueError):
         metadata.reveal(cipher=wrong_cipher)
 
-    mismatched_cipher = FernetCredentialCipher(key="super-secret-key", key_id="k2")
+    mismatched_cipher = AesGcmCredentialCipher(key="super-secret-key", key_id="k2")
     with pytest.raises(ValueError):
         metadata.reveal(cipher=mismatched_cipher)
 
