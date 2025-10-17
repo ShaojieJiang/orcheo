@@ -22,6 +22,7 @@ from orcheo.triggers.layer import TriggerLayer
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
+from orcheo.vault.oauth import CredentialHealthError, OAuthCredentialService
 from orcheo_backend.app.repository import (
     VersionDiff,
     WorkflowNotFoundError,
@@ -33,13 +34,19 @@ from orcheo_backend.app.repository import (
 class SqliteWorkflowRepository:
     """SQLite-backed workflow repository for durable local development state."""
 
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        credential_service: OAuthCredentialService | None = None,
+    ) -> None:
         """Initialize the repository with the SQLite database path."""
         self._database_path = Path(database_path).expanduser()
         self._lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
         self._initialized = False
-        self._trigger_layer = TriggerLayer()
+        self._credential_service = credential_service
+        self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all persisted workflows."""
@@ -344,6 +351,7 @@ class SqliteWorkflowRepository:
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
+            await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
             run = await self._create_run_locked(
                 workflow_id=workflow_id,
                 workflow_version_id=workflow_version_id,
@@ -491,6 +499,7 @@ class SqliteWorkflowRepository:
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
             version = await self._get_latest_version_locked(workflow_id)
+            await self._ensure_workflow_health(workflow_id, actor="webhook")
             request = WebhookRequest(
                 method=method,
                 headers=headers,
@@ -555,6 +564,8 @@ class SqliteWorkflowRepository:
                 except WorkflowVersionNotFoundError:
                     continue
 
+                await self._ensure_workflow_health(plan.workflow_id, actor="cron")
+
                 run = await self._create_run_locked(
                     workflow_id=plan.workflow_id,
                     workflow_version_id=version.id,
@@ -587,6 +598,10 @@ class SqliteWorkflowRepository:
                 request, default_workflow_version_id=default_version_id
             )
 
+            await self._ensure_workflow_health(
+                request.workflow_id, actor=plan.actor or plan.triggered_by
+            )
+
             runs: list[WorkflowRun] = []
             for resolved in plan.runs:
                 version = await self._get_version_locked(resolved.workflow_version_id)
@@ -605,6 +620,17 @@ class SqliteWorkflowRepository:
                 )
                 runs.append(run.model_copy(deep=True))
             return runs
+
+    async def _ensure_workflow_health(
+        self, workflow_id: UUID, *, actor: str | None = None
+    ) -> None:
+        if self._credential_service is None:
+            return
+        report = await self._credential_service.ensure_workflow_health(
+            workflow_id, actor=actor
+        )
+        if not report.is_healthy:
+            raise CredentialHealthError(report)
 
     async def configure_retry_policy(
         self, workflow_id: UUID, config: RetryPolicyConfig

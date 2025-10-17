@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,7 +10,10 @@ import pytest
 from orcheo.models import (
     AesGcmCredentialCipher,
     CredentialAccessContext,
+    CredentialHealthStatus,
+    CredentialKind,
     CredentialScope,
+    OAuthTokenSecrets,
 )
 from orcheo.vault import (
     CredentialNotFoundError,
@@ -36,6 +40,9 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
         actor="alice",
     )
 
+    assert metadata.kind is CredentialKind.SECRET
+    assert metadata.health.status is CredentialHealthStatus.UNKNOWN
+
     assert (
         vault.reveal_secret(credential_id=metadata.id, context=context_a)
         == "initial-token"
@@ -54,6 +61,8 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
     assert masked[0]["encryption"]["algorithm"] == cipher.algorithm
     assert "ciphertext" not in masked[0]["encryption"]
     assert masked[0]["scope"]["workflow_ids"] == []
+    assert masked[0]["kind"] == "secret"
+    assert masked[0]["health"]["status"] == CredentialHealthStatus.UNKNOWN.value
 
     with pytest.raises(RotationPolicyError):
         vault.rotate_secret(
@@ -70,6 +79,7 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
         context=context_a,
     )
     assert rotated.last_rotated_at >= metadata.last_rotated_at
+    assert rotated.health.status is CredentialHealthStatus.UNKNOWN
     assert (
         vault.reveal_secret(credential_id=metadata.id, context=context_a)
         == "rotated-token"
@@ -81,6 +91,7 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
 
     shared = vault.describe_credentials(context=context_b)
     assert shared[0]["scope"]["workflow_ids"] == []
+    assert shared[0]["health"]["status"] == CredentialHealthStatus.UNKNOWN.value
 
     restricted_scope = CredentialScope.for_workflows(workflow_a)
     restricted = vault.create_credential(
@@ -137,6 +148,58 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
     assert viewer_describe[0]["scope"]["roles"] == []
 
 
+def test_vault_updates_oauth_tokens_and_health() -> None:
+    cipher = AesGcmCredentialCipher(key="oauth-test-key")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+    context = CredentialAccessContext(workflow_id=workflow_id)
+    expiry = datetime.now(tz=UTC) + timedelta(minutes=30)
+
+    metadata = vault.create_credential(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="client-secret",
+        actor="alice",
+        scope=CredentialScope.for_workflows(workflow_id),
+        kind=CredentialKind.OAUTH,
+        oauth_tokens=OAuthTokenSecrets(
+            access_token="access-1",
+            refresh_token="refresh-1",
+            expires_at=expiry,
+        ),
+    )
+
+    tokens = metadata.reveal_oauth_tokens(cipher=cipher)
+    assert tokens is not None and tokens.refresh_token == "refresh-1"
+
+    updated = vault.update_oauth_tokens(
+        credential_id=metadata.id,
+        tokens=OAuthTokenSecrets(access_token="access-2"),
+        actor="validator",
+        context=context,
+    )
+    rotated_tokens = updated.reveal_oauth_tokens(cipher=cipher)
+    assert rotated_tokens is not None
+    assert rotated_tokens.access_token == "access-2"
+    assert rotated_tokens.refresh_token is None
+    assert rotated_tokens.expires_at is None
+
+    healthy = vault.mark_health(
+        credential_id=metadata.id,
+        status=CredentialHealthStatus.HEALTHY,
+        reason=None,
+        actor="validator",
+        context=context,
+    )
+    assert healthy.health.status is CredentialHealthStatus.HEALTHY
+
+    masked = vault.describe_credentials(context=context)[0]
+    assert masked["oauth_tokens"]["has_access_token"] is True
+    assert masked["oauth_tokens"]["has_refresh_token"] is False
+    assert masked["health"]["status"] == CredentialHealthStatus.HEALTHY.value
+
+
 def test_file_vault_persists_credentials(tmp_path) -> None:
     cipher = AesGcmCredentialCipher(key="file-backend-key")
     vault_path = tmp_path / "vault.sqlite"
@@ -151,6 +214,8 @@ def test_file_vault_persists_credentials(tmp_path) -> None:
         secret="sk_live_initial",
         actor="alice",
     )
+
+    assert metadata.kind is CredentialKind.SECRET
 
     restored = FileCredentialVault(vault_path, cipher=cipher)
     assert (
@@ -178,6 +243,7 @@ def test_file_vault_persists_credentials(tmp_path) -> None:
     masked = reloaded.describe_credentials(context=workflow_context)
     assert masked[0]["provider"] == "stripe"
     assert "ciphertext" not in masked[0]["encryption"]
+    assert masked[0]["health"]["status"] == CredentialHealthStatus.UNKNOWN.value
 
     with pytest.raises(CredentialNotFoundError):
         reloaded.reveal_secret(

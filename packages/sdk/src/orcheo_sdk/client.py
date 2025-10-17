@@ -31,6 +31,24 @@ class OrcheoClient:
             raise ValueError(msg)
         return f"{self.base_url.rstrip('/')}/api/workflows/{workflow_id}/runs"
 
+    def credential_health_url(self, workflow_id: str) -> str:
+        """Return the URL for querying credential health."""
+        workflow_id = workflow_id.strip()
+        if not workflow_id:
+            msg = "workflow_id cannot be empty"
+            raise ValueError(msg)
+        base = self.base_url.rstrip("/")
+        return f"{base}/api/workflows/{workflow_id}/credentials/health"
+
+    def credential_validation_url(self, workflow_id: str) -> str:
+        """Return the URL for on-demand credential validation."""
+        workflow_id = workflow_id.strip()
+        if not workflow_id:
+            msg = "workflow_id cannot be empty"
+            raise ValueError(msg)
+        base = self.base_url.rstrip("/")
+        return f"{base}/api/workflows/{workflow_id}/credentials/validate"
+
     def workflow_collection_url(self) -> str:
         """Return the base URL for workflow CRUD operations."""
         return f"{self.base_url.rstrip('/')}/api/workflows"
@@ -188,6 +206,29 @@ class HttpWorkflowExecutor:
             "Failed to trigger workflow run"
         ) from last_exception  # pragma: no cover - defensive fallback
 
+    def get_credential_health(
+        self, workflow_id: str, *, headers: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Fetch the credential health report for a workflow."""
+        url = self.client.credential_health_url(workflow_id)
+        response = self._get(url, self._build_headers(headers))
+        response.raise_for_status()
+        return response.json()
+
+    def validate_credentials(
+        self,
+        workflow_id: str,
+        *,
+        actor: str = "system",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Trigger credential validation and return the backend response."""
+        url = self.client.credential_validation_url(workflow_id)
+        payload = {"actor": actor}
+        response = self._post(url, payload, self._build_headers(headers))
+        response.raise_for_status()
+        return response.json()
+
     def _build_headers(self, overrides: Mapping[str, str] | None) -> dict[str, str]:
         headers = self.client.prepare_headers(overrides or {})
         if self.auth_token and "Authorization" not in headers:
@@ -214,6 +255,26 @@ class HttpWorkflowExecutor:
 
         with httpx.Client(**request_kwargs) as http_client:
             return http_client.post(relative_url, json=payload, headers=headers)
+
+    def _get(
+        self,
+        url: str,
+        headers: Mapping[str, str],
+    ) -> Response:
+        client = self.http_client
+        if client is not None:
+            return client.get(url, headers=headers, timeout=self.timeout)
+
+        request_kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if self.transport is not None:
+            request_kwargs["transport"] = self.transport
+
+        base_url = self.client.base_url.rstrip("/")
+        request_kwargs["base_url"] = base_url
+        relative_url = self._relative_url(url, base_url)
+
+        with httpx.Client(**request_kwargs) as http_client:
+            return http_client.get(relative_url, headers=headers)
 
     @staticmethod
     def _relative_url(url: str, base_url: str) -> str:

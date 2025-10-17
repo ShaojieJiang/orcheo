@@ -2,20 +2,66 @@
 
 from __future__ import annotations
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
+from orcheo.models import (
+    AesGcmCredentialCipher,
+    CredentialAccessContext,
+    CredentialHealthStatus,
+    CredentialKind,
+    CredentialScope,
+    OAuthTokenSecrets,
+)
+from orcheo.vault import InMemoryCredentialVault
+from orcheo.vault.oauth import (
+    OAuthCredentialService,
+    OAuthProvider,
+    OAuthValidationResult,
+)
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+
+
+class StaticProvider(OAuthProvider):
+    """Simple provider that returns predetermined validation results."""
+
+    def __init__(
+        self,
+        *,
+        status: CredentialHealthStatus = CredentialHealthStatus.HEALTHY,
+        failure_reason: str | None = None,
+    ) -> None:
+        self.status = status
+        self.failure_reason = failure_reason
+        self.refresh_calls = 0
+
+    async def refresh_tokens(self, metadata, tokens):  # type: ignore[override]
+        self.refresh_calls += 1
+        return OAuthTokenSecrets(
+            access_token="refreshed-token",
+            refresh_token="refresh-token",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+    async def validate_tokens(self, metadata, tokens):  # type: ignore[override]
+        return OAuthValidationResult(
+            status=self.status, failure_reason=self.failure_reason
+        )
 
 
 @pytest.fixture()
 def api_client() -> Iterator[TestClient]:
     """Yield a configured API client backed by a fresh repository."""
 
-    repository = InMemoryWorkflowRepository()
-    app = create_app(repository)
+    cipher = AesGcmCredentialCipher(key="api-client-key")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    service = OAuthCredentialService(vault, token_ttl_seconds=600, providers={})
+    repository = InMemoryWorkflowRepository(credential_service=service)
+    app = create_app(repository, credential_service=service)
+    app.state.vault = vault
+    app.state.credential_service = service
     with TestClient(app) as client:
         yield client
 
@@ -42,6 +88,82 @@ def _create_workflow_with_version(api_client: TestClient) -> tuple[str, str]:
     version_id = version_response.json()["id"]
 
     return workflow_id, version_id
+
+
+def test_credential_validation_endpoint_blocks_unhealthy_run(
+    api_client: TestClient,
+) -> None:
+    workflow_id, version_id = _create_workflow_with_version(api_client)
+    workflow_uuid = UUID(workflow_id)
+    vault = api_client.app.state.vault
+    service: OAuthCredentialService = api_client.app.state.credential_service
+    service.register_provider(
+        "slack",
+        StaticProvider(
+            status=CredentialHealthStatus.UNHEALTHY,
+            failure_reason="expired",
+        ),
+    )
+    vault.create_credential(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="client-secret",
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_uuid),
+        kind=CredentialKind.OAUTH,
+        oauth_tokens=OAuthTokenSecrets(access_token="initial"),
+    )
+
+    run_response = api_client.post(
+        f"/api/workflows/{workflow_id}/runs",
+        json={
+            "workflow_version_id": version_id,
+            "triggered_by": "tester",
+            "input_payload": {},
+        },
+    )
+    assert run_response.status_code == 422
+    detail = run_response.json()
+    if "detail" in detail and isinstance(detail["detail"], dict):
+        assert "failures" in detail["detail"]
+    else:
+        assert "failures" in detail
+
+
+def test_credential_endpoints_report_health(api_client: TestClient) -> None:
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    workflow_uuid = UUID(workflow_id)
+    vault = api_client.app.state.vault
+    service: OAuthCredentialService = api_client.app.state.credential_service
+    service.register_provider("feedly", StaticProvider())
+    vault.create_credential(
+        name="Feedly",
+        provider="feedly",
+        scopes=["read"],
+        secret="client-secret",
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_uuid),
+        kind=CredentialKind.OAUTH,
+        oauth_tokens=OAuthTokenSecrets(
+            access_token="initial",
+            expires_at=datetime.now(tz=UTC) + timedelta(minutes=10),
+        ),
+    )
+
+    validate_response = api_client.post(
+        f"/api/workflows/{workflow_id}/credentials/validate",
+        json={"actor": "tester"},
+    )
+    assert validate_response.status_code == 200
+    payload = validate_response.json()
+    assert payload["status"] == CredentialHealthStatus.HEALTHY.value
+
+    health_response = api_client.get(f"/api/workflows/{workflow_id}/credentials/health")
+    assert health_response.status_code == 200
+    health_payload = health_response.json()
+    assert health_payload["status"] == CredentialHealthStatus.HEALTHY.value
+    assert health_payload["credentials"]
 
 
 def test_workflow_crud_operations(api_client: TestClient) -> None:

@@ -4,10 +4,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import uuid
-from typing import Annotated, Any, NoReturn, cast
+from pathlib import Path
+from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
 from dotenv import load_dotenv
+from dynaconf import Dynaconf
 from fastapi import (
     APIRouter,
     Depends,
@@ -26,11 +29,22 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
+from orcheo.models import AesGcmCredentialCipher, CredentialHealthStatus
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
+from orcheo.vault import (
+    BaseCredentialVault,
+    FileCredentialVault,
+    InMemoryCredentialVault,
+)
+from orcheo.vault.oauth import (
+    CredentialHealthError,
+    CredentialHealthReport,
+    OAuthCredentialService,
+)
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -45,6 +59,9 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    CredentialHealthItem,
+    CredentialHealthResponse,
+    CredentialValidationRequest,
     CronDispatchRequest,
     RunActionRequest,
     RunCancelRequest,
@@ -76,16 +93,124 @@ _repository: WorkflowRepository
 _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
     "store": InMemoryRunHistoryStore()
 }
+_credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
+_vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+
+T = TypeVar("T")
+
+
+def _settings_value(
+    settings: Any, *, attr_path: str | None, env_key: str, default: T
+) -> T:
+    """Return a configuration value supporting Dynaconf and attribute objects."""
+    if hasattr(settings, "get"):
+        try:
+            value = settings.get(env_key, default)
+        except TypeError:  # pragma: no cover - defensive fallback
+            value = default
+        return cast(T, value)
+
+    if attr_path:
+        current = settings
+        for part in attr_path.split("."):
+            if not hasattr(current, part):
+                break
+            current = getattr(current, part)
+        else:
+            return cast(T, current)
+
+    return default
+
+
+def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
+    backend = cast(
+        str,
+        _settings_value(
+            settings,
+            attr_path="vault.backend",
+            env_key="VAULT_BACKEND",
+            default="inmemory",
+        ),
+    )
+    key = cast(
+        str | None,
+        _settings_value(
+            settings,
+            attr_path="vault.encryption_key",
+            env_key="VAULT_ENCRYPTION_KEY",
+            default=None,
+        ),
+    )
+    encryption_key = key or secrets.token_hex(32)
+    cipher = AesGcmCredentialCipher(key=encryption_key)
+    if backend == "inmemory":
+        return InMemoryCredentialVault(cipher=cipher)
+    if backend == "file":
+        local_path = cast(
+            str,
+            _settings_value(
+                settings,
+                attr_path="vault.local_path",
+                env_key="VAULT_LOCAL_PATH",
+                default=".orcheo/vault.sqlite",
+            ),
+        )
+        path = Path(local_path).expanduser()
+        return FileCredentialVault(path, cipher=cipher)
+    msg = "Vault backend 'aws_kms' is not supported in this environment."
+    raise ValueError(msg)
+
+
+def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
+    service = _credential_service_ref["service"]
+    if service is not None:
+        return service
+    vault = _vault_ref["vault"]
+    if vault is None:
+        vault = _create_vault(settings)
+        _vault_ref["vault"] = vault
+    token_ttl = cast(
+        int,
+        _settings_value(
+            settings,
+            attr_path="vault.token_ttl_seconds",
+            env_key="VAULT_TOKEN_TTL_SECONDS",
+            default=3600,
+        ),
+    )
+    service = OAuthCredentialService(
+        vault,
+        token_ttl_seconds=token_ttl,
+    )
+    _credential_service_ref["service"] = service
+    return service
 
 
 def _create_repository() -> WorkflowRepository:
     settings = get_settings()
-    backend = cast(str, settings.repository_backend)
+    service = _ensure_credential_service(settings)
+    backend = cast(
+        str,
+        _settings_value(
+            settings,
+            attr_path="repository_backend",
+            env_key="REPOSITORY_BACKEND",
+            default="sqlite",
+        ),
+    )
     if backend == "sqlite":
-        path = cast(str, settings.repository_sqlite_path)
-        return SqliteWorkflowRepository(path)
+        sqlite_path = cast(
+            str,
+            _settings_value(
+                settings,
+                attr_path="repository_sqlite_path",
+                env_key="REPOSITORY_SQLITE_PATH",
+                default="~/.orcheo/workflows.sqlite",
+            ),
+        )
+        return SqliteWorkflowRepository(sqlite_path, credential_service=service)
     if backend == "inmemory":
-        return InMemoryWorkflowRepository()
+        return InMemoryWorkflowRepository(credential_service=service)
     msg = "Unsupported repository backend configured."
     raise ValueError(msg)
 
@@ -107,6 +232,16 @@ def get_history_store() -> InMemoryRunHistoryStore:
 
 
 HistoryStoreDep = Annotated[InMemoryRunHistoryStore, Depends(get_history_store)]
+
+
+def get_credential_service() -> OAuthCredentialService | None:
+    """Return the configured credential health service if available."""
+    return _credential_service_ref["service"]
+
+
+CredentialServiceDep = Annotated[
+    OAuthCredentialService | None, Depends(get_credential_service)
+]
 
 
 def _raise_not_found(detail: str, exc: Exception) -> NoReturn:
@@ -151,6 +286,33 @@ def _history_to_response(
         error=record.error,
         inputs=record.inputs,
         steps=steps,
+    )
+
+
+def _health_report_to_response(
+    report: CredentialHealthReport,
+) -> CredentialHealthResponse:
+    credentials = [
+        CredentialHealthItem(
+            credential_id=str(result.credential_id),
+            name=result.name,
+            provider=result.provider,
+            status=result.status,
+            last_checked_at=result.last_checked_at,
+            failure_reason=result.failure_reason,
+        )
+        for result in report.results
+    ]
+    overall_status = (
+        CredentialHealthStatus.HEALTHY
+        if report.is_healthy
+        else CredentialHealthStatus.UNHEALTHY
+    )
+    return CredentialHealthResponse(
+        workflow_id=str(report.workflow_id),
+        status=overall_status,
+        checked_at=report.checked_at,
+        credentials=credentials,
     )
 
 
@@ -453,6 +615,7 @@ async def create_workflow_run(
     workflow_id: UUID,
     request: WorkflowRunCreateRequest,
     repository: RepositoryDep,
+    _service: CredentialServiceDep,
 ) -> WorkflowRun:
     """Create a workflow execution run."""
     try:
@@ -466,6 +629,75 @@ async def create_workflow_run(
         _raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:
         _raise_not_found("Workflow version not found", exc)
+    except CredentialHealthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "failures": exc.report.failures},
+        ) from exc
+
+
+@_http_router.get(
+    "/workflows/{workflow_id}/credentials/health",
+    response_model=CredentialHealthResponse,
+)
+async def get_workflow_credential_health(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+    service: CredentialServiceDep,
+) -> CredentialHealthResponse:
+    try:
+        await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential health service is not configured.",
+        )
+
+    report = service.get_report(workflow_id)
+    if report is None:
+        return CredentialHealthResponse(
+            workflow_id=str(workflow_id),
+            status=CredentialHealthStatus.UNKNOWN,
+            checked_at=None,
+            credentials=[],
+        )
+    return _health_report_to_response(report)
+
+
+@_http_router.post(
+    "/workflows/{workflow_id}/credentials/validate",
+    response_model=CredentialHealthResponse,
+)
+async def validate_workflow_credentials(
+    workflow_id: UUID,
+    request: CredentialValidationRequest,
+    repository: RepositoryDep,
+    service: CredentialServiceDep,
+) -> CredentialHealthResponse:
+    try:
+        await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential health service is not configured.",
+        )
+
+    report = await service.ensure_workflow_health(workflow_id, actor=request.actor)
+    if not report.is_healthy:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Credentials failed validation.",
+                "failures": report.failures,
+            },
+        )
+    return _health_report_to_response(report)
 
 
 @_http_router.get(
@@ -678,6 +910,11 @@ async def invoke_webhook_trigger(
         _raise_not_found("Workflow version not found", exc)
     except WebhookValidationError as exc:
         _raise_webhook_error(exc)
+    except CredentialHealthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "failures": exc.report.failures},
+        ) from exc
 
 
 @_http_router.put(
@@ -721,7 +958,13 @@ async def dispatch_cron_triggers(
 ) -> list[WorkflowRun]:
     """Evaluate cron schedules and enqueue any due runs."""
     now = request.now if request else None
-    return await repository.dispatch_due_cron_runs(now=now)
+    try:
+        return await repository.dispatch_due_cron_runs(now=now)
+    except CredentialHealthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "failures": exc.report.failures},
+        ) from exc
 
 
 @_http_router.post(
@@ -738,12 +981,18 @@ async def dispatch_manual_runs(
         _raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:
         _raise_not_found("Workflow version not found", exc)
+    except CredentialHealthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "failures": exc.report.failures},
+        ) from exc
 
 
 def create_app(
     repository: WorkflowRepository | None = None,
     *,
     history_store: InMemoryRunHistoryStore | None = None,
+    credential_service: OAuthCredentialService | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""
     application = FastAPI()
@@ -761,6 +1010,19 @@ def create_app(
     if history_store is not None:
         application.dependency_overrides[get_history_store] = lambda: history_store
         _history_store_ref["store"] = history_store
+    if credential_service is not None:
+        _credential_service_ref["service"] = credential_service
+        _vault_ref["vault"] = getattr(credential_service, "_vault", None)
+        application.dependency_overrides[get_credential_service] = (
+            lambda: credential_service
+        )
+    elif repository is not None:
+        inferred_service = getattr(repository, "_credential_service", None)
+        if inferred_service is not None:
+            _credential_service_ref["service"] = inferred_service
+            application.dependency_overrides[get_credential_service] = (
+                lambda: inferred_service
+            )
 
     application.include_router(_http_router)
     application.include_router(_ws_router)

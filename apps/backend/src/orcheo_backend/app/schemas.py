@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
+from orcheo.models import CredentialHealthStatus
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -130,3 +131,29 @@ class CronDispatchRequest(BaseModel):
     """Request body for dispatching cron triggers."""
 
     now: datetime | None = None
+
+
+class CredentialValidationRequest(BaseModel):
+    """Request body for on-demand credential validation."""
+
+    actor: str = Field(default="system")
+
+
+class CredentialHealthItem(BaseModel):
+    """Represents the health state for an individual credential."""
+
+    credential_id: str
+    name: str
+    provider: str
+    status: CredentialHealthStatus
+    last_checked_at: datetime | None = None
+    failure_reason: str | None = None
+
+
+class CredentialHealthResponse(BaseModel):
+    """Response payload describing workflow credential health."""
+
+    workflow_id: str
+    status: CredentialHealthStatus
+    checked_at: datetime | None = None
+    credentials: list[CredentialHealthItem] = Field(default_factory=list)

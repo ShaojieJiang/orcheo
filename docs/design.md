@@ -407,6 +407,7 @@ Key design notes:
 #### 2.3.3 Runtime Behavior View
 - **Trigger handling**: Webhooks enqueue events in the message broker with deduplication keys; cron schedules feed into the same queue through a scheduler service.
 - **Credential injection**: Vault tokens are resolved at execution start; tokens are scoped to the run and destroyed upon completion or failure.
+- **Credential health**: An OAuth-aware vault service refreshes expiring tokens, tracks validation status, and blocks workflow dispatch until credentials are healthy; operators can inspect and trigger health checks via dedicated REST endpoints.
 - **Observability pipeline**: Workers emit structured logs, metrics, and traces, which drive alerts per SLAs defined in the PRD.
 - **Failure management**: Circuit breakers short external calls after threshold breaches, routing payloads to the dead-letter queue for manual intervention.
 

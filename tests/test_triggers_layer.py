@@ -23,6 +23,12 @@ from orcheo.triggers import (
     WebhookTriggerConfig,
     WebhookValidationError,
 )
+from orcheo.vault.oauth import (
+    CredentialHealthError,
+    CredentialHealthReport,
+    CredentialHealthResult,
+)
+from orcheo.models import CredentialHealthStatus
 
 
 def test_webhook_dispatch_validation_and_normalization() -> None:
@@ -55,6 +61,47 @@ def test_webhook_dispatch_validation_and_normalization() -> None:
     assert dispatch.input_payload["headers"]["x-auth"] == "secret"
     assert dispatch.input_payload["query_params"] == {"team": "ops"}
     assert dispatch.input_payload["source_ip"] == "203.0.113.5"
+
+
+def test_trigger_layer_blocks_unhealthy_workflows() -> None:
+    workflow_id = uuid4()
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[
+            CredentialHealthResult(
+                credential_id=uuid4(),
+                name="Slack",
+                provider="slack",
+                status=CredentialHealthStatus.UNHEALTHY,
+                last_checked_at=datetime.now(tz=UTC),
+                failure_reason="expired",
+            )
+        ],
+        checked_at=datetime.now(tz=UTC),
+    )
+
+    class Guard:
+        def is_workflow_healthy(self, workflow_id: UUID) -> bool:  # noqa: D401 - simple guard
+            return False
+
+        def get_report(self, workflow_id: UUID) -> CredentialHealthReport | None:
+            return report if workflow_id == report.workflow_id else None
+
+    layer = TriggerLayer(health_guard=Guard())
+    layer.configure_webhook(
+        workflow_id,
+        WebhookTriggerConfig(allowed_methods=["post"]),
+    )
+    request = WebhookRequest(
+        method="POST",
+        headers={},
+        query_params={},
+        payload={},
+        source_ip=None,
+    )
+
+    with pytest.raises(CredentialHealthError):
+        layer.prepare_webhook_dispatch(workflow_id, request)
 
 
 def test_cron_dispatch_and_overlap_controls() -> None:

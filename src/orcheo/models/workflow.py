@@ -412,6 +412,112 @@ class CredentialScope(OrcheoBaseModel):
         return "GLOBAL"
 
 
+class CredentialKind(str, Enum):
+    """Enumerates supported credential persistence strategies."""
+
+    SECRET = "secret"
+    OAUTH = "oauth"
+
+
+class CredentialHealthStatus(str, Enum):
+    """Represents the evaluated health state for a credential."""
+
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+
+
+class OAuthTokenSecrets(OrcheoBaseModel):
+    """Plaintext representation of OAuth tokens used by providers."""
+
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _normalize_expiry(self) -> OAuthTokenSecrets:
+        if self.expires_at and self.expires_at.tzinfo is None:
+            object.__setattr__(self, "expires_at", self.expires_at.replace(tzinfo=UTC))
+        return self
+
+
+class OAuthTokenPayload(OrcheoBaseModel):
+    """Encrypted storage for OAuth token secrets."""
+
+    access_token: EncryptionEnvelope | None = None
+    refresh_token: EncryptionEnvelope | None = None
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _normalize_expiry(self) -> OAuthTokenPayload:
+        if self.expires_at and self.expires_at.tzinfo is None:
+            object.__setattr__(self, "expires_at", self.expires_at.replace(tzinfo=UTC))
+        return self
+
+    @classmethod
+    def from_secrets(
+        cls, *, cipher: CredentialCipher, secrets: OAuthTokenSecrets | None
+    ) -> OAuthTokenPayload:
+        """Create an encrypted payload from plaintext OAuth tokens."""
+        if secrets is None:
+            return cls()
+        return cls(
+            access_token=cipher.encrypt(secrets.access_token)
+            if secrets.access_token
+            else None,
+            refresh_token=cipher.encrypt(secrets.refresh_token)
+            if secrets.refresh_token
+            else None,
+            expires_at=secrets.expires_at,
+        )
+
+    def reveal(self, *, cipher: CredentialCipher) -> OAuthTokenSecrets:
+        """Return decrypted OAuth tokens from the encrypted payload."""
+        return OAuthTokenSecrets(
+            access_token=self.access_token.decrypt(cipher)
+            if self.access_token
+            else None,
+            refresh_token=self.refresh_token.decrypt(cipher)
+            if self.refresh_token
+            else None,
+            expires_at=self.expires_at,
+        )
+
+    def redact(self) -> MutableMapping[str, Any]:
+        """Return redacted metadata describing stored OAuth tokens."""
+        return {
+            "has_access_token": self.access_token is not None,
+            "has_refresh_token": self.refresh_token is not None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
+
+
+class CredentialHealth(OrcheoBaseModel):
+    """Tracks the last known health evaluation for a credential."""
+
+    status: CredentialHealthStatus = Field(default=CredentialHealthStatus.UNKNOWN)
+    last_checked_at: datetime | None = None
+    failure_reason: str | None = None
+
+    def update(
+        self, *, status: CredentialHealthStatus, reason: str | None = None
+    ) -> None:
+        """Update the health status and timestamp for the credential."""
+        self.status = status
+        self.last_checked_at = _utcnow()
+        self.failure_reason = reason
+
+    def redact(self) -> MutableMapping[str, Any]:
+        """Return a redacted health payload for logging."""
+        return {
+            "status": self.status.value,
+            "last_checked_at": self.last_checked_at.isoformat()
+            if self.last_checked_at
+            else None,
+            "failure_reason": self.failure_reason,
+        }
+
+
 class CredentialMetadata(TimestampedAuditModel):
     """Metadata describing encrypted credentials with configurable scope."""
 
@@ -420,6 +526,9 @@ class CredentialMetadata(TimestampedAuditModel):
     scopes: list[str] = Field(default_factory=list)
     scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
     encryption: EncryptionEnvelope
+    kind: CredentialKind = Field(default=CredentialKind.SECRET)
+    oauth_tokens: OAuthTokenPayload | None = None
+    health: CredentialHealth = Field(default_factory=CredentialHealth)
     last_rotated_at: datetime | None = None
 
     @field_validator("scopes", mode="after")
@@ -445,6 +554,8 @@ class CredentialMetadata(TimestampedAuditModel):
         cipher: CredentialCipher,
         actor: str,
         scope: CredentialScope | None = None,
+        kind: CredentialKind = CredentialKind.SECRET,
+        oauth_tokens: OAuthTokenSecrets | None = None,
     ) -> CredentialMetadata:
         """Construct a credential metadata record with encrypted secret."""
         encryption = cipher.encrypt(secret)
@@ -454,6 +565,12 @@ class CredentialMetadata(TimestampedAuditModel):
             scopes=list(scopes),
             scope=scope or CredentialScope.unrestricted(),
             encryption=encryption,
+            kind=kind,
+            oauth_tokens=OAuthTokenPayload.from_secrets(
+                cipher=cipher, secrets=oauth_tokens
+            )
+            if kind is CredentialKind.OAUTH
+            else None,
         )
         metadata.record_event(actor=actor, action="credential_created")
         metadata.last_rotated_at = metadata.created_at
@@ -471,10 +588,64 @@ class CredentialMetadata(TimestampedAuditModel):
         now = _utcnow()
         self.last_rotated_at = now
         self.record_event(actor=actor, action="credential_rotated")
+        if self.kind is CredentialKind.OAUTH:
+            self.health.update(status=CredentialHealthStatus.UNKNOWN)
 
     def reveal(self, *, cipher: CredentialCipher) -> str:
         """Decrypt and return the credential secret."""
         return self.encryption.decrypt(cipher)
+
+    def reveal_oauth_tokens(
+        self, *, cipher: CredentialCipher
+    ) -> OAuthTokenSecrets | None:
+        """Return decrypted OAuth tokens when available."""
+        if self.oauth_tokens is None:
+            return None
+        return self.oauth_tokens.reveal(cipher=cipher)
+
+    def update_oauth_tokens(
+        self,
+        *,
+        cipher: CredentialCipher,
+        tokens: OAuthTokenSecrets | None,
+        actor: str | None = None,
+    ) -> None:
+        """Persist updated OAuth tokens and reset cached health information."""
+        if self.kind is not CredentialKind.OAUTH:
+            msg = "OAuth tokens can only be updated for OAuth credentials."
+            raise ValueError(msg)
+        payload = OAuthTokenPayload.from_secrets(cipher=cipher, secrets=tokens)
+        if (
+            payload.access_token is None
+            and payload.refresh_token is None
+            and payload.expires_at is None
+        ):
+            self.oauth_tokens = None
+        else:
+            self.oauth_tokens = payload
+        self.health.update(status=CredentialHealthStatus.UNKNOWN)
+        self.record_event(
+            actor=actor or "system",
+            action="credential_oauth_tokens_updated",
+        )
+
+    def mark_health(
+        self,
+        *,
+        status: CredentialHealthStatus,
+        reason: str | None,
+        actor: str | None = None,
+    ) -> None:
+        """Record the latest credential health evaluation for the metadata."""
+        self.health.update(status=status, reason=reason)
+        self.record_event(
+            actor=actor or "system",
+            action="credential_health_marked",
+            metadata={
+                "status": status.value,
+                "reason": reason,
+            },
+        )
 
     def redact(self) -> MutableMapping[str, Any]:
         """Return a redacted representation suitable for logs."""
@@ -484,6 +655,7 @@ class CredentialMetadata(TimestampedAuditModel):
             "provider": self.provider,
             "scopes": list(self.scopes),
             "scope": self.scope.model_dump(),
+            "kind": self.kind.value,
             "last_rotated_at": self.last_rotated_at.isoformat()
             if self.last_rotated_at
             else None,
@@ -491,4 +663,6 @@ class CredentialMetadata(TimestampedAuditModel):
                 "algorithm": self.encryption.algorithm,
                 "key_id": self.encryption.key_id,
             },
+            "oauth_tokens": self.oauth_tokens.redact() if self.oauth_tokens else None,
+            "health": self.health.redact(),
         }
