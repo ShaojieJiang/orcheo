@@ -77,7 +77,7 @@ Current automation platforms force teams to choose between ease of use and advan
 - Execution engine with history, retries, and support for loops, branching, and parallelization.
 
 #### Credential & Security Handling
-- AES-256 encrypted vault with per-workflow scoping, token rotation, and masked logs.
+- AES-256 encrypted vault with shareable credentials by default, plus optional workflow, workspace, or role scope policies, token rotation, and masked logs.
 - Pre-built credential templates for popular services with validation before execution.
 - Automatic OAuth refresh and credential testing to guard against misconfiguration.
 
