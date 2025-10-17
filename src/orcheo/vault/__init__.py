@@ -9,8 +9,10 @@ from pathlib import Path
 from uuid import UUID
 from orcheo.models import (
     AesGcmCredentialCipher,
+    CredentialAccessContext,
     CredentialCipher,
     CredentialMetadata,
+    CredentialScope,
 )
 
 
@@ -23,7 +25,7 @@ class CredentialNotFoundError(VaultError):
 
 
 class WorkflowScopeError(VaultError):
-    """Raised when attempting to access a credential from another workflow."""
+    """Raised when a credential scope denies access for the provided context."""
 
 
 class RotationPolicyError(VaultError):
@@ -40,22 +42,22 @@ class BaseCredentialVault:
     def create_credential(
         self,
         *,
-        workflow_id: UUID,
         name: str,
         provider: str,
         scopes: Sequence[str],
         secret: str,
         actor: str,
+        scope: CredentialScope | None = None,
     ) -> CredentialMetadata:
         """Encrypt and persist a new credential."""
         metadata = CredentialMetadata.create(
-            workflow_id=workflow_id,
             name=name,
             provider=provider,
             scopes=scopes,
             secret=secret,
             cipher=self._cipher,
             actor=actor,
+            scope=scope,
         )
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
@@ -63,15 +65,13 @@ class BaseCredentialVault:
     def rotate_secret(
         self,
         *,
-        workflow_id: UUID,
         credential_id: UUID,
         secret: str,
         actor: str,
+        context: CredentialAccessContext | None = None,
     ) -> CredentialMetadata:
         """Rotate an existing credential secret enforcing policy constraints."""
-        metadata = self._get_metadata(
-            workflow_id=workflow_id, credential_id=credential_id
-        )
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
         current_secret = metadata.reveal(cipher=self._cipher)
         if current_secret == secret:
             msg = "Rotated secret must differ from the previous value."
@@ -80,29 +80,48 @@ class BaseCredentialVault:
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
 
-    def reveal_secret(self, *, workflow_id: UUID, credential_id: UUID) -> str:
+    def reveal_secret(
+        self,
+        *,
+        credential_id: UUID,
+        context: CredentialAccessContext | None = None,
+    ) -> str:
         """Return the decrypted secret for the credential."""
-        metadata = self._get_metadata(
-            workflow_id=workflow_id, credential_id=credential_id
-        )
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
         return metadata.reveal(cipher=self._cipher)
 
-    def list_credentials(self, *, workflow_id: UUID) -> list[CredentialMetadata]:
+    def list_credentials(
+        self, *, context: CredentialAccessContext | None = None
+    ) -> list[CredentialMetadata]:
         """Return credential metadata for a workflow."""
-        return [item.model_copy(deep=True) for item in self._iter_metadata(workflow_id)]
+        access_context = context or CredentialAccessContext()
+        return [
+            item.model_copy(deep=True)
+            for item in self._iter_metadata()
+            if item.scope.allows(access_context)
+        ]
 
     def describe_credentials(
-        self, *, workflow_id: UUID
+        self, *, context: CredentialAccessContext | None = None
     ) -> list[MutableMapping[str, object]]:
         """Return masked representations suitable for logging."""
-        return [item.redact() for item in self._iter_metadata(workflow_id)]
+        access_context = context or CredentialAccessContext()
+        return [
+            item.redact()
+            for item in self._iter_metadata()
+            if item.scope.allows(access_context)
+        ]
 
     def _get_metadata(
-        self, *, workflow_id: UUID, credential_id: UUID
+        self,
+        *,
+        credential_id: UUID,
+        context: CredentialAccessContext | None = None,
     ) -> CredentialMetadata:
         metadata = self._load_metadata(credential_id)
-        if metadata.workflow_id != workflow_id:
-            msg = "Credential does not belong to the provided workflow."
+        access_context = context or CredentialAccessContext()
+        if not metadata.scope.allows(access_context):
+            msg = "Credential cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
         return metadata
 
@@ -116,9 +135,7 @@ class BaseCredentialVault:
     ) -> CredentialMetadata:  # pragma: no cover
         raise NotImplementedError
 
-    def _iter_metadata(
-        self, workflow_id: UUID
-    ) -> Iterable[CredentialMetadata]:  # pragma: no cover
+    def _iter_metadata(self) -> Iterable[CredentialMetadata]:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -140,10 +157,9 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Credential was not found."
             raise CredentialNotFoundError(msg) from exc
 
-    def _iter_metadata(self, workflow_id: UUID) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
         for metadata in self._store.values():
-            if metadata.workflow_id == workflow_id:
-                yield metadata.model_copy(deep=True)
+            yield metadata.model_copy(deep=True)
 
 
 class FileCredentialVault(BaseCredentialVault):
@@ -199,7 +215,7 @@ class FileCredentialVault(BaseCredentialVault):
                 """,
                 (
                     str(metadata.id),
-                    str(metadata.workflow_id),
+                    metadata.scope.scope_hint(),
                     metadata.name,
                     metadata.provider,
                     metadata.created_at.isoformat(),
@@ -221,16 +237,14 @@ class FileCredentialVault(BaseCredentialVault):
             raise CredentialNotFoundError(msg)
         return CredentialMetadata.model_validate_json(row[0])
 
-    def _iter_metadata(self, workflow_id: UUID) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
         with self._lock, sqlite3.connect(self._path) as conn:
             cursor = conn.execute(
                 """
                 SELECT payload
                   FROM credentials
-                 WHERE workflow_id = ?
               ORDER BY created_at ASC
-                """,
-                (str(workflow_id),),
+                """
             )
             rows = cursor.fetchall()
         for row in rows:
