@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,9 @@ from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError, OAuthCredentialService
+
+
+logger = logging.getLogger(__name__)
 
 
 class RepositoryError(RuntimeError):
@@ -679,7 +683,16 @@ class InMemoryWorkflowRepository:
                 workflow_id = plan.workflow_id
                 if workflow_id not in self._workflows:
                     continue
-                await self._ensure_workflow_health(workflow_id, actor="cron")
+                try:
+                    await self._ensure_workflow_health(workflow_id, actor="cron")
+                except CredentialHealthError as exc:
+                    logger.warning(
+                        "Skipping cron dispatch for workflow %s "
+                        "due to credential health error: %s",
+                        workflow_id,
+                        exc,
+                    )
+                    continue
                 version_ids = self._workflow_versions.get(workflow_id)
                 if not version_ids:
                     continue

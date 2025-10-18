@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -29,6 +30,9 @@ from orcheo_backend.app.repository import (
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class SqliteWorkflowRepository:
@@ -564,7 +568,16 @@ class SqliteWorkflowRepository:
                 except WorkflowVersionNotFoundError:
                     continue
 
-                await self._ensure_workflow_health(plan.workflow_id, actor="cron")
+                try:
+                    await self._ensure_workflow_health(plan.workflow_id, actor="cron")
+                except CredentialHealthError as exc:
+                    logger.warning(
+                        "Skipping cron dispatch for workflow %s "
+                        "due to credential health error: %s",
+                        plan.workflow_id,
+                        exc,
+                    )
+                    continue
 
                 run = await self._create_run_locked(
                     workflow_id=plan.workflow_id,
