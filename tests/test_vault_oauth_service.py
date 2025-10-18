@@ -124,7 +124,7 @@ async def test_oauth_service_records_unhealthy_credentials() -> None:
     assert report.failures == ["expired"]
     assert not service.is_workflow_healthy(workflow_id)
 
-    alerts = vault.list_alerts()
+    alerts = vault.list_alerts(context=CredentialAccessContext(workflow_id=workflow_id))
     assert alerts and alerts[0].kind is GovernanceAlertKind.VALIDATION_FAILED
 
     with pytest.raises(CredentialHealthError):
@@ -183,7 +183,7 @@ async def test_oauth_service_marks_unhealthy_when_provider_missing() -> None:
     report = await service.ensure_workflow_health(workflow_id)
     assert not report.is_healthy
     assert "No OAuth provider" in report.failures[0]
-    alerts = vault.list_alerts()
+    alerts = vault.list_alerts(context=CredentialAccessContext(workflow_id=workflow_id))
     assert alerts and alerts[0].kind is GovernanceAlertKind.VALIDATION_FAILED
 
 

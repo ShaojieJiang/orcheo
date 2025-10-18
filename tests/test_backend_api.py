@@ -543,6 +543,35 @@ def test_acknowledge_alert_scope_violation_returns_403(
     assert response.status_code == 403
 
 
+def test_acknowledge_alert_requires_context_for_scoped_alert(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    vault: InMemoryCredentialVault = api_client.app.state.vault
+    template = vault.create_template(
+        name="Scoped",
+        provider="internal",
+        scopes=["read"],
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+    alert = vault.record_alert(
+        kind=GovernanceAlertKind.ROTATION_OVERDUE,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="rotate",
+        actor="tester",
+        template_id=template.id,
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+
+    response = api_client.post(
+        f"/api/credentials/governance-alerts/{alert.id}/acknowledge",
+        json={"actor": "tester"},
+    )
+
+    assert response.status_code == 403
+
+
 def test_governance_alert_listing_and_ack(api_client: TestClient) -> None:
     workflow_id, _ = _create_workflow_with_version(api_client)
     workflow_uuid = UUID(workflow_id)
@@ -572,7 +601,10 @@ def test_governance_alert_listing_and_ack(api_client: TestClient) -> None:
     )
     assert await_response.status_code == 422
 
-    alerts_response = api_client.get("/api/credentials/governance-alerts")
+    alerts_response = api_client.get(
+        "/api/credentials/governance-alerts",
+        params={"workflow_id": workflow_id},
+    )
     assert alerts_response.status_code == 200
     alerts = alerts_response.json()
     assert alerts and alerts[0]["kind"] == GovernanceAlertKind.VALIDATION_FAILED.value
@@ -580,6 +612,7 @@ def test_governance_alert_listing_and_ack(api_client: TestClient) -> None:
 
     ack_response = api_client.post(
         f"/api/credentials/governance-alerts/{alert_id}/acknowledge",
+        params={"workflow_id": workflow_id},
         json={"actor": "tester"},
     )
     assert ack_response.status_code == 200
@@ -587,7 +620,10 @@ def test_governance_alert_listing_and_ack(api_client: TestClient) -> None:
 
     all_alerts = api_client.get(
         "/api/credentials/governance-alerts",
-        params={"include_acknowledged": True},
+        params={
+            "workflow_id": workflow_id,
+            "include_acknowledged": True,
+        },
     )
     assert all_alerts.status_code == 200
     assert all_alerts.json()[0]["is_acknowledged"] is True

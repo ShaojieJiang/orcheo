@@ -357,14 +357,9 @@ class BaseCredentialVault:
     ) -> list[SecretGovernanceAlert]:
         """Return governance alerts permitted for the caller."""
         access_context = context or CredentialAccessContext()
-        unrestricted_context = (
-            access_context.workflow_id is None
-            and access_context.workspace_id is None
-            and not access_context.roles
-        )
         results: list[SecretGovernanceAlert] = []
         for alert in self._iter_alerts():
-            if (not unrestricted_context) and not alert.scope.allows(access_context):
+            if not alert.scope.allows(access_context):
                 continue
             if not include_acknowledged and alert.is_acknowledged:
                 continue
@@ -471,12 +466,7 @@ class BaseCredentialVault:
     ) -> SecretGovernanceAlert:
         alert = self._load_alert(alert_id)
         access_context = context or CredentialAccessContext()
-        unrestricted_context = (
-            access_context.workflow_id is None
-            and access_context.workspace_id is None
-            and not access_context.roles
-        )
-        if (not unrestricted_context) and not alert.scope.allows(access_context):
+        if not alert.scope.allows(access_context):
             msg = "Governance alert cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
         return alert

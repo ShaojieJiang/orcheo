@@ -524,7 +524,11 @@ def test_record_alert_skips_acknowledged_entries() -> None:
         credential_id=metadata.id,
         context=CredentialAccessContext(workflow_id=workflow_id),
     )
-    vault.acknowledge_alert(alert.id, actor="ops")
+    vault.acknowledge_alert(
+        alert.id,
+        actor="ops",
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
 
     refreshed = vault.record_alert(
         kind=GovernanceAlertKind.TOKEN_EXPIRING,
@@ -570,8 +574,15 @@ def test_list_alerts_filters_by_context_and_acknowledgement() -> None:
     )
     assert [alert.message for alert in filtered] == ["global"]
 
-    vault.acknowledge_alert(restricted.id, actor="ops")
-    all_alerts = vault.list_alerts(include_acknowledged=True)
+    vault.acknowledge_alert(
+        restricted.id,
+        actor="ops",
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+    all_alerts = vault.list_alerts(
+        context=CredentialAccessContext(workflow_id=workflow_id),
+        include_acknowledged=True,
+    )
     assert {alert.message for alert in all_alerts} == {"restricted", "global"}
 
 
@@ -609,11 +620,21 @@ def test_acknowledge_alert_enforces_scope() -> None:
     )
 
     with pytest.raises(WorkflowScopeError):
+        vault.acknowledge_alert(alert.id, actor="ops")
+
+    with pytest.raises(WorkflowScopeError):
         vault.acknowledge_alert(
             alert.id,
             actor="viewer",
             context=CredentialAccessContext(workflow_id=uuid4()),
         )
+
+    acknowledged = vault.acknowledge_alert(
+        alert.id,
+        actor="ops",
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+    assert acknowledged.is_acknowledged is True
 
 
 def test_resolve_alerts_for_credential_marks_all() -> None:
