@@ -7,7 +7,7 @@ import os
 import re
 from base64 import b64decode, b64encode, urlsafe_b64encode
 from collections.abc import Mapping, MutableMapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -518,6 +518,24 @@ class CredentialHealth(OrcheoBaseModel):
         }
 
 
+class CredentialIssuancePolicy(OrcheoBaseModel):
+    """Declares default rotation and expiry requirements for credentials."""
+
+    require_refresh_token: bool = False
+    rotation_period_days: int | None = Field(default=None, ge=1)
+    expiry_threshold_minutes: int = Field(default=60, ge=1)
+
+    def requires_rotation(
+        self, *, last_rotated_at: datetime | None, now: datetime | None = None
+    ) -> bool:
+        """Return ``True`` when the credential should be rotated."""
+        if self.rotation_period_days is None or last_rotated_at is None:
+            return False
+        current = now or _utcnow()
+        deadline = last_rotated_at + timedelta(days=self.rotation_period_days)
+        return current >= deadline
+
+
 class CredentialMetadata(TimestampedAuditModel):
     """Metadata describing encrypted credentials with configurable scope."""
 
@@ -530,6 +548,7 @@ class CredentialMetadata(TimestampedAuditModel):
     oauth_tokens: OAuthTokenPayload | None = None
     health: CredentialHealth = Field(default_factory=CredentialHealth)
     last_rotated_at: datetime | None = None
+    template_id: UUID | None = None
 
     @field_validator("scopes", mode="after")
     @classmethod
@@ -556,6 +575,7 @@ class CredentialMetadata(TimestampedAuditModel):
         scope: CredentialScope | None = None,
         kind: CredentialKind = CredentialKind.SECRET,
         oauth_tokens: OAuthTokenSecrets | None = None,
+        template_id: UUID | None = None,
     ) -> CredentialMetadata:
         """Construct a credential metadata record with encrypted secret."""
         encryption = cipher.encrypt(secret)
@@ -571,6 +591,7 @@ class CredentialMetadata(TimestampedAuditModel):
             )
             if kind is CredentialKind.OAUTH
             else None,
+            template_id=template_id,
         )
         metadata.record_event(actor=actor, action="credential_created")
         metadata.last_rotated_at = metadata.created_at
@@ -659,10 +680,177 @@ class CredentialMetadata(TimestampedAuditModel):
             "last_rotated_at": self.last_rotated_at.isoformat()
             if self.last_rotated_at
             else None,
+            "template_id": str(self.template_id) if self.template_id else None,
             "encryption": {
                 "algorithm": self.encryption.algorithm,
                 "key_id": self.encryption.key_id,
             },
             "oauth_tokens": self.oauth_tokens.redact() if self.oauth_tokens else None,
             "health": self.health.redact(),
+        }
+
+
+class CredentialTemplate(TimestampedAuditModel):
+    """Reusable blueprint describing credential defaults and policies."""
+
+    name: str
+    provider: str
+    description: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
+    kind: CredentialKind = Field(default=CredentialKind.SECRET)
+    issuance_policy: CredentialIssuancePolicy = Field(
+        default_factory=CredentialIssuancePolicy
+    )
+
+    @field_validator("scopes", mode="after")
+    @classmethod
+    def _normalize_scopes(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for scope in value:
+            candidate = scope.strip()
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                normalized.append(candidate)
+        return normalized
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str,
+        provider: str,
+        scopes: Sequence[str],
+        actor: str,
+        description: str | None = None,
+        scope: CredentialScope | None = None,
+        kind: CredentialKind = CredentialKind.SECRET,
+        issuance_policy: CredentialIssuancePolicy | None = None,
+    ) -> CredentialTemplate:
+        """Return a new template populated with the provided defaults."""
+        template = cls(
+            name=name,
+            provider=provider,
+            description=description,
+            scopes=list(scopes),
+            scope=scope or CredentialScope.unrestricted(),
+            kind=kind,
+            issuance_policy=issuance_policy or CredentialIssuancePolicy(),
+        )
+        template.record_event(actor=actor, action="template_created")
+        return template
+
+    def record_issuance(self, *, actor: str, credential_id: UUID) -> None:
+        """Append an audit entry describing credential issuance."""
+        self.record_event(
+            actor=actor,
+            action="credential_issued",
+            metadata={"credential_id": str(credential_id)},
+        )
+
+    def instantiate_metadata(
+        self,
+        *,
+        name: str | None,
+        secret: str,
+        cipher: CredentialCipher,
+        actor: str,
+        scopes: Sequence[str] | None = None,
+        oauth_tokens: OAuthTokenSecrets | None = None,
+    ) -> CredentialMetadata:
+        """Create credential metadata honouring template defaults."""
+        return CredentialMetadata.create(
+            name=name or self.name,
+            provider=self.provider,
+            scopes=scopes or self.scopes,
+            secret=secret,
+            cipher=cipher,
+            actor=actor,
+            scope=self.scope,
+            kind=self.kind,
+            oauth_tokens=oauth_tokens,
+            template_id=self.id,
+        )
+
+
+class GovernanceAlertKind(str, Enum):
+    """Kinds of governance alerts tracked by the vault."""
+
+    TOKEN_EXPIRING = "token_expiring"
+    VALIDATION_FAILED = "validation_failed"
+    ROTATION_OVERDUE = "rotation_overdue"
+
+
+class SecretGovernanceAlertSeverity(str, Enum):
+    """Severity levels assigned to governance alerts."""
+
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class SecretGovernanceAlert(TimestampedAuditModel):
+    """Persisted alert describing governance issues for secrets."""
+
+    scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
+    template_id: UUID | None = None
+    credential_id: UUID | None = None
+    kind: GovernanceAlertKind
+    severity: SecretGovernanceAlertSeverity
+    message: str
+    is_acknowledged: bool = False
+    acknowledged_at: datetime | None = None
+    acknowledged_by: str | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        scope: CredentialScope,
+        kind: GovernanceAlertKind,
+        severity: SecretGovernanceAlertSeverity,
+        message: str,
+        actor: str,
+        template_id: UUID | None = None,
+        credential_id: UUID | None = None,
+    ) -> SecretGovernanceAlert:
+        """Instantiate a new governance alert with an audit entry."""
+        alert = cls(
+            scope=scope,
+            template_id=template_id,
+            credential_id=credential_id,
+            kind=kind,
+            severity=severity,
+            message=message,
+        )
+        alert.record_event(
+            actor=actor,
+            action="alert_created",
+            metadata={"kind": kind.value, "severity": severity.value},
+        )
+        return alert
+
+    def acknowledge(self, *, actor: str) -> None:
+        """Mark the alert as acknowledged by the provided actor."""
+        if self.is_acknowledged:
+            return
+        self.is_acknowledged = True
+        self.acknowledged_at = _utcnow()
+        self.acknowledged_by = actor
+        self.record_event(actor=actor, action="alert_acknowledged")
+
+    def redact(self) -> MutableMapping[str, Any]:
+        """Return a serialisable representation without sensitive context."""
+        return {
+            "id": str(self.id),
+            "kind": self.kind.value,
+            "severity": self.severity.value,
+            "message": self.message,
+            "template_id": str(self.template_id) if self.template_id else None,
+            "credential_id": str(self.credential_id) if self.credential_id else None,
+            "is_acknowledged": self.is_acknowledged,
+            "acknowledged_at": self.acknowledged_at.isoformat()
+            if self.acknowledged_at
+            else None,
         }

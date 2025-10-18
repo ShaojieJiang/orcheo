@@ -11,12 +11,17 @@ from orcheo.models import (
     CredentialAccessContext,
     CredentialCipher,
     CredentialHealthStatus,
+    CredentialIssuancePolicy,
     CredentialKind,
     CredentialMetadata,
     CredentialScope,
+    CredentialTemplate,
     EncryptionEnvelope,
     FernetCredentialCipher,
+    GovernanceAlertKind,
     OAuthTokenSecrets,
+    SecretGovernanceAlert,
+    SecretGovernanceAlertSeverity,
     Workflow,
     WorkflowRun,
     WorkflowRunStatus,
@@ -123,6 +128,17 @@ def test_workflow_run_cancel_without_reason() -> None:
 
     assert run.error is None
     assert run.audit_log[-1].metadata == {}
+
+
+def test_credential_template_scope_normalization_handles_duplicates() -> None:
+    template = CredentialTemplate.create(
+        name="API",
+        provider="service",
+        scopes=["read", "read", "  write  ", ""],
+        actor="alice",
+    )
+
+    assert template.scopes == ["read", "write"]
 
 
 def test_credential_metadata_encrypts_and_redacts_secrets() -> None:
@@ -365,3 +381,80 @@ def test_aes_cipher_rejects_short_payloads() -> None:
 
     with pytest.raises(ValueError, match="too short"):
         cipher.decrypt(envelope)
+
+
+def test_credential_issuance_policy_rotation_detection() -> None:
+    policy = CredentialIssuancePolicy(rotation_period_days=7)
+    now = datetime.now(tz=UTC)
+
+    assert not policy.requires_rotation(last_rotated_at=now - timedelta(days=6))
+    assert policy.requires_rotation(last_rotated_at=now - timedelta(days=8))
+    assert not policy.requires_rotation(last_rotated_at=None)
+
+
+def test_credential_template_instantiation_and_audit() -> None:
+    cipher = AesGcmCredentialCipher(key="template-key")
+    template = CredentialTemplate.create(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        actor="alice",
+        description="Slack bot",
+        scope=CredentialScope.for_roles("admin"),
+        kind=CredentialKind.OAUTH,
+        issuance_policy=CredentialIssuancePolicy(
+            require_refresh_token=True, rotation_period_days=30
+        ),
+    )
+
+    metadata = template.instantiate_metadata(
+        name="Slack Prod",
+        secret="client-secret",
+        cipher=cipher,
+        actor="alice",
+        scopes=["chat:write", "chat:read"],
+        oauth_tokens=OAuthTokenSecrets(access_token="tok", refresh_token="ref"),
+    )
+
+    assert metadata.template_id == template.id
+    assert metadata.name == "Slack Prod"
+    assert metadata.scopes == ["chat:write", "chat:read"]
+    assert metadata.reveal(cipher=cipher) == "client-secret"
+    template.record_issuance(actor="alice", credential_id=metadata.id)
+    assert template.audit_log[-1].action == "credential_issued"
+
+
+def test_secret_governance_alert_acknowledgement() -> None:
+    scope = CredentialScope.unrestricted()
+    alert = SecretGovernanceAlert.create(
+        scope=scope,
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="Token nearing expiry",
+        actor="bot",
+        credential_id=uuid4(),
+    )
+
+    assert not alert.is_acknowledged
+    alert.acknowledge(actor="alice")
+    assert alert.is_acknowledged
+    assert alert.acknowledged_by == "alice"
+    assert alert.redact()["kind"] == GovernanceAlertKind.TOKEN_EXPIRING.value
+
+
+def test_secret_governance_alert_acknowledge_is_idempotent() -> None:
+    alert = SecretGovernanceAlert.create(
+        scope=CredentialScope.unrestricted(),
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.CRITICAL,
+        message="failed",
+        actor="ops",
+    )
+
+    alert.acknowledge(actor="ops")
+    acknowledged_at = alert.acknowledged_at
+
+    alert.acknowledge(actor="ops")
+
+    assert alert.acknowledged_at == acknowledged_at
+    assert alert.audit_log[-1].action == "alert_acknowledged"

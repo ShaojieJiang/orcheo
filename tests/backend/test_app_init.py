@@ -1,27 +1,24 @@
 """Additional coverage for backend application helpers."""
 
 from __future__ import annotations
-
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
-
 import pytest
 from fastapi import HTTPException, Request, status
 from starlette.types import Message
-
 from orcheo.models import CredentialHealthStatus
+from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.vault import FileCredentialVault, InMemoryCredentialVault
 from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,
     CredentialHealthResult,
 )
-from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo_backend.app import (
-    _credential_service_ref,
     _create_vault,
+    _credential_service_ref,
     _ensure_credential_service,
     _settings_value,
     _vault_ref,

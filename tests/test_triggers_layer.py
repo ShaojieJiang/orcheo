@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
+from orcheo.models import CredentialHealthStatus
 from orcheo.triggers import (
     CronDispatchPlan,
     CronOverlapError,
@@ -28,7 +29,6 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     CredentialHealthResult,
 )
-from orcheo.models import CredentialHealthStatus
 
 
 def test_webhook_dispatch_validation_and_normalization() -> None:
