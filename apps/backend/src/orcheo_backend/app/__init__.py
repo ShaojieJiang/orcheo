@@ -18,6 +18,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     status,
 )
@@ -29,7 +30,17 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
-from orcheo.models import AesGcmCredentialCipher, CredentialHealthStatus
+from orcheo.models import (
+    AesGcmCredentialCipher,
+    CredentialAccessContext,
+    CredentialHealthStatus,
+    CredentialIssuancePolicy,
+    CredentialKind,
+    CredentialScope,
+    CredentialTemplate,
+    OAuthTokenSecrets,
+    SecretGovernanceAlert,
+)
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
@@ -37,8 +48,11 @@ from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault import (
     BaseCredentialVault,
+    CredentialTemplateNotFoundError,
     FileCredentialVault,
+    GovernanceAlertNotFoundError,
     InMemoryCredentialVault,
+    WorkflowScopeError,
 )
 from orcheo.vault.oauth import (
     CredentialHealthError,
@@ -59,10 +73,20 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    AlertAcknowledgeRequest,
     CredentialHealthItem,
     CredentialHealthResponse,
+    CredentialIssuancePolicyPayload,
+    CredentialIssuanceRequest,
+    CredentialIssuanceResponse,
+    CredentialScopePayload,
+    CredentialTemplateCreateRequest,
+    CredentialTemplateResponse,
+    CredentialTemplateUpdateRequest,
     CredentialValidationRequest,
     CronDispatchRequest,
+    GovernanceAlertResponse,
+    OAuthTokenRequest,
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
@@ -244,6 +268,24 @@ CredentialServiceDep = Annotated[
 ]
 
 
+def get_vault() -> BaseCredentialVault:
+    """Return the configured credential vault."""
+    vault = _vault_ref["vault"]
+    if vault is not None:
+        return vault
+    settings = get_settings()
+    vault = _create_vault(settings)
+    _vault_ref["vault"] = vault
+    return vault
+
+
+VaultDep = Annotated[BaseCredentialVault, Depends(get_vault)]
+
+
+WorkflowIdQuery = Annotated[UUID | None, Query()]
+IncludeAcknowledgedQuery = Annotated[bool, Query()]
+
+
 def _raise_not_found(detail: str, exc: Exception) -> NoReturn:
     """Raise a standardized 404 HTTP error."""
     raise HTTPException(
@@ -263,6 +305,14 @@ def _raise_conflict(detail: str, exc: Exception) -> NoReturn:
 def _raise_webhook_error(exc: WebhookValidationError) -> NoReturn:
     """Normalize webhook validation errors into HTTP errors."""
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+def _raise_scope_error(exc: WorkflowScopeError) -> NoReturn:
+    """Raise a standardized 403 response for scope violations."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=str(exc),
+    ) from exc
 
 
 def _history_to_response(
@@ -314,6 +364,98 @@ def _health_report_to_response(
         checked_at=report.checked_at,
         credentials=credentials,
     )
+
+
+def _scope_to_payload(scope: CredentialScope) -> CredentialScopePayload:
+    return CredentialScopePayload(
+        workflow_ids=list(scope.workflow_ids),
+        workspace_ids=list(scope.workspace_ids),
+        roles=list(scope.roles),
+    )
+
+
+def _policy_to_payload(
+    policy: CredentialIssuancePolicy,
+) -> CredentialIssuancePolicyPayload:
+    return CredentialIssuancePolicyPayload(
+        require_refresh_token=policy.require_refresh_token,
+        rotation_period_days=policy.rotation_period_days,
+        expiry_threshold_minutes=policy.expiry_threshold_minutes,
+    )
+
+
+def _template_to_response(template: CredentialTemplate) -> CredentialTemplateResponse:
+    return CredentialTemplateResponse(
+        id=str(template.id),
+        name=template.name,
+        provider=template.provider,
+        scopes=list(template.scopes),
+        description=template.description,
+        kind=template.kind,
+        scope=_scope_to_payload(template.scope),
+        issuance_policy=_policy_to_payload(template.issuance_policy),
+        created_at=template.created_at,
+        updated_at=template.updated_at,
+    )
+
+
+def _alert_to_response(alert: SecretGovernanceAlert) -> GovernanceAlertResponse:
+    return GovernanceAlertResponse(
+        id=str(alert.id),
+        kind=alert.kind,
+        severity=alert.severity,
+        message=alert.message,
+        credential_id=str(alert.credential_id) if alert.credential_id else None,
+        template_id=str(alert.template_id) if alert.template_id else None,
+        is_acknowledged=alert.is_acknowledged,
+        acknowledged_at=alert.acknowledged_at,
+        created_at=alert.created_at,
+        updated_at=alert.updated_at,
+    )
+
+
+def _build_scope(
+    payload: CredentialScopePayload | None,
+) -> CredentialScope | None:
+    if payload is None:
+        return None
+    return CredentialScope(
+        workflow_ids=list(payload.workflow_ids),
+        workspace_ids=list(payload.workspace_ids),
+        roles=list(payload.roles),
+    )
+
+
+def _build_policy(
+    payload: CredentialIssuancePolicyPayload | None,
+) -> CredentialIssuancePolicy | None:
+    if payload is None:
+        return None
+    return CredentialIssuancePolicy(
+        require_refresh_token=payload.require_refresh_token,
+        rotation_period_days=payload.rotation_period_days,
+        expiry_threshold_minutes=payload.expiry_threshold_minutes,
+    )
+
+
+def _build_oauth_tokens(
+    payload: OAuthTokenRequest | None,
+) -> OAuthTokenSecrets | None:
+    if payload is None:
+        return None
+    return OAuthTokenSecrets(
+        access_token=payload.access_token,
+        refresh_token=payload.refresh_token,
+        expires_at=payload.expires_at,
+    )
+
+
+def _context_from_workflow(
+    workflow_id: UUID | None,
+) -> CredentialAccessContext | None:
+    if workflow_id is None:
+        return None
+    return CredentialAccessContext(workflow_id=workflow_id)
 
 
 async def execute_workflow(
@@ -634,6 +776,207 @@ async def create_workflow_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.get(
+    "/credentials/templates",
+    response_model=list[CredentialTemplateResponse],
+)
+def list_credential_templates(
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> list[CredentialTemplateResponse]:
+    """List credential templates visible to the caller."""
+    context = _context_from_workflow(workflow_id)
+    templates = vault.list_templates(context=context)
+    return [_template_to_response(template) for template in templates]
+
+
+@_http_router.post(
+    "/credentials/templates",
+    response_model=CredentialTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_credential_template(
+    request: CredentialTemplateCreateRequest, vault: VaultDep
+) -> CredentialTemplateResponse:
+    """Create a new credential template."""
+    scope = _build_scope(request.scope)
+    policy = _build_policy(request.issuance_policy)
+    template = vault.create_template(
+        name=request.name,
+        provider=request.provider,
+        scopes=request.scopes,
+        actor=request.actor,
+        description=request.description,
+        scope=scope,
+        kind=request.kind,
+        issuance_policy=policy,
+    )
+    return _template_to_response(template)
+
+
+@_http_router.get(
+    "/credentials/templates/{template_id}",
+    response_model=CredentialTemplateResponse,
+)
+def get_credential_template(
+    template_id: UUID,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> CredentialTemplateResponse:
+    """Return a single credential template."""
+    context = _context_from_workflow(workflow_id)
+    try:
+        template = vault.get_template(template_id=template_id, context=context)
+        return _template_to_response(template)
+    except CredentialTemplateNotFoundError as exc:
+        _raise_not_found("Credential template not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+
+
+@_http_router.patch(
+    "/credentials/templates/{template_id}",
+    response_model=CredentialTemplateResponse,
+)
+def update_credential_template(
+    template_id: UUID,
+    request: CredentialTemplateUpdateRequest,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> CredentialTemplateResponse:
+    """Update credential template metadata."""
+    context = _context_from_workflow(workflow_id)
+    scope = _build_scope(request.scope)
+    policy = _build_policy(request.issuance_policy)
+    kind: CredentialKind | None = request.kind
+    try:
+        template = vault.update_template(
+            template_id,
+            actor=request.actor,
+            name=request.name,
+            scopes=request.scopes,
+            description=request.description,
+            scope=scope,
+            kind=kind,
+            issuance_policy=policy,
+            context=context,
+        )
+        return _template_to_response(template)
+    except CredentialTemplateNotFoundError as exc:
+        _raise_not_found("Credential template not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+
+
+@_http_router.delete(
+    "/credentials/templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+def delete_credential_template(
+    template_id: UUID,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> Response:
+    """Delete a credential template."""
+    context = _context_from_workflow(workflow_id)
+    try:
+        vault.delete_template(template_id, context=context)
+    except CredentialTemplateNotFoundError as exc:
+        _raise_not_found("Credential template not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@_http_router.post(
+    "/credentials/templates/{template_id}/issue",
+    response_model=CredentialIssuanceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def issue_credential_from_template(
+    template_id: UUID,
+    request: CredentialIssuanceRequest,
+    service: CredentialServiceDep,
+) -> CredentialIssuanceResponse:
+    """Issue a credential based on a stored template."""
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential service is not configured.",
+        )
+
+    context = _context_from_workflow(request.workflow_id)
+    tokens = _build_oauth_tokens(request.oauth_tokens)
+    try:
+        metadata = service.issue_from_template(
+            template_id=template_id,
+            secret=request.secret,
+            actor=request.actor,
+            name=request.name,
+            scopes=request.scopes,
+            context=context,
+            oauth_tokens=tokens,
+        )
+    except CredentialTemplateNotFoundError as exc:
+        _raise_not_found("Credential template not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return CredentialIssuanceResponse(
+        credential_id=str(metadata.id),
+        name=metadata.name,
+        provider=metadata.provider,
+        kind=metadata.kind,
+        template_id=str(metadata.template_id) if metadata.template_id else None,
+        created_at=metadata.created_at,
+        updated_at=metadata.updated_at,
+    )
+
+
+@_http_router.get(
+    "/credentials/governance-alerts",
+    response_model=list[GovernanceAlertResponse],
+)
+def list_governance_alerts(
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+    include_acknowledged: IncludeAcknowledgedQuery = False,
+) -> list[GovernanceAlertResponse]:
+    """List governance alerts for the caller."""
+    context = _context_from_workflow(workflow_id)
+    alerts = vault.list_alerts(
+        context=context, include_acknowledged=include_acknowledged
+    )
+    return [_alert_to_response(alert) for alert in alerts]
+
+
+@_http_router.post(
+    "/credentials/governance-alerts/{alert_id}/acknowledge",
+    response_model=GovernanceAlertResponse,
+)
+def acknowledge_governance_alert(
+    alert_id: UUID,
+    request: AlertAcknowledgeRequest,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> GovernanceAlertResponse:
+    """Acknowledge an outstanding governance alert."""
+    context = _context_from_workflow(workflow_id)
+    try:
+        alert = vault.acknowledge_alert(alert_id, actor=request.actor, context=context)
+        return _alert_to_response(alert)
+    except GovernanceAlertNotFoundError as exc:
+        _raise_not_found("Governance alert not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
 
 
 @_http_router.get(

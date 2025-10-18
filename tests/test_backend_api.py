@@ -3,8 +3,12 @@
 from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+import importlib
+from typing import Any
 from uuid import UUID, uuid4
+
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from orcheo.models import (
     AesGcmCredentialCipher,
@@ -12,16 +16,29 @@ from orcheo.models import (
     CredentialHealthStatus,
     CredentialKind,
     CredentialScope,
+    GovernanceAlertKind,
+    SecretGovernanceAlertSeverity,
     OAuthTokenSecrets,
 )
-from orcheo.vault import InMemoryCredentialVault
+from orcheo.vault import (
+    CredentialTemplateNotFoundError,
+    InMemoryCredentialVault,
+    WorkflowScopeError,
+)
 from orcheo.vault.oauth import (
     OAuthCredentialService,
     OAuthProvider,
     OAuthValidationResult,
 )
+
+backend_app = importlib.import_module("orcheo_backend.app")
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.schemas import (
+    CredentialIssuancePolicyPayload,
+    CredentialScopePayload,
+    OAuthTokenRequest,
+)
 
 
 class StaticProvider(OAuthProvider):
@@ -64,6 +81,60 @@ def api_client() -> Iterator[TestClient]:
     app.state.credential_service = service
     with TestClient(app) as client:
         yield client
+
+
+def test_backend_helper_builders_and_scope_errors() -> None:
+    scope_payload = CredentialScopePayload(
+        workflow_ids=[uuid4()],
+        workspace_ids=[uuid4()],
+        roles=["admin"],
+    )
+    scope = backend_app._build_scope(scope_payload)
+    assert scope.workflow_ids
+
+    assert backend_app._build_scope(None) is None
+
+    policy_payload = CredentialIssuancePolicyPayload(
+        require_refresh_token=True,
+        rotation_period_days=7,
+        expiry_threshold_minutes=30,
+    )
+    policy = backend_app._build_policy(policy_payload)
+    assert policy.require_refresh_token is True
+
+    token_payload = OAuthTokenRequest(
+        access_token="a", refresh_token="b", expires_at=datetime.now(tz=UTC)
+    )
+    tokens = backend_app._build_oauth_tokens(token_payload)
+    assert tokens.refresh_token == "b"
+    assert backend_app._build_oauth_tokens(None) is None
+
+    workflow_id = uuid4()
+    context = backend_app._context_from_workflow(workflow_id)
+    assert context is not None and context.workflow_id == workflow_id
+    assert backend_app._context_from_workflow(None) is None
+
+    with pytest.raises(HTTPException) as excinfo:
+        backend_app._raise_scope_error(WorkflowScopeError("denied"))
+    assert excinfo.value.status_code == 403
+
+
+def test_get_vault_initializes_when_missing(monkeypatch) -> None:
+    created: dict[str, bool] = {}
+
+    def fake_create(settings: Any) -> InMemoryCredentialVault:
+        created["called"] = True
+        return InMemoryCredentialVault()
+
+    monkeypatch.setitem(backend_app._vault_ref, "vault", None)
+    monkeypatch.setitem(backend_app._credential_service_ref, "service", None)
+    monkeypatch.setattr(backend_app, "_create_vault", fake_create)
+    monkeypatch.setattr(backend_app, "get_settings", lambda: object())
+
+    vault = backend_app.get_vault()
+
+    assert created == {"called": True}
+    assert isinstance(vault, InMemoryCredentialVault)
 
 
 def _create_workflow_with_version(api_client: TestClient) -> tuple[str, str]:
@@ -164,6 +235,362 @@ def test_credential_endpoints_report_health(api_client: TestClient) -> None:
     health_payload = health_response.json()
     assert health_payload["status"] == CredentialHealthStatus.HEALTHY.value
     assert health_payload["credentials"]
+
+
+def test_credential_template_crud_and_issuance(api_client: TestClient) -> None:
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "GitHub",
+            "provider": "github",
+            "scopes": ["repo:read"],
+            "description": "GitHub token",
+            "kind": "secret",
+            "actor": "tester",
+        },
+    )
+    assert create_response.status_code == 201
+    template = create_response.json()
+    template_id = template["id"]
+
+    fetch_response = api_client.get(f"/api/credentials/templates/{template_id}")
+    assert fetch_response.status_code == 200
+
+    list_response = api_client.get("/api/credentials/templates")
+    assert list_response.status_code == 200
+    assert any(item["id"] == template_id for item in list_response.json())
+
+    update_response = api_client.patch(
+        f"/api/credentials/templates/{template_id}",
+        json={"description": "Rotated", "actor": "tester"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["description"] == "Rotated"
+
+    issue_response = api_client.post(
+        f"/api/credentials/templates/{template_id}/issue",
+        json={
+            "template_id": template_id,
+            "secret": "sup3r-secret",
+            "actor": "tester",
+            "name": "GitHub Prod",
+        },
+    )
+    assert issue_response.status_code == 201
+    issued = issue_response.json()
+    assert issued["name"] == "GitHub Prod"
+    assert issued["template_id"] == template_id
+
+    vault: InMemoryCredentialVault = api_client.app.state.vault
+    stored = vault.list_credentials()
+    assert any(item.template_id == UUID(template_id) for item in stored)
+
+    delete_response = api_client.delete(f"/api/credentials/templates/{template_id}")
+    assert delete_response.status_code == 204
+
+    get_response = api_client.get(f"/api/credentials/templates/{template_id}")
+    assert get_response.status_code == 404
+
+
+def test_credential_template_get_scope_violation_returns_403(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "Restricted",
+            "provider": "internal",
+            "scopes": ["read"],
+            "scope": {"workflow_ids": [str(workflow_id)]},
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    response = api_client.get(
+        f"/api/credentials/templates/{template_id}",
+        params={"workflow_id": str(uuid4())},
+    )
+
+    assert response.status_code == 403
+
+
+def test_credential_template_update_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    response = api_client.patch(
+        f"/api/credentials/templates/{uuid4()}",
+        json={"actor": "tester"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_credential_template_update_scope_violation_returns_403(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "Restricted",
+            "provider": "internal",
+            "scopes": ["read"],
+            "scope": {"workflow_ids": [str(workflow_id)]},
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    response = api_client.patch(
+        f"/api/credentials/templates/{template_id}",
+        params={"workflow_id": str(uuid4())},
+        json={"description": "updated", "actor": "tester"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_credential_template_delete_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    response = api_client.delete(f"/api/credentials/templates/{uuid4()}")
+
+    assert response.status_code == 404
+
+
+def test_credential_template_delete_scope_violation_returns_403(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "Restricted",
+            "provider": "internal",
+            "scopes": ["read"],
+            "scope": {"workflow_ids": [str(workflow_id)]},
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    response = api_client.delete(
+        f"/api/credentials/templates/{template_id}",
+        params={"workflow_id": str(uuid4())},
+    )
+
+    assert response.status_code == 403
+
+
+def test_issue_template_without_service_returns_503(api_client: TestClient) -> None:
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "GitHub",
+            "provider": "github",
+            "scopes": ["repo"],
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    api_client.app.dependency_overrides[backend_app.get_vault] = (
+        lambda: api_client.app.state.vault
+    )
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
+        lambda: None
+    )
+
+    response = api_client.post(
+        f"/api/credentials/templates/{template_id}/issue",
+        json={"template_id": template_id, "secret": "s", "actor": "tester"},
+    )
+
+    api_client.app.dependency_overrides.clear()
+    assert response.status_code == 503
+
+
+def test_issue_template_value_error_returns_400(api_client: TestClient) -> None:
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "GitHub",
+            "provider": "github",
+            "scopes": ["repo"],
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    class RaisingService:
+        def issue_from_template(self, **_: Any):
+            raise ValueError("invalid")
+
+    api_client.app.dependency_overrides[backend_app.get_vault] = (
+        lambda: api_client.app.state.vault
+    )
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
+        lambda: RaisingService()
+    )
+
+    response = api_client.post(
+        f"/api/credentials/templates/{template_id}/issue",
+        json={"template_id": template_id, "secret": "s", "actor": "tester"},
+    )
+
+    api_client.app.dependency_overrides.clear()
+    assert response.status_code == 400
+
+
+def test_issue_template_not_found_returns_404(api_client: TestClient) -> None:
+    class MissingTemplateService:
+        def issue_from_template(self, **_: Any):
+            raise CredentialTemplateNotFoundError("missing")
+
+    api_client.app.dependency_overrides[backend_app.get_vault] = (
+        lambda: api_client.app.state.vault
+    )
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
+        lambda: MissingTemplateService()
+    )
+
+    response = api_client.post(
+        f"/api/credentials/templates/{uuid4()}/issue",
+        json={"template_id": str(uuid4()), "secret": "s", "actor": "tester"},
+    )
+
+    api_client.app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+
+def test_issue_template_scope_violation_returns_403(api_client: TestClient) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "Restricted",
+            "provider": "internal",
+            "scopes": ["read"],
+            "scope": {"workflow_ids": [str(workflow_id)]},
+            "actor": "tester",
+        },
+    )
+    template_id = create_response.json()["id"]
+
+    class ScopeDeniedService:
+        def issue_from_template(self, **_: Any):
+            raise WorkflowScopeError("denied")
+
+    api_client.app.dependency_overrides[backend_app.get_vault] = (
+        lambda: api_client.app.state.vault
+    )
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
+        lambda: ScopeDeniedService()
+    )
+
+    response = api_client.post(
+        f"/api/credentials/templates/{template_id}/issue",
+        json={
+            "template_id": template_id,
+            "secret": "s",
+            "actor": "tester",
+            "workflow_id": str(uuid4()),
+        },
+    )
+
+    api_client.app.dependency_overrides.clear()
+    assert response.status_code == 403
+
+
+def test_acknowledge_alert_not_found_returns_404(api_client: TestClient) -> None:
+    response = api_client.post(
+        f"/api/credentials/governance-alerts/{uuid4()}/acknowledge",
+        json={"actor": "tester"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_acknowledge_alert_scope_violation_returns_403(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    vault: InMemoryCredentialVault = api_client.app.state.vault
+    template = vault.create_template(
+        name="Restricted",
+        provider="internal",
+        scopes=["read"],
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+    alert = vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="soon",
+        actor="tester",
+        template_id=template.id,
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+
+    response = api_client.post(
+        f"/api/credentials/governance-alerts/{alert.id}/acknowledge",
+        params={"workflow_id": str(uuid4())},
+        json={"actor": "tester"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_governance_alert_listing_and_ack(api_client: TestClient) -> None:
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    workflow_uuid = UUID(workflow_id)
+    vault: InMemoryCredentialVault = api_client.app.state.vault
+    service: OAuthCredentialService = api_client.app.state.credential_service
+    service.register_provider(
+        "slack",
+        StaticProvider(
+            status=CredentialHealthStatus.UNHEALTHY,
+            failure_reason="expired",
+        ),
+    )
+    vault.create_credential(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="client-secret",
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_uuid),
+        kind=CredentialKind.OAUTH,
+        oauth_tokens=OAuthTokenSecrets(access_token="initial"),
+    )
+
+    await_response = api_client.post(
+        f"/api/workflows/{workflow_id}/credentials/validate",
+        json={"actor": "tester"},
+    )
+    assert await_response.status_code == 422
+
+    alerts_response = api_client.get("/api/credentials/governance-alerts")
+    assert alerts_response.status_code == 200
+    alerts = alerts_response.json()
+    assert alerts and alerts[0]["kind"] == GovernanceAlertKind.VALIDATION_FAILED.value
+    alert_id = alerts[0]["id"]
+
+    ack_response = api_client.post(
+        f"/api/credentials/governance-alerts/{alert_id}/acknowledge",
+        json={"actor": "tester"},
+    )
+    assert ack_response.status_code == 200
+    assert ack_response.json()["is_acknowledged"] is True
+
+    all_alerts = api_client.get(
+        "/api/credentials/governance-alerts",
+        params={"include_acknowledged": True},
+    )
+    assert all_alerts.status_code == 200
+    assert all_alerts.json()[0]["is_acknowledged"] is True
 
 
 def test_workflow_crud_operations(api_client: TestClient) -> None:
