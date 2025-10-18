@@ -465,7 +465,13 @@ class BaseCredentialVault:
         context: CredentialAccessContext | None = None,
     ) -> SecretGovernanceAlert:
         alert = self._load_alert(alert_id)
-        access_context = context or CredentialAccessContext()
+        if context is None:
+            if not alert.scope.is_unrestricted():
+                msg = "Governance alert requires access context matching its scope."
+                raise WorkflowScopeError(msg)
+            access_context = CredentialAccessContext()
+        else:
+            access_context = context
         if not alert.scope.allows(access_context):
             msg = "Governance alert cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
