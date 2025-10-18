@@ -1,6 +1,7 @@
 """Webhook trigger configuration and validation helpers."""
 
 from __future__ import annotations
+import hmac
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -193,6 +194,14 @@ class WebhookTriggerState:
             return {"raw": decoded}
         return payload
 
+    def scrub_headers_for_storage(self, headers: Mapping[str, str]) -> dict[str, str]:
+        """Redact sensitive headers such as shared secrets before storage."""
+        sanitized = {key: value for key, value in headers.items()}
+        secret_header = self._config.shared_secret_header
+        if secret_header:
+            sanitized.pop(secret_header, None)
+        return sanitized
+
     # Internal helpers -------------------------------------------------
 
     def _validate_method(self, request: WebhookRequest) -> None:
@@ -208,7 +217,9 @@ class WebhookTriggerState:
 
         expected = self._config.shared_secret
         provided = request.normalized_headers().get(header_name)
-        if expected is None or provided != expected:
+        if expected is None or provided is None:
+            raise WebhookAuthenticationError()
+        if not hmac.compare_digest(provided, expected):
             raise WebhookAuthenticationError()
 
     def _validate_required_headers(self, request: WebhookRequest) -> None:

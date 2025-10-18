@@ -79,6 +79,35 @@ def test_webhook_authentication_error_includes_status_code() -> None:
     assert exc.value.status_code == 401
 
 
+def test_webhook_missing_secret_header_is_rejected() -> None:
+    """Requests omitting the shared secret header should be denied."""
+
+    config = WebhookTriggerConfig(
+        shared_secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(make_request(headers={}))
+
+
+def test_webhook_state_scrubs_shared_secret_header() -> None:
+    """Shared secret headers should be removed before persisting metadata."""
+
+    config = WebhookTriggerConfig(
+        shared_secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+    sanitized = state.scrub_headers_for_storage(
+        {"x-secret": "expected", "content-type": "application/json"}
+    )
+
+    assert "x-secret" not in sanitized
+    assert sanitized["content-type"] == "application/json"
+
+
 def test_webhook_required_headers_validation() -> None:
     """Missing required headers should fail validation with status 400."""
 

@@ -127,12 +127,15 @@ class TriggerLayer:
             state.validate(request)
 
             normalized_payload = state.serialize_payload(request.payload)
+            normalized_headers = state.scrub_headers_for_storage(
+                request.normalized_headers()
+            )
             return TriggerDispatch(
                 triggered_by="webhook",
                 actor="webhook",
                 input_payload={
                     "body": normalized_payload,
-                    "headers": request.normalized_headers(),
+                    "headers": normalized_headers,
                     "query_params": request.normalized_query(),
                     "source_ip": request.source_ip,
                 },
