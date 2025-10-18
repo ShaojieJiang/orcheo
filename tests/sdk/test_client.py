@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from orcheo_sdk import (
     HttpWorkflowExecutor,
     OrcheoClient,
+    Workflow,
     WorkflowExecutionError,
 )
 from orcheo_backend.app import create_app
@@ -64,6 +65,40 @@ def test_prepare_headers_without_overrides(client: OrcheoClient) -> None:
     assert merged == {"X-Test": "1"}
 
 
+def test_credential_health_and_validation_urls(client: OrcheoClient) -> None:
+    assert (
+        client.credential_health_url("workflow")
+        == "http://localhost:8000/api/workflows/workflow/credentials/health"
+    )
+    assert (
+        client.credential_validation_url("workflow")
+        == "http://localhost:8000/api/workflows/workflow/credentials/validate"
+    )
+
+
+def test_credential_health_and_validation_require_identifier(
+    client: OrcheoClient,
+) -> None:
+    with pytest.raises(ValueError):
+        client.credential_health_url(" ")
+    with pytest.raises(ValueError):
+        client.credential_validation_url(" ")
+
+
+def test_build_deployment_request_for_existing_workflow(client: OrcheoClient) -> None:
+    workflow = Workflow(name="Demo", metadata={"owner": "qa"})
+    request = client.build_deployment_request(
+        workflow,
+        workflow_id=" existing ",
+        metadata={"env": "test"},
+        headers={"X-Trace": "1"},
+    )
+
+    assert request.method == "PUT"
+    assert request.url.endswith("/api/workflows/existing")
+    assert request.headers["X-Trace"] == "1"
+
+
 def test_build_payload_supports_optional_execution_id(client: OrcheoClient) -> None:
     payload = client.build_payload({"nodes": []}, {"foo": "bar"}, execution_id="123")
     assert payload["execution_id"] == "123"
@@ -90,6 +125,53 @@ def test_build_payload_returns_run_workflow_shape(client: OrcheoClient) -> None:
     inputs["name"] = "Grace"
     assert payload["graph_config"]["nodes"] == [{"name": "first"}]
     assert payload["inputs"] == {"name": "Ada"}
+
+
+def test_http_executor_fetches_credential_health() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"status": "healthy"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.Client(transport=transport, base_url="http://localhost")
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        http_client=http_client,
+    )
+
+    try:
+        payload = executor.get_credential_health("workflow")
+    finally:
+        http_client.close()
+
+    assert payload == {"status": "healthy"}
+    assert calls[0].method == "GET"
+
+
+def test_http_executor_validates_credentials() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"status": "ok"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.Client(transport=transport, base_url="http://localhost")
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        http_client=http_client,
+    )
+
+    try:
+        payload = executor.validate_credentials("workflow", actor="qa")
+    finally:
+        http_client.close()
+
+    assert payload == {"status": "ok"}
+    assert calls[0].method == "POST"
+    assert b"qa" in calls[0].content
 
 
 def test_http_executor_triggers_run_against_backend() -> None:
@@ -313,6 +395,17 @@ def test_relative_url_passthrough_when_base_mismatch() -> None:
     assert result == "http://example.com/callback"
 
 
+def test_relative_url_returns_root_when_equal_base() -> None:
+    result = HttpWorkflowExecutor._relative_url("http://localhost", "http://localhost")
+    assert result == "/"
+
+
+def test_should_retry_matches_retry_statuses(client: OrcheoClient) -> None:
+    executor = HttpWorkflowExecutor(client=client)
+    assert executor._should_retry(500)
+    assert not executor._should_retry(418)
+
+
 def test_http_executor_builds_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -368,6 +461,87 @@ def test_http_executor_builds_default_client(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["kwargs"]["timeout"] == executor.timeout
     assert captured["url"] == "/api/workflows/workflow/runs"
     assert captured["json"]["input_payload"] == {"foo": "bar"}
+
+
+def test_http_executor_internal_get_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class DummyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+        def __enter__(self) -> DummyClient:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
+            return None
+
+        def get(self, url: str, headers: Mapping[str, str]) -> httpx.Response:
+            captured["url"] = url
+            captured["headers"] = dict(headers)
+            request = httpx.Request("GET", url, headers=headers)
+            return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    monkeypatch.setattr("orcheo_sdk.client.httpx.Client", DummyClient)
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        max_retries=0,
+        backoff_factor=0.0,
+        transport=object(),
+    )
+
+    payload = executor.get_credential_health("workflow")
+
+    assert payload == {"status": "ok"}
+    assert captured["kwargs"]["base_url"] == "http://localhost"
+    assert "transport" in captured["kwargs"]
+    assert captured["url"] == "/api/workflows/workflow/credentials/health"
+
+
+def test_http_executor_internal_get_client_without_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class DummyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+        def __enter__(self) -> DummyClient:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
+            return None
+
+        def get(self, url: str, headers: Mapping[str, str]) -> httpx.Response:
+            captured["url"] = url
+            request = httpx.Request("GET", url, headers=headers)
+            return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    monkeypatch.setattr("orcheo_sdk.client.httpx.Client", DummyClient)
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        max_retries=0,
+        backoff_factor=0.0,
+    )
+
+    payload = executor.get_credential_health("workflow")
+
+    assert payload == {"status": "ok"}
+    assert captured["kwargs"]["base_url"] == "http://localhost"
+    assert "transport" not in captured["kwargs"]
 
 
 def _create_workflow_and_version(http_client: httpx.Client) -> tuple[str, str]:

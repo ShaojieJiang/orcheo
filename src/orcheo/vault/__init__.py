@@ -11,8 +11,11 @@ from orcheo.models import (
     AesGcmCredentialCipher,
     CredentialAccessContext,
     CredentialCipher,
+    CredentialHealthStatus,
+    CredentialKind,
     CredentialMetadata,
     CredentialScope,
+    OAuthTokenSecrets,
 )
 
 
@@ -39,6 +42,11 @@ class BaseCredentialVault:
         """Initialize the vault with an encryption cipher."""
         self._cipher = cipher or AesGcmCredentialCipher(key=secrets.token_hex(32))
 
+    @property
+    def cipher(self) -> CredentialCipher:
+        """Expose the credential cipher for services that need direct access."""
+        return self._cipher
+
     def create_credential(
         self,
         *,
@@ -48,8 +56,12 @@ class BaseCredentialVault:
         secret: str,
         actor: str,
         scope: CredentialScope | None = None,
+        kind: CredentialKind | str = CredentialKind.SECRET,
+        oauth_tokens: OAuthTokenSecrets | None = None,
     ) -> CredentialMetadata:
         """Encrypt and persist a new credential."""
+        if not isinstance(kind, CredentialKind):
+            kind = CredentialKind(str(kind))
         metadata = CredentialMetadata.create(
             name=name,
             provider=provider,
@@ -58,6 +70,8 @@ class BaseCredentialVault:
             cipher=self._cipher,
             actor=actor,
             scope=scope,
+            kind=kind,
+            oauth_tokens=oauth_tokens,
         )
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
@@ -77,6 +91,37 @@ class BaseCredentialVault:
             msg = "Rotated secret must differ from the previous value."
             raise RotationPolicyError(msg)
         metadata.rotate_secret(secret=secret, cipher=self._cipher, actor=actor)
+        self._persist_metadata(metadata)
+        return metadata.model_copy(deep=True)
+
+    def update_oauth_tokens(
+        self,
+        *,
+        credential_id: UUID,
+        tokens: OAuthTokenSecrets | None,
+        actor: str | None = None,
+        context: CredentialAccessContext | None = None,
+    ) -> CredentialMetadata:
+        """Update OAuth tokens associated with the credential."""
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
+        metadata.update_oauth_tokens(
+            cipher=self._cipher, tokens=tokens, actor=actor or "system"
+        )
+        self._persist_metadata(metadata)
+        return metadata.model_copy(deep=True)
+
+    def mark_health(
+        self,
+        *,
+        credential_id: UUID,
+        status: CredentialHealthStatus,
+        reason: str | None,
+        actor: str | None = None,
+        context: CredentialAccessContext | None = None,
+    ) -> CredentialMetadata:
+        """Persist the latest health evaluation result for the credential."""
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
+        metadata.mark_health(status=status, reason=reason, actor=actor)
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
 

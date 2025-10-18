@@ -18,6 +18,7 @@ from orcheo.triggers.webhook import (
     WebhookTriggerConfig,
     WebhookTriggerState,
 )
+from orcheo.vault.oauth import CredentialHealthError, CredentialHealthGuard
 
 
 @dataclass(slots=True)
@@ -60,10 +61,15 @@ class StateCleanupConfig:
 class TriggerLayer:
     """Coordinate trigger configuration, validation, and dispatch state."""
 
-    def __init__(self, cleanup_config: StateCleanupConfig | None = None) -> None:
+    def __init__(
+        self,
+        cleanup_config: StateCleanupConfig | None = None,
+        health_guard: CredentialHealthGuard | None = None,
+    ) -> None:
         """Initialize trigger state stores for the layer."""
         self._logger = logging.getLogger(__name__)
         self._cleanup_config = cleanup_config or StateCleanupConfig()
+        self._health_guard = health_guard
 
         self._webhook_states: dict[UUID, WebhookTriggerState] = {}
         self._cron_states: dict[UUID, CronTriggerState] = {}
@@ -75,6 +81,20 @@ class TriggerLayer:
         # Track completed workflows for cleanup
         self._completed_workflows: dict[UUID, datetime] = {}
         self._last_cleanup: datetime = datetime.now(UTC)
+
+    def set_health_guard(self, guard: CredentialHealthGuard | None) -> None:
+        """Attach a credential health guard used to gate dispatch."""
+        self._health_guard = guard
+
+    def _ensure_healthy(self, workflow_id: UUID) -> None:
+        if self._health_guard is None:
+            return
+        if self._health_guard.is_workflow_healthy(workflow_id):
+            return
+        report = self._health_guard.get_report(workflow_id)
+        if report is None:
+            return
+        raise CredentialHealthError(report)
 
     # ------------------------------------------------------------------
     # Webhook triggers
@@ -102,6 +122,7 @@ class TriggerLayer:
             raise ValueError("request cannot be None")
 
         try:
+            self._ensure_healthy(workflow_id)
             state = self._webhook_states.setdefault(workflow_id, WebhookTriggerState())
             state.validate(request)
 
@@ -151,6 +172,10 @@ class TriggerLayer:
         plans: list[CronDispatchPlan] = []
         for workflow_id, state in self._cron_states.items():
             try:
+                if self._health_guard and not self._health_guard.is_workflow_healthy(
+                    workflow_id
+                ):
+                    continue
                 due_at = state.peek_due(now=now)
                 if due_at is None or not state.can_dispatch():
                     continue

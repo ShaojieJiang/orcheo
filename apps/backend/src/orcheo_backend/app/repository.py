@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,10 @@ from orcheo.triggers.layer import TriggerLayer
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
+from orcheo.vault.oauth import CredentialHealthError, OAuthCredentialService
+
+
+logger = logging.getLogger(__name__)
 
 
 class RepositoryError(RuntimeError):
@@ -215,7 +220,9 @@ class WorkflowRepository(Protocol):
 class InMemoryWorkflowRepository:
     """Simple async-safe in-memory repository for workflows and runs."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, credential_service: OAuthCredentialService | None = None
+    ) -> None:
         """Initialize the storage containers used by the repository."""
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
@@ -223,7 +230,8 @@ class InMemoryWorkflowRepository:
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
-        self._trigger_layer = TriggerLayer()
+        self._credential_service: OAuthCredentialService | None = credential_service
+        self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
     async def list_workflows(self) -> list[Workflow]:
         """Return all workflows stored within the repository."""
@@ -443,6 +451,8 @@ class InMemoryWorkflowRepository:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
 
+            await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
+
             run = self._create_run_locked(
                 workflow_id=workflow_id,
                 workflow_version_id=workflow_version_id,
@@ -621,6 +631,8 @@ class InMemoryWorkflowRepository:
             if version is None:
                 raise WorkflowVersionNotFoundError(str(latest_version_id))
 
+            await self._ensure_workflow_health(workflow_id, actor="webhook")
+
             request = WebhookRequest(
                 method=method,
                 headers=headers,
@@ -671,6 +683,16 @@ class InMemoryWorkflowRepository:
                 workflow_id = plan.workflow_id
                 if workflow_id not in self._workflows:
                     continue
+                try:
+                    await self._ensure_workflow_health(workflow_id, actor="cron")
+                except CredentialHealthError as exc:
+                    logger.warning(
+                        "Skipping cron dispatch for workflow %s "
+                        "due to credential health error: %s",
+                        workflow_id,
+                        exc,
+                    )
+                    continue
                 version_ids = self._workflow_versions.get(workflow_id)
                 if not version_ids:
                     continue
@@ -713,6 +735,10 @@ class InMemoryWorkflowRepository:
             triggered_by = plan.triggered_by
             resolved_runs = plan.runs
 
+            await self._ensure_workflow_health(
+                request.workflow_id, actor=plan.actor or triggered_by
+            )
+
             for resolved in resolved_runs:
                 version = self._versions.get(resolved.workflow_version_id)
                 if version is None or version.workflow_id != request.workflow_id:
@@ -730,6 +756,16 @@ class InMemoryWorkflowRepository:
                 )
                 runs.append(run.model_copy(deep=True))
             return runs
+
+    async def _ensure_workflow_health(
+        self, workflow_id: UUID, *, actor: str | None = None
+    ) -> None:
+        service = self._credential_service
+        if service is None:
+            return
+        report = await service.ensure_workflow_health(workflow_id, actor=actor)
+        if not report.is_healthy:
+            raise CredentialHealthError(report)
 
     async def configure_retry_policy(
         self, workflow_id: UUID, config: RetryPolicyConfig
