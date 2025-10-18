@@ -26,8 +26,8 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 ## Implementation Track
 | Workstream | Description | Owner Roles | Milestones |
 | --- | --- | --- | --- |
-| Frontend Architecture | Restructure codebase into `features/<domain>` folders, introduce routing, and centralize API services (consider React Query). | Frontend lead, supporting engineers | Week 1: file structure refactor; Week 2: shared services & hooks in place |
-| Component Library | Implement primitives (buttons, inputs, panels, banners) powered by the new token system, with Storybook or equivalent playground for regression checks. | UI engineer, designer | Week 2: tokens + base components; Week 3: complex components (tables, forms) |
+| Frontend Architecture | Restructure codebase into `features/<domain>` folders, introduce routing, and centralize API services by standardizing on React Query for data fetching and caching. | Frontend lead, supporting engineers | Week 1: file structure refactor; Week 2: shared services & hooks in place |
+| Component Library | Implement primitives (buttons, inputs, panels, banners) powered by the new token system, documenting them in Storybook to enable visual regression checks. | UI engineer, designer | Week 2: tokens + base components; Week 3: complex components (tables, forms) |
 | Feature Implementation | Rebuild templates, issuance, and alerts screens with new components, state handling, and clear empty/loading/error states. | Feature squads | Week 3: templates; Week 4: issuance; Week 5: alerts |
 | Quality & Tooling | Expand Vitest/Test Library coverage, add axe-based accessibility checks, and wire lint/test to pre-commit CI gates. | QA engineer, frontend lead | Week 2: test harness scaffolding; Week 5: >80% critical flow coverage |
 | Documentation & Handoff | Maintain design system docs, contribution guidelines, and release notes for frontend changes. | Designer, tech writer | Ongoing; Week 5: publish contribution guide |
