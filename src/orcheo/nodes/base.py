@@ -1,6 +1,7 @@
 """Base node implementation for Orcheo."""
 
 from abc import abstractmethod
+from collections.abc import Mapping
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -14,15 +15,46 @@ class BaseNode(BaseModel):
     """Unique name of the node."""
 
     def decode_variables(self, state: State) -> None:
-        """Decode the variables in attributes of the node."""
-        for key, value in self.__dict__.items():
-            if isinstance(value, str) and "{{" in value:
-                # Extract path from {{path.to.value}} format
-                path = value.strip("{}").split(".")
-                result = state["results"]
-                for part in path:
-                    result = result[part]
-                self.__dict__[key] = result
+        """Decode template variables in string attributes using workflow state."""
+        results: Mapping[str, Any] | None = getattr(state, "results", None)
+        if not isinstance(results, Mapping):
+            candidate: Any | None = None
+            try:  # pragma: no branch - fallback for mapping-like states
+                candidate = state["results"]  # type: ignore[index]
+            except Exception:  # pragma: no cover - defensive access
+                candidate = None
+            if isinstance(candidate, Mapping):
+                results = candidate
+            else:
+                return
+
+        for field_name in self.model_fields:
+            value = getattr(self, field_name)
+            if not isinstance(value, str):
+                continue
+            resolved = self._resolve_template(value=value, results=results)
+            if resolved is not None:
+                setattr(self, field_name, resolved)
+
+    def _resolve_template(
+        self, *, value: str, results: Mapping[str, Any]
+    ) -> Any | None:
+        """Return the resolved value for the template expression."""
+
+        expression = value.strip()
+        if not (expression.startswith("{{") and expression.endswith("}}")):
+            return None
+        path = expression[2:-2].strip()
+        if not path:
+            return None
+        segments = [segment for segment in path.split(".") if segment]
+        current: Any = results
+        for segment in segments:
+            if isinstance(current, Mapping) and segment in current:
+                current = current[segment]
+            else:
+                return None
+        return current
 
     def tool_run(self, *args: Any, **kwargs: Any) -> Any:
         """Run the node as a tool."""
