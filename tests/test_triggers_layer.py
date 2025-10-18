@@ -104,6 +104,51 @@ def test_trigger_layer_blocks_unhealthy_workflows() -> None:
         layer.prepare_webhook_dispatch(workflow_id, request)
 
 
+def test_trigger_layer_health_guard_can_be_replaced() -> None:
+    workflow_id = uuid4()
+
+    class Guard:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def is_workflow_healthy(self, workflow_id: UUID) -> bool:
+            self.calls += 1
+            return True
+
+        def get_report(self, workflow_id: UUID):  # pragma: no cover - unused
+            return None
+
+    guard = Guard()
+    layer = TriggerLayer()
+    layer.set_health_guard(guard)
+    layer.configure_webhook(workflow_id, WebhookTriggerConfig(allowed_methods=["post"]))
+    request = WebhookRequest(
+        method="POST",
+        headers={},
+        query_params={},
+        payload={},
+        source_ip=None,
+    )
+
+    layer.prepare_webhook_dispatch(workflow_id, request)
+    assert guard.calls == 1
+
+
+def test_trigger_layer_allows_missing_health_report() -> None:
+    workflow_id = uuid4()
+
+    class Guard:
+        def is_workflow_healthy(self, workflow_id: UUID) -> bool:
+            return False
+
+        def get_report(self, workflow_id: UUID):
+            return None
+
+    layer = TriggerLayer(health_guard=Guard())
+    # Should not raise since the guard lacks a report explaining the failure.
+    layer._ensure_healthy(workflow_id)
+
+
 def test_cron_dispatch_and_overlap_controls() -> None:
     """Cron dispatch plans honour timezone and overlap guards."""
 
@@ -143,6 +188,26 @@ def test_cron_dispatch_and_overlap_controls() -> None:
         now=datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
     )
     assert next_plans[0].timezone == "UTC"
+
+
+def test_collect_due_cron_dispatches_skips_unhealthy_workflows() -> None:
+    workflow_id = uuid4()
+
+    class Guard:
+        def is_workflow_healthy(self, workflow_id: UUID) -> bool:
+            return False
+
+        def get_report(self, workflow_id: UUID):  # pragma: no cover - unused
+            return None
+
+    layer = TriggerLayer(health_guard=Guard())
+    layer.configure_cron(
+        workflow_id,
+        CronTriggerConfig(expression="* * * * *", timezone="UTC"),
+    )
+
+    plans = layer.collect_due_cron_dispatches(now=datetime.now(tz=UTC))
+    assert plans == []
 
 
 def test_manual_dispatch_plan_resolution() -> None:

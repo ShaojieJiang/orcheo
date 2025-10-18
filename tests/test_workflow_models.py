@@ -22,6 +22,7 @@ from orcheo.models import (
     WorkflowRunStatus,
     WorkflowVersion,
 )
+from orcheo.models.workflow import OAuthTokenPayload
 
 
 def test_workflow_slug_is_derived_from_name() -> None:
@@ -244,6 +245,51 @@ def test_credential_metadata_oauth_token_management() -> None:
     assert redacted["oauth_tokens"]["has_access_token"] is True
     assert redacted["oauth_tokens"]["has_refresh_token"] is False
     assert redacted["health"]["status"] == CredentialHealthStatus.HEALTHY.value
+
+    metadata.health.update(status=CredentialHealthStatus.HEALTHY)
+    metadata.rotate_secret(secret="new-secret", cipher=cipher, actor="ops")
+    assert metadata.health.status is CredentialHealthStatus.UNKNOWN
+
+    metadata.update_oauth_tokens(cipher=cipher, tokens=None, actor="ops")
+    assert metadata.reveal_oauth_tokens(cipher=cipher) is None
+
+
+def test_oauth_token_models_normalize_naive_expiry() -> None:
+    cipher = AesGcmCredentialCipher(key="normalize")
+    naive = datetime(2025, 1, 1, 12, 0, 0)
+
+    secrets = OAuthTokenSecrets(expires_at=naive)
+    assert secrets.expires_at is not None
+    assert secrets.expires_at.tzinfo is UTC
+
+    payload = OAuthTokenPayload.from_secrets(cipher=cipher, secrets=secrets)
+    assert payload.expires_at is not None
+    assert payload.expires_at.tzinfo is UTC
+
+    empty_payload = OAuthTokenPayload.from_secrets(cipher=cipher, secrets=None)
+    assert empty_payload.access_token is None
+    assert empty_payload.refresh_token is None
+    assert empty_payload.expires_at is None
+
+    direct_payload = OAuthTokenPayload(expires_at=naive)
+    assert direct_payload.expires_at is not None
+    assert direct_payload.expires_at.tzinfo is UTC
+
+
+def test_update_oauth_tokens_rejects_non_oauth_credentials() -> None:
+    cipher = AesGcmCredentialCipher(key="non-oauth")
+    metadata = CredentialMetadata.create(
+        name="Webhook Secret",
+        provider="internal",
+        scopes=[],
+        secret="secret",
+        cipher=cipher,
+        actor="ops",
+        kind=CredentialKind.SECRET,
+    )
+
+    with pytest.raises(ValueError):
+        metadata.update_oauth_tokens(cipher=cipher, tokens=None)
 
 
 def test_credential_scope_allows_multiple_constraints() -> None:

@@ -200,6 +200,32 @@ def test_vault_updates_oauth_tokens_and_health() -> None:
     assert masked["health"]["status"] == CredentialHealthStatus.HEALTHY.value
 
 
+def test_vault_accepts_string_kind_and_updates_health(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    cipher = AesGcmCredentialCipher(key="file-key")
+    vault_path = tmp_path_factory.mktemp("vault") / "credentials.sqlite"
+    vault = FileCredentialVault(path=vault_path, cipher=cipher)
+
+    metadata = vault.create_credential(
+        name="GitHub",
+        provider="github",
+        scopes=["repo"],
+        secret="token",
+        actor="alice",
+        kind="oauth",
+    )
+
+    assert metadata.kind is CredentialKind.OAUTH
+
+    metadata = vault.update_oauth_tokens(
+        credential_id=metadata.id,
+        tokens=OAuthTokenSecrets(access_token="access"),
+        actor="alice",
+    )
+    assert metadata.reveal_oauth_tokens(cipher=cipher) is not None
+
+
 def test_file_vault_persists_credentials(tmp_path) -> None:
     cipher = AesGcmCredentialCipher(key="file-backend-key")
     vault_path = tmp_path / "vault.sqlite"

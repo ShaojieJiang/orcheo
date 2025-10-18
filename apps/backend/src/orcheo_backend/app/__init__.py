@@ -110,7 +110,7 @@ def _settings_value(
             value = default
         return cast(T, value)
 
-    if attr_path:
+    if attr_path:  # pragma: no branch - simple attribute walk
         current = settings
         for part in attr_path.split("."):
             if not hasattr(current, part):
