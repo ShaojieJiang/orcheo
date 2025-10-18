@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
@@ -9,6 +10,8 @@ from orcheo.triggers import (
     CronDispatchPlan,
     CronOverlapError,
     CronTriggerConfig,
+    HttpPollingConfig,
+    HttpPollingDispatchPlan,
     ManualDispatchItem,
     ManualDispatchPlan,
     ManualDispatchRequest,
@@ -176,6 +179,53 @@ def test_manual_dispatch_plan_resolution() -> None:
     assert plan.triggered_by == "manual_batch"
     assert plan.runs[0].workflow_version_id == default_version
     assert plan.runs[1].workflow_version_id == explicit_version
+
+
+def test_http_polling_dispatch_plans(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTP polling dispatches are generated only when responses change."""
+
+    workflow_id = uuid4()
+    layer = TriggerLayer()
+    config = HttpPollingConfig(url="https://example.com/data", interval_seconds=60)
+    layer.configure_http_polling(workflow_id, config)
+
+    state = layer._http_polling_states[workflow_id]
+
+    def first_poll() -> tuple[dict[str, Any], str | None]:  # type: ignore[override]
+        return (
+            {"status_code": 200, "headers": {}, "body": {"value": 1}, "raw": ""},
+            "sig1",
+        )
+
+    state.poll = first_poll  # type: ignore[assignment]
+
+    now = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    plans = layer.collect_due_http_polling_dispatches(now=now)
+    assert plans and isinstance(plans[0], HttpPollingDispatchPlan)
+    assert plans[0].dispatch.triggered_by == "http_polling"
+
+    def repeat_poll() -> tuple[dict[str, Any], str | None]:  # type: ignore[override]
+        return (
+            {"status_code": 200, "headers": {}, "body": {"value": 1}, "raw": ""},
+            "sig1",
+        )
+
+    state.poll = repeat_poll  # type: ignore[assignment]
+    later = now + timedelta(seconds=config.interval_seconds + 1)
+    no_changes = layer.collect_due_http_polling_dispatches(now=later)
+    assert no_changes == []
+
+    def changed_poll() -> tuple[dict[str, Any], str | None]:  # type: ignore[override]
+        return (
+            {"status_code": 200, "headers": {}, "body": {"value": 2}, "raw": ""},
+            "sig2",
+        )
+
+    state.poll = changed_poll  # type: ignore[assignment]
+    even_later = later + timedelta(seconds=config.interval_seconds + 1)
+    updates = layer.collect_due_http_polling_dispatches(now=even_later)
+    assert len(updates) == 1
+    assert updates[0].dispatch.input_payload["response"]["body"] == {"value": 2}
 
 
 def test_retry_policy_decisions_are_tracked_per_run() -> None:

@@ -98,6 +98,10 @@ class RunHistoryStepResponse(BaseModel):
     index: int
     at: datetime
     payload: dict[str, Any]
+    prompt: str | None = None
+    response: str | None = None
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    artifacts: list[str] = Field(default_factory=list)
 
 
 class RunHistoryResponse(BaseModel):
@@ -111,6 +115,7 @@ class RunHistoryResponse(BaseModel):
     error: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     steps: list[RunHistoryStepResponse] = Field(default_factory=list)
+    token_metrics: dict[str, int] = Field(default_factory=dict)
 
 
 class RunReplayRequest(BaseModel):
@@ -157,3 +162,54 @@ class CredentialHealthResponse(BaseModel):
     status: CredentialHealthStatus
     checked_at: datetime | None = None
     credentials: list[CredentialHealthItem] = Field(default_factory=list)
+
+
+class CredentialTemplateFieldResponse(BaseModel):
+    """Represents a credential template field in API responses."""
+
+    key: str
+    label: str
+    secret: bool
+    required: bool
+    description: str | None = None
+
+
+class CredentialTemplateResponse(BaseModel):
+    """API response describing a credential template."""
+
+    provider: str
+    name: str
+    kind: str
+    scopes: list[str]
+    governance_window_hours: int
+    fields: list[CredentialTemplateFieldResponse] = Field(default_factory=list)
+
+
+class CredentialTemplateIssueRequest(BaseModel):
+    """Request body for issuing a credential from a template."""
+
+    actor: str = Field(default="system")
+    secret: str
+    name: str | None = None
+    workflow_id: UUID | None = None
+    overrides: dict[str, str] = Field(default_factory=dict)
+
+
+class CredentialTemplateIssueResponse(BaseModel):
+    """Response payload returned after issuing a credential."""
+
+    credential_id: UUID
+    alerts: list[str] = Field(default_factory=list)
+
+
+class CredentialGovernanceAuditRequest(BaseModel):
+    """Request payload for running a governance audit."""
+
+    workflow_id: UUID
+
+
+class CredentialGovernanceAuditResponse(BaseModel):
+    """Response payload describing governance alerts for a workflow."""
+
+    workflow_id: UUID
+    alerts: list[str] = Field(default_factory=list)

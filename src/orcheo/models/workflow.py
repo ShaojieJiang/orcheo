@@ -595,9 +595,7 @@ class CredentialMetadata(TimestampedAuditModel):
         """Decrypt and return the credential secret."""
         return self.encryption.decrypt(cipher)
 
-    def reveal_oauth_tokens(
-        self, *, cipher: CredentialCipher
-    ) -> OAuthTokenSecrets | None:
+    def reveal_oauth_tokens(self, cipher: CredentialCipher) -> OAuthTokenSecrets | None:
         """Return decrypted OAuth tokens when available."""
         if self.oauth_tokens is None:
             return None

@@ -29,6 +29,10 @@ class RunHistoryStep(BaseModel):
     index: int
     at: datetime = Field(default_factory=_utcnow)
     payload: dict[str, Any]
+    prompt: str | None = None
+    response: str | None = None
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    artifacts: list[str] = Field(default_factory=list)
 
 
 class RunHistoryRecord(BaseModel):
@@ -44,11 +48,22 @@ class RunHistoryRecord(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     steps: list[RunHistoryStep] = Field(default_factory=list)
+    token_metrics: dict[str, int] = Field(default_factory=dict)
 
     def append_step(self, payload: Mapping[str, Any]) -> RunHistoryStep:
         """Append a step to the history with an auto-incremented index."""
-        step = RunHistoryStep(index=len(self.steps), payload=dict(payload))
+        data = dict(payload)
+        step = RunHistoryStep(
+            index=len(self.steps),
+            payload=data,
+            prompt=data.get("prompt"),
+            response=data.get("response"),
+            token_usage=dict(data.get("token_usage", {})),
+            artifacts=list(data.get("artifacts", [])),
+        )
         self.steps.append(step)
+        for key, value in step.token_usage.items():
+            self.token_metrics[key] = self.token_metrics.get(key, 0) + value
         return step
 
     def mark_completed(self) -> None:

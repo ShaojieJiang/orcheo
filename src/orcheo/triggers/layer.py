@@ -4,9 +4,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
+from pydantic import HttpUrl
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
+from orcheo.triggers.http_polling import HttpPollingConfig, HttpPollingState
 from orcheo.triggers.manual import ManualDispatchRequest, ManualDispatchRun
 from orcheo.triggers.retry import (
     RetryDecision,
@@ -49,6 +51,15 @@ class CronDispatchPlan:
 
 
 @dataclass(slots=True)
+class HttpPollingDispatchPlan:
+    """Dispatch plan returned when HTTP polling produces new data."""
+
+    workflow_id: UUID
+    polled_at: datetime
+    dispatch: TriggerDispatch
+
+
+@dataclass(slots=True)
 class StateCleanupConfig:
     """Configuration for automatic state cleanup."""
 
@@ -74,6 +85,7 @@ class TriggerLayer:
         self._webhook_states: dict[UUID, WebhookTriggerState] = {}
         self._cron_states: dict[UUID, CronTriggerState] = {}
         self._cron_run_index: dict[UUID, UUID] = {}
+        self._http_polling_states: dict[UUID, HttpPollingState] = {}
         self._retry_configs: dict[UUID, RetryPolicyConfig] = {}
         self._retry_states: dict[UUID, RetryPolicyState] = {}
         self._run_workflows: dict[UUID, UUID] = {}
@@ -217,6 +229,76 @@ class TriggerLayer:
                 exc,
             )
             raise
+
+    # ------------------------------------------------------------------
+    # HTTP polling triggers
+    # ------------------------------------------------------------------
+    def configure_http_polling(
+        self, workflow_id: UUID, config: HttpPollingConfig
+    ) -> HttpPollingConfig:
+        """Persist HTTP polling configuration for the workflow."""
+        if workflow_id is None:
+            raise ValueError("workflow_id cannot be None")
+        state = self._http_polling_states.get(workflow_id)
+        if state is None:
+            state = HttpPollingState(config=config)
+        else:
+            state.config = config
+            state.last_polled_at = None
+            state.last_signature = None
+        self._http_polling_states[workflow_id] = state
+        return state.config
+
+    def get_http_polling_config(self, workflow_id: UUID) -> HttpPollingConfig:
+        """Return the configured HTTP polling definition."""
+        if workflow_id is None:
+            raise ValueError("workflow_id cannot be None")
+        state = self._http_polling_states.get(workflow_id)
+        if state is None:
+            default_url = cast(HttpUrl, "https://example.com")
+            state = HttpPollingState(config=HttpPollingConfig(url=default_url))
+            self._http_polling_states[workflow_id] = state
+        return state.config
+
+    def collect_due_http_polling_dispatches(
+        self, *, now: datetime
+    ) -> list[HttpPollingDispatchPlan]:
+        """Execute polling requests that are due and return dispatch payloads."""
+        if now is None:
+            raise ValueError("now parameter cannot be None")
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        plans: list[HttpPollingDispatchPlan] = []
+        for workflow_id, state in self._http_polling_states.items():
+            if not state.due(now=now):
+                continue
+            try:
+                self._ensure_healthy(workflow_id)
+                payload, signature = state.poll()
+                polled_at = now
+                if signature is not None and not state.should_emit(signature):
+                    state.mark_polled(polled_at=polled_at, signature=signature)
+                    continue
+                dispatch = TriggerDispatch(
+                    triggered_by="http_polling",
+                    actor="http_polling",
+                    input_payload={"response": payload},
+                )
+                plans.append(
+                    HttpPollingDispatchPlan(
+                        workflow_id=workflow_id,
+                        polled_at=polled_at,
+                        dispatch=dispatch,
+                    )
+                )
+                state.mark_polled(polled_at=polled_at, signature=signature)
+            except Exception as exc:
+                self._logger.error(
+                    "Error polling HTTP endpoint for workflow %s: %s",
+                    workflow_id,
+                    exc,
+                )
+        return plans
 
     def register_cron_run(self, run_id: UUID) -> None:
         """Register a cron-triggered run so overlap guards are enforced."""

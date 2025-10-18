@@ -166,6 +166,39 @@ def test_credential_endpoints_report_health(api_client: TestClient) -> None:
     assert health_payload["credentials"]
 
 
+def test_credential_template_endpoints(api_client: TestClient) -> None:
+    """Templates can be listed, issued, and audited."""
+
+    # List templates
+    template_response = api_client.get("/api/credentials/templates")
+    assert template_response.status_code == 200
+    templates = template_response.json()
+    assert any(item["provider"] == "slack" for item in templates)
+
+    # Issue a credential from template
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    issue_response = api_client.post(
+        "/api/credentials/templates/slack/issue",
+        json={
+            "actor": "tester",
+            "secret": "xoxb-template",
+            "workflow_id": workflow_id,
+        },
+    )
+    assert issue_response.status_code == 201
+    payload = issue_response.json()
+    assert "credential_id" in payload
+
+    # Governance audit should be callable
+    audit_response = api_client.post(
+        "/api/credentials/templates/governance",
+        json={"workflow_id": workflow_id},
+    )
+    assert audit_response.status_code == 200
+    audit_payload = audit_response.json()
+    assert audit_payload["workflow_id"] == workflow_id
+
+
 def test_workflow_crud_operations(api_client: TestClient) -> None:
     """Validate workflow creation, retrieval, update, and archival."""
 

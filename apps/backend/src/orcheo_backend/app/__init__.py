@@ -31,14 +31,19 @@ from orcheo.graph.ingestion import (
 )
 from orcheo.models import AesGcmCredentialCipher, CredentialHealthStatus
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.observability.metrics import MetricEvent, metrics
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault import (
     BaseCredentialVault,
+    CredentialTemplate,
+    CredentialTemplateRegistry,
     FileCredentialVault,
     InMemoryCredentialVault,
+    builtin_templates,
+    governance_audit,
 )
 from orcheo.vault.oauth import (
     CredentialHealthError,
@@ -59,8 +64,14 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    CredentialGovernanceAuditRequest,
+    CredentialGovernanceAuditResponse,
     CredentialHealthItem,
     CredentialHealthResponse,
+    CredentialTemplateFieldResponse,
+    CredentialTemplateIssueRequest,
+    CredentialTemplateIssueResponse,
+    CredentialTemplateResponse,
     CredentialValidationRequest,
     CronDispatchRequest,
     RunActionRequest,
@@ -95,6 +106,7 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_template_registry: CredentialTemplateRegistry = builtin_templates()
 
 T = TypeVar("T")
 
@@ -186,6 +198,28 @@ def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
     return service
 
 
+def get_vault(settings: Dynaconf = Depends(get_settings)) -> BaseCredentialVault:  # noqa: B008
+    """Return the configured credential vault, creating it when necessary."""
+    vault = _vault_ref["vault"]
+    if vault is None:
+        vault = _create_vault(settings)
+        _vault_ref["vault"] = vault
+    return vault
+
+
+VaultDep = Annotated[BaseCredentialVault, Depends(get_vault)]
+
+
+def get_template_registry() -> CredentialTemplateRegistry:
+    """Return the global credential template registry."""
+    return _template_registry
+
+
+TemplateRegistryDep = Annotated[
+    CredentialTemplateRegistry, Depends(get_template_registry)
+]
+
+
 def _create_repository() -> WorkflowRepository:
     settings = get_settings()
     service = _ensure_credential_service(settings)
@@ -274,6 +308,10 @@ def _history_to_response(
             index=step.index,
             at=step.at,
             payload=step.payload,
+            prompt=step.prompt,
+            response=step.response,
+            token_usage=step.token_usage,
+            artifacts=step.artifacts,
         )
         for step in record.steps[from_step:]
     ]
@@ -286,6 +324,7 @@ def _history_to_response(
         error=record.error,
         inputs=record.inputs,
         steps=steps,
+        token_metrics=record.token_metrics,
     )
 
 
@@ -313,6 +352,27 @@ def _health_report_to_response(
         status=overall_status,
         checked_at=report.checked_at,
         credentials=credentials,
+    )
+
+
+def _template_to_response(template: CredentialTemplate) -> CredentialTemplateResponse:
+    """Convert a credential template into an API response payload."""
+    return CredentialTemplateResponse(
+        provider=template.provider,
+        name=template.name,
+        kind=template.kind.value,
+        scopes=list(template.scopes),
+        governance_window_hours=template.governance_window_hours,
+        fields=[
+            CredentialTemplateFieldResponse(
+                key=field.key,
+                label=field.label,
+                secret=field.secret,
+                required=field.required,
+                description=field.description,
+            )
+            for field in template.fields
+        ],
     )
 
 
@@ -619,12 +679,23 @@ async def create_workflow_run(
 ) -> WorkflowRun:
     """Create a workflow execution run."""
     try:
-        return await repository.create_run(
+        run = await repository.create_run(
             workflow_id,
             workflow_version_id=request.workflow_version_id,
             triggered_by=request.triggered_by,
             input_payload=request.input_payload,
         )
+        metrics.record(
+            MetricEvent(
+                name="workflow_runs_created",
+                value=1,
+                tags={
+                    "workflow_id": str(workflow_id),
+                    "triggered_by": request.triggered_by,
+                },
+            )
+        )
+        return run
     except WorkflowNotFoundError as exc:
         _raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:
@@ -698,6 +769,89 @@ async def validate_workflow_credentials(
             },
         )
     return _health_report_to_response(report)
+
+
+@_http_router.get(
+    "/credentials/templates",
+    response_model=list[CredentialTemplateResponse],
+)
+def list_credential_templates(
+    registry: TemplateRegistryDep,
+) -> list[CredentialTemplateResponse]:
+    """Return registered credential templates for the workspace."""
+    return [_template_to_response(template) for template in registry.list_templates()]
+
+
+@_http_router.post(
+    "/credentials/templates/{provider}/issue",
+    response_model=CredentialTemplateIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def issue_credential_from_template(
+    provider: str,
+    request: CredentialTemplateIssueRequest,
+    registry: TemplateRegistryDep,
+    vault: VaultDep,
+) -> CredentialTemplateIssueResponse:
+    """Issue a credential from the requested template provider."""
+    overrides = dict(request.overrides)
+    if request.name:
+        overrides.setdefault("name", request.name)
+    try:
+        credential_id, alerts = registry.issue_from_provider(
+            provider,
+            vault,
+            actor=request.actor,
+            secret=request.secret,
+            workflow_id=request.workflow_id,
+            overrides=overrides,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    formatted_alerts: list[str] = []
+    for alert in alerts:
+        if alert.severity:
+            formatted_alerts.append(f"[{alert.severity.upper()}] {alert.message}")
+        else:
+            formatted_alerts.append(alert.message)
+    return CredentialTemplateIssueResponse(
+        credential_id=credential_id,
+        alerts=formatted_alerts,
+    )
+
+
+@_http_router.post(
+    "/credentials/templates/governance",
+    response_model=CredentialGovernanceAuditResponse,
+)
+def run_credential_governance_audit(
+    request: CredentialGovernanceAuditRequest,
+    registry: TemplateRegistryDep,
+    vault: VaultDep,
+) -> CredentialGovernanceAuditResponse:
+    """Run governance checks for workflow credentials."""
+    alerts = [
+        f"[{alert.severity.upper()}] {alert.message}"
+        if alert.severity
+        else alert.message
+        for alert in governance_audit(
+            vault,
+            registry=registry,
+            workflow_id=request.workflow_id,
+        )
+    ]
+    return CredentialGovernanceAuditResponse(
+        workflow_id=request.workflow_id,
+        alerts=alerts,
+    )
 
 
 @_http_router.get(
@@ -782,11 +936,19 @@ async def mark_run_succeeded(
 ) -> WorkflowRun:
     """Mark a workflow run as successful."""
     try:
-        return await repository.mark_run_succeeded(
+        run = await repository.mark_run_succeeded(
             run_id,
             actor=request.actor,
             output=request.output,
         )
+        metrics.record(
+            MetricEvent(
+                name="workflow_runs_succeeded",
+                value=1,
+                tags={"workflow_id": str(run.workflow_version_id)},
+            )
+        )
+        return run
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
     except ValueError as exc:
@@ -801,11 +963,19 @@ async def mark_run_failed(
 ) -> WorkflowRun:
     """Mark a workflow run as failed."""
     try:
-        return await repository.mark_run_failed(
+        run = await repository.mark_run_failed(
             run_id,
             actor=request.actor,
             error=request.error,
         )
+        metrics.record(
+            MetricEvent(
+                name="workflow_runs_failed",
+                value=1,
+                tags={"workflow_id": str(run.workflow_version_id)},
+            )
+        )
+        return run
     except WorkflowRunNotFoundError as exc:
         _raise_not_found("Workflow run not found", exc)
     except ValueError as exc:

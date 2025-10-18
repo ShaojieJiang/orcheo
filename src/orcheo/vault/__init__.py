@@ -17,6 +17,14 @@ from orcheo.models import (
     CredentialScope,
     OAuthTokenSecrets,
 )
+from orcheo.vault.templates import (
+    CredentialTemplate,
+    CredentialTemplateField,
+    CredentialTemplateRegistry,
+    SecretGovernanceAlert,
+    builtin_templates,
+    governance_audit,
+)
 
 
 class VaultError(RuntimeError):
@@ -304,4 +312,10 @@ __all__ = [
     "BaseCredentialVault",
     "InMemoryCredentialVault",
     "FileCredentialVault",
+    "CredentialTemplate",
+    "CredentialTemplateField",
+    "CredentialTemplateRegistry",
+    "SecretGovernanceAlert",
+    "builtin_templates",
+    "governance_audit",
 ]

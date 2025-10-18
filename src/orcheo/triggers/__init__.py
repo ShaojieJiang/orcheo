@@ -6,8 +6,10 @@ from orcheo.triggers.cron import (
     CronTriggerState,
     CronValidationError,
 )
+from orcheo.triggers.http_polling import HttpPollingConfig
 from orcheo.triggers.layer import (
     CronDispatchPlan,
+    HttpPollingDispatchPlan,
     ManualDispatchPlan,
     StateCleanupConfig,
     TriggerDispatch,
@@ -42,6 +44,8 @@ __all__ = [
     "CronValidationError",
     "CronOverlapError",
     "CronDispatchPlan",
+    "HttpPollingConfig",
+    "HttpPollingDispatchPlan",
     "ManualDispatchItem",
     "ManualDispatchRequest",
     "ManualDispatchRun",

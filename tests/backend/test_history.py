@@ -96,3 +96,26 @@ async def test_clear_removes_all_histories() -> None:
 
     with pytest.raises(RunHistoryNotFoundError):
         await store.get_history("exec")
+
+
+@pytest.mark.asyncio
+async def test_append_step_tracks_metadata() -> None:
+    """Steps capture prompt/response metadata and token metrics."""
+
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf", execution_id="exec")
+    await store.append_step(
+        "exec",
+        {
+            "prompt": "Say hi",
+            "response": "Hello",
+            "token_usage": {"input": 3, "output": 2},
+            "artifacts": ["artifact.txt"],
+        },
+    )
+    history = await store.get_history("exec")
+    step = history.steps[0]
+    assert step.prompt == "Say hi"
+    assert step.response == "Hello"
+    assert step.artifacts == ["artifact.txt"]
+    assert history.token_metrics == {"input": 3, "output": 2}
