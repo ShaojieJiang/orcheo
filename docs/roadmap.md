@@ -39,7 +39,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Ship AES-256 encrypted credential vault with shareable credentials, optional scope policies, rotation workflows, and masked logging.
 - [x] Implement OAuth refresh flows, credential validation/testing, and health checks to block misconfigured automations.
 - [x] Create credential templates and UI/API for secure storage, token issuance, and secret governance alerts.
-- [ ] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces.
+- [x] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces. See [Milestone 3 Security Review](./milestone3_security_review.md) for the full report.
 
 ### Milestone 4 – Visual Designer Experience
 - [ ] Build React Flow canvas tooling: pan/zoom/minimap, grid snapping, undo/redo, node search/filtering, duplication, styling, and collapsible configuration panels.

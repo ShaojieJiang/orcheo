@@ -63,6 +63,32 @@ def test_webhook_dispatch_validation_and_normalization() -> None:
     assert dispatch.input_payload["source_ip"] == "203.0.113.5"
 
 
+def test_webhook_dispatch_redacts_shared_secret_header() -> None:
+    """Shared secret headers are removed from dispatch payloads."""
+
+    workflow_id = uuid4()
+    layer = TriggerLayer()
+    layer.configure_webhook(
+        workflow_id,
+        WebhookTriggerConfig(
+            shared_secret_header="x-secret",
+            shared_secret="expected",
+        ),
+    )
+    request = WebhookRequest(
+        method="POST",
+        headers={"X-Secret": "expected", "X-Other": "value"},
+        query_params={},
+        payload={},
+        source_ip=None,
+    )
+
+    dispatch = layer.prepare_webhook_dispatch(workflow_id, request)
+
+    assert "x-secret" not in dispatch.input_payload["headers"]
+    assert dispatch.input_payload["headers"]["x-other"] == "value"
+
+
 def test_trigger_layer_blocks_unhealthy_workflows() -> None:
     workflow_id = uuid4()
     report = CredentialHealthReport(
