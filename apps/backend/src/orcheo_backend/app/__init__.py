@@ -59,10 +59,14 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    CredentialGovernanceResponse,
     CredentialHealthItem,
     CredentialHealthResponse,
+    CredentialTemplateIssueRequest,
+    CredentialTemplateResponse,
     CredentialValidationRequest,
     CronDispatchRequest,
+    GovernanceAlertResponse,
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
@@ -77,6 +81,7 @@ from orcheo_backend.app.schemas import (
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
 )
+from orcheo_backend.app.templates import TemplateService, build_template_service
 
 
 # Configure logging for the backend module once on import.
@@ -95,6 +100,7 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_template_service_ref: dict[str, TemplateService | None] = {"service": None}
 
 T = TypeVar("T")
 
@@ -183,6 +189,20 @@ def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
         token_ttl_seconds=token_ttl,
     )
     _credential_service_ref["service"] = service
+    _template_service_ref["service"] = build_template_service(vault)
+    return service
+
+
+def _ensure_template_service(settings: Dynaconf) -> TemplateService:
+    service = _template_service_ref["service"]
+    if service is not None:
+        return service
+    vault = _vault_ref["vault"]
+    if vault is None:
+        vault = _create_vault(settings)
+        _vault_ref["vault"] = vault
+    service = build_template_service(vault)
+    _template_service_ref["service"] = service
     return service
 
 
@@ -239,6 +259,11 @@ def get_credential_service() -> OAuthCredentialService | None:
     return _credential_service_ref["service"]
 
 
+def get_template_service() -> TemplateService | None:
+    """Return the template service when configured."""
+    return _template_service_ref["service"]
+
+
 CredentialServiceDep = Annotated[
     OAuthCredentialService | None, Depends(get_credential_service)
 ]
@@ -274,6 +299,10 @@ def _history_to_response(
             index=step.index,
             at=step.at,
             payload=step.payload,
+            prompt=step.prompt,
+            response=step.response,
+            metrics=step.metrics,
+            artifacts=step.artifacts,
         )
         for step in record.steps[from_step:]
     ]
@@ -316,6 +345,57 @@ def _health_report_to_response(
     )
 
 
+def _initialize_execution_state(
+    graph_config: dict[str, Any], inputs: dict[str, Any]
+) -> Any:
+    """Return the initial state payload expected by the compiled graph."""
+    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+        # LangGraph scripts receive raw inputs so they can declare their own state.
+        return inputs
+    return {"messages": [], "results": {}, "inputs": inputs}
+
+
+async def _stream_execution_updates(
+    compiled_graph: Any,
+    state: Any,
+    execution_id: str,
+    websocket: WebSocket,
+    history_store: InMemoryRunHistoryStore,
+) -> None:
+    """Stream graph updates, persisting history and forwarding messages."""
+    config = {"configurable": {"thread_id": execution_id}}
+    async for step in compiled_graph.astream(
+        state,
+        config=config,  # type: ignore[arg-type]
+        stream_mode="updates",
+    ):  # pragma: no cover
+        if isinstance(step, dict):
+            payload = dict(step)
+            prompt = payload.get("prompt")
+            response_payload = payload.get("response")
+        else:
+            payload = {"event": step}
+            prompt = None
+            response_payload = None
+        raw_metrics = payload.get("metrics")
+        metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+        raw_artifacts = payload.get("artifacts")
+        artifacts = raw_artifacts if isinstance(raw_artifacts, list) else []
+        await history_store.append_step(
+            execution_id,
+            payload,
+            prompt=prompt,
+            response=response_payload,
+            metrics=metrics,
+            artifacts=artifacts,
+        )
+        try:
+            await websocket.send_json(step)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Error processing messages: %s", exc)
+            raise
+
+
 async def execute_workflow(
     workflow_id: str,
     graph_config: dict[str, Any],
@@ -336,38 +416,13 @@ async def execute_workflow(
     async with create_checkpointer(settings) as checkpointer:
         graph = build_graph(graph_config)
         compiled_graph = graph.compile(checkpointer=checkpointer)
-
-        # Initialize state based on graph format
-        # LangGraph scripts: pass inputs directly, letting the script define state
-        # Orcheo workflows: use State class with structured fields
-        is_langgraph_script = graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
-        if is_langgraph_script:
-            # For LangGraph scripts, pass inputs as-is to respect the script's
-            # state schema definition. The script has full control over state.
-            state: Any = inputs
-        else:
-            # Orcheo workflows use the State class with predefined fields
-            state = {
-                "messages": [],
-                "results": {},
-                "inputs": inputs,
-            }
+        state = _initialize_execution_state(graph_config, inputs)
         logger.info("Initial state: %s", state)
 
-        # Run graph with streaming
-        config = {"configurable": {"thread_id": execution_id}}
         try:
-            async for step in compiled_graph.astream(
-                state,
-                config=config,  # type: ignore[arg-type]
-                stream_mode="updates",
-            ):  # pragma: no cover
-                await history_store.append_step(execution_id, step)
-                try:
-                    await websocket.send_json(step)
-                except Exception as exc:  # pragma: no cover
-                    logger.error("Error processing messages: %s", exc)
-                    raise
+            await _stream_execution_updates(
+                compiled_graph, state, execution_id, websocket, history_store
+            )
         except asyncio.CancelledError as exc:
             reason = str(exc) or "Workflow execution cancelled"
             cancellation_payload = {"status": "cancelled", "reason": reason}
@@ -698,6 +753,55 @@ async def validate_workflow_credentials(
             },
         )
     return _health_report_to_response(report)
+
+
+@_http_router.get(
+    "/credential-templates",
+    response_model=list[CredentialTemplateResponse],
+)
+async def list_credential_templates() -> list[CredentialTemplateResponse]:
+    """Return credential templates supported by the backend."""
+    settings = get_settings()
+    service = _ensure_template_service(settings)
+    return [
+        CredentialTemplateResponse(**template) for template in service.list_templates()
+    ]
+
+
+@_http_router.post(
+    "/credential-templates/{slug}",
+    response_model=dict,
+)
+async def issue_credential_from_template(
+    slug: str, request: CredentialTemplateIssueRequest
+) -> dict[str, Any]:
+    """Create a credential from a template and return redacted metadata."""
+    settings = get_settings()
+    service = _ensure_template_service(settings)
+    metadata = service.issue_from_template(
+        slug,
+        actor=request.actor,
+        workflow_id=request.workflow_id,
+        payload=request.payload,
+    )
+    return metadata
+
+
+@_http_router.get(
+    "/workflows/{workflow_id}/credential-governance",
+    response_model=CredentialGovernanceResponse,
+)
+async def get_workflow_credential_governance(
+    workflow_id: UUID,
+) -> CredentialGovernanceResponse:
+    """Return governance alerts for the workflow credentials."""
+    settings = get_settings()
+    service = _ensure_template_service(settings)
+    alerts = service.evaluate_governance(workflow_id=workflow_id)
+    return CredentialGovernanceResponse(
+        workflow_id=str(workflow_id),
+        alerts=[GovernanceAlertResponse(**alert) for alert in alerts],
+    )
 
 
 @_http_router.get(

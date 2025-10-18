@@ -98,6 +98,10 @@ class RunHistoryStepResponse(BaseModel):
     index: int
     at: datetime
     payload: dict[str, Any]
+    prompt: str | None = None
+    response: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[str] = Field(default_factory=list)
 
 
 class RunHistoryResponse(BaseModel):
@@ -157,3 +161,50 @@ class CredentialHealthResponse(BaseModel):
     status: CredentialHealthStatus
     checked_at: datetime | None = None
     credentials: list[CredentialHealthItem] = Field(default_factory=list)
+
+
+class CredentialTemplateFieldResponse(BaseModel):
+    """Field metadata returned for credential templates."""
+
+    key: str
+    label: str
+    description: str
+    required: bool
+    secret: bool
+    default: str | None = None
+
+
+class CredentialTemplateResponse(BaseModel):
+    """Credential template metadata returned by the API."""
+
+    slug: str
+    name: str
+    provider: str
+    description: str
+    scopes: list[str]
+    rotation_days: int
+    fields: list[CredentialTemplateFieldResponse] = Field(default_factory=list)
+
+
+class CredentialTemplateIssueRequest(BaseModel):
+    """Request payload for issuing a credential from a template."""
+
+    actor: str = Field(default="system")
+    workflow_id: UUID | None = None
+    payload: dict[str, str] = Field(default_factory=dict)
+
+
+class GovernanceAlertResponse(BaseModel):
+    """Governance alert surfaced for a credential."""
+
+    credential_id: str
+    kind: str
+    level: str
+    message: str
+
+
+class CredentialGovernanceResponse(BaseModel):
+    """Collection of governance alerts for a workflow."""
+
+    workflow_id: str
+    alerts: list[GovernanceAlertResponse] = Field(default_factory=list)

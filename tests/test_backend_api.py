@@ -898,3 +898,46 @@ def test_manual_trigger_dispatch_errors(api_client: TestClient) -> None:
     )
     assert no_version_response.status_code == 404
     assert no_version_response.json()["detail"] == "Workflow version not found"
+
+
+def test_list_credential_templates(api_client: TestClient) -> None:
+    response = api_client.get("/api/credential-templates")
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["slug"] == "openai" for item in payload)
+
+
+def test_issue_credential_from_template(api_client: TestClient) -> None:
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    response = api_client.post(
+        "/api/credential-templates/openai",
+        json={
+            "actor": "alice",
+            "workflow_id": workflow_id,
+            "payload": {"secret": "sk-abc123"},
+        },
+    )
+    response.raise_for_status()
+    metadata = response.json()
+    assert metadata["provider"] == "openai"
+    assert metadata["scope"]["workflow_ids"] == [workflow_id]
+
+
+def test_credential_governance_endpoint(api_client: TestClient) -> None:
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    api_client.post(
+        "/api/credential-templates/slack",
+        json={
+            "actor": "alice",
+            "workflow_id": workflow_id,
+            "payload": {
+                "secret": "xoxb-123",
+                "signing_secret": "secret",
+            },
+        },
+    ).raise_for_status()
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/credential-governance")
+    response.raise_for_status()
+    alerts = response.json()["alerts"]
+    assert isinstance(alerts, list)

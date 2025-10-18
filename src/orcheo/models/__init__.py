@@ -18,6 +18,7 @@ from orcheo.models.workflow import (
     WorkflowRunStatus,
     WorkflowVersion,
 )
+from orcheo.models.workspace import Workspace, WorkspaceMember
 
 
 __all__ = [
@@ -37,4 +38,6 @@ __all__ = [
     "WorkflowRun",
     "WorkflowRunStatus",
     "WorkflowVersion",
+    "Workspace",
+    "WorkspaceMember",
 ]

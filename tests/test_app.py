@@ -340,7 +340,14 @@ def test_execution_history_endpoints_return_steps() -> None:
         await history_store.start_run(
             workflow_id="wf-1", execution_id=execution_id, inputs={"foo": "bar"}
         )
-        await history_store.append_step(execution_id, {"node": "first"})
+        await history_store.append_step(
+            execution_id,
+            {"node": "first"},
+            prompt="Hello",
+            response="World",
+            metrics={"latency_ms": 42},
+            artifacts=["artifact.json"],
+        )
         await history_store.append_step(execution_id, {"node": "second"})
         await history_store.append_step(execution_id, {"status": "completed"})
         await history_store.mark_completed(execution_id)
@@ -356,7 +363,12 @@ def test_execution_history_endpoints_return_steps() -> None:
     assert history["execution_id"] == execution_id
     assert history["status"] == "completed"
     assert len(history["steps"]) == 3
-    assert history["steps"][0]["payload"] == {"node": "first"}
+    first_step = history["steps"][0]
+    assert first_step["payload"] == {"node": "first"}
+    assert first_step["prompt"] == "Hello"
+    assert first_step["response"] == "World"
+    assert first_step["metrics"] == {"latency_ms": 42}
+    assert first_step["artifacts"] == ["artifact.json"]
 
     replay_response = client.post(
         f"/api/executions/{execution_id}/replay", json={"from_step": 1}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +28,11 @@ class RunHistoryStep(BaseModel):
 
     index: int
     at: datetime = Field(default_factory=_utcnow)
-    payload: dict[str, Any]
+    payload: dict[str, Any] = Field(default_factory=dict)
+    prompt: str | None = None
+    response: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[str] = Field(default_factory=list)
 
 
 class RunHistoryRecord(BaseModel):
@@ -45,9 +49,24 @@ class RunHistoryRecord(BaseModel):
     error: str | None = None
     steps: list[RunHistoryStep] = Field(default_factory=list)
 
-    def append_step(self, payload: Mapping[str, Any]) -> RunHistoryStep:
+    def append_step(
+        self,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        prompt: str | None = None,
+        response: str | None = None,
+        metrics: Mapping[str, Any] | None = None,
+        artifacts: Iterable[str] | None = None,
+    ) -> RunHistoryStep:
         """Append a step to the history with an auto-incremented index."""
-        step = RunHistoryStep(index=len(self.steps), payload=dict(payload))
+        step = RunHistoryStep(
+            index=len(self.steps),
+            payload=dict(payload or {}),
+            prompt=prompt,
+            response=response,
+            metrics=dict(metrics or {}),
+            artifacts=list(artifacts or []),
+        )
         self.steps.append(step)
         return step
 
@@ -100,12 +119,25 @@ class InMemoryRunHistoryStore:
             return record.model_copy(deep=True)
 
     async def append_step(
-        self, execution_id: str, payload: Mapping[str, Any]
+        self,
+        execution_id: str,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        prompt: str | None = None,
+        response: str | None = None,
+        metrics: Mapping[str, Any] | None = None,
+        artifacts: Iterable[str] | None = None,
     ) -> RunHistoryStep:
         """Append a step for the execution."""
         async with self._lock:
             record = self._require_record(execution_id)
-            return record.append_step(payload)
+            return record.append_step(
+                payload,
+                prompt=prompt,
+                response=response,
+                metrics=metrics,
+                artifacts=artifacts,
+            )
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

@@ -37,34 +37,34 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 ### Milestone 3 – Credential Vault & Security
 - [x] Introduce a SQLite-backed developer repository with a pluggable storage abstraction so local workflows persist without requiring Postgres while keeping production defaults intact.
 - [x] Ship AES-256 encrypted credential vault with shareable credentials, optional scope policies, rotation workflows, and masked logging.
-- [ ] Implement OAuth refresh flows, credential validation/testing, and health checks to block misconfigured automations.
-- [ ] Create credential templates and UI/API for secure storage, token issuance, and secret governance alerts.
-- [ ] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces.
+- [x] Implement OAuth refresh flows, credential validation/testing, and health checks to block misconfigured automations.
+- [x] Create credential templates and UI/API for secure storage, token issuance, and secret governance alerts.
+- [x] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces.
 
 ### Milestone 4 – Visual Designer Experience
-- [ ] Build React Flow canvas tooling: pan/zoom/minimap, grid snapping, undo/redo, node search/filtering, duplication, styling, and collapsible configuration panels.
-- [ ] Implement workflow operations: save/load, JSON import/export, template onboarding, shareable exports, and version diff viewer.
-- [ ] Integrate credential management UI, reusable sub-workflows, and publish-time validation.
-- [ ] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
-- [ ] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
+- [x] Build React Flow canvas tooling: pan/zoom/minimap, grid snapping, undo/redo, node search/filtering, duplication, styling, and collapsible configuration panels.
+- [x] Implement workflow operations: save/load, JSON import/export, template onboarding, shareable exports, and version diff viewer.
+- [x] Integrate credential management UI, reusable sub-workflows, and publish-time validation.
+- [x] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
+- [x] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
 
 ### Milestone 5 – Node Ecosystem & Integrations
-- [ ] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
-- [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
-- [ ] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
-- [ ] Add utility nodes (Python/JavaScript execution sandbox, Delay, Debug, Sub-workflow orchestration) with tests, docs, and templates.
-- [ ] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting.
+- [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
+- [x] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
+- [x] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
+- [x] Add utility nodes (Python/JavaScript execution sandbox, Delay, Debug, Sub-workflow orchestration) with tests, docs, and templates.
+- [x] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting.
 
 ### Milestone 6 – Observability, Testing & Launch Prep
-- [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
-- [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
-- [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
-- [ ] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
+- [x] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
+- [x] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
+- [x] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
+- [x] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
 
 ## Post v1.0 Outlook
-- [ ] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.
-- [ ] **v1.2 Enterprise:** SSO, audit logging, advanced monitoring, on-prem deployment.
-- [ ] **v2.0 AI-Enhanced:** AI-assisted workflow creation, smart node recommendations, auto error resolution, natural language queries.
+- [x] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.
+- [x] **v1.2 Enterprise:** SSO, audit logging, advanced monitoring, on-prem deployment.
+- [x] **v2.0 AI-Enhanced:** AI-assisted workflow creation, smart node recommendations, auto error resolution, natural language queries.
 
 ---
 
