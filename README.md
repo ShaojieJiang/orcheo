@@ -55,6 +55,14 @@ directly to the backend importer, execute it, and stream live updates.
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
 
+## Frontend experience plan
+
+The path to a production-quality canvas is captured in
+[`docs/frontend_plan.md`](docs/frontend_plan.md), outlining research, design
+system development, architectural refactors, and QA milestones for the React
+application. Start there when kicking off frontend workstreams so design and
+engineering stay aligned.
+
 ## Workflow repository configuration
 
 The FastAPI backend now supports pluggable workflow repositories so local
