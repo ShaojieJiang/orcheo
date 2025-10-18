@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
 from orcheo.models import CredentialHealthStatus
+
+
+class CredentialGovernanceAlertItem(BaseModel):
+    """Represents a governance alert emitted after credential issuance."""
+
+    severity: Literal["info", "warning", "critical"]
+    message: str
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -157,3 +164,48 @@ class CredentialHealthResponse(BaseModel):
     status: CredentialHealthStatus
     checked_at: datetime | None = None
     credentials: list[CredentialHealthItem] = Field(default_factory=list)
+
+
+class CredentialTemplateFieldResponse(BaseModel):
+    """Response model describing a credential template field."""
+
+    name: str
+    label: str
+    description: str | None = None
+    required: bool
+    secret: bool
+    pattern: str | None = None
+    example: str | None = None
+
+
+class CredentialTemplateResponse(BaseModel):
+    """Response model describing a credential template."""
+
+    provider: str
+    display_name: str
+    description: str
+    kind: str
+    scopes: list[str] = Field(default_factory=list)
+    rotate_after_days: int | None = None
+    governance_checks: list[str] = Field(default_factory=list)
+    fields: list[CredentialTemplateFieldResponse] = Field(default_factory=list)
+
+
+class CredentialTemplateListResponse(BaseModel):
+    """Response containing the available credential templates."""
+
+    templates: list[CredentialTemplateResponse] = Field(default_factory=list)
+
+
+class CredentialIssueRequest(BaseModel):
+    """Request body used to issue a credential from a template."""
+
+    actor: str = Field(default="system")
+    values: dict[str, str]
+
+
+class CredentialIssueResponse(BaseModel):
+    """Response containing the issued credential metadata and alerts."""
+
+    credential: dict[str, Any]
+    alerts: list[CredentialGovernanceAlertItem] = Field(default_factory=list)

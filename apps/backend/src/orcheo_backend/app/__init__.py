@@ -7,7 +7,7 @@ import logging
 import secrets
 import uuid
 from pathlib import Path
-from typing import Annotated, Any, NoReturn, TypeVar, cast
+from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
@@ -29,7 +29,12 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
-from orcheo.models import AesGcmCredentialCipher, CredentialHealthStatus
+from orcheo.models import (
+    AesGcmCredentialCipher,
+    CredentialGovernanceAlert,
+    CredentialHealthStatus,
+    CredentialTemplate,
+)
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
@@ -45,6 +50,7 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     OAuthCredentialService,
 )
+from orcheo.vault.templates import CredentialTemplateService
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -59,8 +65,14 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    CredentialGovernanceAlertItem,
     CredentialHealthItem,
     CredentialHealthResponse,
+    CredentialIssueRequest,
+    CredentialIssueResponse,
+    CredentialTemplateFieldResponse,
+    CredentialTemplateListResponse,
+    CredentialTemplateResponse,
     CredentialValidationRequest,
     CronDispatchRequest,
     RunActionRequest,
@@ -95,6 +107,7 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_template_service_ref: dict[str, CredentialTemplateService | None] = {"service": None}
 
 T = TypeVar("T")
 
@@ -169,6 +182,7 @@ def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
     if vault is None:
         vault = _create_vault(settings)
         _vault_ref["vault"] = vault
+        _template_service_ref["service"] = CredentialTemplateService(vault)
     token_ttl = cast(
         int,
         _settings_value(
@@ -186,9 +200,23 @@ def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
     return service
 
 
+def _ensure_template_service(settings: Dynaconf) -> CredentialTemplateService:
+    service = _template_service_ref["service"]
+    if service is not None:
+        return service
+    vault = _vault_ref["vault"]
+    if vault is None:
+        vault = _create_vault(settings)
+        _vault_ref["vault"] = vault
+    service = CredentialTemplateService(vault)
+    _template_service_ref["service"] = service
+    return service
+
+
 def _create_repository() -> WorkflowRepository:
     settings = get_settings()
     service = _ensure_credential_service(settings)
+    _ensure_template_service(settings)
     backend = cast(
         str,
         _settings_value(
@@ -241,6 +269,16 @@ def get_credential_service() -> OAuthCredentialService | None:
 
 CredentialServiceDep = Annotated[
     OAuthCredentialService | None, Depends(get_credential_service)
+]
+
+
+def get_template_service() -> CredentialTemplateService | None:
+    """Return the credential template service when configured."""
+    return _template_service_ref["service"]
+
+
+TemplateServiceDep = Annotated[
+    CredentialTemplateService | None, Depends(get_template_service)
 ]
 
 
@@ -314,6 +352,44 @@ def _health_report_to_response(
         checked_at=report.checked_at,
         credentials=credentials,
     )
+
+
+def _template_to_response(
+    template: CredentialTemplate,
+) -> CredentialTemplateResponse:
+    return CredentialTemplateResponse(
+        provider=template.provider,
+        display_name=template.display_name,
+        description=template.description,
+        kind=template.kind.value,
+        scopes=list(template.scopes),
+        rotate_after_days=template.rotate_after_days,
+        governance_checks=list(template.governance_checks),
+        fields=[
+            CredentialTemplateFieldResponse(
+                name=field.name,
+                label=field.label,
+                description=field.description,
+                required=field.required,
+                secret=field.secret,
+                pattern=field.pattern,
+                example=field.example,
+            )
+            for field in template.fields
+        ],
+    )
+
+
+def _alerts_to_response(
+    alerts: list[CredentialGovernanceAlert],
+) -> list[CredentialGovernanceAlertItem]:
+    items: list[CredentialGovernanceAlertItem] = []
+    for alert in alerts:
+        severity = cast(Literal["info", "warning", "critical"], alert.severity)
+        items.append(
+            CredentialGovernanceAlertItem(severity=severity, message=alert.message)
+        )
+    return items
 
 
 async def execute_workflow(
@@ -701,6 +777,59 @@ async def validate_workflow_credentials(
 
 
 @_http_router.get(
+    "/credentials/templates",
+    response_model=CredentialTemplateListResponse,
+)
+async def list_credential_templates(
+    service: TemplateServiceDep,
+) -> CredentialTemplateListResponse:
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential template service is not configured.",
+        )
+    templates = [_template_to_response(template) for template in service.templates]
+    return CredentialTemplateListResponse(templates=templates)
+
+
+@_http_router.post(
+    "/credentials/templates/{provider}/issue",
+    response_model=CredentialIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_credential_from_template(
+    provider: str,
+    request: CredentialIssueRequest,
+    service: TemplateServiceDep,
+) -> CredentialIssueResponse:
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential template service is not configured.",
+        )
+    try:
+        metadata, alerts = service.issue(
+            provider,
+            values=request.values,
+            actor=request.actor,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Credential template '{provider}' not found.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return CredentialIssueResponse(
+        credential=dict(metadata.redact()),
+        alerts=_alerts_to_response(alerts),
+    )
+
+
+@_http_router.get(
     "/workflows/{workflow_id}/runs",
     response_model=list[WorkflowRun],
 )
@@ -993,6 +1122,7 @@ def create_app(
     *,
     history_store: InMemoryRunHistoryStore | None = None,
     credential_service: OAuthCredentialService | None = None,
+    template_service: CredentialTemplateService | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""
     application = FastAPI()
@@ -1016,6 +1146,8 @@ def create_app(
         application.dependency_overrides[get_credential_service] = (
             lambda: credential_service
         )
+        if template_service is None and _vault_ref["vault"] is not None:
+            template_service = CredentialTemplateService(_vault_ref["vault"])
     elif repository is not None:
         inferred_service = getattr(repository, "_credential_service", None)
         if inferred_service is not None:
@@ -1023,6 +1155,14 @@ def create_app(
             application.dependency_overrides[get_credential_service] = (
                 lambda: inferred_service
             )
+            vault = getattr(inferred_service, "_vault", None)
+            if vault is not None and template_service is None:
+                template_service = CredentialTemplateService(vault)
+    if template_service is not None:
+        _template_service_ref["service"] = template_service
+        application.dependency_overrides[get_template_service] = (
+            lambda: template_service
+        )
 
     application.include_router(_http_router)
     application.include_router(_ws_router)

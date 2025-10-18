@@ -1,5 +1,13 @@
 """Domain models representing workflows and credentials."""
 
+from orcheo.models.credential_template import (
+    CredentialGovernanceAlert,
+    CredentialTemplate,
+    CredentialTemplateCatalog,
+    CredentialTemplateField,
+    build_default_template_catalog,
+    default_secret_factory,
+)
 from orcheo.models.workflow import (
     AesGcmCredentialCipher,
     AuditRecord,
@@ -21,6 +29,12 @@ from orcheo.models.workflow import (
 
 
 __all__ = [
+    "CredentialGovernanceAlert",
+    "CredentialTemplate",
+    "CredentialTemplateCatalog",
+    "CredentialTemplateField",
+    "build_default_template_catalog",
+    "default_secret_factory",
     "AuditRecord",
     "AesGcmCredentialCipher",
     "CredentialAccessContext",

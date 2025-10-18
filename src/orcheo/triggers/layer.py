@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
+from orcheo.observability.runtime import get_metrics_recorder
 from orcheo.triggers.cron import CronTriggerConfig, CronTriggerState
 from orcheo.triggers.manual import ManualDispatchRequest, ManualDispatchRun
 from orcheo.triggers.retry import (
@@ -90,10 +91,14 @@ class TriggerLayer:
         if self._health_guard is None:
             return
         if self._health_guard.is_workflow_healthy(workflow_id):
+            get_metrics_recorder().record(str(workflow_id), "trigger.blocked_runs", 0.0)
             return
         report = self._health_guard.get_report(workflow_id)
         if report is None:
+            recorder = get_metrics_recorder()
+            recorder.record(str(workflow_id), "trigger.health_unknown", 1.0)
             return
+        get_metrics_recorder().record(str(workflow_id), "trigger.blocked_runs", 1.0)
         raise CredentialHealthError(report)
 
     # ------------------------------------------------------------------

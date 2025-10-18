@@ -1,6 +1,7 @@
 """OAuth credential refresh and health validation service."""
 
 from __future__ import annotations
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,6 +14,7 @@ from orcheo.models import (
     CredentialMetadata,
     OAuthTokenSecrets,
 )
+from orcheo.observability.runtime import get_metrics_recorder
 from orcheo.vault import BaseCredentialVault
 
 
@@ -142,6 +144,7 @@ class OAuthCredentialService(CredentialHealthGuard):
         self, workflow_id: UUID, *, actor: str | None = None
     ) -> CredentialHealthReport:
         """Evaluate and refresh credentials prior to workflow execution."""
+        start = time.perf_counter()
         context = CredentialAccessContext(workflow_id=workflow_id)
         credentials = self._vault.list_credentials(context=context)
         actor_name = actor or self._default_actor
@@ -257,6 +260,11 @@ class OAuthCredentialService(CredentialHealthGuard):
             checked_at=datetime.now(tz=UTC),
         )
         self._reports[workflow_id] = report
+        duration = time.perf_counter() - start
+        recorder = get_metrics_recorder()
+        recorder.record(str(workflow_id), "credential.health_latency", duration)
+        failure_count = float(len(report.failures))
+        recorder.record(str(workflow_id), "credential.health_failures", failure_count)
         return report
 
     def require_healthy(self, workflow_id: UUID) -> None:
