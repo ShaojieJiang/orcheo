@@ -1,22 +1,19 @@
 """Tests covering credential vault implementations."""
 
 from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
-
 import pytest
-
 from orcheo.models import (
     AesGcmCredentialCipher,
     CredentialAccessContext,
-    CredentialIssuancePolicy,
     CredentialHealthStatus,
+    CredentialIssuancePolicy,
     CredentialKind,
     CredentialScope,
     GovernanceAlertKind,
-    SecretGovernanceAlertSeverity,
     OAuthTokenSecrets,
+    SecretGovernanceAlertSeverity,
 )
 from orcheo.vault import (
     CredentialNotFoundError,
@@ -32,10 +29,11 @@ from orcheo.vault import (
 def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
     cipher = AesGcmCredentialCipher(key="unit-test-key")
     vault = InMemoryCredentialVault(cipher=cipher)
-    workflow_a = uuid4()
-    workflow_b = uuid4()
-    context_a = CredentialAccessContext(workflow_id=workflow_a)
-    context_b = CredentialAccessContext(workflow_id=workflow_b)
+    workflow_a, workflow_b = uuid4(), uuid4()
+    context_a, context_b = (
+        CredentialAccessContext(workflow_id=workflow_a),
+        CredentialAccessContext(workflow_id=workflow_b),
+    )
 
     metadata = vault.create_credential(
         name="OpenAI",
@@ -57,10 +55,12 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
         == "initial-token"
     )
 
-    listed_a = vault.list_credentials(context=context_a)
-    listed_b = vault.list_credentials(context=context_b)
-    assert [item.id for item in listed_a] == [metadata.id]
-    assert [item.id for item in listed_b] == [metadata.id]
+    assert [item.id for item in vault.list_credentials(context=context_a)] == [
+        metadata.id
+    ]
+    assert [item.id for item in vault.list_credentials(context=context_b)] == [
+        metadata.id
+    ]
 
     masked = vault.describe_credentials(context=context_a)
     assert masked[0]["encryption"]["algorithm"] == cipher.algorithm
@@ -94,9 +94,9 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
         == "rotated-token"
     )
 
-    shared = vault.describe_credentials(context=context_b)
-    assert shared[0]["scope"]["workflow_ids"] == []
-    assert shared[0]["health"]["status"] == CredentialHealthStatus.UNKNOWN.value
+    shared_entry = vault.describe_credentials(context=context_b)[0]
+    assert shared_entry["scope"]["workflow_ids"] == []
+    assert shared_entry["health"]["status"] == CredentialHealthStatus.UNKNOWN.value
 
     restricted_scope = CredentialScope.for_workflows(workflow_a)
     restricted = vault.create_credential(
@@ -134,8 +134,10 @@ def test_inmemory_vault_supports_shared_and_restricted_credentials() -> None:
         scope=role_scope,
     )
 
-    admin_context = CredentialAccessContext(roles=["Admin", "operator"])
-    viewer_context = CredentialAccessContext(roles=["viewer"])
+    admin_context, viewer_context = (
+        CredentialAccessContext(roles=["Admin", "operator"]),
+        CredentialAccessContext(roles=["viewer"]),
+    )
 
     assert (
         vault.reveal_secret(credential_id=role_metadata.id, context=admin_context)
@@ -561,7 +563,7 @@ def test_list_alerts_filters_by_context_and_acknowledgement() -> None:
         template_id=template.id,
         context=CredentialAccessContext(workflow_id=workflow_id),
     )
-    global_alert = vault.record_alert(
+    _global_alert = vault.record_alert(
         kind=GovernanceAlertKind.VALIDATION_FAILED,
         severity=SecretGovernanceAlertSeverity.CRITICAL,
         message="global",

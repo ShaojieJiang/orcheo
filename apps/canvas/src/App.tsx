@@ -27,7 +27,10 @@ type GovernanceAlert = {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiRequest<T>(
+  path: string,
+  init?: globalThis.RequestInit,
+): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,

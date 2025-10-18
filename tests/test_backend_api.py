@@ -1,12 +1,11 @@
 """End-to-end API tests for the Orcheo FastAPI backend."""
 
 from __future__ import annotations
+import importlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-import importlib
 from typing import Any
 from uuid import UUID, uuid4
-
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -17,8 +16,8 @@ from orcheo.models import (
     CredentialKind,
     CredentialScope,
     GovernanceAlertKind,
-    SecretGovernanceAlertSeverity,
     OAuthTokenSecrets,
+    SecretGovernanceAlertSeverity,
 )
 from orcheo.vault import (
     CredentialTemplateNotFoundError,
@@ -30,8 +29,6 @@ from orcheo.vault.oauth import (
     OAuthProvider,
     OAuthValidationResult,
 )
-
-backend_app = importlib.import_module("orcheo_backend.app")
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.schemas import (
@@ -39,6 +36,9 @@ from orcheo_backend.app.schemas import (
     CredentialScopePayload,
     OAuthTokenRequest,
 )
+
+
+backend_app = importlib.import_module("orcheo_backend.app")
 
 
 class StaticProvider(OAuthProvider):
