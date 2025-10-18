@@ -6,7 +6,7 @@ import json
 import os
 import re
 from base64 import b64decode, b64encode, urlsafe_b64encode
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol
@@ -328,20 +328,14 @@ class CredentialAccessContext(OrcheoBaseModel):
 class CredentialScope(OrcheoBaseModel):
     """Scope configuration declaring which callers may access a credential."""
 
-    workflow_ids: list[UUID] = Field(default_factory=list)
-    workspace_ids: list[UUID] = Field(default_factory=list)
+    workflow_ids: set[UUID] = Field(default_factory=set)
+    workspace_ids: set[UUID] = Field(default_factory=set)
     roles: list[str] = Field(default_factory=list)
 
     @field_validator("workflow_ids", "workspace_ids", mode="after")
     @classmethod
-    def _dedupe_uuid_list(cls, value: list[UUID]) -> list[UUID]:
-        seen: set[UUID] = set()
-        deduped: list[UUID] = []
-        for item in value:
-            if item not in seen:
-                seen.add(item)
-                deduped.append(item)
-        return deduped
+    def _dedupe_uuid_list(cls, value: Iterable[UUID]) -> set[UUID]:
+        return {UUID(str(item)) for item in value}
 
     @field_validator("roles", mode="after")
     @classmethod
@@ -363,12 +357,12 @@ class CredentialScope(OrcheoBaseModel):
     @classmethod
     def for_workflows(cls, *workflow_ids: UUID) -> CredentialScope:
         """Create a scope limited to the provided workflow identifiers."""
-        return cls(workflow_ids=list(workflow_ids))
+        return cls(workflow_ids=set(workflow_ids))
 
     @classmethod
     def for_workspaces(cls, *workspace_ids: UUID) -> CredentialScope:
         """Create a scope limited to the provided workspace identifiers."""
-        return cls(workspace_ids=list(workspace_ids))
+        return cls(workspace_ids=set(workspace_ids))
 
     @classmethod
     def for_roles(cls, *roles: str) -> CredentialScope:
@@ -404,12 +398,19 @@ class CredentialScope(OrcheoBaseModel):
     def scope_hint(self) -> str:
         """Return a stable string hint representing the most specific scope."""
         if self.workflow_ids:
-            return str(self.workflow_ids[0])
+            return str(next(iter(self.workflow_ids)))
         if self.workspace_ids:
-            return str(self.workspace_ids[0])
+            return str(next(iter(self.workspace_ids)))
         if self.roles:
             return self.roles[0]
         return "GLOBAL"
+
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Return a serialization-friendly representation of the scope."""
+        data = super().model_dump(*args, **kwargs)
+        data["workflow_ids"] = list(self.workflow_ids)
+        data["workspace_ids"] = list(self.workspace_ids)
+        return data
 
 
 class CredentialKind(str, Enum):

@@ -4,8 +4,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import secrets
 import uuid
+from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
@@ -29,7 +32,12 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
-from orcheo.models import AesGcmCredentialCipher, CredentialHealthStatus
+from orcheo.models import (
+    AesGcmCredentialCipher,
+    CredentialAccessContext,
+    CredentialHealthStatus,
+    CredentialScope,
+)
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
 from orcheo.triggers.cron import CronTriggerConfig
@@ -45,6 +53,15 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     OAuthCredentialService,
 )
+from orcheo.vault.templates import (
+    CredentialIssuanceError,
+    CredentialTemplate,
+    CredentialTemplateRegistry,
+    CredentialTemplateService,
+    SecretGovernanceAlert,
+    TemplateField,
+    TemplateValidationError,
+)
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -59,8 +76,15 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
+    ChatRequest,
+    ChatResponse,
     CredentialHealthItem,
     CredentialHealthResponse,
+    CredentialIssueResponse,
+    CredentialTemplateCreateRequest,
+    CredentialTemplateFieldSchema,
+    CredentialTemplateIssueRequest,
+    CredentialTemplateResponse,
     CredentialValidationRequest,
     CronDispatchRequest,
     RunActionRequest,
@@ -70,6 +94,7 @@ from orcheo_backend.app.schemas import (
     RunHistoryStepResponse,
     RunReplayRequest,
     RunSucceedRequest,
+    SecretGovernanceAlertResponse,
     WorkflowCreateRequest,
     WorkflowRunCreateRequest,
     WorkflowUpdateRequest,
@@ -95,6 +120,10 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_template_registry_ref: dict[str, CredentialTemplateRegistry | None] = {
+    "registry": None
+}
+_template_service_ref: dict[str, CredentialTemplateService | None] = {"service": None}
 
 T = TypeVar("T")
 
@@ -184,6 +213,88 @@ def _ensure_credential_service(settings: Dynaconf) -> OAuthCredentialService:
     )
     _credential_service_ref["service"] = service
     return service
+
+
+def _ensure_template_registry() -> CredentialTemplateRegistry:
+    registry = _template_registry_ref["registry"]
+    if registry is not None:
+        return registry
+    registry = CredentialTemplateRegistry()
+    _bootstrap_default_templates(registry)
+    _template_registry_ref["registry"] = registry
+    return registry
+
+
+def _ensure_template_service(settings: Dynaconf) -> CredentialTemplateService:
+    service = _template_service_ref["service"]
+    if service is not None:
+        return service
+    vault = _vault_ref["vault"]
+    if vault is None:
+        vault = _create_vault(settings)
+        _vault_ref["vault"] = vault
+    registry = _ensure_template_registry()
+    service = CredentialTemplateService(vault, registry)
+    _template_service_ref["service"] = service
+    return service
+
+
+def _bootstrap_default_templates(registry: CredentialTemplateRegistry) -> None:
+    if registry.list():
+        return
+
+    def _regex_validator(pattern: str) -> Callable[[str], None]:
+        compiled = re.compile(pattern)
+
+        def _validate(value: str) -> None:
+            if not compiled.fullmatch(value):
+                msg = f"Value does not match required pattern '{compiled.pattern}'"
+                raise TemplateValidationError(msg)
+
+        return _validate
+
+    registry.register(
+        name="OpenAI API Key",
+        provider="openai",
+        description="API key for OpenAI compatible chat models.",
+        scopes=["chat", "embeddings"],
+        fields=[
+            TemplateField(
+                name="api_key",
+                description="OpenAI secret key",
+                validator=_regex_validator(r"sk-[A-Za-z0-9]{20,}"),
+                pattern=r"sk-[A-Za-z0-9]{20,}",
+            )
+        ],
+    )
+    registry.register(
+        name="Slack Bot Token",
+        provider="slack",
+        description="Bot token for Slack automations.",
+        scopes=["chat:write", "channels:read"],
+        fields=[
+            TemplateField(
+                name="bot_token",
+                description="xoxb style bot token",
+                validator=_regex_validator(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+                pattern=r"xox[baprs]-[A-Za-z0-9-]{10,}",
+            )
+        ],
+    )
+    registry.register(
+        name="PostgreSQL Connection",
+        provider="postgres",
+        description="Connection string for PostgreSQL databases.",
+        scopes=["database"],
+        fields=[
+            TemplateField(
+                name="dsn",
+                description="Database connection string",
+                validator=_regex_validator(r"postgres(ql)?://.+"),
+                pattern=r"postgres(ql)?://.+",
+            )
+        ],
+    )
 
 
 def _create_repository() -> WorkflowRepository:
@@ -313,6 +424,67 @@ def _health_report_to_response(
         status=overall_status,
         checked_at=report.checked_at,
         credentials=credentials,
+    )
+
+
+def _field_to_schema(field: TemplateField) -> CredentialTemplateFieldSchema:
+    return CredentialTemplateFieldSchema(
+        name=field.name,
+        description=field.description,
+        secret=field.secret,
+        optional=field.optional,
+        pattern=field.pattern,
+    )
+
+
+def _schema_to_field(schema: CredentialTemplateFieldSchema) -> TemplateField:
+    validator: Callable[[str], None] | None = None
+    if schema.pattern:
+        compiled = re.compile(schema.pattern)
+
+        def _validate(value: str) -> None:
+            if not compiled.fullmatch(value):
+                msg = (
+                    f"Field '{schema.name}' does not match required pattern"
+                    f" '{compiled.pattern}'"
+                )
+                raise TemplateValidationError(msg)
+
+        validator = _validate
+    return TemplateField(
+        name=schema.name,
+        description=schema.description,
+        secret=schema.secret,
+        optional=schema.optional,
+        validator=validator,
+        pattern=schema.pattern,
+    )
+
+
+def _template_to_response(template: CredentialTemplate) -> CredentialTemplateResponse:
+    ttl = (
+        int(template.governance_ttl.total_seconds())
+        if template.governance_ttl is not None
+        else None
+    )
+    return CredentialTemplateResponse(
+        id=template.id,
+        name=template.name,
+        provider=template.provider,
+        description=template.description,
+        scopes=list(template.scopes),
+        governance_ttl_seconds=ttl,
+        fields=[_field_to_schema(field) for field in template.fields],
+    )
+
+
+def _alert_to_response(alert: SecretGovernanceAlert) -> SecretGovernanceAlertResponse:
+    return SecretGovernanceAlertResponse(
+        credential_id=alert.credential_id,
+        message=alert.message,
+        category=alert.category,
+        severity=alert.severity,
+        created_at=alert.created_at,
     )
 
 
@@ -698,6 +870,128 @@ async def validate_workflow_credentials(
             },
         )
     return _health_report_to_response(report)
+
+
+@_http_router.get(
+    "/credentials/templates",
+    response_model=list[CredentialTemplateResponse],
+)
+async def list_credential_templates() -> list[CredentialTemplateResponse]:
+    """Return available credential templates."""
+    registry = _ensure_template_registry()
+    return [_template_to_response(template) for template in registry.list()]
+
+
+@_http_router.post(
+    "/credentials/templates",
+    response_model=CredentialTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_credential_template(
+    request: CredentialTemplateCreateRequest,
+) -> CredentialTemplateResponse:
+    """Register a new credential template."""
+    registry = _ensure_template_registry()
+    try:
+        template = registry.register(
+            name=request.name,
+            provider=request.provider,
+            description=request.description,
+            scopes=request.scopes,
+            fields=[_schema_to_field(field) for field in request.fields],
+            governance_ttl=(
+                timedelta(seconds=request.governance_ttl_seconds)
+                if request.governance_ttl_seconds is not None
+                else None
+            ),
+        )
+    except TemplateValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return _template_to_response(template)
+
+
+@_http_router.post(
+    "/credentials/templates/{template_id}/issue",
+    response_model=CredentialIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_credential_from_template(
+    template_id: UUID,
+    request: CredentialTemplateIssueRequest,
+) -> CredentialIssueResponse:
+    """Issue a credential from a template definition."""
+    settings = get_settings()
+    service = _ensure_template_service(settings)
+    context = CredentialAccessContext(
+        workflow_id=request.workflow_id,
+        workspace_id=request.workspace_id,
+        roles=request.roles,
+    )
+    scope = None
+    if request.workflow_id or request.workspace_id or request.roles:
+        scope = CredentialScope(
+            workflow_ids=(
+                {request.workflow_id} if request.workflow_id is not None else set()
+            ),
+            workspace_ids=(
+                {request.workspace_id} if request.workspace_id is not None else set()
+            ),
+            roles=request.roles,
+        )
+    try:
+        metadata, alerts = service.issue(
+            template_id=template_id,
+            payload=request.payload,
+            actor=request.actor,
+            context=context,
+            scope=scope,
+        )
+    except CredentialIssuanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except TemplateValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    redacted_metadata = dict(metadata.redact())
+    return CredentialIssueResponse(
+        credential=redacted_metadata,
+        alerts=[_alert_to_response(alert) for alert in alerts],
+    )
+
+
+@_http_router.post("/chat", response_model=ChatResponse)
+async def chat_with_assistant(request: ChatRequest) -> ChatResponse:
+    """Provide a lightweight chat endpoint for the canvas assistant."""
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message cannot be empty.",
+        )
+    lowered = message.lower()
+    if "status" in lowered:
+        reply = (
+            "Workflow status is healthy. "
+            "Credential health checks and triggers are passing."
+        )
+    elif "credential" in lowered:
+        reply = (
+            "Use the canvas credential manager to issue secrets "
+            "from registered templates."
+        )
+    else:
+        reply = (
+            "Assistant received your message and will apply it "
+            "to the current workflow context."
+        )
+    return ChatResponse(reply=reply)
 
 
 @_http_router.get(
