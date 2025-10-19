@@ -709,7 +709,7 @@ export default function WorkflowCanvas() {
 
     toast({
       title: `Message sent to ${activeNode?.data?.label ?? "workflow"}`,
-      description: `\"${message}\"${attachmentSummary}`,
+      description: `"${message}"${attachmentSummary}`,
     });
 
     // Here you would typically process the message and trigger the workflow

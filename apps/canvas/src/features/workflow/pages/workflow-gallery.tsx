@@ -131,7 +131,7 @@ export default function WorkflowGallery() {
     toast({
       title: "Folder creation coming soon",
       description: newFolderName
-        ? `We'll create \"${newFolderName}\" once persistence is wired up.`
+        ? `We'll create "${newFolderName}" once persistence is wired up.`
         : "Folder creation will be available in a future update.",
     });
     setNewFolderName("");
@@ -144,7 +144,7 @@ export default function WorkflowGallery() {
     toast({
       title: "Workflow creation coming soon",
       description: newWorkflowName
-        ? `We'll create \"${newWorkflowName}\" once persistence is wired up.`
+        ? `We'll create "${newWorkflowName}" once persistence is wired up.`
         : "Workflow creation will be available in a future update.",
     });
     setNewWorkflowName("");
@@ -156,7 +156,8 @@ export default function WorkflowGallery() {
   const handleApplyFilters = () => {
     toast({
       title: "Filters applied",
-      description: "Filter changes will affect the gallery once data wiring is complete.",
+      description:
+        "Filter changes will affect the gallery once data wiring is complete.",
     });
     setShowFilterPopover(false);
     // In a real app, this would update the filtered workflows
