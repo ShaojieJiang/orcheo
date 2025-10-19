@@ -33,6 +33,7 @@ import WorkflowExecutionHistory, {
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import { toast } from "@/hooks/use-toast";
 
 // Define custom node types
 const nodeTypes = {
@@ -690,12 +691,46 @@ export default function WorkflowCanvas() {
     message: string,
     attachments: Attachment[],
   ) => {
-    console.log(`Message sent from node ${activeChatNodeId}:`, message);
-    console.log("Attachments:", attachments);
+    if (!activeChatNodeId) {
+      toast({
+        title: "Select a chat-enabled node",
+        description: "Open a node chat to send messages.",
+      });
+      return;
+    }
+
+    const activeNode = nodes.find((node) => node.id === activeChatNodeId);
+    const attachmentSummary =
+      attachments.length === 0
+        ? ""
+        : attachments.length === 1
+          ? " with 1 attachment"
+          : ` with ${attachments.length} attachments`;
+
+    toast({
+      title: `Message sent to ${activeNode?.data?.label ?? "workflow"}`,
+      description: `\"${message}\"${attachmentSummary}`,
+    });
 
     // Here you would typically process the message and trigger the workflow
     // For now, we'll just update the node status to simulate activity
-    if (activeChatNodeId) {
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id === activeChatNodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              status: "running" as NodeStatus,
+            },
+          };
+        }
+        return n;
+      }),
+    );
+
+    // Simulate workflow execution
+    setTimeout(() => {
       setNodes((nds) =>
         nds.map((n) => {
           if (n.id === activeChatNodeId) {
@@ -703,32 +738,14 @@ export default function WorkflowCanvas() {
               ...n,
               data: {
                 ...n.data,
-                status: "running" as NodeStatus,
+                status: "success" as NodeStatus,
               },
             };
           }
           return n;
         }),
       );
-
-      // Simulate workflow execution
-      setTimeout(() => {
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.id === activeChatNodeId) {
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  status: "success" as NodeStatus,
-                },
-              };
-            }
-            return n;
-          }),
-        );
-      }, 2000);
-    }
+    }, 2000);
   };
 
   // Handle workflow execution
@@ -1074,12 +1091,24 @@ export default function WorkflowCanvas() {
                 })),
               }))}
               onViewDetails={handleViewExecutionDetails}
-              onRefresh={() => console.log("Refreshing executions")}
+              onRefresh={() =>
+                toast({
+                  title: "Execution history refresh",
+                  description:
+                    "Live execution syncing will be added once the backend is connected.",
+                })
+              }
               onCopyToEditor={(execution) =>
-                console.log("Copying to editor:", execution.runId)
+                toast({
+                  title: "Copied execution context",
+                  description: `Run ${execution.runId} will be available in the editor soon.`,
+                })
               }
               onDelete={(execution) =>
-                console.log("Deleting execution:", execution.runId)
+                toast({
+                  title: "Execution deletion coming soon",
+                  description: `Run ${execution.runId} can be removed once persistence is implemented.`,
+                })
               }
             />
           </TabsContent>

@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -178,7 +179,13 @@ export default function CommandPalette({
 
   const handleSelect = (item: CommandItem) => {
     // Handle selection based on item type
-    console.log("Selected:", item);
+    toast({
+      title: item.name,
+      description:
+        item.type === "workflow"
+          ? "Opening workflow in the canvas."
+          : "This action will be wired up in a future iteration.",
+    });
     onOpenChange(false);
 
     // In a real implementation, you would navigate or perform the action

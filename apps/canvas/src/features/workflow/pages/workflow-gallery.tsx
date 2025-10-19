@@ -68,6 +68,7 @@ import { Label } from "@/design-system/ui/label";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import { toast } from "@/hooks/use-toast";
 
 export default function WorkflowGallery() {
   const navigate = useNavigate();
@@ -127,7 +128,12 @@ export default function WorkflowGallery() {
 
   const handleCreateFolder = () => {
     // In a real app, this would create a folder in the backend
-    console.log("Creating folder:", newFolderName);
+    toast({
+      title: "Folder creation coming soon",
+      description: newFolderName
+        ? `We'll create \"${newFolderName}\" once persistence is wired up.`
+        : "Folder creation will be available in a future update.",
+    });
     setNewFolderName("");
     setShowNewFolderDialog(false);
     // You could add the new folder to state here
@@ -135,7 +141,12 @@ export default function WorkflowGallery() {
 
   const handleCreateWorkflow = () => {
     // In a real app, this would create a workflow in the backend
-    console.log("Creating workflow:", newWorkflowName);
+    toast({
+      title: "Workflow creation coming soon",
+      description: newWorkflowName
+        ? `We'll create \"${newWorkflowName}\" once persistence is wired up.`
+        : "Workflow creation will be available in a future update.",
+    });
     setNewWorkflowName("");
     setShowNewWorkflowDialog(false);
     // Navigate to the workflow canvas with the new workflow
@@ -143,7 +154,10 @@ export default function WorkflowGallery() {
   };
 
   const handleApplyFilters = () => {
-    console.log("Applying filters:", filters);
+    toast({
+      title: "Filters applied",
+      description: "Filter changes will affect the gallery once data wiring is complete.",
+    });
     setShowFilterPopover(false);
     // In a real app, this would update the filtered workflows
   };

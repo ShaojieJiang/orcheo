@@ -12,6 +12,7 @@ import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Separator } from "@/design-system/ui/separator";
 import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
+import { toast } from "@/hooks/use-toast";
 
 interface AuthPageProps {
   type?: "login" | "signup";
@@ -23,7 +24,12 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Form submitted", { email, password });
+    toast({
+      title: "Authentication coming soon",
+      description:
+        "The canvas prototype does not include authentication yet. Your credentials were not sent anywhere.",
+    });
+
     // In a real app, this would handle authentication
   };
 
