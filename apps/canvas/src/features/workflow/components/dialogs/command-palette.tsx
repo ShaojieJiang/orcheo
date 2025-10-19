@@ -233,7 +233,7 @@ export default function CommandPalette({
                   {getTypeLabel(type)}
                 </div>
                 <div className="space-y-1">
-                  {items.map((item, index) => {
+                  {items.map((item) => {
                     const itemIndex = filteredItems.findIndex(
                       (i) => i.id === item.id,
                     );

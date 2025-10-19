@@ -30,8 +30,8 @@ interface ExecutionState {
   nodeId: string;
   nodeName: string;
   state: "running" | "success" | "error" | "idle";
-  inputData?: any;
-  outputData?: any;
+  inputData?: Record<string, unknown>;
+  outputData?: Record<string, unknown>;
   error?: string;
 }
 

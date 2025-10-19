@@ -15,6 +15,10 @@ export default function OrcheoCanvasApp() {
         <Route path="/" element={<WorkflowGallery />} />
 
         <Route path="/workflow-canvas" element={<WorkflowCanvas />} />
+        <Route
+          path="/workflow-canvas/:workflowId"
+          element={<WorkflowCanvas />}
+        />
 
         <Route
           path="/workflow-execution-details/:executionId"

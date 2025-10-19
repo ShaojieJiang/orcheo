@@ -7,7 +7,7 @@ export interface WorkflowNode {
     description?: string;
     status?: "idle" | "running" | "success" | "error";
     isDisabled?: boolean;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -20,7 +20,7 @@ export interface WorkflowEdge {
   label?: string;
   type?: string;
   animated?: boolean;
-  style?: Record<string, any>;
+  style?: Record<string, unknown>;
 }
 
 export interface Workflow {

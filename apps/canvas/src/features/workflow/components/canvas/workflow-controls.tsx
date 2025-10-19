@@ -25,7 +25,6 @@ import {
   History,
   Bug,
   MoreHorizontal,
-  FileDown,
   Share,
   GitBranch,
 } from "lucide-react";

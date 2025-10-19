@@ -18,10 +18,6 @@ interface Breakpoint {
 
 interface BreakpointsLayerProps {
   breakpoints?: Breakpoint[];
-  onAddBreakpoint?: (
-    nodeId: string,
-    position: { x: number; y: number },
-  ) => void;
   onToggleBreakpoint?: (id: string) => void;
   onRemoveBreakpoint?: (id: string) => void;
   debugMode?: boolean;
@@ -30,7 +26,6 @@ interface BreakpointsLayerProps {
 
 export default function BreakpointsLayer({
   breakpoints = [],
-  onAddBreakpoint,
   onToggleBreakpoint,
   onRemoveBreakpoint,
   debugMode = false,

@@ -37,7 +37,6 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import {
   Search,
-  Plus,
   MoreHorizontal,
   Mail,
   UserPlus,

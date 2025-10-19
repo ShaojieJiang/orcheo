@@ -11,11 +11,7 @@ import {
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Separator } from "@/design-system/ui/separator";
-import {
-  GoogleLogo,
-  AppleLogo,
-  GithubLogo,
-} from "@features/auth/components/auth-logos";
+import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
 
 interface AuthPageProps {
   type?: "login" | "signup";

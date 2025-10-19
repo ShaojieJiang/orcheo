@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Maximize, Minimize } from "lucide-react";
 
 interface MiniMapProps {
-  flowInstance?: any; // ReactFlow instance
+  flowInstance?: Record<string, unknown>;
   expanded?: boolean;
   onToggleExpand?: () => void;
   className?: string;

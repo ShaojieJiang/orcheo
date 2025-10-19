@@ -1,39 +1,23 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import type { Connection, Edge, Node, ReactFlowInstance } from "@xyflow/react";
 import {
   ReactFlow,
   Background,
   Controls,
-  Edge,
-  Node,
-  NodeChange,
-  Connection,
-  OnConnect,
-  OnEdgesChange,
-  OnNodesChange,
   Panel,
   addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
-  getIncomers,
-  getOutgoers,
-  getConnectedEdges,
-  useReactFlow,
   useNodesState,
   useEdgesState,
   MarkerType,
   ConnectionLineType,
   MiniMap,
-  NodeProps,
-  NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
-import { Badge } from "@/design-system/ui/badge";
 import { Separator } from "@/design-system/ui/separator";
-import { Search, Plus, MessageSquare, Clock, AlertCircle } from "lucide-react";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
@@ -42,10 +26,13 @@ import WorkflowControls from "@features/workflow/components/canvas/workflow-cont
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
-import WorkflowExecutionHistory from "@features/workflow/components/panels/workflow-execution-history";
+import type { Attachment } from "@features/shared/components/chat-input";
+import WorkflowExecutionHistory, {
+  type WorkflowExecution as HistoryWorkflowExecution,
+} from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
+import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 
 // Define custom node types
 const nodeTypes = {
@@ -76,7 +63,7 @@ interface NodeData {
 }
 
 type WorkflowNode = Node<NodeData>;
-type WorkflowEdge = Edge<any>;
+type WorkflowEdge = Edge<Record<string, unknown>>;
 
 // Update the WorkflowExecution interface to match the component's expectations
 type WorkflowExecutionStatus = "running" | "success" | "failed" | "partial";
@@ -88,7 +75,7 @@ interface WorkflowExecutionNode {
   name: string;
   position: { x: number; y: number };
   status: NodeStatus;
-  details?: any;
+  details?: Record<string, unknown>;
 }
 
 interface WorkflowExecution {
@@ -108,78 +95,26 @@ interface WorkflowExecution {
   }[];
 }
 
-interface NodeInspectorProps {
-  node: Node<NodeData>;
-  onClose: () => void;
-  onSave: (nodeId: string, data: Partial<NodeData>) => void;
-  className?: string;
+interface SidebarNodeDefinition {
+  id?: string;
+  type?: string;
+  name?: string;
+  description?: string;
+  icon?: React.ReactNode;
+  data?: Record<string, unknown>;
 }
-
-interface ChatMessageProps {
-  id: string;
-  content: string;
-  sender: {
-    id: string;
-    name: string;
-    avatar: string;
-    isAI?: boolean;
-  };
-  timestamp: Date;
-}
-
-interface WorkflowControlsProps {
-  isRunning: boolean;
-  onRun: () => void;
-  onPause: () => void;
-  onSave: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomToFit: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
-}
-
-interface ChatInterfaceProps {
-  title: string;
-  user: {
-    id: string;
-    name: string;
-    avatar: string;
-  };
-  ai: {
-    id: string;
-    name: string;
-    avatar: string;
-  };
-  isClosable: boolean;
-  onSendMessage: (message: string, attachments: any[]) => void;
-  position: "bottom-right";
-  initialMessages: Array<{
-    id: string;
-    content: string;
-    role: "user" | "assistant";
-    timestamp: string;
-  }>;
-}
-
-// Import WorkflowExecution type from the history component
-import type { WorkflowExecution as HistoryWorkflowExecution } from "@features/workflow/components/panels/workflow-execution-history";
 
 export default function WorkflowCanvas() {
-  const navigate = useNavigate();
+  const { workflowId } = useParams<{ workflowId?: string }>();
 
   // Initialize with empty arrays instead of sample workflow
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>([]);
+  const [workflowName, setWorkflowName] = useState("New Workflow");
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [selectedExecution, setSelectedExecution] =
-    useState<WorkflowExecution | null>(null);
-  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
@@ -192,7 +127,10 @@ export default function WorkflowCanvas() {
 
   // Refs
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const reactFlowInstance = useRef<any>(null);
+  const reactFlowInstance = useRef<ReactFlowInstance<
+    WorkflowNode,
+    WorkflowEdge
+  > | null>(null);
 
   // Sample executions for the WorkflowExecutionHistory component
   const mockExecutions: WorkflowExecution[] = [
@@ -578,10 +516,9 @@ export default function WorkflowCanvas() {
   );
 
   // Handle node selection
-  const onNodeClick = useCallback((_: React.MouseEvent, node: WorkflowNode) => {
-    // Only handle single clicks here, but don't set selected node
-    if (_.detail === 1) {
-      // Do nothing for single clicks
+  const onNodeClick = useCallback((event: React.MouseEvent) => {
+    if (event.detail === 1) {
+      // No-op for single clicks; double clicks handled separately
     }
   }, []);
 
@@ -591,6 +528,19 @@ export default function WorkflowCanvas() {
       setSelectedNode(node);
     },
     [],
+  );
+
+  // Handle opening chat for a specific node
+  const handleOpenChat = useCallback(
+    (nodeId: string) => {
+      const chatNode = nodes.find((node) => node.id === nodeId);
+      if (chatNode) {
+        setChatTitle(chatNode.data.label || "Chat");
+        setActiveChatNodeId(nodeId);
+        setIsChatOpen(true);
+      }
+    },
+    [nodes],
   );
 
   // Handle drag over for dropping new nodes
@@ -612,7 +562,7 @@ export default function WorkflowCanvas() {
       if (!nodeData) return;
 
       try {
-        const node = JSON.parse(nodeData);
+        const node = JSON.parse(nodeData) as SidebarNodeDefinition;
 
         // Get the position where the node was dropped
         const position = reactFlowInstance.current.project({
@@ -663,12 +613,12 @@ export default function WorkflowCanvas() {
         console.error("Error adding new node:", error);
       }
     },
-    [setNodes],
+    [handleOpenChat, setNodes],
   );
 
   // Handle adding a node by clicking
   const handleAddNode = useCallback(
-    (node: any) => {
+    (node: SidebarNodeDefinition) => {
       if (!reactFlowInstance.current) return;
 
       // Determine node type
@@ -710,25 +660,18 @@ export default function WorkflowCanvas() {
         draggable: true,
       };
 
-      // Add the new node to the canvas with type assertion
-      setNodes((nds) => [...nds, newNode] as Node<NodeData>[]);
+      // Add the new node to the canvas
+      setNodes((nds) => [...nds, newNode]);
       setCanUndo(true);
     },
-    [setNodes],
+    [handleOpenChat, setNodes],
   );
 
-  // Handle opening chat for a specific node
-  const handleOpenChat = (nodeId: string) => {
-    const chatNode = nodes.find((node) => node.id === nodeId) as Node<NodeData>;
-    if (chatNode) {
-      setChatTitle(chatNode.data.label || "Chat");
-      setActiveChatNodeId(nodeId);
-      setIsChatOpen(true);
-    }
-  };
-
   // Handle chat message sending
-  const handleSendChatMessage = (message: string, attachments: any[]) => {
+  const handleSendChatMessage = (
+    message: string,
+    attachments: Attachment[],
+  ) => {
     console.log(`Message sent from node ${activeChatNodeId}:`, message);
     console.log("Attachments:", attachments);
 
@@ -848,25 +791,6 @@ export default function WorkflowCanvas() {
     );
   }, [setNodes]);
 
-  // Handle zoom controls
-  const handleZoomIn = useCallback(() => {
-    if (reactFlowInstance.current) {
-      reactFlowInstance.current.zoomIn();
-    }
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    if (reactFlowInstance.current) {
-      reactFlowInstance.current.zoomOut();
-    }
-  }, []);
-
-  const handleZoomToFit = useCallback(() => {
-    if (reactFlowInstance.current) {
-      reactFlowInstance.current.fitView({ padding: 0.2 });
-    }
-  }, []);
-
   // Handle undo/redo (simplified implementation)
   const handleUndo = useCallback(() => {
     // In a real implementation, you would use a history stack
@@ -907,7 +831,7 @@ export default function WorkflowCanvas() {
       );
       setSelectedNode(null);
     },
-    [setNodes],
+    [handleOpenChat, setNodes],
   );
 
   // Handle execution selection
@@ -929,10 +853,63 @@ export default function WorkflowCanvas() {
           }) as Node<NodeData>,
       );
       setNodes(mappedNodes);
-      setSelectedExecution(execution as unknown as WorkflowExecution);
     },
-    [setNodes],
+    [handleOpenChat, setNodes],
   );
+
+  // Load workflow data when workflowId changes
+  useEffect(() => {
+    if (workflowId) {
+      const workflow = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
+      if (workflow) {
+        setWorkflowName(workflow.name);
+
+        // Convert workflow nodes to ReactFlow nodes
+        const flowNodes = workflow.nodes.map((node) => ({
+          id: node.id,
+          type:
+            node.type === "trigger" ||
+            node.type === "api" ||
+            node.type === "function" ||
+            node.type === "data" ||
+            node.type === "ai"
+              ? "default"
+              : node.type,
+          position: node.position,
+          style: defaultNodeStyle,
+          data: {
+            type: node.type,
+            label: node.data.label,
+            description: node.data.description,
+            status: (node.data.status || "idle") as NodeStatus,
+            isDisabled: node.data.isDisabled,
+          } as NodeData,
+          draggable: true,
+        }));
+
+        // Convert workflow edges to ReactFlow edges
+        const flowEdges = workflow.edges.map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+          label: edge.label,
+          type: edge.type || "smoothstep",
+          animated: edge.animated || false,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 20,
+            height: 20,
+          },
+          style: edge.style || { stroke: "#99a1b3", strokeWidth: 2 },
+        }));
+
+        setNodes(flowNodes);
+        setEdges(flowEdges);
+      }
+    }
+  }, [workflowId, setNodes, setEdges]);
 
   // Fit view on initial render
   useEffect(() => {
@@ -941,7 +918,7 @@ export default function WorkflowCanvas() {
         reactFlowInstance.current.fitView({ padding: 0.2 });
       }
     }, 100);
-  }, []);
+  }, [nodes]);
 
   // User and AI info for chat
   const user = {
@@ -960,8 +937,8 @@ export default function WorkflowCanvas() {
     <div className="flex flex-col h-screen overflow-hidden">
       <TopNavigation
         currentWorkflow={{
-          name: "Marketing Automation",
-          path: ["Projects", "Marketing Automations", "Marketing Automation"],
+          name: workflowName,
+          path: ["Projects", "Workflows", workflowName],
         }}
       />
 
@@ -1099,7 +1076,8 @@ export default function WorkflowCanvas() {
                     <input
                       type="text"
                       className="border border-border rounded-md px-3 py-2 bg-background"
-                      defaultValue="Marketing Automation"
+                      value={workflowName}
+                      onChange={(e) => setWorkflowName(e.target.value)}
                     />
                   </div>
                   <div className="grid gap-2">

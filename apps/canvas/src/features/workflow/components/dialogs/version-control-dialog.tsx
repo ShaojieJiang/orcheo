@@ -60,7 +60,7 @@ export default function VersionControlDialog({
         onImport(importData);
       }
       onOpenChange(false);
-    } catch (error) {
+    } catch {
       setImportError("Invalid JSON format");
     }
   };

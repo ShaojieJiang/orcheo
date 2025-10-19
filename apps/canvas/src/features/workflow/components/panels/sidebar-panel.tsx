@@ -30,8 +30,6 @@ import {
   Briefcase,
   GitBranch,
   RotateCw,
-  FileInput,
-  FileOutput,
   Settings,
   Filter,
   AlertCircle,
@@ -61,10 +59,12 @@ interface NodeCategory {
   }[];
 }
 
+type SidebarNode = NodeCategory["nodes"][number];
+
 interface SidebarPanelProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
-  onAddNode?: (node: any) => void;
+  onAddNode?: (node: SidebarNode) => void;
   className?: string;
   position?: "left" | "canvas";
 }
@@ -77,7 +77,6 @@ export default function SidebarPanel({
   position = "left",
 }: SidebarPanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
 
   const nodeCategories: NodeCategory[] = [
     {
@@ -584,20 +583,23 @@ export default function SidebarPanel({
     }))
     .filter((category) => category.nodes.length > 0);
 
-  const handleNodeClick = (node: any) => {
-    if (onAddNode) {
-      onAddNode(node);
-    }
+  const handleNodeClick = (node: SidebarNode) => {
+    onAddNode?.(node);
   };
 
-  const handleCategoryClick = (categoryId: string) => {
-    setActiveCategory(categoryId);
+  const handleCategoryClick = () => {
     if (isCollapsed && onToggleCollapse) {
       onToggleCollapse();
     }
   };
 
-  const NodeItem = ({ node, onClick }: { node: any; onClick?: () => void }) => (
+  const NodeItem = ({
+    node,
+    onClick,
+  }: {
+    node: SidebarNode;
+    onClick?: () => void;
+  }) => (
     <div
       className="flex items-start gap-3 p-2 rounded-md hover:bg-accent cursor-pointer"
       onClick={() => {
@@ -777,7 +779,7 @@ export default function SidebarPanel({
               size="icon"
               className="h-8 w-8"
               title={category.name}
-              onClick={() => handleCategoryClick(category.id)}
+              onClick={handleCategoryClick}
             >
               {category.icon}
             </Button>

@@ -8,8 +8,6 @@ import {
   Controls,
   Edge,
   Node,
-  Panel,
-  Position,
   MiniMap,
   ConnectionLineType,
   MarkerType,
@@ -22,12 +20,8 @@ import {
   RefreshCw,
   Copy,
   Trash,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
   Maximize2,
   Minimize2,
-  RotateCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -94,7 +88,6 @@ export default function WorkflowExecutionHistory({
       defaultSelectedExecution ||
         (executions.length > 0 ? executions[0] : null),
     );
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const resizingRef = useRef(false);
@@ -103,18 +96,6 @@ export default function WorkflowExecutionHistory({
 
   const handleSelectExecution = (execution: WorkflowExecution) => {
     setSelectedExecution(execution);
-  };
-
-  const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.min(prev + 0.1, 2));
-  };
-
-  const handleZoomOut = () => {
-    setZoomLevel((prev) => Math.max(prev - 0.1, 0.5));
-  };
-
-  const handleZoomReset = () => {
-    setZoomLevel(1);
   };
 
   const formatDate = (dateString: string) => {
@@ -158,153 +139,6 @@ export default function WorkflowExecutionHistory({
         return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
-    }
-  };
-
-  const getNodeStatusColor = (status?: string) => {
-    switch (status) {
-      case "success":
-        return "border-green-500 bg-green-100 dark:bg-green-900/30";
-      case "error":
-        return "border-red-500 bg-red-100 dark:bg-red-900/30";
-      case "warning":
-        return "border-amber-500 bg-amber-100 dark:bg-amber-900/30";
-      case "running":
-        return "border-blue-500 bg-blue-100 dark:bg-blue-900/30";
-      default:
-        return "border-gray-300 bg-gray-100 dark:border-gray-700 dark:bg-gray-800/50";
-    }
-  };
-
-  const getNodeIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case "trigger":
-      case "webhook":
-      case "schedule":
-        return (
-          <div className="h-6 w-6 flex items-center justify-center rounded-full bg-red-500 text-white">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="currentColor"
-              />
-            </svg>
-          </div>
-        );
-
-      case "http":
-      case "api":
-        return (
-          <div className="h-6 w-6 flex items-center justify-center rounded-full bg-blue-500 text-white">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="2"
-                fill="currentColor"
-              />
-            </svg>
-          </div>
-        );
-
-      case "function":
-      case "code":
-        return (
-          <div className="h-6 w-6 flex items-center justify-center rounded-full bg-purple-500 text-white">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M16 18l6-6-6-6M8 6l-6 6 6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-          </div>
-        );
-
-      default:
-        return (
-          <div className="h-6 w-6 flex items-center justify-center rounded-full bg-gray-500 text-white">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="3"
-                y="3"
-                width="18"
-                height="18"
-                rx="2"
-                stroke="currentColor"
-                strokeWidth="2"
-                fill="currentColor"
-              />
-            </svg>
-          </div>
-        );
-    }
-  };
-
-  const getNodeStatusIcon = (status?: string) => {
-    switch (status) {
-      case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-
-      case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-
-      case "warning":
-        return <AlertCircle className="h-4 w-4 text-amber-500" />;
-
-      case "running":
-        return <RotateCw className="h-4 w-4 text-blue-500 animate-spin" />;
-
-      default:
-        return null;
-    }
-  };
-
-  const getLogLevelClass = (level: string) => {
-    switch (level) {
-      case "INFO":
-        return "text-green-600 dark:text-green-400";
-      case "DEBUG":
-        return "text-muted-foreground";
-      case "ERROR":
-        return "text-red-600 dark:text-red-400";
-      case "WARNING":
-        return "text-amber-600 dark:text-amber-400";
-      default:
-        return "text-muted-foreground";
     }
   };
 

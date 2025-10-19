@@ -1,11 +1,6 @@
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/design-system/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/design-system/ui/tabs";
 import { Input } from "@/design-system/ui/input";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Search } from "lucide-react";
@@ -17,7 +12,6 @@ import {
   Code,
   Zap,
   Database,
-  Sparkles,
   FileText,
   MessageSquare,
   Mail,

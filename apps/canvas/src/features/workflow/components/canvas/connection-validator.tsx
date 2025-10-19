@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Connection, Edge } from "@xyflow/react";
+import type { Connection, Edge, Node } from "@xyflow/react";
 import { AlertCircle, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
@@ -20,6 +20,17 @@ interface ConnectionValidatorProps {
   onFix?: (error: ValidationError) => void;
   className?: string;
 }
+
+interface ValidatorNodeData {
+  type?: string;
+  label?: string;
+  credentials?: {
+    id?: string;
+  } | null;
+}
+
+type ValidatorNode = Node<ValidatorNodeData>;
+type ValidatorEdge = Edge<Record<string, unknown>>;
 
 export default function ConnectionValidator({
   errors,
@@ -107,8 +118,8 @@ export default function ConnectionValidator({
 
 export function validateConnection(
   connection: Connection,
-  nodes: any[],
-  edges: Edge[],
+  nodes: ValidatorNode[],
+  edges: ValidatorEdge[],
 ): ValidationError | null {
   // Get source and target nodes
   const sourceNode = nodes.find((node) => node.id === connection.source);
@@ -173,7 +184,9 @@ export function validateConnection(
   return null;
 }
 
-export function validateNodeCredentials(node: any): ValidationError | null {
+export function validateNodeCredentials(
+  node: ValidatorNode,
+): ValidationError | null {
   // Example validation for credentials
   if (
     (node.data.type === "api" || node.data.type === "database") &&
@@ -194,7 +207,7 @@ export function validateNodeCredentials(node: any): ValidationError | null {
 function checkForCycle(
   source: string,
   target: string,
-  edges: Edge[],
+  edges: ValidatorEdge[],
   visited: Set<string> = new Set(),
 ): boolean {
   if (source === target) return true;

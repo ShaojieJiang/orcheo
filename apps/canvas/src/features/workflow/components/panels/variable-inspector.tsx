@@ -1,13 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
-import { Label } from "@/design-system/ui/label";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/design-system/ui/tabs";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Badge } from "@/design-system/ui/badge";
 import {
@@ -24,8 +17,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+type VariablesMap = Record<string, unknown>;
+
 interface VariableInspectorProps {
-  variables?: Record<string, any>;
+  variables?: VariablesMap;
   currentNodeId?: string;
   onClose?: () => void;
   className?: string;
@@ -43,21 +38,18 @@ export default function VariableInspector({
   const [hiddenValues, setHiddenValues] = useState<string[]>([]);
 
   // Filter variables based on search query
-  const filteredVariables = searchQuery
-    ? Object.entries(variables).reduce(
-        (acc, [key, value]) => {
-          if (
-            key.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            JSON.stringify(value)
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase())
-          ) {
-            acc[key] = value;
-          }
-          return acc;
-        },
-        {} as Record<string, any>,
-      )
+  const filteredVariables: VariablesMap = searchQuery
+    ? Object.entries(variables).reduce((acc, [key, value]) => {
+        if (
+          key.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          JSON.stringify(value)
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase())
+        ) {
+          acc[key] = value;
+        }
+        return acc;
+      }, {} as VariablesMap)
     : variables;
 
   const toggleExpand = (path: string) => {
@@ -76,7 +68,7 @@ export default function VariableInspector({
     }
   };
 
-  const copyToClipboard = (value: any) => {
+  const copyToClipboard = (value: unknown) => {
     navigator.clipboard.writeText(
       typeof value === "object"
         ? JSON.stringify(value, null, 2)
@@ -84,18 +76,15 @@ export default function VariableInspector({
     );
   };
 
-  const renderTreeValue = (
-    value: any,
-    path: string,
-    depth = 0,
-    isLast = true,
-  ) => {
+  const renderTreeValue = (value: unknown, path: string, depth = 0) => {
     const isExpanded = expandedPaths.includes(path);
     const isHidden = hiddenValues.includes(path);
     const isObject =
       value !== null && typeof value === "object" && !Array.isArray(value);
     const isArray = Array.isArray(value);
     const hasChildren = isObject || isArray;
+    const objectValue = isObject ? (value as VariablesMap) : undefined;
+    const arrayValue = isArray ? (value as unknown[]) : undefined;
 
     const getValueDisplay = () => {
       if (isHidden) return "••••••••";
@@ -119,8 +108,9 @@ export default function VariableInspector({
           </span>
         );
 
-      if (isArray) return `Array(${value.length})`;
-      if (isObject) return `Object(${Object.keys(value).length})`;
+      if (isArray) return `Array(${arrayValue?.length ?? 0})`;
+      if (isObject)
+        return `Object(${objectValue ? Object.keys(objectValue).length : 0})`;
 
       return String(value);
     };
@@ -185,25 +175,15 @@ export default function VariableInspector({
         {isExpanded && hasChildren && (
           <div>
             {isObject &&
-              Object.entries(value).map(([key, val], idx, arr) => (
+              Object.entries(objectValue ?? {}).map(([key, val]) => (
                 <React.Fragment key={`${path}.${key}`}>
-                  {renderTreeValue(
-                    val,
-                    `${path}.${key}`,
-                    depth + 1,
-                    idx === arr.length - 1,
-                  )}
+                  {renderTreeValue(val, `${path}.${key}`, depth + 1)}
                 </React.Fragment>
               ))}
             {isArray &&
-              value.map((val: any, idx: number, arr: any[]) => (
+              (arrayValue ?? []).map((val, idx) => (
                 <React.Fragment key={`${path}[${idx}]`}>
-                  {renderTreeValue(
-                    val,
-                    `${path}[${idx}]`,
-                    depth + 1,
-                    idx === arr.length - 1,
-                  )}
+                  {renderTreeValue(val, `${path}[${idx}]`, depth + 1)}
                 </React.Fragment>
               ))}
           </div>
@@ -214,23 +194,23 @@ export default function VariableInspector({
 
   const renderTable = () => {
     // Flatten object for table view
-    const flattenObject = (obj: any, prefix = ""): Record<string, any> => {
-      return Object.keys(obj).reduce(
-        (acc, key) => {
-          const pre = prefix.length ? `${prefix}.` : "";
-          if (
-            typeof obj[key] === "object" &&
-            obj[key] !== null &&
-            !Array.isArray(obj[key])
-          ) {
-            Object.assign(acc, flattenObject(obj[key], `${pre}${key}`));
-          } else {
-            acc[`${pre}${key}`] = obj[key];
-          }
-          return acc;
-        },
-        {} as Record<string, any>,
-      );
+    const flattenObject = (obj: VariablesMap, prefix = ""): VariablesMap => {
+      return Object.entries(obj).reduce<VariablesMap>((acc, [key, value]) => {
+        const pre = prefix.length ? `${prefix}.` : "";
+        if (
+          value !== null &&
+          typeof value === "object" &&
+          !Array.isArray(value)
+        ) {
+          Object.assign(
+            acc,
+            flattenObject(value as VariablesMap, `${pre}${key}`),
+          );
+        } else {
+          acc[`${pre}${key}`] = value;
+        }
+        return acc;
+      }, {});
     };
 
     const flatVariables = flattenObject(filteredVariables);

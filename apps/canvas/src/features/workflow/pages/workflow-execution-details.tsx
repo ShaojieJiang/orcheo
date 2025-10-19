@@ -1,12 +1,5 @@
 import { useParams } from "react-router-dom";
-import { useState } from "react";
-import {
-  ArrowLeftIcon,
-  ClockIcon,
-  AlertCircleIcon,
-  CheckCircleIcon,
-  RotateCwIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, RotateCwIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
@@ -14,8 +7,6 @@ import WorkflowExecutionHistory from "@features/workflow/components/panels/workf
 
 export default function WorkflowExecutionDetails() {
   const { executionId = "1" } = useParams();
-  const [activeTab, setActiveTab] = useState("visualization");
-
   // Mock execution data
   const execution = {
     id: executionId,
@@ -144,38 +135,6 @@ export default function WorkflowExecutionDetails() {
         message: "Workflow execution completed successfully",
       },
     ],
-  };
-
-  // Format duration in a human-readable format
-  const formatDuration = (ms) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    } else {
-      return `${seconds}s`;
-    }
-  };
-
-  // Get status icon based on execution status
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "success":
-        return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
-
-      case "failed":
-        return <AlertCircleIcon className="h-5 w-5 text-red-500" />;
-
-      case "running":
-        return <RotateCwIcon className="h-5 w-5 text-blue-500 animate-spin" />;
-
-      default:
-        return <ClockIcon className="h-5 w-5 text-gray-500" />;
-    }
   };
 
   // Get status badge based on execution status

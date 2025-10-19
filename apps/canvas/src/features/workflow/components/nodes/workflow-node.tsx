@@ -3,7 +3,6 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  MoreHorizontal,
   Play,
   Settings,
   Trash,
@@ -17,13 +16,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/design-system/ui/dropdown-menu";
 
 export type NodeStatus = "idle" | "running" | "success" | "error";
 
@@ -41,21 +33,11 @@ export type WorkflowNodeData = {
 
 const WorkflowNode = ({ data, selected }: NodeProps) => {
   const nodeData = data as WorkflowNodeData;
-  const [isHovered, setIsHovered] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(false);
   const controlsRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const {
-    label,
-    description,
-    icon,
-    status = "idle" as const,
-    type,
-    isDisabled,
-    onLabelChange,
-    onNodeInspect,
-  } = nodeData;
+  const { label, icon, status = "idle" as const, type, isDisabled } = nodeData;
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
@@ -101,12 +83,10 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
       : nodeColors.default;
 
   const handleMouseEnter = () => {
-    setIsHovered(true);
     setControlsVisible(true);
   };
 
   const handleMouseLeave = () => {
-    setIsHovered(false);
     setControlsVisible(false);
   };
 

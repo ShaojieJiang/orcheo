@@ -36,11 +36,9 @@ import {
   Search,
   Plus,
   FolderPlus,
-  Tag,
   Clock,
   CheckCircle,
   AlertCircle,
-  Play,
   MoreHorizontal,
   Copy,
   Download,
@@ -50,8 +48,6 @@ import {
   Filter,
   ArrowUpDown,
   Zap,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import {
   Dialog,
@@ -78,7 +74,6 @@ export default function WorkflowGallery() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState("all");
   const [sortBy, setSortBy] = useState("updated");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newWorkflowName, setNewWorkflowName] = useState("");
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
@@ -195,7 +190,7 @@ export default function WorkflowGallery() {
           })}
 
           {/* Draw simplified edges */}
-          {workflow.edges.slice(0, 4).map((edge, index) => {
+          {workflow.edges.slice(0, 4).map((edge) => {
             const sourceIndex = workflow.nodes.findIndex(
               (n) => n.id === edge.source,
             );
@@ -619,7 +614,13 @@ export default function WorkflowGallery() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      navigate(
+                                        `/workflow-canvas/${workflow.id}`,
+                                      )
+                                    }
+                                  >
                                     <Pencil className="mr-2 h-4 w-4" />
                                     Edit
                                   </DropdownMenuItem>
@@ -706,7 +707,7 @@ export default function WorkflowGallery() {
                               >
                                 <Star className="h-3 w-3" />
                               </Button>
-                              <Link to="/workflow-canvas">
+                              <Link to={`/workflow-canvas/${workflow.id}`}>
                                 <Button size="sm" className="h-7 text-xs px-2">
                                   <Pencil className="mr-1 h-3 w-3" />
                                   Edit

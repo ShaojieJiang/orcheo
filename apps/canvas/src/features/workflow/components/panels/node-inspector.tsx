@@ -22,18 +22,14 @@ import { Badge } from "@/design-system/ui/badge";
 import { Separator } from "@/design-system/ui/separator";
 import {
   X,
-  Maximize2,
-  Minimize2,
   Code,
   Save,
-  Copy,
   FileJson,
   Table,
   FileDown,
   RefreshCw,
   History,
   Plus,
-  ArrowRight,
   GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,10 +40,10 @@ interface NodeInspectorProps {
   node?: {
     id: string;
     type: string;
-    data: any;
+    data: Record<string, unknown>;
   };
   onClose?: () => void;
-  onSave?: (nodeId: string, data: any) => void;
+  onSave?: (nodeId: string, data: Record<string, unknown>) => void;
   className?: string;
 }
 
@@ -64,7 +60,6 @@ export default function NodeInspector({
   onSave,
   className,
 }: NodeInspectorProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [useLiveData, setUseLiveData] = useState(true);
   const [pythonCode, setPythonCode] = useState(
     `def process_data(input_data):\n    # Add your Python code here\n    result = input_data\n    \n    # Example: Filter items with value > 100\n    if "items" in input_data:\n        result = {\n            "filtered_items": [item for item in input_data["items"] if item["value"] > 100]\n        }\n    \n    return result`,

@@ -6,7 +6,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/design-system/ui/dialog";
 import {
   Table,
@@ -32,12 +31,8 @@ import {
   ChevronLeft,
   ChevronRight,
   GitCommit,
-  GitMerge,
   GitBranch,
   RotateCcw,
-  Clock,
-  Calendar,
-  User,
   FileDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -206,65 +201,60 @@ export default function WorkflowHistory({
                 </TableCell>
               </TableRow>
             ) : (
-              filteredVersions.map((version) => {
-                const itemIndex = filteredVersions.findIndex(
-                  (i) => i.id === version.id,
-                );
-                return (
-                  <TableRow
-                    key={version.id}
-                    className={cn(
-                      "cursor-pointer",
-                      selectedVersion === version.version && "bg-muted",
-                    )}
-                    onClick={() => handleSelectVersion(version.version)}
-                  >
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <GitCommit className="h-4 w-4 text-muted-foreground" />
+              filteredVersions.map((version) => (
+                <TableRow
+                  key={version.id}
+                  className={cn(
+                    "cursor-pointer",
+                    selectedVersion === version.version && "bg-muted",
+                  )}
+                  onClick={() => handleSelectVersion(version.version)}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <GitCommit className="h-4 w-4 text-muted-foreground" />
 
-                        {version.version}
-                        {getStatusBadge(version)}
+                      {version.version}
+                      {getStatusBadge(version)}
+                    </div>
+                  </TableCell>
+                  <TableCell>{version.message}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-6 rounded-full overflow-hidden bg-muted">
+                        <img
+                          src={version.author.avatar}
+                          alt={version.author.name}
+                          className="h-full w-full object-cover"
+                        />
                       </div>
-                    </TableCell>
-                    <TableCell>{version.message}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full overflow-hidden bg-muted">
-                          <img
-                            src={version.author.avatar}
-                            alt={version.author.name}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        {version.author.name}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(version.timestamp).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {version.changes.added > 0 && (
-                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                            +{version.changes.added}
-                          </Badge>
-                        )}
-                        {version.changes.removed > 0 && (
-                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                            -{version.changes.removed}
-                          </Badge>
-                        )}
-                        {version.changes.modified > 0 && (
-                          <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                            ~{version.changes.modified}
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+                      {version.author.name}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {new Date(version.timestamp).toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {version.changes.added > 0 && (
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                          +{version.changes.added}
+                        </Badge>
+                      )}
+                      {version.changes.removed > 0 && (
+                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          -{version.changes.removed}
+                        </Badge>
+                      )}
+                      {version.changes.modified > 0 && (
+                        <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                          ~{version.changes.modified}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>

@@ -13,7 +13,6 @@ import {
   Edit,
   Trash,
   Plus,
-  User,
   MoreHorizontal,
 } from "lucide-react";
 import {

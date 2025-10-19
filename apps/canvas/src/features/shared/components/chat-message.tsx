@@ -1,13 +1,7 @@
 import React from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/design-system/ui/avatar";
 import { cn } from "@/lib/utils";
-import {
-  CheckIcon,
-  FileIcon,
-  FileTextIcon,
-  ImageIcon,
-  VideoIcon,
-} from "lucide-react";
+import { CheckIcon, FileIcon, FileTextIcon } from "lucide-react";
 
 // Simple markdown parser function
 const parseMarkdown = (text: string): string => {

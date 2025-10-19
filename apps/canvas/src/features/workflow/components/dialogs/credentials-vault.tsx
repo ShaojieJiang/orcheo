@@ -65,7 +65,6 @@ interface CredentialsVaultProps {
   onAddCredential?: (
     credential: Omit<Credential, "id" | "createdAt" | "updatedAt">,
   ) => void;
-  onUpdateCredential?: (id: string, credential: Partial<Credential>) => void;
   onDeleteCredential?: (id: string) => void;
   className?: string;
 }
@@ -73,7 +72,6 @@ interface CredentialsVaultProps {
 export default function CredentialsVault({
   credentials = [],
   onAddCredential,
-  onUpdateCredential,
   onDeleteCredential,
   className,
 }: CredentialsVaultProps) {

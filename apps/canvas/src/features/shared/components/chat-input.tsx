@@ -14,8 +14,6 @@ import {
 } from "@/design-system/ui/popover";
 import {
   FileIcon,
-  ImageIcon,
-  LinkIcon,
   MicIcon,
   PaperclipIcon,
   SendIcon,
@@ -88,6 +86,13 @@ const COMMON_EMOJIS = [
   "💕",
   "💞",
 ];
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+interface SpeechRecognitionWindow extends Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
 
 export interface Attachment {
   id: string;
@@ -175,20 +180,22 @@ export default function ChatInput({
   };
 
   const handleVoiceInput = () => {
-    if (!("webkitSpeechRecognition" in window)) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const recognitionCtor =
+      (window as SpeechRecognitionWindow).SpeechRecognition ??
+      (window as SpeechRecognitionWindow).webkitSpeechRecognition;
+
+    if (!recognitionCtor) {
       alert(
         "Speech recognition is not supported in your browser. Try using Chrome.",
       );
       return;
     }
 
-    setIsRecording(!isRecording);
-
-    // @ts-ignore - SpeechRecognition is not in the TypeScript types
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-
+    const recognition = new recognitionCtor();
     recognition.lang = "en-US";
     recognition.continuous = false;
     recognition.interimResults = false;
@@ -197,12 +204,12 @@ export default function ChatInput({
       setIsRecording(true);
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       const transcript = event.results[0][0].transcript;
-      setMessage((prev) => prev + " " + transcript);
+      setMessage((prev) => `${prev} ${transcript}`.trim());
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("Speech recognition error", event.error);
       setIsRecording(false);
     };
@@ -213,6 +220,8 @@ export default function ChatInput({
 
     if (!isRecording) {
       recognition.start();
+    } else {
+      recognition.stop();
     }
   };
 

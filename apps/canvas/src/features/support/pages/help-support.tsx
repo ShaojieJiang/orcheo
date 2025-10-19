@@ -17,7 +17,6 @@ import {
   TabsTrigger,
 } from "@/design-system/ui/tabs";
 import { Badge } from "@/design-system/ui/badge";
-import { Separator } from "@/design-system/ui/separator";
 import {
   Accordion,
   AccordionContent,

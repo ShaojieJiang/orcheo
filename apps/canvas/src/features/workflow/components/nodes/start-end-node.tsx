@@ -14,7 +14,7 @@ export type StartEndNodeData = {
 
 const StartEndNode = ({ data, selected, id }: NodeProps) => {
   const nodeData = data as StartEndNodeData;
-  const { label, type, description, onLabelChange } = nodeData;
+  const { label, type, onLabelChange } = nodeData;
   const [isHovered, setIsHovered] = useState(false);
 
   const nodeColors = {
