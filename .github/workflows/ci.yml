@@ -183,7 +183,9 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm install
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install
       - name: Lint
         run: npm run lint
       - name: Test
