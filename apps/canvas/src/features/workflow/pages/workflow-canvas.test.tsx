@@ -100,4 +100,33 @@ describe("WorkflowCanvas editing history", () => {
       expect(screen.getByText(/Initial Node Copy/i)).toBeInTheDocument();
     });
   });
+
+  it("supports keyboard shortcuts for undo and redo", async () => {
+    renderCanvas();
+
+    await screen.findByText("Initial Node");
+
+    const moreActionsButton = screen.getByRole("button", { name: /more actions/i });
+    fireEvent.pointerDown(moreActionsButton);
+    fireEvent.click(moreActionsButton);
+
+    const duplicateItem = await screen.findByText(/duplicate/i);
+    fireEvent.click(duplicateItem);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Initial Node Copy/i)).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Initial Node Copy/i)).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Initial Node Copy/i)).toBeInTheDocument();
+    });
+  });
 });

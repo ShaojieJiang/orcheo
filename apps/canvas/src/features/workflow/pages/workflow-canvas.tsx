@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { useParams } from "react-router-dom";
 import type {
   Connection,
@@ -149,6 +155,58 @@ interface SidebarNodeDefinition {
   data?: Record<string, unknown>;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const determineNodeType = (nodeId?: string) => {
+  if (nodeId?.includes("chat-trigger")) {
+    return "chatTrigger" as const;
+  }
+  if (nodeId === "start-node" || nodeId === "end-node") {
+    return "startEnd" as const;
+  }
+  return "default" as const;
+};
+
+const validateWorkflowData = (data: unknown) => {
+  if (!isRecord(data)) {
+    throw new Error("Invalid workflow file structure.");
+  }
+
+  const { nodes, edges } = data;
+
+  if (!Array.isArray(nodes)) {
+    throw new Error("Invalid nodes array in workflow file.");
+  }
+
+  nodes.forEach((node, index) => {
+    if (!isRecord(node)) {
+      throw new Error(`Invalid node at index ${index}.`);
+    }
+    if (!isRecord(node.position)) {
+      throw new Error(`Node ${node.id ?? index} is missing position data.`);
+    }
+    const { x, y } = node.position as Record<string, unknown>;
+    if (typeof x !== "number" || typeof y !== "number") {
+      throw new Error(`Node ${node.id ?? index} has invalid coordinates.`);
+    }
+  });
+
+  if (!Array.isArray(edges)) {
+    throw new Error("Invalid edges array in workflow file.");
+  }
+
+  edges.forEach((edge, index) => {
+    if (!isRecord(edge)) {
+      throw new Error(`Invalid edge at index ${index}.`);
+    }
+    if (typeof edge.source !== "string" || typeof edge.target !== "string") {
+      throw new Error(`Edge ${edge.id ?? index} has invalid connections.`);
+    }
+  });
+};
+
 export default function WorkflowCanvas({
   initialNodes = [],
   initialEdges = [],
@@ -194,18 +252,21 @@ export default function WorkflowCanvas({
     edges: edgesRef.current.map(cloneEdge),
   }), []);
 
-  const recordSnapshot = useCallback(() => {
-    if (isRestoringRef.current) {
-      return;
-    }
-    const snapshot = createSnapshot();
-    undoStackRef.current = [...undoStackRef.current, snapshot].slice(
-      -HISTORY_LIMIT,
-    );
-    redoStackRef.current = [];
-    setCanUndo(undoStackRef.current.length > 0);
-    setCanRedo(false);
-  }, [createSnapshot]);
+  const recordSnapshot = useCallback(
+    (options?: { force?: boolean }) => {
+      if (isRestoringRef.current && !options?.force) {
+        return;
+      }
+      const snapshot = createSnapshot();
+      undoStackRef.current = [...undoStackRef.current, snapshot].slice(
+        -HISTORY_LIMIT,
+      );
+      redoStackRef.current = [];
+      setCanUndo(undoStackRef.current.length > 0);
+      setCanRedo(false);
+    },
+    [createSnapshot],
+  );
 
   const applySnapshot = useCallback(
     (snapshot: WorkflowSnapshot, { resetHistory = false } = {}) => {
@@ -218,12 +279,15 @@ export default function WorkflowCanvas({
         setCanUndo(false);
         setCanRedo(false);
       }
-      setTimeout(() => {
-        isRestoringRef.current = false;
-      }, 0);
     },
     [setCanRedo, setCanUndo, setEdgesState, setNodesState],
   );
+
+  useLayoutEffect(() => {
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false;
+    }
+  }, [edges, nodes]);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -700,13 +764,17 @@ export default function WorkflowCanvas({
       })
       .filter(Boolean) as WorkflowEdge[];
 
-    recordSnapshot();
     isRestoringRef.current = true;
-    setNodesState((current) => [...current, ...duplicatedNodes]);
-    if (duplicatedEdges.length > 0) {
-      setEdgesState((current) => [...current, ...duplicatedEdges]);
+    recordSnapshot({ force: true });
+    try {
+      setNodesState((current) => [...current, ...duplicatedNodes]);
+      if (duplicatedEdges.length > 0) {
+        setEdgesState((current) => [...current, ...duplicatedEdges]);
+      }
+    } catch (error) {
+      isRestoringRef.current = false;
+      throw error;
     }
-    isRestoringRef.current = false;
     toast({
       title: "Nodes duplicated",
       description: `${duplicatedNodes.length} node${
@@ -761,33 +829,38 @@ export default function WorkflowCanvas({
         try {
           const content = typeof reader.result === "string" ? reader.result : "";
           const parsed = JSON.parse(content);
-          const importedNodes = Array.isArray(parsed?.nodes)
-            ? (parsed.nodes as WorkflowNode[]).map((node) => ({
-                ...cloneNode(node),
-                id: node.id ?? generateNodeId(),
-                selected: false,
-              }))
-            : [];
-          const importedEdges = Array.isArray(parsed?.edges)
-            ? (parsed.edges as WorkflowEdge[]).map((edge) => ({
-                ...cloneEdge(edge),
-                id:
-                  edge.id ??
-                  `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
-                    .toString(36)
-                    .slice(2, 8)}`,
-                selected: false,
-              }))
-            : [];
+          validateWorkflowData(parsed);
 
-          recordSnapshot();
+          const importedNodes = (parsed.nodes as WorkflowNode[]).map((node) => ({
+            ...cloneNode(node),
+            id: node.id ?? generateNodeId(),
+            selected: false,
+          }));
+          const importedEdges = (parsed.edges as WorkflowEdge[]).map((edge) => ({
+            ...cloneEdge(edge),
+            id:
+              edge.id ??
+              `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
+                .toString(36)
+                .slice(2, 8)}`,
+            selected: false,
+          }));
+
           isRestoringRef.current = true;
-          setNodesState(importedNodes);
-          setEdgesState(importedEdges);
-          if (typeof parsed?.name === "string" && parsed.name.trim().length > 0) {
-            setWorkflowName(parsed.name);
+          recordSnapshot({ force: true });
+          try {
+            setNodesState(importedNodes);
+            setEdgesState(importedEdges);
+            if (
+              typeof parsed.name === "string" &&
+              parsed.name.trim().length > 0
+            ) {
+              setWorkflowName(parsed.name);
+            }
+          } catch (error) {
+            isRestoringRef.current = false;
+            throw error;
           }
-          isRestoringRef.current = false;
 
           toast({
             title: "Workflow imported",
@@ -906,13 +979,7 @@ export default function WorkflowCanvas({
           y: event.clientY - reactFlowBounds.top,
         });
 
-        // Determine node type
-        let nodeType = "default";
-        if (node.id?.includes("chat-trigger")) {
-          nodeType = "chatTrigger";
-        } else if (node.id === "start-node" || node.id === "end-node") {
-          nodeType = "startEnd";
-        }
+        const nodeType = determineNodeType(node.id);
 
         // Create a new node
         const nodeId = generateNodeId();
@@ -956,13 +1023,7 @@ export default function WorkflowCanvas({
     (node: SidebarNodeDefinition) => {
       if (!reactFlowInstance.current) return;
 
-      // Determine node type
-      let nodeType = "default";
-      if (node.id?.includes("chat-trigger")) {
-        nodeType = "chatTrigger";
-      } else if (node.id === "start-node" || node.id === "end-node") {
-        nodeType = "startEnd";
-      }
+      const nodeType = determineNodeType(node.id);
 
       // Calculate a position for the new node
       const position = {
@@ -1170,6 +1231,34 @@ export default function WorkflowCanvas({
     setCanRedo(redoStackRef.current.length > 0);
     setCanUndo(true);
   }, [applySnapshot, createSnapshot]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+
+      if (key === "y") {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleRedo, handleUndo]);
 
   // Handle node inspector close
   const handleCloseNodeInspector = useCallback(() => {
