@@ -153,6 +153,7 @@ export default function WorkflowControls({
                 onDuplicate?.();
               }}
               disabled={!onDuplicate}
+              data-testid="duplicate-workflow-menu-item"
             >
               <Copy className="mr-2 h-4 w-4" />
 

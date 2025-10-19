@@ -247,10 +247,13 @@ export default function WorkflowCanvas({
   > | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const createSnapshot = useCallback((): WorkflowSnapshot => ({
-    nodes: nodesRef.current.map(cloneNode),
-    edges: edgesRef.current.map(cloneEdge),
-  }), []);
+  const createSnapshot = useCallback(
+    (): WorkflowSnapshot => ({
+      nodes: nodesRef.current.map(cloneNode),
+      edges: edgesRef.current.map(cloneEdge),
+    }),
+    [],
+  );
 
   const recordSnapshot = useCallback(
     (options?: { force?: boolean }) => {
@@ -742,8 +745,7 @@ export default function WorkflowCanvas({
     const selectedIds = new Set(selectedNodes.map((node) => node.id));
     const duplicatedEdges = edges
       .filter(
-        (edge) =>
-          selectedIds.has(edge.source) && selectedIds.has(edge.target),
+        (edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target),
       )
       .map((edge) => {
         const sourceId = idMap.get(edge.source);
@@ -827,24 +829,29 @@ export default function WorkflowCanvas({
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const content = typeof reader.result === "string" ? reader.result : "";
+          const content =
+            typeof reader.result === "string" ? reader.result : "";
           const parsed = JSON.parse(content);
           validateWorkflowData(parsed);
 
-          const importedNodes = (parsed.nodes as WorkflowNode[]).map((node) => ({
-            ...cloneNode(node),
-            id: node.id ?? generateNodeId(),
-            selected: false,
-          }));
-          const importedEdges = (parsed.edges as WorkflowEdge[]).map((edge) => ({
-            ...cloneEdge(edge),
-            id:
-              edge.id ??
-              `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
-                .toString(36)
-                .slice(2, 8)}`,
-            selected: false,
-          }));
+          const importedNodes = (parsed.nodes as WorkflowNode[]).map(
+            (node) => ({
+              ...cloneNode(node),
+              id: node.id ?? generateNodeId(),
+              selected: false,
+            }),
+          );
+          const importedEdges = (parsed.edges as WorkflowEdge[]).map(
+            (edge) => ({
+              ...cloneEdge(edge),
+              id:
+                edge.id ??
+                `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+              selected: false,
+            }),
+          );
 
           isRestoringRef.current = true;
           recordSnapshot({ force: true });
@@ -1361,7 +1368,10 @@ export default function WorkflowCanvas({
           style: edge.style || { stroke: "#99a1b3", strokeWidth: 2 },
         }));
 
-        applySnapshot({ nodes: flowNodes, edges: flowEdges }, { resetHistory: true });
+        applySnapshot(
+          { nodes: flowNodes, edges: flowEdges },
+          { resetHistory: true },
+        );
       }
     }
   }, [applySnapshot, workflowId]);

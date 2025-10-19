@@ -11,6 +11,9 @@
 - Lint/typecheck/format (check): `make lint`
 - Auto-format and organize imports: `make format`
 - Run tests with coverage: `make test`
+- Canvas lint check: `make canvas-lint`
+- Canvas auto-format: `make canvas-format`
+- Canvas tests: `make canvas-test`
 - Run dev API (FastAPI): `make dev-server` then visit `http://localhost:8000`
 - Serve docs locally: `make doc` (MkDocs at `http://localhost:8080`)
 
@@ -31,9 +34,15 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 - Run subsets: `uv run pytest tests/nodes -q`.
 
 **CRITICAL QUALITY REQUIREMENTS**:
-- `make lint` MUST pass with ZERO errors or warnings before completing any task
-- `make test` MUST pass with all tests green
-- Run both commands after ANY code modification
+- For Python code:
+  - `make lint` MUST pass with ZERO errors or warnings before completing any task
+  - `make test` MUST pass with all tests green
+  - Run both commands after ANY code modification
+- For TypeScript/JavaScript code (Canvas):
+  - `make canvas-format` to auto-format the code
+  - `make canvas-lint` MUST pass with ZERO errors or warnings
+  - `make canvas-test` MUST pass with all tests green
+  - Run all three commands after ANY TypeScript/JavaScript code modification
 
 ## Commit & Pull Request Guidelines
 - Commits: concise, imperative subject; include scope/ticket where helpful (e.g., `AF-12 Add RSSNode`). Keep changes focused.

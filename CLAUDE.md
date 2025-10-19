@@ -5,9 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Testing and Quality
-- `make test` - Run tests with coverage reports using pytest
+- `make test` - Run Python tests with coverage reports using pytest
 - `make lint` - Run full lint check (ruff, mypy, format check)
 - `make format` - Auto-format code with ruff
+- `make canvas-lint` - Run lint check for Canvas (TypeScript/JavaScript)
+- `make canvas-format` - Auto-format Canvas code with prettier
+- `make canvas-test` - Run Canvas tests
 - `pytest --cov --cov-report term-missing tests/` - Run tests with detailed coverage
 
 ### Development Server
@@ -65,8 +68,13 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - No relative imports allowed
 
 **CRITICAL**: After making any code changes:
-1. Run `make lint` and ensure it passes with ZERO errors or warnings
-2. Run `make test` and ensure all tests pass
+1. For Python code changes:
+   - Run `make lint` and ensure it passes with ZERO errors or warnings
+   - Run `make test` and ensure all tests pass
+2. For TypeScript/JavaScript code changes (Canvas):
+   - Run `make canvas-format` to auto-format the code
+   - Run `make canvas-lint` and ensure it passes with ZERO errors or warnings
+   - Run `make canvas-test` and ensure all tests pass
 
 ## Important Notes
 - Uses async/await patterns throughout
