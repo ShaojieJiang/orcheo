@@ -599,7 +599,9 @@ export default function WorkflowCanvas() {
             status: "idle" as NodeStatus,
             icon: node.icon,
             onOpenChat:
-              nodeType === "chatTrigger" ? () => handleOpenChat(nodeId) : undefined,
+              nodeType === "chatTrigger"
+                ? () => handleOpenChat(nodeId)
+                : undefined,
           },
           draggable: true,
         };
@@ -655,7 +657,9 @@ export default function WorkflowCanvas() {
           status: "idle" as NodeStatus,
           icon: node.icon,
           onOpenChat:
-            nodeType === "chatTrigger" ? () => handleOpenChat(nodeId) : undefined,
+            nodeType === "chatTrigger"
+              ? () => handleOpenChat(nodeId)
+              : undefined,
         },
         draggable: true,
       };

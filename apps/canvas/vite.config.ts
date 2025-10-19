@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -16,5 +16,9 @@ export default defineConfig({
       '@design-system': path.resolve(__dirname, './src/design-system'),
       '@features': path.resolve(__dirname, './src/features'),
     }
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts',
   }
 })
