@@ -579,8 +579,10 @@ export default function WorkflowCanvas() {
         }
 
         // Create a new node
+        const nodeId = `node-${Date.now()}`;
+
         const newNode: WorkflowNode = {
-          id: `node-${Date.now()}`,
+          id: nodeId,
           type: nodeType,
           position,
           style: defaultNodeStyle,
@@ -597,9 +599,7 @@ export default function WorkflowCanvas() {
             status: "idle" as NodeStatus,
             icon: node.icon,
             onOpenChat:
-              nodeType === "chatTrigger"
-                ? () => handleOpenChat(`node-${Date.now()}`)
-                : undefined,
+              nodeType === "chatTrigger" ? () => handleOpenChat(nodeId) : undefined,
           },
           draggable: true,
         };
@@ -636,8 +636,10 @@ export default function WorkflowCanvas() {
       };
 
       // Create a new node with explicit NodeData type
+      const nodeId = `node-${Date.now()}`;
+
       const newNode: Node<NodeData> = {
-        id: `node-${Date.now()}`,
+        id: nodeId,
         type: nodeType,
         position,
         style: defaultNodeStyle,
@@ -653,9 +655,7 @@ export default function WorkflowCanvas() {
           status: "idle" as NodeStatus,
           icon: node.icon,
           onOpenChat:
-            nodeType === "chatTrigger"
-              ? () => handleOpenChat(`node-${Date.now()}`)
-              : undefined,
+            nodeType === "chatTrigger" ? () => handleOpenChat(nodeId) : undefined,
         },
         draggable: true,
       };
