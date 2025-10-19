@@ -13,7 +13,7 @@ canvas-lint:
 	npm --prefix apps/canvas run lint
 
 canvas-format:
-	npx --prefix apps/canvas prettier "src/**/*.{ts,tsx,js,jsx,css,md}" --write
+	npx --prefix apps/canvas prettier "apps/canvas/src/**/*.{ts,tsx,js,jsx,css,md}" --write
 
 format:
 	ruff format .
