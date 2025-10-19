@@ -51,6 +51,20 @@ const defaultNodeStyle = {
   boxShadow: "none",
 };
 
+const generateNodeId = () => {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    "randomUUID" in globalThis.crypto &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `node-${globalThis.crypto.randomUUID()}`;
+  }
+
+  const timestamp = Date.now().toString(36);
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  return `node-${timestamp}-${randomSuffix}`;
+};
+
 interface NodeData {
   type: string;
   label: string;
@@ -579,7 +593,7 @@ export default function WorkflowCanvas() {
         }
 
         // Create a new node
-        const nodeId = `node-${Date.now()}`;
+        const nodeId = generateNodeId();
 
         const newNode: WorkflowNode = {
           id: nodeId,
@@ -638,7 +652,7 @@ export default function WorkflowCanvas() {
       };
 
       // Create a new node with explicit NodeData type
-      const nodeId = `node-${Date.now()}`;
+      const nodeId = generateNodeId();
 
       const newNode: Node<NodeData> = {
         id: nodeId,
