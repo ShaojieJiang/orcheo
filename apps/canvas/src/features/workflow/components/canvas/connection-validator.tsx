@@ -116,6 +116,7 @@ export default function ConnectionValidator({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function validateConnection(
   connection: Connection,
   nodes: ValidatorNode[],
@@ -184,6 +185,7 @@ export function validateConnection(
   return null;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function validateNodeCredentials(
   node: ValidatorNode,
 ): ValidationError | null {

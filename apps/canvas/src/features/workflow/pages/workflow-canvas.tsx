@@ -831,7 +831,7 @@ export default function WorkflowCanvas() {
       );
       setSelectedNode(null);
     },
-    [handleOpenChat, setNodes],
+    [setNodes],
   );
 
   // Handle execution selection
@@ -854,7 +854,7 @@ export default function WorkflowCanvas() {
       );
       setNodes(mappedNodes);
     },
-    [handleOpenChat, setNodes],
+    [setNodes],
   );
 
   // Load workflow data when workflowId changes
