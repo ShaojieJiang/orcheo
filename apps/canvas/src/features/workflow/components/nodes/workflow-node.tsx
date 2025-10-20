@@ -26,6 +26,9 @@ export type WorkflowNodeData = {
   status?: NodeStatus;
   type?: string;
   isDisabled?: boolean;
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
+  isSearchDimmed?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
   [key: string]: unknown;
@@ -37,7 +40,16 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
   const controlsRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const { label, icon, status = "idle" as const, type, isDisabled } = nodeData;
+  const {
+    label,
+    icon,
+    status = "idle" as const,
+    type,
+    isDisabled,
+    isSearchMatch = false,
+    isSearchActive = false,
+    isSearchDimmed = false,
+  } = nodeData;
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
@@ -97,9 +109,18 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
         "group relative border shadow-sm transition-all duration-200",
         nodeColor,
         selected && "ring-2 ring-primary ring-offset-2",
+        !selected && isSearchActive && "ring-2 ring-primary/80 ring-offset-2",
+        !selected &&
+          !isSearchActive &&
+          isSearchMatch &&
+          "ring-2 ring-primary/40 ring-offset-2",
+        !selected && isSearchDimmed && "opacity-45",
         isDisabled && "opacity-60",
         "h-16 w-16 rounded-xl cursor-pointer",
       )}
+      data-search-match={isSearchMatch ? "true" : undefined}
+      data-search-active={isSearchActive ? "true" : undefined}
+      data-search-dimmed={isSearchDimmed ? "true" : undefined}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       tabIndex={0}

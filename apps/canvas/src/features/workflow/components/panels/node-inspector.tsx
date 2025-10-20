@@ -21,6 +21,11 @@ import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Badge } from "@/design-system/ui/badge";
 import { Separator } from "@/design-system/ui/separator";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/design-system/ui/collapsible";
+import {
   X,
   Code,
   Save,
@@ -31,10 +36,10 @@ import {
   History,
   Plus,
   GripVertical,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Editor from "@monaco-editor/react";
-import Split from "react-split";
 
 interface NodeInspectorProps {
   node?: {
@@ -54,6 +59,8 @@ interface SchemaField {
   description?: string;
 }
 
+type InspectorSection = "input" | "config" | "output";
+
 export default function NodeInspector({
   node,
   onClose,
@@ -67,7 +74,19 @@ export default function NodeInspector({
   const [inputViewMode, setInputViewMode] = useState("input-json");
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
+  const [openSections, setOpenSections] = useState<
+    Record<InspectorSection, boolean>
+  >({
+    input: true,
+    config: true,
+    output: true,
+  });
   const configTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSectionToggle =
+    (section: InspectorSection) => (open: boolean) => {
+      setOpenSections((prev) => ({ ...prev, [section]: open }));
+    };
 
   if (!node) return null;
 
@@ -554,85 +573,147 @@ export default function NodeInspector({
           </div>
         </div>
 
-        {/* Split Pane Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <Split
-              sizes={[33, 67]}
-              minSize={150}
-              expandToMin={false}
-              gutterSize={10}
-              gutterAlign="center"
-              snapOffset={30}
-              dragInterval={1}
-              direction="horizontal"
-              cursor="col-resize"
-              className="flex h-full"
-              gutterStyle={() => ({
-                backgroundColor: "hsl(var(--border))",
-                width: "4px",
-                margin: "0 2px",
-                cursor: "col-resize",
-                "&:hover": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-                "&:active": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-              })}
+        {/* Inspector Content */}
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full overflow-auto p-4">
+            <div
+              className={cn(
+                "grid gap-4 auto-rows-[minmax(0,1fr)]",
+                "lg:[grid-template-columns:minmax(220px,280px)_minmax(320px,1fr)_minmax(320px,1fr)]",
+              )}
             >
-              <div className="h-full overflow-hidden flex flex-col">
-                <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                  <h3 className="text-sm font-medium">Input</h3>
-                </div>
-                <div className="flex-1 overflow-auto">
-                  {renderInputContent()}
-                </div>
-              </div>
-
-              <Split
-                sizes={[50, 50]}
-                minSize={150}
-                expandToMin={false}
-                gutterSize={10}
-                gutterAlign="center"
-                snapOffset={30}
-                dragInterval={1}
-                direction="horizontal"
-                cursor="col-resize"
-                className="flex h-full"
-                gutterStyle={() => ({
-                  backgroundColor: "hsl(var(--border))",
-                  width: "4px",
-                  margin: "0 2px",
-                  cursor: "col-resize",
-                  "&:hover": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                  "&:active": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                })}
+              <Collapsible
+                className="h-full"
+                open={openSections.input}
+                onOpenChange={handleSectionToggle("input")}
               >
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Configuration</h3>
+                <div className="flex h-full flex-col rounded-lg border border-border bg-background/95 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">Input</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Inspect payloads and schema hints.
+                      </p>
+                    </div>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={
+                          openSections.input
+                            ? "Collapse input panel"
+                            : "Expand input panel"
+                        }
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 transition-transform",
+                            openSections.input ? "rotate-0" : "-rotate-90",
+                          )}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
                   </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderConfigContent()}
-                  </div>
+                  <CollapsibleContent
+                    forceMount
+                    className="flex-1 data-[state=closed]:hidden"
+                  >
+                    <div className="flex-1 overflow-auto p-3">
+                      {renderInputContent()}
+                    </div>
+                  </CollapsibleContent>
                 </div>
+              </Collapsible>
 
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Output</h3>
+              <Collapsible
+                className="h-full"
+                open={openSections.config}
+                onOpenChange={handleSectionToggle("config")}
+              >
+                <div className="flex h-full flex-col rounded-lg border border-border bg-background/95 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">Configuration</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Adjust node settings and behaviors.
+                      </p>
+                    </div>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={
+                          openSections.config
+                            ? "Collapse configuration panel"
+                            : "Expand configuration panel"
+                        }
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 transition-transform",
+                            openSections.config ? "rotate-0" : "-rotate-90",
+                          )}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
                   </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderOutputContent()}
-                  </div>
+                  <CollapsibleContent
+                    forceMount
+                    className="flex-1 data-[state=closed]:hidden"
+                  >
+                    <div className="flex-1 overflow-auto p-3">
+                      {renderConfigContent()}
+                    </div>
+                  </CollapsibleContent>
                 </div>
-              </Split>
-            </Split>
+              </Collapsible>
+
+              <Collapsible
+                className="h-full"
+                open={openSections.output}
+                onOpenChange={handleSectionToggle("output")}
+              >
+                <div className="flex h-full flex-col rounded-lg border border-border bg-background/95 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">Output</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Review responses and debugging data.
+                      </p>
+                    </div>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={
+                          openSections.output
+                            ? "Collapse output panel"
+                            : "Expand output panel"
+                        }
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 transition-transform",
+                            openSections.output ? "rotate-0" : "-rotate-90",
+                          )}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent
+                    forceMount
+                    className="flex-1 data-[state=closed]:hidden"
+                  >
+                    <div className="flex-1 overflow-auto p-3">
+                      {renderOutputContent()}
+                    </div>
+                  </CollapsibleContent>
+                </div>
+              </Collapsible>
+            </div>
           </div>
         </div>
 

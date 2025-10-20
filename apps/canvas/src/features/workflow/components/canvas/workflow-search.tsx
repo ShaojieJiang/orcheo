@@ -35,29 +35,6 @@ export default function WorkflowSearch({
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "f") {
-        e.preventDefault();
-        if (!isOpen) {
-          onSearch("");
-        }
-      } else if (e.key === "Escape" && isOpen) {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "Enter") {
-        if (e.shiftKey) {
-          onHighlightPrevious();
-        } else {
-          onHighlightNext();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onSearch, onClose, onHighlightNext, onHighlightPrevious]);
-
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
@@ -82,6 +59,7 @@ export default function WorkflowSearch({
           onChange={handleSearchChange}
           placeholder="Search nodes..."
           className="pl-8 pr-16 h-9 focus-visible:ring-1"
+          aria-label="Search nodes"
         />
 
         {searchQuery && (
@@ -93,6 +71,7 @@ export default function WorkflowSearch({
               setSearchQuery("");
               onSearch("");
             }}
+            aria-label="Clear search"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -118,6 +97,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightPrevious}
           disabled={matchCount === 0}
+          aria-label="Previous match"
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -127,6 +107,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightNext}
           disabled={matchCount === 0}
+          aria-label="Next match"
         >
           <ArrowDown className="h-4 w-4" />
         </Button>
@@ -135,6 +116,7 @@ export default function WorkflowSearch({
           size="icon"
           className="h-7 w-7 ml-1"
           onClick={onClose}
+          aria-label="Close search"
         >
           <X className="h-4 w-4" />
         </Button>
