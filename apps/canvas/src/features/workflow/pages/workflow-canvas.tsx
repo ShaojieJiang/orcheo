@@ -216,7 +216,7 @@ const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
 
   return {
     id: node.id,
-    type: node.type ?? determineNodeType(node.id),
+    type: node.type ?? "default",
     position: node.position ?? { x: 0, y: 0 },
     style: defaultNodeStyle,
     data: {
