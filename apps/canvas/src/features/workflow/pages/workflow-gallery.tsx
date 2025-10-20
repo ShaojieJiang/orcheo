@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
@@ -67,11 +67,26 @@ import { Checkbox } from "@/design-system/ui/checkbox";
 import { Label } from "@/design-system/ui/label";
 
 import TopNavigation from "@features/shared/components/top-navigation";
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import {
+  SAMPLE_WORKFLOWS,
+  type Workflow,
+} from "@features/workflow/data/workflow-data";
+import {
+  createWorkflow,
+  createWorkflowFromTemplate,
+  deleteWorkflow,
+  duplicateWorkflow,
+  listWorkflows,
+  type StoredWorkflow,
+  WORKFLOW_STORAGE_EVENT,
+} from "@features/workflow/lib/workflow-storage";
 import { toast } from "@/hooks/use-toast";
 
 export default function WorkflowGallery() {
   const navigate = useNavigate();
+  const [workflows, setWorkflows] = useState<StoredWorkflow[]>(() =>
+    listWorkflows(),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState("all");
   const [sortBy, setSortBy] = useState("updated");
@@ -98,36 +113,87 @@ export default function WorkflowGallery() {
     },
   });
 
+  useEffect(() => {
+    const updateWorkflows = () => {
+      setWorkflows(listWorkflows());
+    };
+
+    updateWorkflows();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener(WORKFLOW_STORAGE_EVENT, updateWorkflows);
+      return () => {
+        window.removeEventListener(WORKFLOW_STORAGE_EVENT, updateWorkflows);
+      };
+    }
+
+    return undefined;
+  }, []);
+
+  const templates = useMemo(() => SAMPLE_WORKFLOWS, []);
+  const defaultOwnerId = templates[0]?.owner.id ?? "user-1";
+  const isTemplateView = selectedTab === "templates";
+
   // Filter workflows based on search query and selected tab
-  const filteredWorkflows = SAMPLE_WORKFLOWS.filter((workflow) => {
-    const matchesSearch =
-      workflow.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (workflow.description &&
-        workflow.description.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredWorkflows = useMemo(() => {
+    const collection = isTemplateView ? templates : workflows;
 
-    if (selectedTab === "all") return matchesSearch;
-    if (selectedTab === "favorites")
-      return matchesSearch && workflow.tags.includes("favorite");
-    if (selectedTab === "shared")
-      return matchesSearch && workflow.owner.id !== "user-1";
-    if (selectedTab === "templates")
-      return matchesSearch && workflow.tags.includes("template");
+    return collection.filter((workflow) => {
+      const matchesSearch =
+        workflow.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (workflow.description &&
+          workflow.description
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase()));
 
-    return matchesSearch;
-  });
+      if (!matchesSearch) {
+        return false;
+      }
+
+      if (isTemplateView) {
+        return workflow.tags.includes("template");
+      }
+
+      if (selectedTab === "favorites") {
+        return workflow.tags.includes("favorite");
+      }
+
+      if (selectedTab === "shared") {
+        return workflow.owner?.id !== defaultOwnerId;
+      }
+
+      if (selectedTab === "templates") {
+        return workflow.tags.includes("template");
+      }
+
+      return true;
+    });
+  }, [
+    defaultOwnerId,
+    isTemplateView,
+    searchQuery,
+    selectedTab,
+    templates,
+    workflows,
+  ]);
 
   // Sort workflows
-  const sortedWorkflows = [...filteredWorkflows].sort((a, b) => {
-    if (sortBy === "name") return a.name.localeCompare(b.name);
-    if (sortBy === "updated")
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-    if (sortBy === "created")
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    return 0;
-  });
+  const sortedWorkflows = useMemo(() => {
+    return [...filteredWorkflows].sort((a, b) => {
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "updated")
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      if (sortBy === "created")
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      return 0;
+    });
+  }, [filteredWorkflows, sortBy]);
 
   const handleCreateFolder = () => {
-    // In a real app, this would create a folder in the backend
     toast({
       title: "Folder creation coming soon",
       description: newFolderName
@@ -136,21 +202,107 @@ export default function WorkflowGallery() {
     });
     setNewFolderName("");
     setShowNewFolderDialog(false);
-    // You could add the new folder to state here
   };
 
   const handleCreateWorkflow = () => {
-    // In a real app, this would create a workflow in the backend
-    toast({
-      title: "Workflow creation coming soon",
-      description: newWorkflowName
-        ? `We'll create "${newWorkflowName}" once persistence is wired up.`
-        : "Workflow creation will be available in a future update.",
+    const name = newWorkflowName.trim() || "Untitled Workflow";
+    const workflow = createWorkflow({
+      name,
+      description: "",
+      tags: ["draft"],
+      nodes: [],
+      edges: [],
     });
+
     setNewWorkflowName("");
     setShowNewWorkflowDialog(false);
-    // Navigate to the workflow canvas with the new workflow
-    navigate("/workflow-canvas");
+    setSelectedTab("all");
+
+    toast({
+      title: "Workflow created",
+      description: `"${workflow.name}" is ready to edit.`,
+    });
+
+    navigate(`/workflow-canvas/${workflow.id}`);
+  };
+
+  const handleUseTemplate = (templateId: string) => {
+    const workflow = createWorkflowFromTemplate(templateId);
+    if (!workflow) {
+      toast({
+        title: "Template unavailable",
+        description: "We couldn't find that template. Please try another one.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Template copied",
+      description: `"${workflow.name}" has been added to your workspace.`,
+    });
+
+    setSelectedTab("all");
+    navigate(`/workflow-canvas/${workflow.id}`);
+  };
+
+  const handleDuplicateWorkflow = (workflowId: string) => {
+    const copy = duplicateWorkflow(workflowId);
+    if (!copy) {
+      toast({
+        title: "Duplicate failed",
+        description: "We couldn't duplicate this workflow. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Workflow duplicated",
+      description: `"${copy.name}" is ready to edit.`,
+    });
+
+    navigate(`/workflow-canvas/${copy.id}`);
+  };
+
+  const handleExportWorkflow = (workflow: Workflow) => {
+    try {
+      const payload = {
+        name: workflow.name,
+        description: workflow.description,
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+      };
+      const serialized = JSON.stringify(payload, null, 2);
+      const blob = new Blob([serialized], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${
+        workflow.name.replace(/\s+/g, "-").toLowerCase() || "workflow"
+      }.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Workflow exported",
+        description: `Downloaded ${workflow.name}.json`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error ? error.message : "Unable to export workflow.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteWorkflow = (workflowId: string, workflowName: string) => {
+    deleteWorkflow(workflowId);
+    toast({
+      title: "Workflow deleted",
+      description: `"${workflowName}" has been removed from your workspace.`,
+    });
   };
 
   const handleApplyFilters = () => {
@@ -611,127 +763,207 @@ export default function WorkflowGallery() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 pb-6">
-                      {sortedWorkflows.map((workflow) => (
-                        <Card key={workflow.id} className="overflow-hidden">
-                          <CardHeader className="pb-2 px-3 pt-3">
-                            <div className="flex justify-between items-start">
-                              <CardTitle className="text-base">
-                                {workflow.name}
-                              </CardTitle>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
+                      {sortedWorkflows.map((workflow) => {
+                        const isTemplateCard = isTemplateView;
+                        const updatedLabel = new Date(
+                          workflow.updatedAt || workflow.createdAt,
+                        ).toLocaleDateString();
+
+                        return (
+                          <Card key={workflow.id} className="overflow-hidden">
+                            <CardHeader className="pb-2 px-3 pt-3">
+                              <div className="flex justify-between items-start">
+                                <CardTitle className="text-base">
+                                  {workflow.name}
+                                </CardTitle>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {isTemplateCard ? (
+                                      <>
+                                        <DropdownMenuItem
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            handleUseTemplate(workflow.id);
+                                          }}
+                                        >
+                                          <Copy className="mr-2 h-4 w-4" />
+                                          Use template
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            handleExportWorkflow(workflow);
+                                          }}
+                                        >
+                                          <Download className="mr-2 h-4 w-4" />
+                                          Export JSON
+                                        </DropdownMenuItem>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <DropdownMenuItem
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            navigate(
+                                              `/workflow-canvas/${workflow.id}`,
+                                            );
+                                          }}
+                                        >
+                                          <Pencil className="mr-2 h-4 w-4" />
+                                          Edit
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            handleDuplicateWorkflow(
+                                              workflow.id,
+                                            );
+                                          }}
+                                        >
+                                          <Copy className="mr-2 h-4 w-4" />
+                                          Duplicate
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            handleExportWorkflow(workflow);
+                                          }}
+                                        >
+                                          <Download className="mr-2 h-4 w-4" />
+                                          Export JSON
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          className="text-red-600"
+                                          onSelect={(event) => {
+                                            event.preventDefault();
+                                            handleDeleteWorkflow(
+                                              workflow.id,
+                                              workflow.name,
+                                            );
+                                          }}
+                                        >
+                                          <Trash className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                              <CardDescription className="line-clamp-1">
+                                {workflow.description ||
+                                  "No description provided"}
+                              </CardDescription>
+                            </CardHeader>
+
+                            <CardContent className="pb-2 px-3">
+                              <WorkflowThumbnail workflow={workflow} />
+
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {workflow.tags.slice(0, 2).map((tag) => (
+                                  <Badge
+                                    key={tag}
+                                    variant="secondary"
+                                    className="text-xs"
                                   >
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
+                                    {tag}
+                                  </Badge>
+                                ))}
+                                {workflow.tags.length > 2 && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    +{workflow.tags.length - 2} more
+                                  </Badge>
+                                )}
+                              </div>
+                            </CardContent>
+
+                            <CardFooter className="flex justify-between pt-2 px-3 pb-3">
+                              <div className="flex items-center text-xs text-muted-foreground">
+                                <Avatar className="h-5 w-5 mr-1">
+                                  <AvatarImage src={workflow.owner.avatar} />
+
+                                  <AvatarFallback>
+                                    {workflow.owner.name.charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex items-center">
+                                  <span className="mr-1">{updatedLabel}</span>
+                                  {workflow.lastRun && (
+                                    <>
+                                      {workflow.lastRun.status ===
+                                        "success" && (
+                                        <CheckCircle className="h-3 w-3 text-green-500" />
+                                      )}
+                                      {workflow.lastRun.status === "error" && (
+                                        <AlertCircle className="h-3 w-3 text-red-500" />
+                                      )}
+                                      {workflow.lastRun.status ===
+                                        "running" && (
+                                        <Clock className="h-3 w-3 text-blue-500 animate-pulse" />
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex gap-1">
+                                {isTemplateCard ? (
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs px-3"
                                     onClick={() =>
-                                      navigate(
-                                        `/workflow-canvas/${workflow.id}`,
-                                      )
+                                      handleUseTemplate(workflow.id)
                                     }
                                   >
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem>
-                                    <Copy className="mr-2 h-4 w-4" />
-                                    Duplicate
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem>
-                                    <Download className="mr-2 h-4 w-4" />
-                                    Export
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-
-                                  <DropdownMenuItem className="text-red-600">
-                                    <Trash className="mr-2 h-4 w-4" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                            <CardDescription className="line-clamp-1">
-                              {workflow.description ||
-                                "No description provided"}
-                            </CardDescription>
-                          </CardHeader>
-
-                          <CardContent className="pb-2 px-3">
-                            <WorkflowThumbnail workflow={workflow} />
-
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {workflow.tags.slice(0, 2).map((tag) => (
-                                <Badge
-                                  key={tag}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {tag}
-                                </Badge>
-                              ))}
-                              {workflow.tags.length > 2 && (
-                                <Badge variant="secondary" className="text-xs">
-                                  +{workflow.tags.length - 2} more
-                                </Badge>
-                              )}
-                            </div>
-                          </CardContent>
-
-                          <CardFooter className="flex justify-between pt-2 px-3 pb-3">
-                            <div className="flex items-center text-xs text-muted-foreground">
-                              <Avatar className="h-5 w-5 mr-1">
-                                <AvatarImage src={workflow.owner.avatar} />
-
-                                <AvatarFallback>
-                                  {workflow.owner.name.charAt(0)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex items-center">
-                                <span className="mr-1">
-                                  {new Date(
-                                    workflow.updatedAt,
-                                  ).toLocaleDateString()}
-                                </span>
-                                {workflow.lastRun && (
+                                    <FolderPlus className="mr-1 h-3 w-3" />
+                                    Use template
+                                  </Button>
+                                ) : (
                                   <>
-                                    {workflow.lastRun.status === "success" && (
-                                      <CheckCircle className="h-3 w-3 text-green-500" />
-                                    )}
-                                    {workflow.lastRun.status === "error" && (
-                                      <AlertCircle className="h-3 w-3 text-red-500" />
-                                    )}
-                                    {workflow.lastRun.status === "running" && (
-                                      <Clock className="h-3 w-3 text-blue-500 animate-pulse" />
-                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() =>
+                                        toast({
+                                          title: "Favorites coming soon",
+                                          description: `We'll remember ${workflow.name} as a favorite soon.`,
+                                        })
+                                      }
+                                    >
+                                      <Star className="h-3 w-3" />
+                                    </Button>
+                                    <Link
+                                      to={`/workflow-canvas/${workflow.id}`}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-xs px-2"
+                                      >
+                                        <Pencil className="mr-1 h-3 w-3" />
+                                        Edit
+                                      </Button>
+                                    </Link>
                                   </>
                                 )}
                               </div>
-                            </div>
-
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                              >
-                                <Star className="h-3 w-3" />
-                              </Button>
-                              <Link to={`/workflow-canvas/${workflow.id}`}>
-                                <Button size="sm" className="h-7 text-xs px-2">
-                                  <Pencil className="mr-1 h-3 w-3" />
-                                  Edit
-                                </Button>
-                              </Link>
-                            </div>
-                          </CardFooter>
-                        </Card>
-                      ))}
+                            </CardFooter>
+                          </Card>
+                        );
+                      })}
                     </div>
                   )}
                 </TabsContent>
