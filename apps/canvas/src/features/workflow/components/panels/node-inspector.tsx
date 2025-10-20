@@ -19,7 +19,12 @@ import {
 import { Switch } from "@/design-system/ui/switch";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Badge } from "@/design-system/ui/badge";
-import { Separator } from "@/design-system/ui/separator";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/design-system/ui/accordion";
 import {
   X,
   Code,
@@ -225,15 +230,18 @@ export default function NodeInspector({
     </div>
   );
 
-  const renderConfigContent = () => (
-    <ScrollArea className="h-full">
-      <div
-        className="p-6 space-y-6"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={handleDrop}
-      >
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium">Basic Settings</h3>
+  const renderConfigContent = () => {
+    const configurationSections: {
+      id: string;
+      title: string;
+      content: React.ReactNode;
+      defaultOpen?: boolean;
+    }[] = [
+      {
+        id: "basic",
+        title: "Basic Settings",
+        defaultOpen: true,
+        content: (
           <div className="grid gap-4">
             <div className="grid gap-2">
               <Label htmlFor="node-name">Node Name</Label>
@@ -255,186 +263,230 @@ export default function NodeInspector({
               />
             </div>
           </div>
-        </div>
+        ),
+      },
+    ];
 
-        <Separator />
-
-        {node.type === "HTTP Request" && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium">HTTP Settings</h3>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="request-method">Method</Label>
-                <Select defaultValue="GET">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="GET">GET</SelectItem>
-                    <SelectItem value="POST">POST</SelectItem>
-                    <SelectItem value="PUT">PUT</SelectItem>
-                    <SelectItem value="DELETE">DELETE</SelectItem>
-                    <SelectItem value="PATCH">PATCH</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="request-url">URL</Label>
-                <Input
-                  id="request-url"
-                  defaultValue="https://api.example.com/data"
-                  placeholder="Enter URL"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="request-headers">Headers</Label>
-                  <Button variant="ghost" size="sm" className="h-8 px-2">
-                    <Plus className="h-3 w-3 mr-1" />
-                    Add Header
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input placeholder="Key" defaultValue="Content-Type" />
-
-                    <Input
-                      placeholder="Value"
-                      defaultValue="application/json"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input placeholder="Key" defaultValue="Authorization" />
-
-                    <Input
-                      placeholder="Value"
-                      defaultValue="Bearer {{auth.token}}"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="request-body">Request Body</Label>
-                <div className="relative">
-                  <Textarea
-                    id="request-body"
-                    defaultValue='{\n  "query": "example",\n  "limit": 10\n}'
-                    className="font-mono min-h-[150px]"
-                  />
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                  >
-                    <Code className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {node.type === "Transform Data" && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium">Transformation Settings</h3>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="transform-mode">Mode</Label>
-                <Select defaultValue="jmespath">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="jmespath">JMESPath</SelectItem>
-                    <SelectItem value="jsonata">JSONata</SelectItem>
-                    <SelectItem value="custom">Custom Code</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="transform-expression">Expression</Label>
-                <div className="relative">
-                  <Textarea
-                    id="transform-expression"
-                    defaultValue="data.items[?value > `100`]"
-                    className="font-mono min-h-[150px]"
-                  />
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                  >
-                    <Code className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {node.type === "Python" && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium">Python Code</h3>
-            <div className="grid gap-2">
-              <Label htmlFor="python-code">Code</Label>
-              <div className="border rounded-md overflow-hidden h-[300px]">
-                {typeof window !== "undefined" && (
-                  <Editor
-                    height="100%"
-                    defaultLanguage="python"
-                    value={pythonCode}
-                    onChange={(value) => setPythonCode(value || "")}
-                    options={{
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                      fontSize: 14,
-                      lineNumbers: "on",
-                    }}
-                    theme="vs-dark"
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <Separator />
-
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium">Advanced Options</h3>
+    if (node.type === "HTTP Request") {
+      configurationSections.push({
+        id: "http",
+        title: "HTTP Settings",
+        content: (
           <div className="grid gap-4">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="retry-failed">Retry on failure</Label>
-              <Switch id="retry-failed" />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="continue-on-fail">Continue on failure</Label>
-              <Switch id="continue-on-fail" />
+            <div className="grid gap-2">
+              <Label htmlFor="request-method">Method</Label>
+              <Select defaultValue="GET">
+                <SelectTrigger>
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="DELETE">DELETE</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="timeout">Timeout (seconds)</Label>
+              <Label htmlFor="request-url">URL</Label>
               <Input
-                id="timeout"
-                type="number"
-                defaultValue="30"
-                min="1"
-                max="300"
+                id="request-url"
+                defaultValue="https://api.example.com/data"
+                placeholder="Enter URL"
               />
             </div>
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="request-headers">Headers</Label>
+                <Button variant="ghost" size="sm" className="h-8 px-2">
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add Header
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="Key" defaultValue="Content-Type" />
+
+                  <Input placeholder="Value" defaultValue="application/json" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="Key" defaultValue="Authorization" />
+
+                  <Input
+                    placeholder="Value"
+                    defaultValue="Bearer {{auth.token}}"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="request-body">Request Body</Label>
+              <div className="relative">
+                <Textarea
+                  id="request-body"
+                  defaultValue='{
+  "query": "example",
+  "limit": 10
+}'
+                  className="font-mono min-h-[150px]"
+                />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
+                >
+                  <Code className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ),
+      });
+    }
+
+    if (node.type === "Transform Data") {
+      configurationSections.push({
+        id: "transform",
+        title: "Transformation Settings",
+        content: (
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="transform-mode">Mode</Label>
+              <Select defaultValue="jmespath">
+                <SelectTrigger>
+                  <SelectValue placeholder="Select mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="jmespath">JMESPath</SelectItem>
+                  <SelectItem value="jsonata">JSONata</SelectItem>
+                  <SelectItem value="custom">Custom Code</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="transform-expression">Expression</Label>
+              <div className="relative">
+                <Textarea
+                  id="transform-expression"
+                  defaultValue="data.items[?value > `100`]"
+                  className="font-mono min-h-[150px]"
+                />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
+                >
+                  <Code className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ),
+      });
+    }
+
+    if (node.type === "Python") {
+      configurationSections.push({
+        id: "python",
+        title: "Python Code",
+        content: (
+          <div className="grid gap-2">
+            <Label htmlFor="python-code">Code</Label>
+            <div className="border rounded-md overflow-hidden h-[300px]">
+              {typeof window !== "undefined" && (
+                <Editor
+                  height="100%"
+                  defaultLanguage="python"
+                  value={pythonCode}
+                  onChange={(value) => setPythonCode(value || "")}
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 14,
+                    lineNumbers: "on",
+                  }}
+                  theme="vs-dark"
+                />
+              )}
+            </div>
+          </div>
+        ),
+      });
+    }
+
+    configurationSections.push({
+      id: "advanced",
+      title: "Advanced Options",
+      content: (
+        <div className="grid gap-4">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="retry-failed">Retry on failure</Label>
+            <Switch id="retry-failed" />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Label htmlFor="continue-on-fail">Continue on failure</Label>
+            <Switch id="continue-on-fail" />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="timeout">Timeout (seconds)</Label>
+            <Input
+              id="timeout"
+              type="number"
+              defaultValue="30"
+              min="1"
+              max="300"
+            />
           </div>
         </div>
-      </div>
-    </ScrollArea>
-  );
+      ),
+    });
 
+    const defaultItems = configurationSections
+      .filter((section) => section.defaultOpen ?? true)
+      .map((section) => section.id);
+
+    return (
+      <ScrollArea className="h-full">
+        <div
+          className="p-6"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+        >
+          <Accordion
+            type="multiple"
+            defaultValue={defaultItems}
+            className="space-y-3"
+          >
+            {configurationSections.map((section) => (
+              <AccordionItem
+                key={section.id}
+                value={section.id}
+                className="border border-border/50 rounded-lg bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40"
+              >
+                <AccordionTrigger className="px-4 py-2 text-left text-sm font-medium hover:no-underline">
+                  {section.title}
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 pt-0">
+                  <div className="pt-2 space-y-4 text-sm text-foreground">
+                    {section.content}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      </ScrollArea>
+    );
+  };
   const renderOutputContent = () => (
     <div className="flex h-full flex-col">
       <div className="border-b border-border">

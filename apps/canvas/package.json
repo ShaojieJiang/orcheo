@@ -40,6 +40,7 @@
     "@radix-ui/react-toggle": "^1.1.2",
     "@radix-ui/react-toggle-group": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "@rollup/rollup-linux-x64-gnu": "^4.52.5",
     "@xyflow/react": "^12.6.0",
     "ag-grid-react": "^32.1.0",
     "antd": "^5.20.5",
@@ -111,9 +112,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
-    "@eslint/js": "^9.21.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

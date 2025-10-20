@@ -4,6 +4,7 @@ import React, {
   useRef,
   useEffect,
   useLayoutEffect,
+  useMemo,
 } from "react";
 import { useParams } from "react-router-dom";
 import type {
@@ -36,6 +37,7 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
+import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
@@ -227,6 +229,9 @@ export default function WorkflowCanvas({
   const [canRedo, setCanRedo] = useState(false);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [activeTab, setActiveTab] = useState("canvas");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchMatches, setSearchMatches] = useState<string[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
 
   // Chat interface state
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -246,6 +251,44 @@ export default function WorkflowCanvas({
     WorkflowEdge
   > | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
+
+  const decoratedNodes = useMemo(() => {
+    if (!isSearchOpen && searchMatches.length === 0) {
+      return nodes;
+    }
+
+    return nodes.map((node) => {
+      const isMatch = searchMatchSet.has(node.id);
+      const isActive =
+        isMatch &&
+        isSearchOpen &&
+        searchMatches[currentSearchIndex] === node.id;
+
+      if (!isSearchOpen) {
+        return isMatch
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                isSearchMatch: false,
+                isSearchActive: false,
+              },
+            }
+          : node;
+      }
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isSearchMatch: isMatch,
+          isSearchActive: isActive,
+        },
+      };
+    });
+  }, [currentSearchIndex, isSearchOpen, nodes, searchMatchSet, searchMatches]);
 
   const createSnapshot = useCallback(
     (): WorkflowSnapshot => ({
@@ -706,6 +749,121 @@ export default function WorkflowCanvas({
       ],
     },
   ];
+
+  const highlightMatch = useCallback(
+    (index: number) => {
+      const instance = reactFlowInstance.current;
+      if (!instance) {
+        return;
+      }
+
+      const nodeId = searchMatches[index];
+      if (!nodeId) {
+        return;
+      }
+
+      const node = instance.getNode(nodeId);
+      if (!node) {
+        return;
+      }
+
+      const position = node.positionAbsolute ?? node.position;
+      const width = node.measured?.width ?? node.width ?? 180;
+      const height = node.measured?.height ?? node.height ?? 120;
+
+      const centerX = (position?.x ?? 0) + width / 2;
+      const centerY = (position?.y ?? 0) + height / 2;
+
+      const zoomLevel =
+        typeof instance.getZoom === "function"
+          ? Math.max(instance.getZoom(), 1.2)
+          : 1.2;
+
+      instance.setCenter(centerX, centerY, {
+        zoom: zoomLevel,
+        duration: 300,
+      });
+    },
+    [searchMatches],
+  );
+
+  const handleSearchNodes = useCallback((query: string) => {
+    const normalized = query.trim().toLowerCase();
+
+    if (!normalized) {
+      setSearchMatches([]);
+      setCurrentSearchIndex(0);
+      return;
+    }
+
+    const matches = nodesRef.current
+      .filter((node) => {
+        const label = String(node.data?.label ?? "").toLowerCase();
+        const description = String(node.data?.description ?? "").toLowerCase();
+        return (
+          label.includes(normalized) ||
+          description.includes(normalized) ||
+          node.id.toLowerCase().includes(normalized)
+        );
+      })
+      .map((node) => node.id);
+
+    setSearchMatches(matches);
+    setCurrentSearchIndex(matches.length > 0 ? 0 : 0);
+  }, []);
+
+  const handleHighlightNext = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+    setCurrentSearchIndex((index) => (index + 1) % searchMatches.length);
+  }, [searchMatches]);
+
+  const handleHighlightPrevious = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+    setCurrentSearchIndex(
+      (index) => (index - 1 + searchMatches.length) % searchMatches.length,
+    );
+  }, [searchMatches]);
+
+  const handleCloseSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setSearchMatches([]);
+    setCurrentSearchIndex(0);
+  }, []);
+
+  const handleToggleSearch = useCallback(() => {
+    setIsSearchOpen((previous) => {
+      const next = !previous;
+      setSearchMatches([]);
+      setCurrentSearchIndex(0);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isSearchOpen) {
+      return;
+    }
+
+    if (searchMatches.length === 0) {
+      return;
+    }
+
+    const safeIndex = Math.min(
+      currentSearchIndex,
+      Math.max(searchMatches.length - 1, 0),
+    );
+
+    if (safeIndex !== currentSearchIndex) {
+      setCurrentSearchIndex(safeIndex);
+      return;
+    }
+
+    highlightMatch(safeIndex);
+  }, [currentSearchIndex, highlightMatch, isSearchOpen, searchMatches]);
 
   const handleDuplicateSelectedNodes = useCallback(() => {
     const selectedNodes = nodes.filter((node) => node.selected);
@@ -1247,6 +1405,14 @@ export default function WorkflowCanvas({
 
       const key = event.key.toLowerCase();
 
+      if (key === "f") {
+        event.preventDefault();
+        setIsSearchOpen(true);
+        setSearchMatches([]);
+        setCurrentSearchIndex(0);
+        return;
+      }
+
       if (key === "z") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -1265,7 +1431,13 @@ export default function WorkflowCanvas({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleRedo, handleUndo]);
+  }, [
+    handleRedo,
+    handleUndo,
+    setCurrentSearchIndex,
+    setIsSearchOpen,
+    setSearchMatches,
+  ]);
 
   // Handle node inspector close
   const handleCloseNodeInspector = useCallback(() => {
@@ -1437,7 +1609,7 @@ export default function WorkflowCanvas({
                 onDrop={onDrop}
               >
                 <ReactFlow
-                  nodes={nodes}
+                  nodes={decoratedNodes}
                   edges={edges}
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
@@ -1463,6 +1635,16 @@ export default function WorkflowCanvas({
                   proOptions={{ hideAttribution: true }}
                   className="h-full"
                 >
+                  <WorkflowSearch
+                    isOpen={isSearchOpen}
+                    onSearch={handleSearchNodes}
+                    onHighlightNext={handleHighlightNext}
+                    onHighlightPrevious={handleHighlightPrevious}
+                    onClose={handleCloseSearch}
+                    matchCount={searchMatches.length}
+                    currentMatchIndex={currentSearchIndex}
+                    className="backdrop-blur supports-[backdrop-filter]:bg-background/60"
+                  />
                   <Background />
 
                   <Controls />
@@ -1504,6 +1686,8 @@ export default function WorkflowCanvas({
                       onDuplicate={handleDuplicateSelectedNodes}
                       onExport={handleExportWorkflow}
                       onImport={handleImportWorkflow}
+                      onToggleSearch={handleToggleSearch}
+                      isSearchOpen={isSearchOpen}
                     />
                   </Panel>
                   <input
