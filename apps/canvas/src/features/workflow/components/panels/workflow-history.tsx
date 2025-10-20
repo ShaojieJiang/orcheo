@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/design-system/ui/button";
 import {
   Dialog,
@@ -36,25 +36,16 @@ import {
   FileDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { WorkflowVersionRecord } from "@features/workflow/lib/workflow-persistence";
+import {
+  diffWorkflowSnapshots,
+  type WorkflowDiffResult,
+} from "@features/workflow/lib/workflow-diff";
 
-interface WorkflowVersion {
-  id: string;
-  version: string;
-  timestamp: string;
-  author: {
-    name: string;
-    avatar: string;
-  };
-  message: string;
-  changes: {
-    added: number;
-    removed: number;
-    modified: number;
-  };
-}
+type WorkflowVersion = WorkflowVersionRecord;
 
 interface WorkflowHistoryProps {
-  versions?: WorkflowVersion[];
+  versions?: WorkflowVersionRecord[];
   currentVersion?: string;
   onSelectVersion?: (version: string) => void;
   onRestoreVersion?: (version: string) => void;
@@ -74,16 +65,23 @@ export default function WorkflowHistory({
   );
   const [compareVersion, setCompareVersion] = useState<string | null>(null);
   const [showDiffDialog, setShowDiffDialog] = useState(false);
+  const [diffResult, setDiffResult] = useState<WorkflowDiffResult | null>(null);
 
-  // Filter versions based on search query
-  const filteredVersions = searchQuery
-    ? versions.filter(
-        (version) =>
-          version.version.includes(searchQuery) ||
-          version.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          version.author.name.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : versions;
+  const filteredVersions = useMemo(() => {
+    if (!searchQuery) {
+      return versions;
+    }
+
+    const normalized = searchQuery.toLowerCase();
+    return versions.filter((version) => {
+      const versionMatch = version.version.toLowerCase().includes(normalized);
+      const messageMatch = version.message?.toLowerCase().includes(normalized);
+      const authorMatch = version.author?.name
+        .toLowerCase()
+        .includes(normalized);
+      return versionMatch || messageMatch || authorMatch;
+    });
+  }, [searchQuery, versions]);
 
   const handleSelectVersion = (version: string) => {
     setSelectedVersion(version);
@@ -91,15 +89,54 @@ export default function WorkflowHistory({
   };
 
   const handleCompareVersions = () => {
-    if (selectedVersion && compareVersion) {
-      setShowDiffDialog(true);
+    if (!selectedVersion || !compareVersion) {
+      return;
     }
+
+    const baseVersion = versions.find((v) => v.version === selectedVersion);
+    const targetVersion = versions.find((v) => v.version === compareVersion);
+
+    if (!baseVersion || !targetVersion) {
+      return;
+    }
+
+    setDiffResult(
+      diffWorkflowSnapshots(
+        baseVersion.nodes,
+        baseVersion.edges,
+        targetVersion.nodes,
+        targetVersion.edges,
+      ),
+    );
+    setShowDiffDialog(true);
   };
 
   const handleRestoreVersion = () => {
     if (selectedVersion) {
       onRestoreVersion?.(selectedVersion);
     }
+  };
+
+  const handleExportDiff = () => {
+    if (!diffResult || !selectedVersion || !compareVersion) {
+      return;
+    }
+
+    const diffPayload = {
+      baseVersion: selectedVersion,
+      compareVersion,
+      diff: diffResult,
+    };
+
+    const blob = new Blob([JSON.stringify(diffPayload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `workflow-diff-${selectedVersion}-vs-${compareVersion}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const getStatusBadge = (version: WorkflowVersion) => {
@@ -218,17 +255,22 @@ export default function WorkflowHistory({
                       {getStatusBadge(version)}
                     </div>
                   </TableCell>
-                  <TableCell>{version.message}</TableCell>
+                  <TableCell>
+                    {version.message || "No summary provided"}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="h-6 w-6 rounded-full overflow-hidden bg-muted">
                         <img
-                          src={version.author.avatar}
-                          alt={version.author.name}
+                          src={
+                            version.author?.avatar ??
+                            "https://avatar.vercel.sh/orcheo"
+                          }
+                          alt={version.author?.name ?? "Unknown"}
                           className="h-full w-full object-cover"
                         />
                       </div>
-                      {version.author.name}
+                      {version.author?.name ?? "Unknown"}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -276,7 +318,15 @@ export default function WorkflowHistory({
       </div>
 
       {/* Diff Dialog */}
-      <Dialog open={showDiffDialog} onOpenChange={setShowDiffDialog}>
+      <Dialog
+        open={showDiffDialog}
+        onOpenChange={(open) => {
+          setShowDiffDialog(open);
+          if (!open) {
+            setDiffResult(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Compare Versions</DialogTitle>
@@ -296,7 +346,12 @@ export default function WorkflowHistory({
 
                 <span className="font-medium">{compareVersion}</span>
               </div>
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportDiff}
+                disabled={!diffResult}
+              >
                 <FileDown className="h-4 w-4 mr-2" />
                 Export Diff
               </Button>
@@ -318,48 +373,135 @@ export default function WorkflowHistory({
                 </div>
               </div>
 
-              <div className="p-4 bg-muted/20">
-                <div className="space-y-4">
-                  {/* Sample diff visualization */}
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">HTTP Request Node</span>
-                    </div>
-                    <div className="p-2">
-                      <div className="bg-green-100 dark:bg-green-900/20 p-1 rounded text-sm font-mono">
-                        + "url": "https://api.example.com/v2/data"
-                      </div>
-                      <div className="bg-red-100 dark:bg-red-900/20 p-1 rounded text-sm font-mono">
-                        - "url": "https://api.example.com/v1/data"
-                      </div>
-                    </div>
+              <div className="p-4 bg-muted/20 space-y-6">
+                {!diffResult ? (
+                  <div className="text-sm text-muted-foreground">
+                    Select two versions to generate a diff.
                   </div>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">
+                        Node changes
+                      </h4>
+                      <div className="space-y-2">
+                        {diffResult.nodes.added.map((node) => (
+                          <div
+                            key={`node-added-${node.id}`}
+                            className="bg-green-100 dark:bg-green-900/20 p-2 rounded text-sm"
+                          >
+                            + Added node "{node.label}"
+                          </div>
+                        ))}
+                        {diffResult.nodes.removed.map((node) => (
+                          <div
+                            key={`node-removed-${node.id}`}
+                            className="bg-red-100 dark:bg-red-900/20 p-2 rounded text-sm"
+                          >
+                            − Removed node "{node.label}"
+                          </div>
+                        ))}
+                        {diffResult.nodes.modified.map((node) => (
+                          <div
+                            key={`node-modified-${node.id}`}
+                            className="bg-blue-100 dark:bg-blue-900/20 p-2 rounded text-sm space-y-2"
+                          >
+                            <div className="font-medium">
+                              ~ Updated node "{node.label}"
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-2 text-xs font-mono">
+                              <div className="bg-background/80 p-2 rounded">
+                                <div className="text-muted-foreground mb-1">
+                                  Before
+                                </div>
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {JSON.stringify(node.before?.data, null, 2)}
+                                </pre>
+                              </div>
+                              <div className="bg-background/80 p-2 rounded">
+                                <div className="text-muted-foreground mb-1">
+                                  After
+                                </div>
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {JSON.stringify(node.after?.data, null, 2)}
+                                </pre>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {diffResult.nodes.added.length === 0 &&
+                          diffResult.nodes.removed.length === 0 &&
+                          diffResult.nodes.modified.length === 0 && (
+                            <div className="text-sm text-muted-foreground">
+                              No node changes detected.
+                            </div>
+                          )}
+                      </div>
+                    </div>
 
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">Transform Data Node</span>
-                    </div>
-                    <div className="p-2">
-                      <div className="bg-blue-100 dark:bg-blue-900/20 p-1 rounded text-sm font-mono">
-                        ~ "expression": "data.items[?value {">"} `200`]"
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">
+                        Edge changes
+                      </h4>
+                      <div className="space-y-2">
+                        {diffResult.edges.added.map((edge) => (
+                          <div
+                            key={`edge-added-${edge.id}`}
+                            className="bg-green-100 dark:bg-green-900/20 p-2 rounded text-sm"
+                          >
+                            + Added edge {edge.after?.source} →{" "}
+                            {edge.after?.target}
+                          </div>
+                        ))}
+                        {diffResult.edges.removed.map((edge) => (
+                          <div
+                            key={`edge-removed-${edge.id}`}
+                            className="bg-red-100 dark:bg-red-900/20 p-2 rounded text-sm"
+                          >
+                            − Removed edge {edge.before?.source} →{" "}
+                            {edge.before?.target}
+                          </div>
+                        ))}
+                        {diffResult.edges.modified.map((edge) => (
+                          <div
+                            key={`edge-modified-${edge.id}`}
+                            className="bg-blue-100 dark:bg-blue-900/20 p-2 rounded text-sm space-y-2"
+                          >
+                            <div className="font-medium">
+                              ~ Updated edge {edge.before?.source} →{" "}
+                              {edge.before?.target}
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-2 text-xs font-mono">
+                              <div className="bg-background/80 p-2 rounded">
+                                <div className="text-muted-foreground mb-1">
+                                  Before
+                                </div>
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {JSON.stringify(edge.before, null, 2)}
+                                </pre>
+                              </div>
+                              <div className="bg-background/80 p-2 rounded">
+                                <div className="text-muted-foreground mb-1">
+                                  After
+                                </div>
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {JSON.stringify(edge.after, null, 2)}
+                                </pre>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {diffResult.edges.added.length === 0 &&
+                          diffResult.edges.removed.length === 0 &&
+                          diffResult.edges.modified.length === 0 && (
+                            <div className="text-sm text-muted-foreground">
+                              No edge changes detected.
+                            </div>
+                          )}
                       </div>
-                      <div className="bg-blue-100 dark:bg-blue-900/20 p-1 rounded text-sm font-mono">
-                        ~ "expression": "data.items[?value {">"} `100`]"
-                      </div>
                     </div>
-                  </div>
-
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">Send Email Node</span>
-                    </div>
-                    <div className="p-2">
-                      <div className="bg-green-100 dark:bg-green-900/20 p-1 rounded text-sm font-mono">
-                        + Added new node
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
@@ -67,8 +67,18 @@ import { Checkbox } from "@/design-system/ui/checkbox";
 import { Label } from "@/design-system/ui/label";
 
 import TopNavigation from "@features/shared/components/top-navigation";
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import {
+  SAMPLE_WORKFLOWS,
+  type Workflow,
+} from "@features/workflow/data/workflow-data";
+import {
+  deleteWorkflow,
+  listWorkflows,
+  saveWorkflow,
+} from "@features/workflow/lib/workflow-persistence";
 import { toast } from "@/hooks/use-toast";
+
+type GalleryWorkflow = Workflow & { isTemplate?: boolean };
 
 export default function WorkflowGallery() {
   const navigate = useNavigate();
@@ -80,6 +90,7 @@ export default function WorkflowGallery() {
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] = useState(false);
   const [showFilterPopover, setShowFilterPopover] = useState(false);
+  const [persistedWorkflows, setPersistedWorkflows] = useState<Workflow[]>([]);
   const [filters, setFilters] = useState({
     owner: {
       me: true,
@@ -98,22 +109,74 @@ export default function WorkflowGallery() {
     },
   });
 
+  const refreshPersistedWorkflows = useCallback(() => {
+    setPersistedWorkflows(listWorkflows());
+  }, []);
+
+  useEffect(() => {
+    refreshPersistedWorkflows();
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "orcheo.canvas.workflows.v1") {
+        refreshPersistedWorkflows();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [refreshPersistedWorkflows]);
+
+  const templateWorkflows = useMemo<GalleryWorkflow[]>(
+    () =>
+      SAMPLE_WORKFLOWS.map((workflow) => ({
+        ...workflow,
+        isTemplate: true,
+        tags: workflow.tags.includes("template")
+          ? workflow.tags
+          : [...workflow.tags, "template"],
+      })),
+    [],
+  );
+
+  const galleryWorkflows = useMemo<GalleryWorkflow[]>(
+    () => [
+      ...persistedWorkflows.map((workflow) => ({
+        ...workflow,
+        isTemplate: false,
+      })),
+      ...templateWorkflows,
+    ],
+    [persistedWorkflows, templateWorkflows],
+  );
+
+  const normalizedSearch = searchQuery.toLowerCase();
+
   // Filter workflows based on search query and selected tab
-  const filteredWorkflows = SAMPLE_WORKFLOWS.filter((workflow) => {
+  const filteredWorkflows = galleryWorkflows.filter((workflow) => {
+    const description = workflow.description?.toLowerCase() ?? "";
     const matchesSearch =
-      workflow.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (workflow.description &&
-        workflow.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      workflow.name.toLowerCase().includes(normalizedSearch) ||
+      description.includes(normalizedSearch);
 
-    if (selectedTab === "all") return matchesSearch;
-    if (selectedTab === "favorites")
-      return matchesSearch && workflow.tags.includes("favorite");
-    if (selectedTab === "shared")
-      return matchesSearch && workflow.owner.id !== "user-1";
-    if (selectedTab === "templates")
-      return matchesSearch && workflow.tags.includes("template");
+    if (!matchesSearch) {
+      return false;
+    }
 
-    return matchesSearch;
+    if (selectedTab === "favorites") {
+      return workflow.tags.includes("favorite");
+    }
+    if (selectedTab === "shared") {
+      return workflow.owner.id !== "user-1";
+    }
+    if (selectedTab === "templates") {
+      return workflow.tags.includes("template") || workflow.isTemplate === true;
+    }
+
+    return true;
   });
 
   // Sort workflows
@@ -140,17 +203,25 @@ export default function WorkflowGallery() {
   };
 
   const handleCreateWorkflow = () => {
-    // In a real app, this would create a workflow in the backend
-    toast({
-      title: "Workflow creation coming soon",
-      description: newWorkflowName
-        ? `We'll create "${newWorkflowName}" once persistence is wired up.`
-        : "Workflow creation will be available in a future update.",
+    const name = newWorkflowName.trim() || "Untitled workflow";
+
+    const result = saveWorkflow({
+      name,
+      nodes: [],
+      edges: [],
+      message: "Created from gallery",
     });
+
+    refreshPersistedWorkflows();
     setNewWorkflowName("");
     setShowNewWorkflowDialog(false);
-    // Navigate to the workflow canvas with the new workflow
-    navigate("/workflow-canvas");
+
+    toast({
+      title: "Workflow created",
+      description: `Opening "${result.record.workflow.name}" in the canvas.`,
+    });
+
+    navigate(`/workflow-canvas/${result.id}`);
   };
 
   const handleApplyFilters = () => {
@@ -162,6 +233,103 @@ export default function WorkflowGallery() {
     setShowFilterPopover(false);
     // In a real app, this would update the filtered workflows
   };
+
+  const handleExportWorkflowData = useCallback((workflow: GalleryWorkflow) => {
+    const payload = {
+      name: workflow.name,
+      description: workflow.description,
+      nodes: workflow.nodes,
+      edges: workflow.edges,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${workflow.name.replace(/\s+/g, "-").toLowerCase()}-workflow.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Workflow exported",
+      description: `Downloaded "${workflow.name}" as JSON.`,
+    });
+  }, []);
+
+  const handleUseTemplate = useCallback(
+    (workflow: GalleryWorkflow) => {
+      const tags = workflow.tags.filter((tag) => tag !== "template");
+      const result = saveWorkflow({
+        name: `${workflow.name} Copy`,
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+        tags: tags.length > 0 ? tags : undefined,
+        message: `Created from template ${workflow.name}`,
+      });
+
+      refreshPersistedWorkflows();
+      toast({
+        title: "Template copied",
+        description: `Opening "${result.record.workflow.name}" in the canvas.`,
+      });
+
+      navigate(`/workflow-canvas/${result.id}`);
+    },
+    [navigate, refreshPersistedWorkflows],
+  );
+
+  const handleDuplicateWorkflow = useCallback(
+    (workflow: GalleryWorkflow) => {
+      if (workflow.isTemplate) {
+        handleUseTemplate(workflow);
+        return;
+      }
+
+      const duplicateName = workflow.name.includes("Copy")
+        ? `${workflow.name} (copy)`
+        : `${workflow.name} Copy`;
+
+      const tags = workflow.tags.filter((tag) => tag !== "template");
+      const result = saveWorkflow({
+        name: duplicateName,
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+        tags: tags.length > 0 ? tags : undefined,
+        message: `Duplicated from ${workflow.name}`,
+      });
+
+      refreshPersistedWorkflows();
+      toast({
+        title: "Workflow duplicated",
+        description: `Opening "${duplicateName}" in the canvas.`,
+      });
+
+      navigate(`/workflow-canvas/${result.id}`);
+    },
+    [handleUseTemplate, navigate, refreshPersistedWorkflows],
+  );
+
+  const handleDeleteWorkflow = useCallback(
+    (workflow: GalleryWorkflow) => {
+      if (workflow.isTemplate) {
+        toast({
+          title: "Template cannot be deleted",
+          description: "Create a copy to customize this template.",
+        });
+        return;
+      }
+
+      deleteWorkflow(workflow.id);
+      refreshPersistedWorkflows();
+      toast({
+        title: "Workflow deleted",
+        description: `Removed "${workflow.name}" from your library.`,
+      });
+    },
+    [refreshPersistedWorkflows],
+  );
 
   // Generate a simple thumbnail preview for a workflow
   const WorkflowThumbnail = ({ workflow }) => {
@@ -630,26 +798,50 @@ export default function WorkflowGallery() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem
-                                    onClick={() =>
-                                      navigate(
-                                        `/workflow-canvas/${workflow.id}`,
-                                      )
-                                    }
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      if (workflow.isTemplate) {
+                                        handleUseTemplate(workflow);
+                                      } else {
+                                        navigate(
+                                          `/workflow-canvas/${workflow.id}`,
+                                        );
+                                      }
+                                    }}
                                   >
                                     <Pencil className="mr-2 h-4 w-4" />
-                                    Edit
+                                    {workflow.isTemplate
+                                      ? "Use Template"
+                                      : "Edit"}
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      handleDuplicateWorkflow(workflow);
+                                    }}
+                                  >
                                     <Copy className="mr-2 h-4 w-4" />
                                     Duplicate
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      handleExportWorkflowData(workflow);
+                                    }}
+                                  >
                                     <Download className="mr-2 h-4 w-4" />
                                     Export
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
 
-                                  <DropdownMenuItem className="text-red-600">
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      handleDeleteWorkflow(workflow);
+                                    }}
+                                    disabled={workflow.isTemplate}
+                                  >
                                     <Trash className="mr-2 h-4 w-4" />
                                     Delete
                                   </DropdownMenuItem>
@@ -719,15 +911,30 @@ export default function WorkflowGallery() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7"
+                                disabled={workflow.isTemplate}
                               >
                                 <Star className="h-3 w-3" />
                               </Button>
-                              <Link to={`/workflow-canvas/${workflow.id}`}>
-                                <Button size="sm" className="h-7 text-xs px-2">
-                                  <Pencil className="mr-1 h-3 w-3" />
-                                  Edit
+                              {workflow.isTemplate ? (
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs px-2"
+                                  onClick={() => handleUseTemplate(workflow)}
+                                >
+                                  <Zap className="mr-1 h-3 w-3" />
+                                  Use
                                 </Button>
-                              </Link>
+                              ) : (
+                                <Link to={`/workflow-canvas/${workflow.id}`}>
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs px-2"
+                                  >
+                                    <Pencil className="mr-1 h-3 w-3" />
+                                    Edit
+                                  </Button>
+                                </Link>
+                              )}
                             </div>
                           </CardFooter>
                         </Card>

@@ -28,6 +28,7 @@ import {
   Share,
   GitBranch,
   Search,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ interface WorkflowControlsProps {
   onRun?: () => void;
   onPause?: () => void;
   onSave?: () => void;
+  onPublish?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -47,6 +49,7 @@ interface WorkflowControlsProps {
   onVersionHistory?: () => void;
   onToggleSearch?: () => void;
   isSearchOpen?: boolean;
+  hasValidationErrors?: boolean;
   className?: string;
 }
 
@@ -55,6 +58,7 @@ export default function WorkflowControls({
   onRun,
   onPause,
   onSave,
+  onPublish,
   onUndo,
   onRedo,
   canUndo = false,
@@ -66,6 +70,7 @@ export default function WorkflowControls({
   onVersionHistory,
   onToggleSearch,
   isSearchOpen = false,
+  hasValidationErrors = false,
   className,
 }: WorkflowControlsProps) {
   return (
@@ -112,6 +117,34 @@ export default function WorkflowControls({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+
+        {onPublish && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-8 w-8",
+                    hasValidationErrors && "text-destructive",
+                  )}
+                  onClick={onPublish}
+                  aria-label="Validate and publish workflow"
+                >
+                  <Rocket className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {hasValidationErrors
+                    ? "Resolve validation issues before publishing"
+                    : "Validate & publish"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
 
         <TooltipProvider>
           <Tooltip>

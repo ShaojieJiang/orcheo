@@ -6,7 +6,7 @@ import React, {
   useLayoutEffect,
   useMemo,
 } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import type {
   Connection,
   Edge,
@@ -35,9 +35,14 @@ import { Separator } from "@/design-system/ui/separator";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
-import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
+import WorkflowNodeComponent from "@features/workflow/components/nodes/workflow-node";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
+import ConnectionValidator, {
+  type ValidationError,
+  validateConnection,
+  validateNodeCredentials,
+} from "@features/workflow/components/canvas/connection-validator";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
@@ -47,12 +52,25 @@ import WorkflowExecutionHistory, {
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
+import CredentialAssignments from "@features/workflow/components/panels/credential-assignments";
+import SubWorkflowLibrary from "@features/workflow/components/panels/sub-workflow-library";
+import SubWorkflowAssignments from "@features/workflow/components/panels/sub-workflow-assignments";
+import {
+  SAMPLE_WORKFLOWS,
+  type WorkflowEdge as StoredWorkflowEdge,
+  type WorkflowNode as StoredWorkflowNode,
+} from "@features/workflow/data/workflow-data";
+import {
+  getWorkflowRecord,
+  saveWorkflow,
+  type WorkflowVersionRecord,
+} from "@features/workflow/lib/workflow-persistence";
 import { toast } from "@/hooks/use-toast";
 
 // Define custom node types
 const nodeTypes = {
-  default: WorkflowNode,
+  default: WorkflowNodeComponent,
   chatTrigger: ChatTriggerNode,
   startEnd: StartEndNode,
 };
@@ -89,31 +107,141 @@ interface NodeData {
   icon?: React.ReactNode;
   onOpenChat?: () => void;
   isDisabled?: boolean;
+  credentials?: {
+    id: string;
+    name: string;
+    type?: string;
+  } | null;
+  subWorkflowId?: string | null;
+  subWorkflowName?: string;
+  previousType?: string;
   [key: string]: unknown;
 }
 
-type WorkflowNode = Node<NodeData>;
-type WorkflowEdge = Edge<Record<string, unknown>>;
+type CanvasWorkflowNode = Node<NodeData>;
+type CanvasWorkflowEdge = Edge<Record<string, unknown>>;
+
+type ValidatorNodeType = Parameters<typeof validateNodeCredentials>[0];
+type ValidatorEdgeType = Parameters<typeof validateConnection>[2][number];
+
+interface CredentialRecord {
+  id: string;
+  name: string;
+  type: string;
+  owner: string;
+  access: "private" | "shared" | "public";
+  createdAt: string;
+  updatedAt: string;
+  secrets: Record<string, string>;
+}
+
+type NewCredentialInput = Omit<
+  CredentialRecord,
+  "id" | "createdAt" | "updatedAt" | "owner"
+> & {
+  owner?: string;
+};
+
+interface SubWorkflowTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  tags: string[];
+  nodeCount: number;
+  edgeCount: number;
+  updatedAt: string;
+}
 
 interface WorkflowSnapshot {
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
+  nodes: CanvasWorkflowNode[];
+  edges: CanvasWorkflowEdge[];
 }
 
 interface WorkflowCanvasProps {
-  initialNodes?: WorkflowNode[];
-  initialEdges?: WorkflowEdge[];
+  initialNodes?: CanvasWorkflowNode[];
+  initialEdges?: CanvasWorkflowEdge[];
 }
 
 const HISTORY_LIMIT = 50;
 
-const cloneNode = (node: WorkflowNode): WorkflowNode => ({
+const CREDENTIAL_STORAGE_KEY = "orcheo.canvas.credentials";
+
+const DEFAULT_CREDENTIALS: CredentialRecord[] = [
+  {
+    id: "cred-sandbox-openai",
+    name: "OpenAI Sandbox",
+    type: "api",
+    owner: "Workflow Team",
+    access: "shared",
+    createdAt: "2024-02-12T15:15:00.000Z",
+    updatedAt: "2025-01-10T10:45:00.000Z",
+    secrets: { apiKey: "sk-sandbox-1234567890" },
+  },
+  {
+    id: "cred-data-warehouse",
+    name: "Data Warehouse Writer",
+    type: "database",
+    owner: "Data Platform",
+    access: "private",
+    createdAt: "2024-06-01T08:00:00.000Z",
+    updatedAt: "2024-12-18T21:30:00.000Z",
+    secrets: { password: "postgres-writer-secret" },
+  },
+];
+
+const cloneCredentialRecord = (
+  credential: CredentialRecord,
+): CredentialRecord => ({
+  ...credential,
+  secrets: { ...credential.secrets },
+});
+
+const loadStoredCredentials = (): CredentialRecord[] => {
+  if (typeof window === "undefined") {
+    return DEFAULT_CREDENTIALS.map(cloneCredentialRecord);
+  }
+
+  const stored = window.localStorage.getItem(CREDENTIAL_STORAGE_KEY);
+  if (!stored) {
+    return DEFAULT_CREDENTIALS.map(cloneCredentialRecord);
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as CredentialRecord[];
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_CREDENTIALS.map(cloneCredentialRecord);
+    }
+
+    return parsed.map((credential) => ({
+      ...credential,
+      secrets: credential.secrets ?? {},
+    }));
+  } catch {
+    return DEFAULT_CREDENTIALS.map(cloneCredentialRecord);
+  }
+};
+
+const generateCredentialId = () => {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    "randomUUID" in globalThis.crypto &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `cred-${globalThis.crypto.randomUUID()}`;
+  }
+
+  const timestamp = Date.now().toString(36);
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  return `cred-${timestamp}-${randomSuffix}`;
+};
+
+const cloneNode = (node: CanvasWorkflowNode): CanvasWorkflowNode => ({
   ...node,
   position: node.position ? { ...node.position } : node.position,
   data: node.data ? { ...node.data } : node.data,
 });
 
-const cloneEdge = (edge: WorkflowEdge): WorkflowEdge => ({
+const cloneEdge = (edge: CanvasWorkflowEdge): CanvasWorkflowEdge => ({
   ...edge,
   data: edge.data ? { ...edge.data } : edge.data,
 });
@@ -140,7 +268,7 @@ interface WorkflowExecution {
   duration: number;
   issues: number;
   nodes: WorkflowExecutionNode[];
-  edges: WorkflowEdge[];
+  edges: CanvasWorkflowEdge[];
   logs: {
     timestamp: string;
     level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
@@ -209,25 +337,205 @@ const validateWorkflowData = (data: unknown) => {
   });
 };
 
+const sanitizeSerializableValue = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "function") {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    console.warn("Skipping non-serializable workflow value", error);
+    return undefined;
+  }
+};
+
+const canvasNodeToStored = (node: CanvasWorkflowNode): StoredWorkflowNode => {
+  const storedData: Record<string, unknown> = {};
+  const nodeData = node.data ?? {};
+
+  const label =
+    typeof nodeData.label === "string" && nodeData.label.trim().length > 0
+      ? nodeData.label
+      : node.id;
+
+  storedData.label = label;
+
+  if (typeof nodeData.description === "string") {
+    storedData.description = nodeData.description;
+  }
+
+  if (
+    typeof nodeData.status === "string" &&
+    ["idle", "running", "success", "error", "warning"].includes(nodeData.status)
+  ) {
+    storedData.status = nodeData.status;
+  }
+
+  if (typeof nodeData.isDisabled === "boolean") {
+    storedData.isDisabled = nodeData.isDisabled;
+  }
+
+  const reservedKeys = new Set([
+    "label",
+    "description",
+    "status",
+    "isDisabled",
+    "icon",
+    "onOpenChat",
+  ]);
+
+  Object.entries(nodeData).forEach(([key, value]) => {
+    if (reservedKeys.has(key)) {
+      return;
+    }
+    const sanitized = sanitizeSerializableValue(value);
+    if (sanitized !== undefined) {
+      storedData[key] = sanitized;
+    }
+  });
+
+  const domainType =
+    typeof nodeData.type === "string"
+      ? nodeData.type
+      : typeof node.type === "string"
+        ? node.type
+        : "default";
+
+  if (domainType) {
+    storedData.type = domainType;
+  }
+
+  return {
+    id: node.id,
+    type: domainType,
+    position: {
+      x: node.position?.x ?? node.positionAbsolute?.x ?? 0,
+      y: node.position?.y ?? node.positionAbsolute?.y ?? 0,
+    },
+    data: storedData,
+  } satisfies StoredWorkflowNode;
+};
+
+const canvasEdgeToStored = (edge: CanvasWorkflowEdge): StoredWorkflowEdge => ({
+  id: edge.id,
+  source: edge.source,
+  target: edge.target,
+  sourceHandle: edge.sourceHandle,
+  targetHandle: edge.targetHandle,
+  label: edge.label,
+  type: edge.type,
+  animated: edge.animated,
+  style: edge.style,
+});
+
+const storedNodeToCanvas = (
+  node: StoredWorkflowNode,
+  options?: { onOpenChat?: (nodeId: string) => void },
+): CanvasWorkflowNode => {
+  const nodeType = (() => {
+    if (node.type === "chatTrigger") {
+      return "chatTrigger" as const;
+    }
+    if (node.type === "start" || node.type === "end") {
+      return "startEnd" as const;
+    }
+    return "default" as const;
+  })();
+
+  const nodeData: NodeData = {
+    type: node.type,
+    label: String(node.data.label ?? node.id),
+    description:
+      typeof node.data.description === "string"
+        ? node.data.description
+        : undefined,
+    status: (node.data.status ?? "idle") as NodeStatus,
+    isDisabled:
+      typeof node.data.isDisabled === "boolean"
+        ? node.data.isDisabled
+        : undefined,
+  };
+
+  Object.entries(node.data).forEach(([key, value]) => {
+    if (key in nodeData) {
+      return;
+    }
+    const sanitized = sanitizeSerializableValue(value);
+    if (sanitized !== undefined) {
+      nodeData[key as keyof NodeData] = sanitized as never;
+    }
+  });
+
+  if (node.type === "chatTrigger" && options?.onOpenChat) {
+    nodeData.onOpenChat = () => options.onOpenChat?.(node.id);
+  }
+
+  return {
+    id: node.id,
+    type: nodeType,
+    position: node.position,
+    style: defaultNodeStyle,
+    data: nodeData,
+    draggable: true,
+  } satisfies CanvasWorkflowNode;
+};
+
+const storedEdgeToCanvas = (edge: StoredWorkflowEdge): CanvasWorkflowEdge => ({
+  id: edge.id,
+  source: edge.source,
+  target: edge.target,
+  sourceHandle: edge.sourceHandle,
+  targetHandle: edge.targetHandle,
+  label: edge.label,
+  type: edge.type ?? "smoothstep",
+  animated: edge.animated ?? false,
+  style: edge.style ?? { stroke: "#99a1b3", strokeWidth: 2 },
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    width: 20,
+    height: 20,
+  },
+});
+
 export default function WorkflowCanvas({
   initialNodes = [],
   initialEdges = [],
 }: WorkflowCanvasProps) {
+  const navigate = useNavigate();
   const { workflowId } = useParams<{ workflowId?: string }>();
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | undefined>(
+    workflowId,
+  );
 
   // Initialize with empty arrays instead of sample workflow
   const [nodes, setNodesState, onNodesChangeState] =
-    useNodesState<WorkflowNode>(initialNodes);
+    useNodesState<CanvasWorkflowNode>(initialNodes);
   const [edges, setEdgesState, onEdgesChangeState] =
-    useEdgesState<WorkflowEdge>(initialEdges);
+    useEdgesState<CanvasWorkflowEdge>(initialEdges);
   const [workflowName, setWorkflowName] = useState("New Workflow");
+  const [versionHistory, setVersionHistory] = useState<WorkflowVersionRecord[]>(
+    [],
+  );
+  const [credentialRecords, setCredentialRecords] = useState<
+    CredentialRecord[]
+  >(() => loadStoredCredentials());
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>(
+    [],
+  );
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<CanvasWorkflowNode | null>(
+    null,
+  );
   const [activeTab, setActiveTab] = useState("canvas");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
@@ -241,18 +549,118 @@ export default function WorkflowCanvas({
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
   const isRestoringRef = useRef(false);
-  const nodesRef = useRef<WorkflowNode[]>(nodes);
-  const edgesRef = useRef<WorkflowEdge[]>(edges);
+  const nodesRef = useRef<CanvasWorkflowNode[]>(nodes);
+  const edgesRef = useRef<CanvasWorkflowEdge[]>(edges);
 
   // Refs
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance<
-    WorkflowNode,
-    WorkflowEdge
+    CanvasWorkflowNode,
+    CanvasWorkflowEdge
   > | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
+
+  const subWorkflowTemplates = useMemo<SubWorkflowTemplate[]>(() => {
+    return SAMPLE_WORKFLOWS.filter((workflow) =>
+      workflow.tags.includes("template"),
+    ).map((workflow) => ({
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description,
+      tags: workflow.tags.filter((tag) => tag !== "template"),
+      nodeCount: workflow.nodes.length,
+      edgeCount: workflow.edges.length,
+      updatedAt: workflow.updatedAt,
+    }));
+  }, []);
+
+  const subWorkflowTemplateLookup = useMemo(
+    () =>
+      subWorkflowTemplates.reduce<Record<string, SubWorkflowTemplate>>(
+        (accumulator, template) => {
+          accumulator[template.id] = template;
+          return accumulator;
+        },
+        {},
+      ),
+    [subWorkflowTemplates],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      CREDENTIAL_STORAGE_KEY,
+      JSON.stringify(credentialRecords),
+    );
+  }, [credentialRecords]);
+
+  useEffect(() => {
+    if (!workflowId) {
+      setActiveWorkflowId(undefined);
+      setVersionHistory([]);
+      return;
+    }
+
+    const persisted = getWorkflowRecord(workflowId);
+    if (persisted) {
+      setActiveWorkflowId(workflowId);
+      setVersionHistory(persisted.history);
+      return;
+    }
+
+    setActiveWorkflowId(undefined);
+    setVersionHistory([]);
+  }, [workflowId]);
+
+  const serializeCurrentWorkflow = useCallback(() => {
+    return {
+      nodes: nodesRef.current.map((node) => canvasNodeToStored(node)),
+      edges: edgesRef.current.map((edge) => canvasEdgeToStored(edge)),
+    };
+  }, []);
+
+  const persistWorkflowSnapshot = useCallback(
+    (options?: { id?: string; name?: string; message?: string }) => {
+      const { nodes: storedNodes, edges: storedEdges } =
+        serializeCurrentWorkflow();
+      const result = saveWorkflow({
+        id: options?.id ?? activeWorkflowId,
+        name: options?.name ?? workflowName,
+        nodes: storedNodes,
+        edges: storedEdges,
+        message: options?.message,
+      });
+
+      setVersionHistory(result.record.history);
+      setWorkflowName(result.record.workflow.name);
+
+      if (!activeWorkflowId || result.id !== activeWorkflowId) {
+        setActiveWorkflowId(result.id);
+        navigate(`/workflow-canvas/${result.id}`, { replace: true });
+      }
+
+      return result;
+    },
+    [activeWorkflowId, navigate, serializeCurrentWorkflow, workflowName],
+  );
+
+  const queuePersistSnapshot = useCallback(
+    (message?: string) => {
+      setTimeout(() => {
+        try {
+          persistWorkflowSnapshot(message ? { message } : undefined);
+        } catch {
+          // Manual save flow will surface errors to the user if persistence fails.
+        }
+      }, 0);
+    },
+    [persistWorkflowSnapshot],
+  );
 
   const decoratedNodes = useMemo(() => {
     if (!isSearchOpen && searchMatches.length === 0) {
@@ -344,13 +752,15 @@ export default function WorkflowCanvas({
   }, [edges]);
 
   const setNodes = useCallback(
-    (updater: React.SetStateAction<WorkflowNode[]>) => {
+    (updater: React.SetStateAction<CanvasWorkflowNode[]>) => {
       if (!isRestoringRef.current) {
         recordSnapshot();
       }
       setNodesState((current) =>
         typeof updater === "function"
-          ? (updater as (value: WorkflowNode[]) => WorkflowNode[])(current)
+          ? (updater as (value: CanvasWorkflowNode[]) => CanvasWorkflowNode[])(
+              current,
+            )
           : updater,
       );
     },
@@ -358,13 +768,15 @@ export default function WorkflowCanvas({
   );
 
   const setEdges = useCallback(
-    (updater: React.SetStateAction<WorkflowEdge[]>) => {
+    (updater: React.SetStateAction<CanvasWorkflowEdge[]>) => {
       if (!isRestoringRef.current) {
         recordSnapshot();
       }
       setEdgesState((current) =>
         typeof updater === "function"
-          ? (updater as (value: WorkflowEdge[]) => WorkflowEdge[])(current)
+          ? (updater as (value: CanvasWorkflowEdge[]) => CanvasWorkflowEdge[])(
+              current,
+            )
           : updater,
       );
     },
@@ -372,7 +784,7 @@ export default function WorkflowCanvas({
   );
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<WorkflowNode>[]) => {
+    (changes: NodeChange<CanvasWorkflowNode>[]) => {
       const shouldRecord = changes.some((change) => {
         if (change.type === "select") {
           return false;
@@ -391,7 +803,7 @@ export default function WorkflowCanvas({
   );
 
   const handleEdgesChange = useCallback(
-    (changes: EdgeChange<WorkflowEdge>[]) => {
+    (changes: EdgeChange<CanvasWorkflowEdge>[]) => {
       if (changes.some((change) => change.type !== "select")) {
         recordSnapshot();
       }
@@ -897,7 +1309,7 @@ export default function WorkflowCanvas({
           ...clonedNode.data,
           label: `${baseLabel} Copy`,
         },
-      } as WorkflowNode;
+      } as CanvasWorkflowNode;
     });
 
     const selectedIds = new Set(selectedNodes.map((node) => node.id));
@@ -920,9 +1332,9 @@ export default function WorkflowCanvas({
           source: sourceId,
           target: targetId,
           selected: false,
-        } as WorkflowEdge;
+        } as CanvasWorkflowEdge;
       })
-      .filter(Boolean) as WorkflowEdge[];
+      .filter(Boolean) as CanvasWorkflowEdge[];
 
     isRestoringRef.current = true;
     recordSnapshot({ force: true });
@@ -943,16 +1355,480 @@ export default function WorkflowCanvas({
     });
   }, [edges, nodes, recordSnapshot, setEdgesState, setNodesState]);
 
+  const handleAddCredential = useCallback(
+    (credentialInput: NewCredentialInput) => {
+      const normalizedName = credentialInput.name.trim();
+      if (!normalizedName) {
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+      const newRecord: CredentialRecord = {
+        id: generateCredentialId(),
+        name: normalizedName,
+        type: credentialInput.type,
+        owner: credentialInput.owner ?? "Workflow Team",
+        access: credentialInput.access,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        secrets: { ...credentialInput.secrets },
+      };
+
+      setCredentialRecords((previous) => [...previous, newRecord]);
+
+      toast({
+        title: "Credential added",
+        description: `${newRecord.name} is ready to use across nodes.`,
+      });
+    },
+    [setCredentialRecords],
+  );
+
+  const handleDeleteCredential = useCallback(
+    (credentialId: string) => {
+      setCredentialRecords((previous) =>
+        previous.filter((credential) => credential.id !== credentialId),
+      );
+
+      const affectedNodeIds = nodesRef.current
+        .filter((node) => node.data?.credentials?.id === credentialId)
+        .map((node) => node.id);
+
+      if (affectedNodeIds.length > 0) {
+        setNodes((current) =>
+          current.map((node) => {
+            if (!affectedNodeIds.includes(node.id)) {
+              return node;
+            }
+
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                credentials: null,
+              },
+            };
+          }),
+        );
+
+        setValidationErrors((errors) =>
+          errors.filter(
+            (error) => !error.nodeId || !affectedNodeIds.includes(error.nodeId),
+          ),
+        );
+
+        queuePersistSnapshot("Cleared credential assignments");
+      }
+
+      toast({
+        title: "Credential removed",
+        description:
+          affectedNodeIds.length > 0
+            ? "Nodes using this credential now need a new assignment."
+            : "Credential deleted from the vault.",
+      });
+    },
+    [
+      queuePersistSnapshot,
+      setCredentialRecords,
+      setNodes,
+      setValidationErrors,
+    ],
+  );
+
+  const handleAssignCredential = useCallback(
+    (nodeId: string, credentialId: string | null) => {
+      const credential = credentialId
+        ? credentialRecords.find((record) => record.id === credentialId)
+        : undefined;
+
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              credentials: credential
+                ? {
+                    id: credential.id,
+                    name: credential.name,
+                    type: credential.type,
+                  }
+                : null,
+            },
+          };
+        }),
+      );
+
+      setValidationErrors((errors) =>
+        errors.filter((error) => error.nodeId !== nodeId),
+      );
+
+      if (credential) {
+        toast({
+          title: "Credential assigned",
+          description: `${credential.name} linked to the selected node.`,
+        });
+        queuePersistSnapshot(`Assigned credential ${credential.name}`);
+      } else {
+        toast({
+          title: "Credential cleared",
+          description: "This node no longer references a credential.",
+        });
+        queuePersistSnapshot("Cleared credential assignment");
+      }
+    },
+    [
+      credentialRecords,
+      queuePersistSnapshot,
+      setNodes,
+      setValidationErrors,
+    ],
+  );
+
+  const handleInsertSubWorkflow = useCallback(
+    (templateId: string) => {
+      const template = subWorkflowTemplateLookup[templateId];
+      if (!template) {
+        toast({
+          title: "Sub-workflow unavailable",
+          description: "Select a different template and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const wrapperBounds = reactFlowWrapper.current?.getBoundingClientRect();
+      const instance = reactFlowInstance.current;
+      const offset = nodesRef.current.length * 24;
+      const projectedPosition =
+        instance && wrapperBounds
+          ? instance.project({
+              x: wrapperBounds.width / 2 + offset,
+              y: wrapperBounds.height / 2 + offset,
+            })
+          : { x: 200 + offset, y: 200 + offset };
+
+      const newNode: CanvasWorkflowNode = {
+        id: generateNodeId(),
+        type: "default",
+        position: projectedPosition,
+        data: {
+          type: "subWorkflow",
+          label: template.name,
+          description:
+            template.description ??
+            "Reusable workflow fragment shared across canvases.",
+          status: "idle",
+          subWorkflowId: template.id,
+          subWorkflowName: template.name,
+        },
+      };
+
+      setNodes((current) => [...current, newNode]);
+      setActiveTab("canvas");
+      toast({
+        title: "Sub-workflow inserted",
+        description: `${template.name} added to the canvas.`,
+      });
+      queuePersistSnapshot(`Inserted sub-workflow ${template.name}`);
+    },
+    [
+      queuePersistSnapshot,
+      reactFlowInstance,
+      reactFlowWrapper,
+      setActiveTab,
+      setNodes,
+      subWorkflowTemplateLookup,
+    ],
+  );
+
+  const handleAssignSubWorkflow = useCallback(
+    (nodeId: string, templateId: string | null) => {
+      const template = templateId
+        ? subWorkflowTemplateLookup[templateId]
+        : undefined;
+
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+
+          if (!template) {
+            const { previousType, ...rest } = node.data;
+            const nextType =
+              typeof previousType === "string"
+                ? previousType
+                : rest.type ?? "default";
+            return {
+              ...node,
+              data: {
+                ...rest,
+                type: nextType,
+                subWorkflowId: null,
+                subWorkflowName: undefined,
+                previousType: undefined,
+              },
+            };
+          }
+
+          const preservedType =
+            node.data.type !== "subWorkflow"
+              ? node.data.type
+              : (node.data.previousType ?? node.data.type);
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              type: "subWorkflow",
+              previousType: preservedType,
+              subWorkflowId: template.id,
+              subWorkflowName: template.name,
+              description: template.description ?? node.data.description,
+            },
+          };
+        }),
+      );
+
+      setValidationErrors((errors) =>
+        errors.filter((error) => error.nodeId !== nodeId),
+      );
+
+      if (template) {
+        toast({
+          title: "Sub-workflow linked",
+          description: `${template.name} is now referenced by this node.`,
+        });
+        queuePersistSnapshot(`Linked sub-workflow ${template.name}`);
+      } else {
+        toast({
+          title: "Sub-workflow detached",
+          description: "This node no longer references a reusable flow.",
+        });
+        queuePersistSnapshot("Removed sub-workflow reference");
+      }
+    },
+    [
+      queuePersistSnapshot,
+      setNodes,
+      setValidationErrors,
+      subWorkflowTemplateLookup,
+    ],
+  );
+
+  const handleSaveWorkflow = useCallback(() => {
+    try {
+      const result = persistWorkflowSnapshot();
+      const latestVersion = result.record.history.at(-1)?.version;
+      toast({
+        title: "Workflow saved",
+        description: latestVersion
+          ? `Saved as version ${latestVersion}.`
+          : "Workflow changes saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description:
+          error instanceof Error ? error.message : "Unable to save workflow.",
+        variant: "destructive",
+      });
+    }
+  }, [persistWorkflowSnapshot]);
+
+  const handleShowVersionHistory = useCallback(() => {
+    setActiveTab("versions");
+  }, []);
+
+  const handleRestoreVersion = useCallback(
+    (version: string) => {
+      const target = versionHistory.find((entry) => entry.version === version);
+      if (!target) {
+        toast({
+          title: "Version not found",
+          description: `Version ${version} is no longer available.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      applySnapshot(
+        {
+          nodes: target.nodes.map((node) =>
+            storedNodeToCanvas(node, { onOpenChat: handleOpenChat }),
+          ),
+          edges: target.edges.map(storedEdgeToCanvas),
+        },
+        { resetHistory: true },
+      );
+
+      setActiveTab("canvas");
+
+      setTimeout(() => {
+        try {
+          const result = persistWorkflowSnapshot({
+            message: `Restored version ${version}`,
+          });
+          setVersionHistory(result.record.history);
+          toast({
+            title: "Version restored",
+            description: `Workflow restored from version ${version}.`,
+          });
+        } catch (error) {
+          toast({
+            title: "Restore failed",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Unable to persist restored workflow.",
+            variant: "destructive",
+          });
+        }
+      }, 0);
+    },
+    [
+      applySnapshot,
+      handleOpenChat,
+      persistWorkflowSnapshot,
+      setActiveTab,
+      versionHistory,
+    ],
+  );
+
+  const handlePublishWorkflow = useCallback(() => {
+    const validatorNodes = nodesRef.current as ValidatorNodeType[];
+    const validatorEdges = edgesRef.current as ValidatorEdgeType[];
+    const collectedErrors: ValidationError[] = [];
+
+    validatorNodes.forEach((node) => {
+      const credentialError = validateNodeCredentials(node);
+      if (credentialError) {
+        collectedErrors.push(credentialError);
+      }
+
+      const nodeData = node.data as NodeData;
+      if (
+        nodeData.type === "subWorkflow" &&
+        (!nodeData.subWorkflowId ||
+          !subWorkflowTemplateLookup[nodeData.subWorkflowId])
+      ) {
+        collectedErrors.push({
+          id: `subwf-${node.id}-${Date.now()}`,
+          type: "node",
+          message: `${nodeData.label} requires a reusable sub-workflow selection`,
+          nodeId: node.id,
+          nodeName: nodeData.label,
+        });
+      }
+    });
+
+    const seenConnections = new Set<string>();
+    validatorEdges.forEach((edge) => {
+      const key = `${edge.source}->${edge.target}`;
+      if (seenConnections.has(key)) {
+        collectedErrors.push({
+          id: `duplicate-${edge.id}`,
+          type: "connection",
+          message: `Duplicate connection detected between ${edge.source} and ${edge.target}`,
+          sourceId: edge.source,
+          targetId: edge.target,
+        });
+        return;
+      }
+      seenConnections.add(key);
+
+      const otherEdges = validatorEdges.filter(
+        (candidate) => candidate.id !== edge.id,
+      );
+      const connectionError = validateConnection(
+        { source: edge.source, target: edge.target } as Connection,
+        validatorNodes,
+        otherEdges as ValidatorEdgeType[],
+      );
+      if (connectionError) {
+        collectedErrors.push(connectionError);
+      }
+    });
+
+    const uniqueErrors = collectedErrors.reduce<ValidationError[]>(
+      (accumulator, error) => {
+        const duplicate = accumulator.find(
+          (existing) =>
+            existing.type === error.type &&
+            existing.message === error.message &&
+            existing.nodeId === error.nodeId &&
+            existing.sourceId === error.sourceId &&
+            existing.targetId === error.targetId,
+        );
+
+        if (!duplicate) {
+          accumulator.push(error);
+        }
+        return accumulator;
+      },
+      [],
+    );
+
+    setValidationErrors(uniqueErrors);
+
+    if (uniqueErrors.length === 0) {
+      toast({
+        title: "Workflow ready to publish",
+        description: "All validation checks passed successfully.",
+      });
+      queuePersistSnapshot("Validated workflow for publish");
+      return;
+    }
+
+    toast({
+      title: "Publish blocked",
+      description: `Resolve ${uniqueErrors.length} validation issue${
+        uniqueErrors.length === 1 ? "" : "s"
+      } before publishing.`,
+      variant: "destructive",
+    });
+    setActiveTab("canvas");
+  }, [queuePersistSnapshot, setActiveTab, subWorkflowTemplateLookup]);
+
+  const handleDismissValidationError = useCallback((id: string) => {
+    setValidationErrors((errors) => errors.filter((error) => error.id !== id));
+  }, []);
+
+  const handleFixValidationError = useCallback(
+    (error: ValidationError) => {
+      if (error.nodeId) {
+        const targetNode = nodesRef.current.find(
+          (node) => node.id === error.nodeId,
+        );
+        if (targetNode) {
+          setSelectedNode(targetNode);
+          setActiveTab("canvas");
+        }
+      }
+
+      setValidationErrors((errors) =>
+        errors.filter((existing) => existing.id !== error.id),
+      );
+    },
+    [setActiveTab, setSelectedNode],
+  );
+
   const handleExportWorkflow = useCallback(() => {
     try {
-      const snapshot = createSnapshot();
+      const serialized = serializeCurrentWorkflow();
       const workflowData = {
         name: workflowName,
-        nodes: snapshot.nodes,
-        edges: snapshot.edges,
+        nodes: serialized.nodes,
+        edges: serialized.edges,
       };
-      const serialized = JSON.stringify(workflowData, null, 2);
-      const blob = new Blob([serialized], { type: "application/json" });
+      const payload = JSON.stringify(workflowData, null, 2);
+      const blob = new Blob([payload], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -971,7 +1847,7 @@ export default function WorkflowCanvas({
         variant: "destructive",
       });
     }
-  }, [createSnapshot, workflowName]);
+  }, [serializeCurrentWorkflow, workflowName]);
 
   const handleImportWorkflow = useCallback(() => {
     fileInputRef.current?.click();
@@ -992,40 +1868,60 @@ export default function WorkflowCanvas({
           const parsed = JSON.parse(content);
           validateWorkflowData(parsed);
 
-          const importedNodes = (parsed.nodes as WorkflowNode[]).map(
-            (node) => ({
-              ...cloneNode(node),
-              id: node.id ?? generateNodeId(),
-              selected: false,
-            }),
+          const importedNodes = (parsed.nodes as StoredWorkflowNode[]).map(
+            (node) =>
+              ({
+                ...cloneNode(node),
+                id: node.id ?? generateNodeId(),
+                selected: false,
+              }) as CanvasWorkflowNode,
           );
-          const importedEdges = (parsed.edges as WorkflowEdge[]).map(
-            (edge) => ({
-              ...cloneEdge(edge),
-              id:
-                edge.id ??
-                `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
-                  .toString(36)
-                  .slice(2, 8)}`,
-              selected: false,
-            }),
+          const importedEdges = (parsed.edges as StoredWorkflowEdge[]).map(
+            (edge) =>
+              ({
+                ...cloneEdge(edge),
+                id:
+                  edge.id ??
+                  `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
+                    .toString(36)
+                    .slice(2, 8)}`,
+                selected: false,
+              }) as CanvasWorkflowEdge,
           );
+
+          const importedName =
+            typeof parsed.name === "string" && parsed.name.trim().length > 0
+              ? parsed.name.trim()
+              : "Imported workflow";
 
           isRestoringRef.current = true;
           recordSnapshot({ force: true });
           try {
             setNodesState(importedNodes);
             setEdgesState(importedEdges);
-            if (
-              typeof parsed.name === "string" &&
-              parsed.name.trim().length > 0
-            ) {
-              setWorkflowName(parsed.name);
-            }
+            setWorkflowName(importedName);
           } catch (error) {
             isRestoringRef.current = false;
             throw error;
           }
+
+          const storedNodes = importedNodes.map((node) =>
+            canvasNodeToStored(node),
+          );
+          const storedEdges = importedEdges.map((edge) =>
+            canvasEdgeToStored(edge),
+          );
+
+          const result = saveWorkflow({
+            name: importedName,
+            nodes: storedNodes,
+            edges: storedEdges,
+            message: "Imported from JSON",
+          });
+
+          setVersionHistory(result.record.history);
+          setActiveWorkflowId(result.id);
+          navigate(`/workflow-canvas/${result.id}`, { replace: true });
 
           toast({
             title: "Workflow imported",
@@ -1054,7 +1950,7 @@ export default function WorkflowCanvas({
       };
       reader.readAsText(file);
     },
-    [recordSnapshot, setEdgesState, setNodesState, setWorkflowName],
+    [navigate, recordSnapshot, setEdgesState, setNodesState, setWorkflowName],
   );
 
   // Handle new connections between nodes
@@ -1098,7 +1994,7 @@ export default function WorkflowCanvas({
 
   // Handle node double click for inspection
   const onNodeDoubleClick = useCallback(
-    (_: React.MouseEvent, node: WorkflowNode) => {
+    (_: React.MouseEvent, node: CanvasWorkflowNode) => {
       setSelectedNode(node);
     },
     [],
@@ -1149,7 +2045,7 @@ export default function WorkflowCanvas({
         // Create a new node
         const nodeId = generateNodeId();
 
-        const newNode: WorkflowNode = {
+        const newNode: CanvasWorkflowNode = {
           id: nodeId,
           type: nodeType,
           position,
@@ -1494,59 +2390,39 @@ export default function WorkflowCanvas({
 
   // Load workflow data when workflowId changes
   useEffect(() => {
-    if (workflowId) {
-      const workflow = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
-      if (workflow) {
-        setWorkflowName(workflow.name);
-
-        // Convert workflow nodes to ReactFlow nodes
-        const flowNodes = workflow.nodes.map((node) => ({
-          id: node.id,
-          type:
-            node.type === "trigger" ||
-            node.type === "api" ||
-            node.type === "function" ||
-            node.type === "data" ||
-            node.type === "ai"
-              ? "default"
-              : node.type,
-          position: node.position,
-          style: defaultNodeStyle,
-          data: {
-            type: node.type,
-            label: node.data.label,
-            description: node.data.description,
-            status: (node.data.status || "idle") as NodeStatus,
-            isDisabled: node.data.isDisabled,
-          } as NodeData,
-          draggable: true,
-        }));
-
-        // Convert workflow edges to ReactFlow edges
-        const flowEdges = workflow.edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
-          label: edge.label,
-          type: edge.type || "smoothstep",
-          animated: edge.animated || false,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 20,
-            height: 20,
-          },
-          style: edge.style || { stroke: "#99a1b3", strokeWidth: 2 },
-        }));
-
-        applySnapshot(
-          { nodes: flowNodes, edges: flowEdges },
-          { resetHistory: true },
-        );
-      }
+    if (!workflowId) {
+      return;
     }
-  }, [applySnapshot, workflowId]);
+
+    const persisted = getWorkflowRecord(workflowId);
+    if (persisted) {
+      setWorkflowName(persisted.workflow.name);
+      setVersionHistory(persisted.history);
+      const flowNodes = persisted.workflow.nodes.map((node) =>
+        storedNodeToCanvas(node, { onOpenChat: handleOpenChat }),
+      );
+      const flowEdges = persisted.workflow.edges.map(storedEdgeToCanvas);
+      applySnapshot(
+        { nodes: flowNodes, edges: flowEdges },
+        { resetHistory: true },
+      );
+      return;
+    }
+
+    const template = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
+    if (template) {
+      setWorkflowName(template.name);
+      setVersionHistory([]);
+      const flowNodes = template.nodes.map((node) =>
+        storedNodeToCanvas(node, { onOpenChat: handleOpenChat }),
+      );
+      const flowEdges = template.edges.map(storedEdgeToCanvas);
+      applySnapshot(
+        { nodes: flowNodes, edges: flowEdges },
+        { resetHistory: true },
+      );
+    }
+  }, [applySnapshot, handleOpenChat, workflowId]);
 
   // Fit view on initial render
   useEffect(() => {
@@ -1583,6 +2459,7 @@ export default function WorkflowCanvas({
         activeTab={activeTab}
         onTabChange={setActiveTab}
         executionCount={3}
+        versionCount={versionHistory.length}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
@@ -1604,7 +2481,7 @@ export default function WorkflowCanvas({
 
               <div
                 ref={reactFlowWrapper}
-                className="flex-1 h-full min-h-0"
+                className="flex-1 h-full min-h-0 relative"
                 onDragOver={onDragOver}
                 onDrop={onDrop}
               >
@@ -1678,7 +2555,8 @@ export default function WorkflowCanvas({
                       isRunning={isRunning}
                       onRun={handleRunWorkflow}
                       onPause={handlePauseWorkflow}
-                      onSave={() => alert("Workflow saved")}
+                      onSave={handleSaveWorkflow}
+                      onPublish={handlePublishWorkflow}
                       onUndo={handleUndo}
                       onRedo={handleRedo}
                       canUndo={canUndo}
@@ -1686,8 +2564,10 @@ export default function WorkflowCanvas({
                       onDuplicate={handleDuplicateSelectedNodes}
                       onExport={handleExportWorkflow}
                       onImport={handleImportWorkflow}
+                      onVersionHistory={handleShowVersionHistory}
                       onToggleSearch={handleToggleSearch}
                       isSearchOpen={isSearchOpen}
+                      hasValidationErrors={validationErrors.length > 0}
                     />
                   </Panel>
                   <input
@@ -1698,6 +2578,12 @@ export default function WorkflowCanvas({
                     onChange={handleWorkflowFileSelected}
                   />
                 </ReactFlow>
+                <ConnectionValidator
+                  errors={validationErrors}
+                  onDismiss={handleDismissValidationError}
+                  onFix={handleFixValidationError}
+                  className="bottom-6 right-6"
+                />
               </div>
             </div>
           </TabsContent>
@@ -1735,6 +2621,20 @@ export default function WorkflowCanvas({
                 })
               }
             />
+          </TabsContent>
+
+          <TabsContent
+            value="versions"
+            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
+          >
+            <div className="h-full p-4">
+              <WorkflowHistory
+                versions={versionHistory}
+                currentVersion={versionHistory.at(-1)?.version}
+                onRestoreVersion={handleRestoreVersion}
+                className="h-full"
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="settings" className="m-0 p-4 overflow-auto">
@@ -1865,6 +2765,50 @@ export default function WorkflowCanvas({
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-bold">Credential Management</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Store encrypted credentials and assign them to nodes that
+                    connect to external systems.
+                  </p>
+                </div>
+                <CredentialsVault
+                  credentials={credentialRecords}
+                  onAddCredential={handleAddCredential}
+                  onDeleteCredential={handleDeleteCredential}
+                  className="bg-card border border-border rounded-xl p-4"
+                />
+                <CredentialAssignments
+                  nodes={nodes}
+                  credentials={credentialRecords}
+                  onAssign={handleAssignCredential}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-bold">Reusable Sub-Workflows</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Insert shared workflow fragments and link them to
+                    orchestration nodes for consistent reuse.
+                  </p>
+                </div>
+                <SubWorkflowLibrary
+                  subWorkflows={subWorkflowTemplates}
+                  onInsert={handleInsertSubWorkflow}
+                />
+                <SubWorkflowAssignments
+                  nodes={nodes}
+                  subWorkflows={subWorkflowTemplates}
+                  onAssign={handleAssignSubWorkflow}
+                />
               </div>
 
               <div className="flex justify-end gap-2">

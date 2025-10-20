@@ -11,6 +11,7 @@ export interface ValidationError {
   message: string;
   sourceId?: string;
   targetId?: string;
+  nodeId?: string;
   nodeName?: string;
 }
 
@@ -85,7 +86,7 @@ export default function ConnectionValidator({
                     <span className="font-medium">To:</span> {error.targetId}
                   </div>
                 )}
-              {error.type === "node" && error.nodeName && (
+              {error.nodeName && (
                 <div className="mt-1 text-xs">
                   <span className="font-medium">Node:</span> {error.nodeName}
                 </div>
@@ -198,6 +199,7 @@ export function validateNodeCredentials(
       id: `cred-${node.id}-${Date.now()}`,
       type: "credential",
       message: `${node.data.label} requires credentials to be configured`,
+      nodeId: node.id,
       nodeName: node.data.label,
     };
   }
