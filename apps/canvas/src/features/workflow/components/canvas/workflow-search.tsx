@@ -36,17 +36,19 @@ export default function WorkflowSearch({
   }, [isOpen]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "f") {
-        e.preventDefault();
-        if (!isOpen) {
-          onSearch("");
-        }
-      } else if (e.key === "Escape" && isOpen) {
-        e.preventDefault();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isOpen) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
         onClose();
-      } else if (e.key === "Enter") {
-        if (e.shiftKey) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        if (event.shiftKey) {
           onHighlightPrevious();
         } else {
           onHighlightNext();
@@ -56,7 +58,7 @@ export default function WorkflowSearch({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onSearch, onClose, onHighlightNext, onHighlightPrevious]);
+  }, [isOpen, onClose, onHighlightNext, onHighlightPrevious]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -72,6 +74,7 @@ export default function WorkflowSearch({
         "absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex items-center bg-background border border-border rounded-md shadow-md",
         className,
       )}
+      data-testid="workflow-search"
     >
       <div className="relative flex items-center w-80">
         <Search className="absolute left-2 h-4 w-4 text-muted-foreground" />

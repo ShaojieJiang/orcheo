@@ -1,5 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
 
@@ -94,5 +100,40 @@ describe("WorkflowCanvas editing history", () => {
 
     expect(undoButtons[0]).toBeDisabled();
     expect(redoButtons[0]).toBeDisabled();
+  });
+
+  it("opens the node search overlay from toolbar", async () => {
+    renderCanvas();
+
+    const searchButtons = await screen.findAllByRole("button", {
+      name: /search nodes/i,
+    });
+    const searchButton = searchButtons[0];
+    fireEvent.click(searchButton);
+
+    const searchPanels = await screen.findAllByTestId("workflow-search");
+    const searchInput = within(searchPanels[0]).getByPlaceholderText(
+      "Search nodes...",
+    );
+    fireEvent.change(searchInput, { target: { value: "Initial" } });
+
+    await waitFor(() => {
+      const matches = document.querySelectorAll(
+        "[data-search-match=\"true\"]",
+      );
+      expect(matches.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("opens the search overlay with ctrl+f", async () => {
+    renderCanvas();
+
+    await screen.findAllByRole("button", { name: /search nodes/i });
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    const searchPanels = await screen.findAllByTestId("workflow-search");
+
+    expect(searchPanels.length).toBeGreaterThan(0);
   });
 });

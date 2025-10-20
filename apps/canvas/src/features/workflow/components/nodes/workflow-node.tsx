@@ -28,6 +28,8 @@ export type WorkflowNodeData = {
   isDisabled?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
   [key: string]: unknown;
 };
 
@@ -37,7 +39,15 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
   const controlsRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const { label, icon, status = "idle" as const, type, isDisabled } = nodeData;
+  const {
+    label,
+    icon,
+    status = "idle" as const,
+    type,
+    isDisabled,
+    isSearchMatch = false,
+    isSearchActive = false,
+  } = nodeData;
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
@@ -93,10 +103,16 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
   return (
     <div
       ref={nodeRef}
+      data-search-match={isSearchMatch ? "true" : undefined}
+      data-search-active={isSearchActive ? "true" : undefined}
       className={cn(
         "group relative border shadow-sm transition-all duration-200",
         nodeColor,
         selected && "ring-2 ring-primary ring-offset-2",
+        isSearchMatch &&
+          !isSearchActive &&
+          "ring-2 ring-sky-400/70 ring-offset-2",
+        isSearchActive && "ring-4 ring-sky-500 ring-offset-2",
         isDisabled && "opacity-60",
         "h-16 w-16 rounded-xl cursor-pointer",
       )}
@@ -108,7 +124,18 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
     >
       {/* Simple text label */}
       <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap">
-        {label}
+        <span
+          className={cn(
+            "px-2 py-0.5 rounded-full transition-colors",
+            isSearchActive
+              ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+              : isSearchMatch
+                ? "bg-sky-500/5 text-sky-600 dark:text-sky-200"
+                : undefined,
+          )}
+        >
+          {label}
+        </span>
       </div>
 
       {/* Input handle */}
