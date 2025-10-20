@@ -437,6 +437,8 @@ const storedNodeToCanvas = (
   node: StoredWorkflowNode,
   options?: { onOpenChat?: (nodeId: string) => void },
 ): CanvasWorkflowNode => {
+  const rawData = isRecord(node.data) ? node.data : {};
+
   const nodeType = (() => {
     if (node.type === "chatTrigger") {
       return "chatTrigger" as const;
@@ -449,19 +451,15 @@ const storedNodeToCanvas = (
 
   const nodeData: NodeData = {
     type: node.type,
-    label: String(node.data.label ?? node.id),
+    label: String(rawData.label ?? node.id),
     description:
-      typeof node.data.description === "string"
-        ? node.data.description
-        : undefined,
-    status: (node.data.status ?? "idle") as NodeStatus,
+      typeof rawData.description === "string" ? rawData.description : undefined,
+    status: (rawData.status ?? "idle") as NodeStatus,
     isDisabled:
-      typeof node.data.isDisabled === "boolean"
-        ? node.data.isDisabled
-        : undefined,
+      typeof rawData.isDisabled === "boolean" ? rawData.isDisabled : undefined,
   };
 
-  Object.entries(node.data).forEach(([key, value]) => {
+  Object.entries(rawData).forEach(([key, value]) => {
     if (key in nodeData) {
       return;
     }
