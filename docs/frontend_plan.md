@@ -4,7 +4,7 @@
 This document captures the actionable plan for evolving the Orcheo canvas from its current developer-centric prototype into a production-ready, user-centered experience. It consolidates design and engineering activities so product, design, and frontend contributors can execute in lockstep while staying aligned with backend capabilities.
 
 ## Current Baseline Assessment
-- **Migrated canvas foundation**: The legacy canvas now runs on the refreshed React Flow surface with minimap, snapping, and chat affordances, but undo/redo history, duplication/export actions, and search remain unimplemented.
+- **Migrated canvas foundation**: The legacy canvas now connects to the new backend via the React Flow surface with minimap, snapping, and chat affordances, but undo/redo history, duplication/export actions, and search remain unimplemented.
 - **Monolithic application shell**: A single React component orchestrates data fetching, state management, and UI for credential templates, issuance, and governance alerts, making the codebase brittle and hard to extend.
 - **Ad-hoc styling**: One global stylesheet applies hard-coded gradients, colors, and breakpoints, offering no reusable tokens or component-level theming for future surfaces.
 - **Minimal UX coverage**: Empty, loading, and error states are limited to simple banners, and there is no formalized navigation or information architecture to guide feature growth.
