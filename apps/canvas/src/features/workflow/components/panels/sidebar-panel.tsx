@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { Input } from "@/design-system/ui/input";
 import { Button } from "@/design-system/ui/button";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
@@ -67,6 +67,8 @@ interface SidebarPanelProps {
   onAddNode?: (node: SidebarNode) => void;
   className?: string;
   position?: "left" | "canvas";
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }
 
 export default function SidebarPanel({
@@ -75,9 +77,9 @@ export default function SidebarPanel({
   onAddNode,
   className,
   position = "left",
+  searchQuery = "",
+  onSearchQueryChange,
 }: SidebarPanelProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-
   const nodeCategories: NodeCategory[] = [
     {
       id: "special",
@@ -572,16 +574,20 @@ export default function SidebarPanel({
     },
   ];
 
+  const normalizedQuery = searchQuery.toLowerCase();
+
   const filteredCategories = nodeCategories
     .map((category) => ({
       ...category,
       nodes: category.nodes.filter(
         (node) =>
-          node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          node.description.toLowerCase().includes(searchQuery.toLowerCase()),
+          node.name.toLowerCase().includes(normalizedQuery) ||
+          node.description.toLowerCase().includes(normalizedQuery),
       ),
     }))
-    .filter((category) => category.nodes.length > 0);
+    .filter(
+      (category) => category.nodes.length > 0 || normalizedQuery.length === 0,
+    );
 
   const handleNodeClick = (node: SidebarNode) => {
     onAddNode?.(node);
@@ -663,7 +669,8 @@ export default function SidebarPanel({
                 placeholder="Search nodes..."
                 className="pl-8"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => onSearchQueryChange?.(e.target.value)}
+                aria-label="Filter node catalog"
               />
             </div>
           </div>

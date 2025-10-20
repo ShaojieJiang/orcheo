@@ -43,7 +43,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ### Milestone 4 – Visual Designer Experience
 - [x] Migrate the legacy canvas app to connect to the new backend via React Flow foundation, restoring minimap, snapping, and chat affordances while preserving node compatibility.
-- [ ] Finish React Flow canvas tooling: add undo/redo history, node duplication/export handlers, node search/filtering, styling updates, and collapsible configuration panels.
+- [x] Finish React Flow canvas tooling: add undo/redo history, node duplication/export handlers, node search/filtering, styling updates, and collapsible configuration panels.
 - [ ] Implement workflow operations: replace mocked save/load with persistence, wire JSON import/export, enable template onboarding, and surface a version diff viewer.
 - [ ] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the canvas.
 - [ ] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.

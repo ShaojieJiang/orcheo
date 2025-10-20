@@ -6,6 +6,7 @@ import { Badge } from "@/design-system/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface WorkflowSearchProps {
+  query: string;
   onSearch: (query: string) => void;
   onHighlightNext: () => void;
   onHighlightPrevious: () => void;
@@ -17,6 +18,7 @@ interface WorkflowSearchProps {
 }
 
 export default function WorkflowSearch({
+  query,
   onSearch,
   onHighlightNext,
   onHighlightPrevious,
@@ -26,7 +28,7 @@ export default function WorkflowSearch({
   isOpen,
   className,
 }: WorkflowSearchProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(query);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,11 +38,17 @@ export default function WorkflowSearch({
   }, [isOpen]);
 
   useEffect(() => {
+    setSearchQuery(query);
+  }, [query]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "f") {
+      if (e.ctrlKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (!isOpen) {
-          onSearch("");
+          onSearch(query);
+        } else {
+          inputRef.current?.focus();
         }
       } else if (e.key === "Escape" && isOpen) {
         e.preventDefault();
@@ -56,7 +64,7 @@ export default function WorkflowSearch({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onSearch, onClose, onHighlightNext, onHighlightPrevious]);
+  }, [isOpen, onSearch, onClose, onHighlightNext, onHighlightPrevious, query]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -81,6 +89,7 @@ export default function WorkflowSearch({
           value={searchQuery}
           onChange={handleSearchChange}
           placeholder="Search nodes..."
+          aria-label="Search workflow nodes"
           className="pl-8 pr-16 h-9 focus-visible:ring-1"
         />
 
@@ -93,6 +102,7 @@ export default function WorkflowSearch({
               setSearchQuery("");
               onSearch("");
             }}
+            aria-label="Clear search"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -118,6 +128,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightPrevious}
           disabled={matchCount === 0}
+          aria-label="Previous match"
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -127,6 +138,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightNext}
           disabled={matchCount === 0}
+          aria-label="Next match"
         >
           <ArrowDown className="h-4 w-4" />
         </Button>
@@ -135,6 +147,7 @@ export default function WorkflowSearch({
           size="icon"
           className="h-7 w-7 ml-1"
           onClick={onClose}
+          aria-label="Close search"
         >
           <X className="h-4 w-4" />
         </Button>

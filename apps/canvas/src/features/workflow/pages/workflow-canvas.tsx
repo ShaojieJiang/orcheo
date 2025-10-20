@@ -4,6 +4,7 @@ import React, {
   useRef,
   useEffect,
   useLayoutEffect,
+  useMemo,
 } from "react";
 import { useParams } from "react-router-dom";
 import type {
@@ -36,6 +37,7 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
+import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
@@ -227,6 +229,10 @@ export default function WorkflowCanvas({
   const [canRedo, setCanRedo] = useState(false);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [activeTab, setActiveTab] = useState("canvas");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatches, setSearchMatches] = useState<string[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
   // Chat interface state
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -239,6 +245,21 @@ export default function WorkflowCanvas({
   const nodesRef = useRef<WorkflowNode[]>(nodes);
   const edgesRef = useRef<WorkflowEdge[]>(edges);
 
+  const matchesSet = useMemo(() => new Set(searchMatches), [searchMatches]);
+  const activeSearchNodeId = searchMatches[currentMatchIndex] ?? null;
+  const nodesForDisplay = useMemo(
+    () =>
+      nodes.map((node) => ({
+        ...node,
+        data: {
+          ...(node.data ?? {}),
+          isSearchMatch: matchesSet.has(node.id),
+          isActiveSearchMatch: activeSearchNodeId === node.id,
+        },
+      })),
+    [nodes, matchesSet, activeSearchNodeId],
+  );
+
   // Refs
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance<
@@ -246,6 +267,109 @@ export default function WorkflowCanvas({
     WorkflowEdge
   > | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const focusNodeById = useCallback((nodeId: string) => {
+    const instance = reactFlowInstance.current;
+    if (!instance) {
+      return;
+    }
+    const node = instance.getNode(nodeId);
+    if (!node) {
+      return;
+    }
+    const width = node.measured?.width ?? node.width ?? 0;
+    const height = node.measured?.height ?? node.height ?? 0;
+    const x = (node.positionAbsolute?.x ?? node.position.x) + width / 2;
+    const y = (node.positionAbsolute?.y ?? node.position.y) + height / 2;
+    instance.setCenter(x, y, {
+      zoom: Math.max(instance.getZoom(), 1),
+      duration: 300,
+    });
+  }, []);
+
+  const updateSearchResults = useCallback(
+    (query: string, options?: { preserveIndex?: boolean }) => {
+      setSearchQuery(query);
+      const normalized = query.trim().toLowerCase();
+      if (!normalized) {
+        setSearchMatches([]);
+        setCurrentMatchIndex(0);
+        return;
+      }
+
+      const matches = nodesRef.current
+        .filter((node) => {
+          const label =
+            typeof node.data?.label === "string" ? node.data.label : "";
+          const description =
+            typeof node.data?.description === "string"
+              ? node.data.description
+              : "";
+          const type =
+            typeof node.data?.type === "string" ? node.data.type : "";
+          return (
+            label.toLowerCase().includes(normalized) ||
+            description.toLowerCase().includes(normalized) ||
+            type.toLowerCase().includes(normalized)
+          );
+        })
+        .map((node) => node.id);
+
+      setSearchMatches(matches);
+      setCurrentMatchIndex((current) => {
+        if (matches.length === 0) {
+          return 0;
+        }
+        if (options?.preserveIndex) {
+          return Math.min(current, matches.length - 1);
+        }
+        return 0;
+      });
+    },
+    [],
+  );
+
+  const applySearchQuery = useCallback(
+    (
+      query: string,
+      options?: { openOverlay?: boolean; preserveIndex?: boolean },
+    ) => {
+      if (options?.openOverlay) {
+        setIsSearchOpen(true);
+      }
+      updateSearchResults(query, { preserveIndex: options?.preserveIndex });
+    },
+    [updateSearchResults],
+  );
+
+  const handleHighlightNext = useCallback(() => {
+    setCurrentMatchIndex((current) => {
+      if (searchMatches.length === 0) {
+        return 0;
+      }
+      return (current + 1) % searchMatches.length;
+    });
+  }, [searchMatches]);
+
+  const handleHighlightPrevious = useCallback(() => {
+    setCurrentMatchIndex((current) => {
+      if (searchMatches.length === 0) {
+        return 0;
+      }
+      return (current - 1 + searchMatches.length) % searchMatches.length;
+    });
+  }, [searchMatches]);
+
+  const handleSearchClose = useCallback(() => {
+    setIsSearchOpen(false);
+  }, []);
+
+  const handleSidebarSearchChange = useCallback(
+    (query: string) => {
+      applySearchQuery(query, { preserveIndex: false });
+    },
+    [applySearchQuery],
+  );
 
   const createSnapshot = useCallback(
     (): WorkflowSnapshot => ({
@@ -299,6 +423,23 @@ export default function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      return;
+    }
+    updateSearchResults(searchQuery, { preserveIndex: true });
+  }, [nodes, searchQuery, updateSearchResults]);
+
+  useEffect(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+    const activeId = searchMatches[currentMatchIndex];
+    if (activeId) {
+      focusNodeById(activeId);
+    }
+  }, [searchMatches, currentMatchIndex, focusNodeById]);
 
   const setNodes = useCallback(
     (updater: React.SetStateAction<WorkflowNode[]>) => {
@@ -899,6 +1040,22 @@ export default function WorkflowCanvas({
     [recordSnapshot, setEdgesState, setNodesState, setWorkflowName],
   );
 
+  const handleShareWorkflow = useCallback(() => {
+    toast({
+      title: "Share links coming soon",
+      description:
+        "Collaboration links will be available once workspace permissions land.",
+    });
+  }, []);
+
+  const handleVersionHistory = useCallback(() => {
+    toast({
+      title: "Version history not yet available",
+      description:
+        "You'll be able to browse revisions after persistence is connected.",
+    });
+  }, []);
+
   // Handle new connections between nodes
   const onConnect = useCallback(
     (params: Connection) => {
@@ -1428,6 +1585,8 @@ export default function WorkflowCanvas({
                 isCollapsed={sidebarCollapsed}
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onAddNode={handleAddNode}
+                searchQuery={searchQuery}
+                onSearchQueryChange={handleSidebarSearchChange}
               />
 
               <div
@@ -1437,7 +1596,7 @@ export default function WorkflowCanvas({
                 onDrop={onDrop}
               >
                 <ReactFlow
-                  nodes={nodes}
+                  nodes={nodesForDisplay}
                   edges={edges}
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
@@ -1491,6 +1650,19 @@ export default function WorkflowCanvas({
                     }}
                   />
 
+                  <WorkflowSearch
+                    query={searchQuery}
+                    onSearch={(query) =>
+                      applySearchQuery(query, { openOverlay: true })
+                    }
+                    onHighlightNext={handleHighlightNext}
+                    onHighlightPrevious={handleHighlightPrevious}
+                    onClose={handleSearchClose}
+                    matchCount={searchMatches.length}
+                    currentMatchIndex={currentMatchIndex}
+                    isOpen={isSearchOpen}
+                  />
+
                   <Panel position="top-left" className="m-4">
                     <WorkflowControls
                       isRunning={isRunning}
@@ -1504,6 +1676,8 @@ export default function WorkflowCanvas({
                       onDuplicate={handleDuplicateSelectedNodes}
                       onExport={handleExportWorkflow}
                       onImport={handleImportWorkflow}
+                      onShare={handleShareWorkflow}
+                      onVersionHistory={handleVersionHistory}
                     />
                   </Panel>
                   <input

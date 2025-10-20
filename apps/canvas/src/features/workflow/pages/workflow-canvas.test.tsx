@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
 
@@ -68,31 +68,70 @@ const renderCanvas = () => {
 };
 
 describe("WorkflowCanvas editing history", () => {
-  it("supports undo and redo via buttons", async () => {
+  it("duplicates selected nodes and supports undo/redo", async () => {
     renderCanvas();
 
-    const initialNodes = await screen.findAllByText("Initial Node");
-    expect(initialNodes.length).toBeGreaterThan(0);
+    await screen.findAllByText("Initial Node");
 
-    // Verify undo and redo buttons start disabled (no history yet)
     const undoButton = screen.getByRole("button", { name: /undo/i });
     const redoButton = screen.getByRole("button", { name: /redo/i });
-
     expect(undoButton).toBeDisabled();
     expect(redoButton).toBeDisabled();
-  });
 
-  it("supports keyboard shortcuts for undo and redo", async () => {
+    const actionsButton = screen.getByRole("button", { name: /more actions/i });
+    fireEvent.pointerDown(actionsButton);
+    fireEvent.click(actionsButton);
+
+    const duplicateItem = await screen.findByTestId(
+      "duplicate-workflow-menu-item",
+    );
+    fireEvent.click(duplicateItem);
+
+    await screen.findByText(/initial node copy/i);
+    await waitFor(() => expect(undoButton).not.toBeDisabled());
+
+    fireEvent.click(undoButton);
+
+    await waitFor(() =>
+      expect(screen.queryByText(/initial node copy/i)).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(redoButton).not.toBeDisabled());
+
+    fireEvent.click(redoButton);
+    await screen.findByText(/initial node copy/i);
+  });
+});
+
+describe("WorkflowCanvas search", () => {
+  it("opens the workflow search overlay and syncs with the sidebar", async () => {
     renderCanvas();
 
-    const initialNodes = await screen.findAllByText("Initial Node");
-    expect(initialNodes.length).toBeGreaterThan(0);
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
 
-    // Verify buttons exist and are initially disabled
-    const undoButtons = screen.getAllByRole("button", { name: /undo/i });
-    const redoButtons = screen.getAllByRole("button", { name: /redo/i });
+    const searchInput = await screen.findByRole("textbox", {
+      name: /search workflow nodes/i,
+    });
 
-    expect(undoButtons[0]).toBeDisabled();
-    expect(redoButtons[0]).toBeDisabled();
+    fireEvent.change(searchInput, { target: { value: "initial" } });
+
+    await screen.findByText(/1 of 1/i);
+
+    const sidebarSearch = screen.getByPlaceholderText("Search nodes...");
+    expect(sidebarSearch).toHaveValue("initial");
+
+    await waitFor(() => {
+      const highlighted = document.querySelectorAll(
+        '[data-search-match="true"]',
+      );
+      expect(highlighted.length).toBeGreaterThan(0);
+    });
+
+    const clearButton = screen.getByRole("button", { name: /clear search/i });
+    fireEvent.click(clearButton);
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-search-match="true"]')).toBeNull(),
+    );
+    expect(sidebarSearch).toHaveValue("");
   });
 });

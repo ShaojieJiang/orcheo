@@ -28,6 +28,8 @@ export type WorkflowNodeData = {
   isDisabled?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
+  isSearchMatch?: boolean;
+  isActiveSearchMatch?: boolean;
   [key: string]: unknown;
 };
 
@@ -37,7 +39,15 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
   const controlsRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const { label, icon, status = "idle" as const, type, isDisabled } = nodeData;
+  const {
+    label,
+    icon,
+    status = "idle" as const,
+    type,
+    isDisabled,
+    isSearchMatch,
+    isActiveSearchMatch,
+  } = nodeData;
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
@@ -90,16 +100,26 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
     setControlsVisible(false);
   };
 
+  const highlightClassName = selected
+    ? "ring-2 ring-primary ring-offset-2"
+    : isActiveSearchMatch
+      ? "ring-2 ring-primary ring-offset-2 animate-pulse"
+      : isSearchMatch
+        ? "ring-2 ring-sky-400/60 ring-offset-2"
+        : undefined;
+
   return (
     <div
       ref={nodeRef}
       className={cn(
         "group relative border shadow-sm transition-all duration-200",
         nodeColor,
-        selected && "ring-2 ring-primary ring-offset-2",
+        highlightClassName,
         isDisabled && "opacity-60",
         "h-16 w-16 rounded-xl cursor-pointer",
       )}
+      data-search-match={isSearchMatch ? "true" : undefined}
+      data-active-search-match={isActiveSearchMatch ? "true" : undefined}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       tabIndex={0}
