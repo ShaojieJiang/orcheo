@@ -93,6 +93,7 @@ export default function WorkflowSearch({
               setSearchQuery("");
               onSearch("");
             }}
+            aria-label="Clear search query"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -118,6 +119,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightPrevious}
           disabled={matchCount === 0}
+          aria-label="Highlight previous match"
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -127,6 +129,7 @@ export default function WorkflowSearch({
           className="h-7 w-7"
           onClick={onHighlightNext}
           disabled={matchCount === 0}
+          aria-label="Highlight next match"
         >
           <ArrowDown className="h-4 w-4" />
         </Button>
@@ -135,6 +138,7 @@ export default function WorkflowSearch({
           size="icon"
           className="h-7 w-7 ml-1"
           onClick={onClose}
+          aria-label="Close search"
         >
           <X className="h-4 w-4" />
         </Button>

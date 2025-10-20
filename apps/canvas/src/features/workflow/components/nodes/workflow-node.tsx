@@ -37,7 +37,15 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
   const controlsRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const { label, icon, status = "idle" as const, type, isDisabled } = nodeData;
+  const {
+    label,
+    icon,
+    status = "idle" as const,
+    type,
+    isDisabled,
+    isSearchMatch,
+    isSearchActive,
+  } = nodeData;
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
@@ -90,6 +98,15 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
     setControlsVisible(false);
   };
 
+  const highlightClasses = cn(
+    "transition-shadow duration-200",
+    isSearchActive &&
+      "ring-4 ring-primary/60 ring-offset-2 ring-offset-background shadow-xl",
+    !isSearchActive &&
+      isSearchMatch &&
+      "ring-2 ring-primary/30 ring-offset-2 ring-offset-background shadow-lg",
+  );
+
   return (
     <div
       ref={nodeRef}
@@ -99,6 +116,7 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
         selected && "ring-2 ring-primary ring-offset-2",
         isDisabled && "opacity-60",
         "h-16 w-16 rounded-xl cursor-pointer",
+        highlightClasses,
       )}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

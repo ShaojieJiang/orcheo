@@ -36,6 +36,7 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
+import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
@@ -47,6 +48,7 @@ import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 // Define custom node types
 const nodeTypes = {
@@ -87,6 +89,8 @@ interface NodeData {
   icon?: React.ReactNode;
   onOpenChat?: () => void;
   isDisabled?: boolean;
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
   [key: string]: unknown;
 }
 
@@ -227,6 +231,11 @@ export default function WorkflowCanvas({
   const [canRedo, setCanRedo] = useState(false);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [activeTab, setActiveTab] = useState("canvas");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchMatches, setSearchMatches] = useState<string[]>([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [searchSession, setSearchSession] = useState(0);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
   // Chat interface state
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -253,6 +262,18 @@ export default function WorkflowCanvas({
       edges: edgesRef.current.map(cloneEdge),
     }),
     [],
+  );
+
+  const updateNodesWithoutHistory = useCallback(
+    (updater: React.SetStateAction<WorkflowNode[]>) => {
+      isRestoringRef.current = true;
+      setNodesState((current) =>
+        typeof updater === "function"
+          ? (updater as (value: WorkflowNode[]) => WorkflowNode[])(current)
+          : updater,
+      );
+    },
+    [setNodesState],
   );
 
   const recordSnapshot = useCallback(
@@ -286,6 +307,57 @@ export default function WorkflowCanvas({
     [setCanRedo, setCanUndo, setEdgesState, setNodesState],
   );
 
+  const highlightNodes = useCallback(
+    (matches: string[], activeId: string | null) => {
+      const matchSet = new Set(matches);
+      updateNodesWithoutHistory((current) =>
+        current.map((node) => {
+          const isMatch = matchSet.has(node.id);
+          const isActive = isMatch && node.id === activeId;
+          if (
+            node.data &&
+            node.data.isSearchMatch === isMatch &&
+            node.data.isSearchActive === isActive
+          ) {
+            return node;
+          }
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              isSearchMatch: isMatch,
+              isSearchActive: isActive,
+            },
+          } as WorkflowNode;
+        }),
+      );
+    },
+    [updateNodesWithoutHistory],
+  );
+
+  const focusNode = useCallback((nodeId: string | null) => {
+    if (!nodeId || !reactFlowInstance.current) {
+      return;
+    }
+    const node = nodesRef.current.find((candidate) => candidate.id === nodeId);
+    if (!node) {
+      return;
+    }
+    const position = node.positionAbsolute ?? node.position;
+    if (!position) {
+      return;
+    }
+    const targetZoom = Math.max(reactFlowInstance.current.getZoom(), 1.1);
+    reactFlowInstance.current.setCenter(
+      position.x + (node.width ?? 0) / 2,
+      position.y + (node.height ?? 0) / 2,
+      {
+        zoom: targetZoom,
+        duration: 300,
+      },
+    );
+  }, []);
+
   useLayoutEffect(() => {
     if (isRestoringRef.current) {
       isRestoringRef.current = false;
@@ -299,6 +371,10 @@ export default function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  useEffect(() => {
+    setInspectorCollapsed(false);
+  }, [selectedNode?.id]);
 
   const setNodes = useCallback(
     (updater: React.SetStateAction<WorkflowNode[]>) => {
@@ -941,6 +1017,7 @@ export default function WorkflowCanvas({
   // Handle node double click for inspection
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: WorkflowNode) => {
+      setInspectorCollapsed(false);
       setSelectedNode(node);
     },
     [],
@@ -1239,6 +1316,83 @@ export default function WorkflowCanvas({
     setCanUndo(true);
   }, [applySnapshot, createSnapshot]);
 
+  const handleSearch = useCallback(
+    (query: string) => {
+      setIsSearchOpen(true);
+
+      const normalized = query.trim().toLowerCase();
+      if (!normalized) {
+        setSearchMatches([]);
+        setActiveSearchIndex(0);
+        highlightNodes([], null);
+        return;
+      }
+
+      const matches = nodesRef.current
+        .filter((node) => {
+          const label = (node.data?.label ?? "").toString().toLowerCase();
+          const description = (node.data?.description ?? "")
+            .toString()
+            .toLowerCase();
+          const type = (node.data?.type ?? node.type ?? "")
+            .toString()
+            .toLowerCase();
+          return (
+            label.includes(normalized) ||
+            description.includes(normalized) ||
+            type.includes(normalized)
+          );
+        })
+        .map((node) => node.id);
+
+      setSearchMatches(matches);
+      const activeId = matches[0] ?? null;
+      setActiveSearchIndex(matches.length > 0 ? 0 : 0);
+      highlightNodes(matches, activeId);
+      focusNode(activeId);
+    },
+    [focusNode, highlightNodes],
+  );
+
+  const handleHighlightNext = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+    setActiveSearchIndex((previous) => {
+      const nextIndex = (previous + 1) % searchMatches.length;
+      const nextId = searchMatches[nextIndex];
+      highlightNodes(searchMatches, nextId);
+      focusNode(nextId);
+      return nextIndex;
+    });
+  }, [focusNode, highlightNodes, searchMatches]);
+
+  const handleHighlightPrevious = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+    setActiveSearchIndex((previous) => {
+      const nextIndex =
+        (previous - 1 + searchMatches.length) % searchMatches.length;
+      const nextId = searchMatches[nextIndex];
+      highlightNodes(searchMatches, nextId);
+      focusNode(nextId);
+      return nextIndex;
+    });
+  }, [focusNode, highlightNodes, searchMatches]);
+
+  const handleCloseSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setSearchMatches([]);
+    setActiveSearchIndex(0);
+    highlightNodes([], null);
+    setSearchSession((session) => session + 1);
+  }, [highlightNodes]);
+
+  const handleOpenSearch = useCallback(() => {
+    setIsSearchOpen(true);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) {
@@ -1269,6 +1423,7 @@ export default function WorkflowCanvas({
 
   // Handle node inspector close
   const handleCloseNodeInspector = useCallback(() => {
+    setInspectorCollapsed(false);
     setSelectedNode(null);
   }, []);
 
@@ -1430,90 +1585,146 @@ export default function WorkflowCanvas({
                 onAddNode={handleAddNode}
               />
 
-              <div
-                ref={reactFlowWrapper}
-                className="flex-1 h-full min-h-0"
-                onDragOver={onDragOver}
-                onDrop={onDrop}
-              >
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={handleNodesChange}
-                  onEdgesChange={handleEdgesChange}
-                  onConnect={onConnect}
-                  onNodeClick={onNodeClick}
-                  onNodeDoubleClick={onNodeDoubleClick}
-                  onInit={(instance) => {
-                    reactFlowInstance.current = instance;
-                  }}
-                  nodeTypes={nodeTypes}
-                  fitView
-                  snapToGrid
-                  snapGrid={[15, 15]}
-                  defaultEdgeOptions={{
-                    style: { stroke: "#99a1b3", strokeWidth: 2 },
-                    type: "smoothstep",
-                    markerEnd: {
-                      type: MarkerType.ArrowClosed,
-                    },
-                  }}
-                  connectionLineType={ConnectionLineType.SmoothStep}
-                  connectionLineStyle={{ stroke: "#99a1b3", strokeWidth: 2 }}
-                  proOptions={{ hideAttribution: true }}
-                  className="h-full"
+              <div className="flex flex-1 min-h-0">
+                <div
+                  ref={reactFlowWrapper}
+                  className="relative flex-1 h-full min-h-0 bg-muted/40 dark:bg-slate-950/40"
+                  onDragOver={onDragOver}
+                  onDrop={onDrop}
                 >
-                  <Background />
-
-                  <Controls />
-
-                  <MiniMap
-                    nodeStrokeWidth={3}
-                    zoomable
-                    pannable
-                    nodeColor={(node) => {
-                      switch (node.data?.type) {
-                        case "api":
-                          return "#93c5fd";
-                        case "function":
-                          return "#d8b4fe";
-                        case "trigger":
-                          return "#fcd34d";
-                        case "data":
-                          return "#86efac";
-                        case "ai":
-                          return "#a5b4fc";
-                        case "chatTrigger":
-                          return "#fdba74";
-                        default:
-                          return "#e2e8f0";
-                      }
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={handleNodesChange}
+                    onEdgesChange={handleEdgesChange}
+                    onConnect={onConnect}
+                    onNodeClick={onNodeClick}
+                    onNodeDoubleClick={onNodeDoubleClick}
+                    onInit={(instance) => {
+                      reactFlowInstance.current = instance;
                     }}
-                  />
-
-                  <Panel position="top-left" className="m-4">
-                    <WorkflowControls
-                      isRunning={isRunning}
-                      onRun={handleRunWorkflow}
-                      onPause={handlePauseWorkflow}
-                      onSave={() => alert("Workflow saved")}
-                      onUndo={handleUndo}
-                      onRedo={handleRedo}
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      onDuplicate={handleDuplicateSelectedNodes}
-                      onExport={handleExportWorkflow}
-                      onImport={handleImportWorkflow}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    snapToGrid
+                    snapGrid={[15, 15]}
+                    defaultEdgeOptions={{
+                      style: { stroke: "#99a1b3", strokeWidth: 2 },
+                      type: "smoothstep",
+                      markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                      },
+                    }}
+                    connectionLineType={ConnectionLineType.SmoothStep}
+                    connectionLineStyle={{ stroke: "#99a1b3", strokeWidth: 2 }}
+                    proOptions={{ hideAttribution: true }}
+                    className="h-full"
+                  >
+                    <Background
+                      color="hsl(var(--border))"
+                      gap={28}
+                      size={1.5}
+                      variant="dots"
                     />
-                  </Panel>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json"
-                    className="hidden"
-                    onChange={handleWorkflowFileSelected}
+
+                    <Controls className="rounded-md border border-border bg-background/90 shadow-sm" />
+
+                    <MiniMap
+                      nodeStrokeWidth={3}
+                      zoomable
+                      pannable
+                      nodeColor={(node) => {
+                        switch (node.data?.type) {
+                          case "api":
+                            return "#93c5fd";
+                          case "function":
+                            return "#d8b4fe";
+                          case "trigger":
+                            return "#fcd34d";
+                          case "data":
+                            return "#86efac";
+                          case "ai":
+                            return "#a5b4fc";
+                          case "chatTrigger":
+                            return "#fdba74";
+                          default:
+                            return "#e2e8f0";
+                        }
+                      }}
+                    />
+
+                    <Panel position="top-left" className="m-4">
+                      <WorkflowControls
+                        isRunning={isRunning}
+                        onRun={handleRunWorkflow}
+                        onPause={handlePauseWorkflow}
+                        onSave={() => alert("Workflow saved")}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        canUndo={canUndo}
+                        canRedo={canRedo}
+                        onDuplicate={handleDuplicateSelectedNodes}
+                        onExport={handleExportWorkflow}
+                        onImport={handleImportWorkflow}
+                        onSearchToggle={handleOpenSearch}
+                      />
+                    </Panel>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={handleWorkflowFileSelected}
+                    />
+                  </ReactFlow>
+
+                  <WorkflowSearch
+                    key={searchSession}
+                    onSearch={handleSearch}
+                    onHighlightNext={handleHighlightNext}
+                    onHighlightPrevious={handleHighlightPrevious}
+                    onClose={handleCloseSearch}
+                    matchCount={searchMatches.length}
+                    currentMatchIndex={activeSearchIndex}
+                    isOpen={isSearchOpen}
+                    className="top-6"
                   />
-                </ReactFlow>
+                </div>
+
+                <div
+                  className={cn(
+                    "relative h-full transition-all duration-300 ease-in-out",
+                    selectedNode
+                      ? inspectorCollapsed
+                        ? "w-14"
+                        : "w-[420px]"
+                      : "w-0 pointer-events-none",
+                  )}
+                >
+                  {selectedNode && (
+                    <div
+                      className={cn(
+                        "absolute inset-y-0 right-0 flex h-full border-l border-border bg-card/95 backdrop-blur",
+                        inspectorCollapsed ? "w-14" : "w-[420px]",
+                      )}
+                    >
+                      <NodeInspector
+                        node={{
+                          id: selectedNode.id,
+                          type: selectedNode.type || "default",
+                          data: selectedNode.data,
+                        }}
+                        onClose={handleCloseNodeInspector}
+                        onSave={handleNodeUpdate}
+                        variant="panel"
+                        isCollapsed={inspectorCollapsed}
+                        onToggleCollapse={() =>
+                          setInspectorCollapsed((collapsed) => !collapsed)
+                        }
+                        className="h-full w-full"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </TabsContent>
@@ -1691,19 +1902,6 @@ export default function WorkflowCanvas({
           </TabsContent>
         </Tabs>
       </div>
-
-      {selectedNode && (
-        <NodeInspector
-          node={{
-            id: selectedNode.id,
-            type: selectedNode.type || "default",
-            data: selectedNode.data,
-          }}
-          onClose={handleCloseNodeInspector}
-          onSave={handleNodeUpdate}
-          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
-        />
-      )}
 
       {/* Chat Interface */}
       {isChatOpen && (

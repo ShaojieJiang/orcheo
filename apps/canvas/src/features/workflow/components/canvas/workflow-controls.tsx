@@ -27,6 +27,7 @@ import {
   MoreHorizontal,
   Share,
   GitBranch,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,7 @@ interface WorkflowControlsProps {
   onImport?: () => void;
   onShare?: () => void;
   onVersionHistory?: () => void;
+  onSearchToggle?: () => void;
   className?: string;
 }
 
@@ -61,6 +63,7 @@ export default function WorkflowControls({
   onImport,
   onShare,
   onVersionHistory,
+  onSearchToggle,
   className,
 }: WorkflowControlsProps) {
   return (
@@ -104,6 +107,26 @@ export default function WorkflowControls({
             </TooltipTrigger>
             <TooltipContent>
               <p>Save Workflow</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={onSearchToggle}
+                aria-label="Search nodes"
+                disabled={!onSearchToggle}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Search &amp; Filter (Ctrl+F)</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

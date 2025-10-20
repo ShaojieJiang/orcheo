@@ -31,6 +31,7 @@ import {
   History,
   Plus,
   GripVertical,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Editor from "@monaco-editor/react";
@@ -45,6 +46,9 @@ interface NodeInspectorProps {
   onClose?: () => void;
   onSave?: (nodeId: string, data: Record<string, unknown>) => void;
   className?: string;
+  variant?: "modal" | "panel";
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 interface SchemaField {
@@ -59,6 +63,9 @@ export default function NodeInspector({
   onClose,
   onSave,
   className,
+  variant = "modal",
+  isCollapsed = false,
+  onToggleCollapse,
 }: NodeInspectorProps) {
   const [useLiveData, setUseLiveData] = useState(true);
   const [pythonCode, setPythonCode] = useState(
@@ -70,6 +77,9 @@ export default function NodeInspector({
   const configTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   if (!node) return null;
+
+  const isPanel = variant === "panel";
+  const collapsed = isPanel && isCollapsed;
 
   const handleSave = () => {
     if (onSave && node) {
@@ -525,140 +535,197 @@ export default function NodeInspector({
     </div>
   );
 
-  return (
-    <>
-      <div
-        className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50"
-        onClick={onClose}
-      />
-      <div
-        className={cn(
-          "flex flex-col border border-border rounded-lg bg-background shadow-lg",
-          "fixed top-[5vh] left-[5vw] w-[90vw] h-[90vh] z-50",
-          className,
+  const header = (
+    <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="flex items-center gap-2">
+        {isPanel && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            aria-label={
+              collapsed ? "Expand inspector panel" : "Collapse inspector panel"
+            }
+            disabled={!onToggleCollapse}
+          >
+            <ChevronRight
+              className={cn(
+                "h-4 w-4 transition-transform",
+                collapsed ? "" : "rotate-180",
+              )}
+            />
+          </Button>
         )}
-        tabIndex={0}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col">
-              <h3 className="font-medium">{node.type}</h3>
-              <p className="text-xs text-muted-foreground">ID: {node.id}</p>
-            </div>
+        {!collapsed && (
+          <div className="flex flex-col min-w-0">
+            <h3 className="font-medium capitalize truncate">{node.type}</h3>
+            <p className="text-xs text-muted-foreground truncate">
+              ID: {node.id}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Split Pane Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <Split
-              sizes={[33, 67]}
-              minSize={150}
-              expandToMin={false}
-              gutterSize={10}
-              gutterAlign="center"
-              snapOffset={30}
-              dragInterval={1}
-              direction="horizontal"
-              cursor="col-resize"
-              className="flex h-full"
-              gutterStyle={() => ({
-                backgroundColor: "hsl(var(--border))",
-                width: "4px",
-                margin: "0 2px",
-                cursor: "col-resize",
-                "&:hover": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-                "&:active": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-              })}
-            >
-              <div className="h-full overflow-hidden flex flex-col">
-                <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                  <h3 className="text-sm font-medium">Input</h3>
-                </div>
-                <div className="flex-1 overflow-auto">
-                  {renderInputContent()}
-                </div>
-              </div>
-
-              <Split
-                sizes={[50, 50]}
-                minSize={150}
-                expandToMin={false}
-                gutterSize={10}
-                gutterAlign="center"
-                snapOffset={30}
-                dragInterval={1}
-                direction="horizontal"
-                cursor="col-resize"
-                className="flex h-full"
-                gutterStyle={() => ({
-                  backgroundColor: "hsl(var(--border))",
-                  width: "4px",
-                  margin: "0 2px",
-                  cursor: "col-resize",
-                  "&:hover": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                  "&:active": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                })}
-              >
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Configuration</h3>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderConfigContent()}
-                  </div>
-                </div>
-
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Output</h3>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderOutputContent()}
-                  </div>
-                </div>
-              </Split>
-            </Split>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-border">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <History className="h-4 w-4 mr-2" />
-              History
-            </Button>
-            <Button variant="outline" size="sm">
-              <FileDown className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleSave}>
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
-          </div>
-        </div>
+        )}
       </div>
-    </>
+      {!collapsed && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="Close inspector"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
   );
+
+  const splitContent = (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-hidden">
+        <Split
+          sizes={[33, 67]}
+          minSize={150}
+          expandToMin={false}
+          gutterSize={10}
+          gutterAlign="center"
+          snapOffset={30}
+          dragInterval={1}
+          direction="horizontal"
+          cursor="col-resize"
+          className="flex h-full"
+          gutterStyle={() => ({
+            backgroundColor: "hsl(var(--border))",
+            width: "4px",
+            margin: "0 2px",
+            cursor: "col-resize",
+            "&:hover": {
+              backgroundColor: "hsl(var(--primary))",
+            },
+            "&:active": {
+              backgroundColor: "hsl(var(--primary))",
+            },
+          })}
+        >
+          <div className="h-full overflow-hidden flex flex-col">
+            <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
+              <h3 className="text-sm font-medium">Input</h3>
+            </div>
+            <div className="flex-1 overflow-auto">{renderInputContent()}</div>
+          </div>
+
+          <Split
+            sizes={[50, 50]}
+            minSize={150}
+            expandToMin={false}
+            gutterSize={10}
+            gutterAlign="center"
+            snapOffset={30}
+            dragInterval={1}
+            direction="horizontal"
+            cursor="col-resize"
+            className="flex h-full"
+            gutterStyle={() => ({
+              backgroundColor: "hsl(var(--border))",
+              width: "4px",
+              margin: "0 2px",
+              cursor: "col-resize",
+              "&:hover": {
+                backgroundColor: "hsl(var(--primary))",
+              },
+              "&:active": {
+                backgroundColor: "hsl(var(--primary))",
+              },
+            })}
+          >
+            <div className="h-full overflow-hidden flex flex-col">
+              <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
+                <h3 className="text-sm font-medium">Configuration</h3>
+              </div>
+              <div className="flex-1 overflow-auto">
+                {renderConfigContent()}
+              </div>
+            </div>
+
+            <div className="h-full overflow-hidden flex flex-col">
+              <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
+                <h3 className="text-sm font-medium">Output</h3>
+              </div>
+              <div className="flex-1 overflow-auto">
+                {renderOutputContent()}
+              </div>
+            </div>
+          </Split>
+        </Split>
+      </div>
+    </div>
+  );
+
+  const footer = (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm">
+          <History className="h-4 w-4 mr-2" />
+          History
+        </Button>
+        <Button variant="outline" size="sm">
+          <FileDown className="h-4 w-4 mr-2" />
+          Export
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSave}>
+          <Save className="h-4 w-4 mr-2" />
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+
+  const collapsedPlaceholder = (
+    <div className="flex flex-1 items-center justify-center px-1">
+      <span className="text-xs font-medium tracking-[0.35em] uppercase text-muted-foreground [writing-mode:vertical-rl]">
+        Inspector
+      </span>
+    </div>
+  );
+
+  const containerClass = cn(
+    "flex flex-col border border-border bg-background shadow-lg",
+    isPanel
+      ? "h-full w-full rounded-none"
+      : "fixed top-[5vh] left-[5vw] w-[90vw] h-[90vh] z-50 rounded-lg",
+    className,
+  );
+
+  const content = (
+    <div className={containerClass} tabIndex={0}>
+      {header}
+      {collapsed ? (
+        collapsedPlaceholder
+      ) : (
+        <>
+          {splitContent}
+          {footer}
+        </>
+      )}
+    </div>
+  );
+
+  if (!isPanel) {
+    return (
+      <>
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40"
+          onClick={onClose}
+        />
+        {content}
+      </>
+    );
+  }
+
+  return content;
 }

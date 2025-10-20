@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
 
@@ -94,5 +94,43 @@ describe("WorkflowCanvas editing history", () => {
 
     expect(undoButtons[0]).toBeDisabled();
     expect(redoButtons[0]).toBeDisabled();
+  });
+
+  it("opens search overlay with keyboard shortcut", async () => {
+    renderCanvas();
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+
+    const searchInput = await screen.findByPlaceholderText("Search nodes...");
+    fireEvent.change(searchInput, { target: { value: "Initial" } });
+
+    expect(await screen.findByText(/1 of 1/i)).toBeInTheDocument();
+
+    const closeButton = screen.getByRole("button", { name: /close search/i });
+    fireEvent.click(closeButton);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByPlaceholderText("Search nodes..."),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows collapsible inspector panel when a node is opened", async () => {
+    renderCanvas();
+
+    const nodeLabel = await screen.findByText("Initial Node");
+    fireEvent.doubleClick(nodeLabel);
+
+    const collapseButton = await screen.findByRole("button", {
+      name: /collapse inspector panel/i,
+    });
+    expect(collapseButton).toBeVisible();
+
+    fireEvent.click(collapseButton);
+
+    expect(
+      await screen.findByRole("button", { name: /expand inspector panel/i }),
+    ).toBeVisible();
   });
 });
