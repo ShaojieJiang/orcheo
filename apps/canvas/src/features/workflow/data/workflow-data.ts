@@ -56,7 +56,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       name: "Avery Chen",
       avatar: "https://avatar.vercel.sh/avery",
     },
-    tags: ["production", "customer", "automation"],
+    tags: ["production", "customer", "automation", "template"],
     lastRun: {
       status: "success",
       timestamp: "2023-11-05T09:15:00Z",
@@ -153,7 +153,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       name: "Sky Patel",
       avatar: "https://avatar.vercel.sh/sky",
     },
-    tags: ["data", "integration", "scheduled"],
+    tags: ["data", "integration", "scheduled", "template"],
     lastRun: {
       status: "error",
       timestamp: "2023-11-05T02:00:00Z",
@@ -251,7 +251,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       name: "Avery Chen",
       avatar: "https://avatar.vercel.sh/avery",
     },
-    tags: ["ai", "content", "automation"],
+    tags: ["ai", "content", "automation", "template"],
     lastRun: {
       status: "running",
       timestamp: "2023-11-05T10:30:00Z",

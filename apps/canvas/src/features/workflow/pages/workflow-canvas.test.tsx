@@ -118,9 +118,7 @@ describe("WorkflowCanvas editing history", () => {
     fireEvent.change(searchInput, { target: { value: "Initial" } });
 
     await waitFor(() => {
-      const matches = document.querySelectorAll(
-        "[data-search-match=\"true\"]",
-      );
+      const matches = document.querySelectorAll('[data-search-match="true"]');
       expect(matches.length).toBeGreaterThan(0);
     });
   });
