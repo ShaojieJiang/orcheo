@@ -1,6 +1,19 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { useParams } from "react-router-dom";
-import type { Connection, Edge, Node, ReactFlowInstance } from "@xyflow/react";
+import type {
+  Connection,
+  Edge,
+  EdgeChange,
+  Node,
+  NodeChange,
+  ReactFlowInstance,
+} from "@xyflow/react";
 import {
   ReactFlow,
   Background,
@@ -80,6 +93,29 @@ interface NodeData {
 type WorkflowNode = Node<NodeData>;
 type WorkflowEdge = Edge<Record<string, unknown>>;
 
+interface WorkflowSnapshot {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+interface WorkflowCanvasProps {
+  initialNodes?: WorkflowNode[];
+  initialEdges?: WorkflowEdge[];
+}
+
+const HISTORY_LIMIT = 50;
+
+const cloneNode = (node: WorkflowNode): WorkflowNode => ({
+  ...node,
+  position: node.position ? { ...node.position } : node.position,
+  data: node.data ? { ...node.data } : node.data,
+});
+
+const cloneEdge = (edge: WorkflowEdge): WorkflowEdge => ({
+  ...edge,
+  data: edge.data ? { ...edge.data } : edge.data,
+});
+
 // Update the WorkflowExecution interface to match the component's expectations
 type WorkflowExecutionStatus = "running" | "success" | "failed" | "partial";
 type NodeStatus = "idle" | "running" | "success" | "error" | "warning";
@@ -119,12 +155,69 @@ interface SidebarNodeDefinition {
   data?: Record<string, unknown>;
 }
 
-export default function WorkflowCanvas() {
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const determineNodeType = (nodeId?: string) => {
+  if (nodeId?.includes("chat-trigger")) {
+    return "chatTrigger" as const;
+  }
+  if (nodeId === "start-node" || nodeId === "end-node") {
+    return "startEnd" as const;
+  }
+  return "default" as const;
+};
+
+const validateWorkflowData = (data: unknown) => {
+  if (!isRecord(data)) {
+    throw new Error("Invalid workflow file structure.");
+  }
+
+  const { nodes, edges } = data;
+
+  if (!Array.isArray(nodes)) {
+    throw new Error("Invalid nodes array in workflow file.");
+  }
+
+  nodes.forEach((node, index) => {
+    if (!isRecord(node)) {
+      throw new Error(`Invalid node at index ${index}.`);
+    }
+    if (!isRecord(node.position)) {
+      throw new Error(`Node ${node.id ?? index} is missing position data.`);
+    }
+    const { x, y } = node.position as Record<string, unknown>;
+    if (typeof x !== "number" || typeof y !== "number") {
+      throw new Error(`Node ${node.id ?? index} has invalid coordinates.`);
+    }
+  });
+
+  if (!Array.isArray(edges)) {
+    throw new Error("Invalid edges array in workflow file.");
+  }
+
+  edges.forEach((edge, index) => {
+    if (!isRecord(edge)) {
+      throw new Error(`Invalid edge at index ${index}.`);
+    }
+    if (typeof edge.source !== "string" || typeof edge.target !== "string") {
+      throw new Error(`Edge ${edge.id ?? index} has invalid connections.`);
+    }
+  });
+};
+
+export default function WorkflowCanvas({
+  initialNodes = [],
+  initialEdges = [],
+}: WorkflowCanvasProps) {
   const { workflowId } = useParams<{ workflowId?: string }>();
 
   // Initialize with empty arrays instead of sample workflow
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>([]);
+  const [nodes, setNodesState, onNodesChangeState] =
+    useNodesState<WorkflowNode>(initialNodes);
+  const [edges, setEdgesState, onEdgesChangeState] =
+    useEdgesState<WorkflowEdge>(initialEdges);
   const [workflowName, setWorkflowName] = useState("New Workflow");
 
   // State for UI controls
@@ -140,12 +233,129 @@ export default function WorkflowCanvas() {
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
 
+  const undoStackRef = useRef<WorkflowSnapshot[]>([]);
+  const redoStackRef = useRef<WorkflowSnapshot[]>([]);
+  const isRestoringRef = useRef(false);
+  const nodesRef = useRef<WorkflowNode[]>(nodes);
+  const edgesRef = useRef<WorkflowEdge[]>(edges);
+
   // Refs
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance<
     WorkflowNode,
     WorkflowEdge
   > | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const createSnapshot = useCallback(
+    (): WorkflowSnapshot => ({
+      nodes: nodesRef.current.map(cloneNode),
+      edges: edgesRef.current.map(cloneEdge),
+    }),
+    [],
+  );
+
+  const recordSnapshot = useCallback(
+    (options?: { force?: boolean }) => {
+      if (isRestoringRef.current && !options?.force) {
+        return;
+      }
+      const snapshot = createSnapshot();
+      undoStackRef.current = [...undoStackRef.current, snapshot].slice(
+        -HISTORY_LIMIT,
+      );
+      redoStackRef.current = [];
+      setCanUndo(undoStackRef.current.length > 0);
+      setCanRedo(false);
+    },
+    [createSnapshot],
+  );
+
+  const applySnapshot = useCallback(
+    (snapshot: WorkflowSnapshot, { resetHistory = false } = {}) => {
+      isRestoringRef.current = true;
+      setNodesState(snapshot.nodes);
+      setEdgesState(snapshot.edges);
+      if (resetHistory) {
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setCanUndo(false);
+        setCanRedo(false);
+      }
+    },
+    [setCanRedo, setCanUndo, setEdgesState, setNodesState],
+  );
+
+  useLayoutEffect(() => {
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false;
+    }
+  }, [edges, nodes]);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  const setNodes = useCallback(
+    (updater: React.SetStateAction<WorkflowNode[]>) => {
+      if (!isRestoringRef.current) {
+        recordSnapshot();
+      }
+      setNodesState((current) =>
+        typeof updater === "function"
+          ? (updater as (value: WorkflowNode[]) => WorkflowNode[])(current)
+          : updater,
+      );
+    },
+    [recordSnapshot, setNodesState],
+  );
+
+  const setEdges = useCallback(
+    (updater: React.SetStateAction<WorkflowEdge[]>) => {
+      if (!isRestoringRef.current) {
+        recordSnapshot();
+      }
+      setEdgesState((current) =>
+        typeof updater === "function"
+          ? (updater as (value: WorkflowEdge[]) => WorkflowEdge[])(current)
+          : updater,
+      );
+    },
+    [recordSnapshot, setEdgesState],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<WorkflowNode>[]) => {
+      const shouldRecord = changes.some((change) => {
+        if (change.type === "select") {
+          return false;
+        }
+        if (change.type === "position" && change.dragging) {
+          return false;
+        }
+        return true;
+      });
+      if (shouldRecord) {
+        recordSnapshot();
+      }
+      onNodesChangeState(changes);
+    },
+    [onNodesChangeState, recordSnapshot],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange<WorkflowEdge>[]) => {
+      if (changes.some((change) => change.type !== "select")) {
+        recordSnapshot();
+      }
+      onEdgesChangeState(changes);
+    },
+    [onEdgesChangeState, recordSnapshot],
+  );
 
   // Sample executions for the WorkflowExecutionHistory component
   const mockExecutions: WorkflowExecution[] = [
@@ -497,6 +707,198 @@ export default function WorkflowCanvas() {
     },
   ];
 
+  const handleDuplicateSelectedNodes = useCallback(() => {
+    const selectedNodes = nodes.filter((node) => node.selected);
+    if (selectedNodes.length === 0) {
+      toast({
+        title: "No nodes selected",
+        description: "Select at least one node to duplicate.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const idMap = new Map<string, string>();
+    const duplicatedNodes = selectedNodes.map((node) => {
+      const newId = generateNodeId();
+      idMap.set(node.id, newId);
+      const clonedNode = cloneNode(node);
+      const baseLabel =
+        typeof clonedNode.data?.label === "string"
+          ? clonedNode.data.label
+          : clonedNode.id;
+      return {
+        ...clonedNode,
+        id: newId,
+        position: {
+          x: (clonedNode.position?.x ?? 0) + 40,
+          y: (clonedNode.position?.y ?? 0) + 40,
+        },
+        selected: false,
+        data: {
+          ...clonedNode.data,
+          label: `${baseLabel} Copy`,
+        },
+      } as WorkflowNode;
+    });
+
+    const selectedIds = new Set(selectedNodes.map((node) => node.id));
+    const duplicatedEdges = edges
+      .filter(
+        (edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target),
+      )
+      .map((edge) => {
+        const sourceId = idMap.get(edge.source);
+        const targetId = idMap.get(edge.target);
+        if (!sourceId || !targetId) {
+          return null;
+        }
+        const clonedEdge = cloneEdge(edge);
+        return {
+          ...clonedEdge,
+          id: `edge-${sourceId}-${targetId}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+          source: sourceId,
+          target: targetId,
+          selected: false,
+        } as WorkflowEdge;
+      })
+      .filter(Boolean) as WorkflowEdge[];
+
+    isRestoringRef.current = true;
+    recordSnapshot({ force: true });
+    try {
+      setNodesState((current) => [...current, ...duplicatedNodes]);
+      if (duplicatedEdges.length > 0) {
+        setEdgesState((current) => [...current, ...duplicatedEdges]);
+      }
+    } catch (error) {
+      isRestoringRef.current = false;
+      throw error;
+    }
+    toast({
+      title: "Nodes duplicated",
+      description: `${duplicatedNodes.length} node${
+        duplicatedNodes.length === 1 ? "" : "s"
+      } copied with their connections.`,
+    });
+  }, [edges, nodes, recordSnapshot, setEdgesState, setNodesState]);
+
+  const handleExportWorkflow = useCallback(() => {
+    try {
+      const snapshot = createSnapshot();
+      const workflowData = {
+        name: workflowName,
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+      };
+      const serialized = JSON.stringify(workflowData, null, 2);
+      const blob = new Blob([serialized], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${workflowName.replace(/\s+/g, "-").toLowerCase() || "workflow"}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Workflow exported",
+        description: "A JSON export has been downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error ? error.message : "Unable to export workflow.",
+        variant: "destructive",
+      });
+    }
+  }, [createSnapshot, workflowName]);
+
+  const handleImportWorkflow = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleWorkflowFileSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const content =
+            typeof reader.result === "string" ? reader.result : "";
+          const parsed = JSON.parse(content);
+          validateWorkflowData(parsed);
+
+          const importedNodes = (parsed.nodes as WorkflowNode[]).map(
+            (node) => ({
+              ...cloneNode(node),
+              id: node.id ?? generateNodeId(),
+              selected: false,
+            }),
+          );
+          const importedEdges = (parsed.edges as WorkflowEdge[]).map(
+            (edge) => ({
+              ...cloneEdge(edge),
+              id:
+                edge.id ??
+                `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+              selected: false,
+            }),
+          );
+
+          isRestoringRef.current = true;
+          recordSnapshot({ force: true });
+          try {
+            setNodesState(importedNodes);
+            setEdgesState(importedEdges);
+            if (
+              typeof parsed.name === "string" &&
+              parsed.name.trim().length > 0
+            ) {
+              setWorkflowName(parsed.name);
+            }
+          } catch (error) {
+            isRestoringRef.current = false;
+            throw error;
+          }
+
+          toast({
+            title: "Workflow imported",
+            description: `Loaded ${importedNodes.length} node${
+              importedNodes.length === 1 ? "" : "s"
+            } from file.`,
+          });
+        } catch (error) {
+          toast({
+            title: "Import failed",
+            description:
+              error instanceof Error ? error.message : "Invalid workflow file.",
+            variant: "destructive",
+          });
+        } finally {
+          event.target.value = "";
+        }
+      };
+      reader.onerror = () => {
+        toast({
+          title: "Import failed",
+          description: "Unable to read the selected file.",
+          variant: "destructive",
+        });
+        event.target.value = "";
+      };
+      reader.readAsText(file);
+    },
+    [recordSnapshot, setEdgesState, setNodesState, setWorkflowName],
+  );
+
   // Handle new connections between nodes
   const onConnect = useCallback(
     (params: Connection) => {
@@ -524,7 +926,6 @@ export default function WorkflowCanvas() {
             eds,
           ),
         );
-        setCanUndo(true);
       }
     },
     [edges, setEdges],
@@ -585,13 +986,7 @@ export default function WorkflowCanvas() {
           y: event.clientY - reactFlowBounds.top,
         });
 
-        // Determine node type
-        let nodeType = "default";
-        if (node.id?.includes("chat-trigger")) {
-          nodeType = "chatTrigger";
-        } else if (node.id === "start-node" || node.id === "end-node") {
-          nodeType = "startEnd";
-        }
+        const nodeType = determineNodeType(node.id);
 
         // Create a new node
         const nodeId = generateNodeId();
@@ -623,9 +1018,6 @@ export default function WorkflowCanvas() {
 
         // Add the new node to the canvas
         setNodes((nds) => nds.concat(newNode));
-
-        // Enable undo after adding a node
-        setCanUndo(true);
       } catch (error) {
         console.error("Error adding new node:", error);
       }
@@ -638,13 +1030,7 @@ export default function WorkflowCanvas() {
     (node: SidebarNodeDefinition) => {
       if (!reactFlowInstance.current) return;
 
-      // Determine node type
-      let nodeType = "default";
-      if (node.id?.includes("chat-trigger")) {
-        nodeType = "chatTrigger";
-      } else if (node.id === "start-node" || node.id === "end-node") {
-        nodeType = "startEnd";
-      }
+      const nodeType = determineNodeType(node.id);
 
       // Calculate a position for the new node
       const position = {
@@ -681,7 +1067,6 @@ export default function WorkflowCanvas() {
 
       // Add the new node to the canvas
       setNodes((nds) => [...nds, newNode]);
-      setCanUndo(true);
     },
     [handleOpenChat, setNodes],
   );
@@ -826,18 +1211,61 @@ export default function WorkflowCanvas() {
     );
   }, [setNodes]);
 
-  // Handle undo/redo (simplified implementation)
   const handleUndo = useCallback(() => {
-    // In a real implementation, you would use a history stack
-    setCanUndo(false);
+    const previousSnapshot = undoStackRef.current.pop();
+    if (!previousSnapshot) {
+      return;
+    }
+    const currentSnapshot = createSnapshot();
+    redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(
+      -HISTORY_LIMIT,
+    );
+    applySnapshot(previousSnapshot);
+    setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(true);
-  }, []);
+  }, [applySnapshot, createSnapshot]);
 
   const handleRedo = useCallback(() => {
-    // In a real implementation, you would use a history stack
-    setCanRedo(false);
+    const nextSnapshot = redoStackRef.current.pop();
+    if (!nextSnapshot) {
+      return;
+    }
+    const currentSnapshot = createSnapshot();
+    undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(
+      -HISTORY_LIMIT,
+    );
+    applySnapshot(nextSnapshot);
+    setCanRedo(redoStackRef.current.length > 0);
     setCanUndo(true);
-  }, []);
+  }, [applySnapshot, createSnapshot]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+
+      if (key === "y") {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleRedo, handleUndo]);
 
   // Handle node inspector close
   const handleCloseNodeInspector = useCallback(() => {
@@ -940,11 +1368,13 @@ export default function WorkflowCanvas() {
           style: edge.style || { stroke: "#99a1b3", strokeWidth: 2 },
         }));
 
-        setNodes(flowNodes);
-        setEdges(flowEdges);
+        applySnapshot(
+          { nodes: flowNodes, edges: flowEdges },
+          { resetHistory: true },
+        );
       }
     }
-  }, [workflowId, setNodes, setEdges]);
+  }, [applySnapshot, workflowId]);
 
   // Fit view on initial render
   useEffect(() => {
@@ -1009,8 +1439,8 @@ export default function WorkflowCanvas() {
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
                   onConnect={onConnect}
                   onNodeClick={onNodeClick}
                   onNodeDoubleClick={onNodeDoubleClick}
@@ -1071,8 +1501,18 @@ export default function WorkflowCanvas() {
                       onRedo={handleRedo}
                       canUndo={canUndo}
                       canRedo={canRedo}
+                      onDuplicate={handleDuplicateSelectedNodes}
+                      onExport={handleExportWorkflow}
+                      onImport={handleImportWorkflow}
                     />
                   </Panel>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json"
+                    className="hidden"
+                    onChange={handleWorkflowFileSelected}
+                  />
                 </ReactFlow>
               </div>
             </div>

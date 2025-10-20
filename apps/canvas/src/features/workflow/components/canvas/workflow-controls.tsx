@@ -39,6 +39,11 @@ interface WorkflowControlsProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  onDuplicate?: () => void;
+  onExport?: () => void;
+  onImport?: () => void;
+  onShare?: () => void;
+  onVersionHistory?: () => void;
   className?: string;
 }
 
@@ -51,6 +56,11 @@ export default function WorkflowControls({
   onRedo,
   canUndo = false,
   canRedo = false,
+  onDuplicate,
+  onExport,
+  onImport,
+  onShare,
+  onVersionHistory,
   className,
 }: WorkflowControlsProps) {
   return (
@@ -64,6 +74,7 @@ export default function WorkflowControls({
                 size="icon"
                 className="h-8 w-8"
                 onClick={isRunning ? onPause : onRun}
+                aria-label={isRunning ? "Pause workflow" : "Run workflow"}
               >
                 {isRunning ? (
                   <Pause className="h-4 w-4" />
@@ -86,6 +97,7 @@ export default function WorkflowControls({
                 size="icon"
                 className="h-8 w-8"
                 onClick={onSave}
+                aria-label="Save workflow"
               >
                 <Save className="h-4 w-4" />
               </Button>
@@ -99,7 +111,12 @@ export default function WorkflowControls({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Debug workflow"
+              >
                 <Bug className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -114,7 +131,12 @@ export default function WorkflowControls({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="More actions"
+                  >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -125,31 +147,62 @@ export default function WorkflowControls({
             </Tooltip>
           </TooltipProvider>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onDuplicate?.();
+              }}
+              disabled={!onDuplicate}
+              data-testid="duplicate-workflow-menu-item"
+            >
               <Copy className="mr-2 h-4 w-4" />
 
               <span>Duplicate</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onShare?.();
+              }}
+              disabled={!onShare}
+            >
               <Share className="mr-2 h-4 w-4" />
 
               <span>Share</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onExport?.();
+              }}
+              disabled={!onExport}
+            >
               <Download className="mr-2 h-4 w-4" />
 
               <span>Export</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onImport?.();
+              }}
+              disabled={!onImport}
+            >
               <Upload className="mr-2 h-4 w-4" />
 
               <span>Import</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onVersionHistory?.();
+              }}
+              disabled={!onVersionHistory}
+            >
               <GitBranch className="mr-2 h-4 w-4" />
 
               <span>Version History</span>
@@ -168,6 +221,7 @@ export default function WorkflowControls({
                 className="h-8 w-8"
                 onClick={onUndo}
                 disabled={!canUndo}
+                aria-label="Undo"
               >
                 <RotateCcw className="h-4 w-4" />
               </Button>
@@ -187,6 +241,7 @@ export default function WorkflowControls({
                 className="h-8 w-8"
                 onClick={onRedo}
                 disabled={!canRedo}
+                aria-label="Redo"
               >
                 <RotateCw className="h-4 w-4" />
               </Button>
@@ -200,7 +255,12 @@ export default function WorkflowControls({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="History"
+              >
                 <History className="h-4 w-4" />
               </Button>
             </TooltipTrigger>

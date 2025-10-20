@@ -1,4 +1,4 @@
-.PHONY: dev-server test lint format canvas-lint canvas-format
+.PHONY: dev-server test lint format canvas-lint canvas-format canvas-test
 
 UV ?= uv
 UV_CACHE_DIR ?= .cache/uv
@@ -14,6 +14,9 @@ canvas-lint:
 
 canvas-format:
 	npx --prefix apps/canvas prettier "apps/canvas/src/**/*.{ts,tsx,js,jsx,css,md}" --write
+
+canvas-test:
+	npm --prefix apps/canvas run test -- --run
 
 format:
 	ruff format .
