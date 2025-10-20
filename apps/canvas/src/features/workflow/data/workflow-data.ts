@@ -366,3 +366,5 @@ export const NODE_TYPES = {
     color: "indigo",
   },
 };
+
+export const WORKFLOW_TEMPLATES = SAMPLE_WORKFLOWS;

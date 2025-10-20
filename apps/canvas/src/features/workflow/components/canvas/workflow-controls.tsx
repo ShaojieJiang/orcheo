@@ -28,6 +28,7 @@ import {
   Share,
   GitBranch,
   Search,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ interface WorkflowControlsProps {
   onRun?: () => void;
   onPause?: () => void;
   onSave?: () => void;
+  isSaving?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -103,8 +105,13 @@ export default function WorkflowControls({
                 className="h-8 w-8"
                 onClick={onSave}
                 aria-label="Save workflow"
+                disabled={isSaving}
               >
-                <Save className="h-4 w-4" />
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>

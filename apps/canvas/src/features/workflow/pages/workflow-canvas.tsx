@@ -6,7 +6,7 @@ import React, {
   useLayoutEffect,
   useMemo,
 } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import type {
   Connection,
   Edge,
@@ -47,8 +47,26 @@ import WorkflowExecutionHistory, {
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 import { toast } from "@/hooks/use-toast";
+import {
+  createWorkflow,
+  createWorkflowVersion,
+  diffWorkflowVersions,
+  getWorkflow,
+  listWorkflowVersions,
+  updateWorkflow,
+} from "@features/workflow/api/client";
+import type {
+  CanvasGraphDefinition,
+  CanvasGraphEdge as PersistedEdge,
+  CanvasGraphNode as PersistedNode,
+  WorkflowSummary,
+  WorkflowVersionRecord,
+} from "@features/workflow/api/types";
+import {
+  VersionDiffPanel,
+  type VersionSummary,
+} from "@features/workflow/components/panels/version-diff-panel";
 
 // Define custom node types
 const nodeTypes = {
@@ -66,6 +84,15 @@ const defaultNodeStyle = {
   width: "auto",
   boxShadow: "none",
 };
+
+const CANVAS_GRAPH_FORMAT = "reactflow@1" as const;
+const PERSISTED_NODE_STATUSES = new Set([
+  "idle",
+  "running",
+  "success",
+  "error",
+  "warning",
+]);
 
 const generateNodeId = () => {
   if (
@@ -238,6 +265,34 @@ export default function WorkflowCanvas({
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
 
+  const navigate = useNavigate();
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(
+    workflowId ?? null,
+  );
+  const [workflowMetadata, setWorkflowMetadata] =
+    useState<WorkflowSummary | null>(null);
+  const [versions, setVersions] = useState<WorkflowVersionRecord[]>([]);
+  const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(false);
+  const [isSavingWorkflow, setIsSavingWorkflow] = useState(false);
+  const [diffLines, setDiffLines] = useState<string[]>([]);
+  const [isLoadingDiff, setIsLoadingDiff] = useState(false);
+
+  const versionSummaries = useMemo<VersionSummary[]>(
+    () =>
+      versions.map((version) => ({
+        id: version.id,
+        version: version.version,
+        createdAt: version.created_at,
+        createdBy: version.created_by,
+        notes: version.notes,
+      })),
+    [versions],
+  );
+
+  useEffect(() => {
+    setCurrentWorkflowId(workflowId ?? null);
+  }, [workflowId]);
+
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
   const isRestoringRef = useRef(false);
@@ -297,6 +352,45 @@ export default function WorkflowCanvas({
     }),
     [],
   );
+
+  const serializeGraph = useCallback((): CanvasGraphDefinition => {
+    const snapshot = createSnapshot();
+    const persistedNodes: PersistedNode[] = snapshot.nodes.map((node) => {
+      const data = { ...(node.data ?? {}) };
+      delete (data as Record<string, unknown>).icon;
+      delete (data as Record<string, unknown>).onOpenChat;
+      return {
+        id: node.id,
+        type: (data.type as string) ?? node.type ?? "default",
+        position: node.position,
+        data,
+        style: node.style,
+        draggable: node.draggable,
+      };
+    });
+    const persistedEdges: PersistedEdge[] = snapshot.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle:
+        typeof edge.sourceHandle === "string" || edge.sourceHandle === null
+          ? (edge.sourceHandle ?? null)
+          : null,
+      targetHandle:
+        typeof edge.targetHandle === "string" || edge.targetHandle === null
+          ? (edge.targetHandle ?? null)
+          : null,
+      label: edge.label,
+      type: edge.type,
+      animated: edge.animated,
+      style: edge.style,
+    }));
+    return {
+      format: CANVAS_GRAPH_FORMAT,
+      nodes: persistedNodes,
+      edges: persistedEdges,
+    };
+  }, [createSnapshot]);
 
   const recordSnapshot = useCallback(
     (options?: { force?: boolean }) => {
@@ -1230,6 +1324,106 @@ export default function WorkflowCanvas({
   );
 
   // Handle chat message sending
+  const hydrateGraph = useCallback(
+    (graph: CanvasGraphDefinition | undefined): WorkflowSnapshot => {
+      const persistedNodes = Array.isArray(graph?.nodes)
+        ? (graph?.nodes as PersistedNode[])
+        : [];
+      const persistedEdges = Array.isArray(graph?.edges)
+        ? (graph?.edges as PersistedEdge[])
+        : [];
+      const hydratedNodes: WorkflowNode[] = persistedNodes.map((node) => {
+        const id =
+          typeof node.id === "string" && node.id ? node.id : generateNodeId();
+        const rawType =
+          typeof node.type === "string" && node.type ? node.type : "default";
+        const position = {
+          x: typeof node.position?.x === "number" ? node.position.x : 0,
+          y: typeof node.position?.y === "number" ? node.position.y : 0,
+        };
+        const rawStatus =
+          typeof node.data?.status === "string" ? node.data.status : "idle";
+        const status = PERSISTED_NODE_STATUSES.has(rawStatus)
+          ? rawStatus
+          : "idle";
+        const label =
+          typeof node.data?.label === "string" ? node.data.label : id;
+        const description =
+          typeof node.data?.description === "string"
+            ? node.data.description
+            : "";
+        const nodeType =
+          rawType === "trigger" ||
+          rawType === "api" ||
+          rawType === "function" ||
+          rawType === "data" ||
+          rawType === "ai"
+            ? "default"
+            : rawType;
+        const data: NodeData = {
+          ...(node.data as Record<string, unknown> | undefined),
+          type: rawType,
+          label,
+          description,
+          status: status as NodeStatus,
+        };
+        if (rawType === "chatTrigger") {
+          data.onOpenChat = () => handleOpenChat(id);
+        }
+        return {
+          id,
+          type: nodeType,
+          position,
+          style: defaultNodeStyle,
+          data,
+          draggable: true,
+        };
+      });
+      const hydratedEdges: WorkflowEdge[] = persistedEdges
+        .map((edge, index) => {
+          if (
+            typeof edge.source !== "string" ||
+            typeof edge.target !== "string"
+          ) {
+            return null;
+          }
+          return {
+            id:
+              typeof edge.id === "string" && edge.id
+                ? edge.id
+                : `edge-${index}-${Math.random().toString(36).slice(2, 8)}`,
+            source: edge.source,
+            target: edge.target,
+            sourceHandle:
+              typeof edge.sourceHandle === "string" ||
+              edge.sourceHandle === null
+                ? (edge.sourceHandle ?? undefined)
+                : undefined,
+            targetHandle:
+              typeof edge.targetHandle === "string" ||
+              edge.targetHandle === null
+                ? (edge.targetHandle ?? undefined)
+                : undefined,
+            label: typeof edge.label === "string" ? edge.label : undefined,
+            type: typeof edge.type === "string" ? edge.type : "smoothstep",
+            animated: Boolean(edge.animated),
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 20,
+              height: 20,
+            },
+            style:
+              edge.style && typeof edge.style === "object"
+                ? (edge.style as Record<string, unknown>)
+                : { stroke: "#99a1b3", strokeWidth: 2 },
+          } as WorkflowEdge;
+        })
+        .filter((edge): edge is WorkflowEdge => edge !== null);
+      return { nodes: hydratedNodes, edges: hydratedEdges };
+    },
+    [handleOpenChat],
+  );
+
   const handleSendChatMessage = (
     message: string,
     attachments: Attachment[],
@@ -1397,6 +1591,84 @@ export default function WorkflowCanvas({
     setCanUndo(true);
   }, [applySnapshot, createSnapshot]);
 
+  const handleSaveWorkflow = useCallback(async () => {
+    const trimmedName = workflowName.trim() || "Untitled Workflow";
+    setWorkflowName(trimmedName);
+    setIsSavingWorkflow(true);
+    try {
+      let identifier = currentWorkflowId;
+      if (!identifier) {
+        const created = await createWorkflow({ name: trimmedName });
+        identifier = created.id;
+        setCurrentWorkflowId(created.id);
+        setWorkflowMetadata(created);
+        navigate(`/workflow-canvas/${created.id}`, { replace: true });
+      } else if (workflowMetadata && workflowMetadata.name !== trimmedName) {
+        const updated = await updateWorkflow(identifier, { name: trimmedName });
+        setWorkflowMetadata(updated);
+      }
+      if (!identifier) {
+        return;
+      }
+      const graph = serializeGraph();
+      const version = await createWorkflowVersion(identifier, {
+        graph,
+        metadata: { source: "canvas-ui" },
+        notes: null,
+      });
+      setVersions((prev) => [...prev, version]);
+      setDiffLines([]);
+      toast({
+        title: "Workflow saved",
+        description: `Created version v${version.version}.`,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to save workflow.";
+      toast({
+        title: "Failed to save workflow",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingWorkflow(false);
+    }
+  }, [
+    currentWorkflowId,
+    navigate,
+    serializeGraph,
+    workflowMetadata,
+    workflowName,
+  ]);
+
+  const handleCompareVersions = useCallback(
+    async (baseVersion: number, targetVersion: number) => {
+      if (!currentWorkflowId) {
+        return;
+      }
+      setIsLoadingDiff(true);
+      try {
+        const response = await diffWorkflowVersions(
+          currentWorkflowId,
+          baseVersion,
+          targetVersion,
+        );
+        setDiffLines(response.diff);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to compare versions.";
+        toast({
+          title: "Failed to diff versions",
+          description: message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingDiff(false);
+      }
+    },
+    [currentWorkflowId],
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) {
@@ -1492,61 +1764,44 @@ export default function WorkflowCanvas({
     [setNodes],
   );
 
-  // Load workflow data when workflowId changes
+  // Load workflow data when the workflow identifier changes
   useEffect(() => {
-    if (workflowId) {
-      const workflow = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
-      if (workflow) {
-        setWorkflowName(workflow.name);
-
-        // Convert workflow nodes to ReactFlow nodes
-        const flowNodes = workflow.nodes.map((node) => ({
-          id: node.id,
-          type:
-            node.type === "trigger" ||
-            node.type === "api" ||
-            node.type === "function" ||
-            node.type === "data" ||
-            node.type === "ai"
-              ? "default"
-              : node.type,
-          position: node.position,
-          style: defaultNodeStyle,
-          data: {
-            type: node.type,
-            label: node.data.label,
-            description: node.data.description,
-            status: (node.data.status || "idle") as NodeStatus,
-            isDisabled: node.data.isDisabled,
-          } as NodeData,
-          draggable: true,
-        }));
-
-        // Convert workflow edges to ReactFlow edges
-        const flowEdges = workflow.edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
-          label: edge.label,
-          type: edge.type || "smoothstep",
-          animated: edge.animated || false,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 20,
-            height: 20,
-          },
-          style: edge.style || { stroke: "#99a1b3", strokeWidth: 2 },
-        }));
-
-        applySnapshot(
-          { nodes: flowNodes, edges: flowEdges },
-          { resetHistory: true },
-        );
-      }
+    if (!currentWorkflowId) {
+      setWorkflowMetadata(null);
+      setVersions([]);
+      setDiffLines([]);
+      return;
     }
-  }, [applySnapshot, workflowId]);
+    setIsLoadingWorkflow(true);
+    (async () => {
+      try {
+        const [metadata, versionList] = await Promise.all([
+          getWorkflow(currentWorkflowId),
+          listWorkflowVersions(currentWorkflowId),
+        ]);
+        setWorkflowMetadata(metadata);
+        setWorkflowName(metadata.name);
+        setVersions(versionList);
+        if (versionList.length > 0) {
+          const latest = versionList[versionList.length - 1];
+          const snapshot = hydrateGraph(latest.graph);
+          applySnapshot(snapshot, { resetHistory: true });
+        } else {
+          applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to load workflow.";
+        toast({
+          title: "Failed to load workflow",
+          description: message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingWorkflow(false);
+      }
+    })();
+  }, [applySnapshot, currentWorkflowId, hydrateGraph]);
 
   // Fit view on initial render
   useEffect(() => {
@@ -1678,7 +1933,8 @@ export default function WorkflowCanvas({
                       isRunning={isRunning}
                       onRun={handleRunWorkflow}
                       onPause={handlePauseWorkflow}
-                      onSave={() => alert("Workflow saved")}
+                      onSave={handleSaveWorkflow}
+                      isSaving={isSavingWorkflow || isLoadingWorkflow}
                       onUndo={handleUndo}
                       onRedo={handleRedo}
                       canUndo={canUndo}
@@ -1872,6 +2128,26 @@ export default function WorkflowCanvas({
                 <Button>Save Settings</Button>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="versions" className="m-0 p-4 overflow-auto">
+            {isLoadingWorkflow ? (
+              <div className="text-sm text-muted-foreground py-6 text-center">
+                Loading workflow versions…
+              </div>
+            ) : versions.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-6 text-center">
+                Save the workflow to create the first version.
+              </div>
+            ) : (
+              <VersionDiffPanel
+                workflowName={workflowName}
+                versions={versionSummaries}
+                diffLines={diffLines}
+                isLoadingDiff={isLoadingDiff}
+                onCompare={handleCompareVersions}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>

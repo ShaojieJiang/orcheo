@@ -31,6 +31,9 @@ export default function WorkflowTabs({
           <TabsTrigger value="settings" className="gap-2">
             Settings
           </TabsTrigger>
+          <TabsTrigger value="versions" className="gap-2">
+            Versions
+          </TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
