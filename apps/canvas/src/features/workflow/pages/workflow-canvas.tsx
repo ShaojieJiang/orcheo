@@ -1428,12 +1428,7 @@ export default function WorkflowCanvas({
             : "Credential deleted from the vault.",
       });
     },
-    [
-      queuePersistSnapshot,
-      setCredentialRecords,
-      setNodes,
-      setValidationErrors,
-    ],
+    [queuePersistSnapshot, setCredentialRecords, setNodes, setValidationErrors],
   );
 
   const handleAssignCredential = useCallback(
@@ -1482,12 +1477,7 @@ export default function WorkflowCanvas({
         queuePersistSnapshot("Cleared credential assignment");
       }
     },
-    [
-      credentialRecords,
-      queuePersistSnapshot,
-      setNodes,
-      setValidationErrors,
-    ],
+    [credentialRecords, queuePersistSnapshot, setNodes, setValidationErrors],
   );
 
   const handleInsertSubWorkflow = useCallback(
@@ -1564,7 +1554,7 @@ export default function WorkflowCanvas({
             const nextType =
               typeof previousType === "string"
                 ? previousType
-                : rest.type ?? "default";
+                : (rest.type ?? "default");
             return {
               ...node,
               data: {
@@ -1868,25 +1858,36 @@ export default function WorkflowCanvas({
           const parsed = JSON.parse(content);
           validateWorkflowData(parsed);
 
-          const importedNodes = (parsed.nodes as StoredWorkflowNode[]).map(
+          const storedNodes = (parsed.nodes as StoredWorkflowNode[]).map(
+            (node) => ({
+              ...node,
+              id: node.id ?? generateNodeId(),
+            }),
+          );
+          const storedEdges = (parsed.edges as StoredWorkflowEdge[]).map(
+            (edge) => ({
+              ...edge,
+              id:
+                edge.id ??
+                `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+            }),
+          );
+
+          const importedNodes = storedNodes.map(
             (node) =>
               ({
-                ...cloneNode(node),
-                id: node.id ?? generateNodeId(),
+                ...storedNodeToCanvas(node, { onOpenChat: handleOpenChat }),
                 selected: false,
-              }) as CanvasWorkflowNode,
+              }) satisfies CanvasWorkflowNode,
           );
-          const importedEdges = (parsed.edges as StoredWorkflowEdge[]).map(
+          const importedEdges = storedEdges.map(
             (edge) =>
               ({
-                ...cloneEdge(edge),
-                id:
-                  edge.id ??
-                  `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
-                    .toString(36)
-                    .slice(2, 8)}`,
+                ...storedEdgeToCanvas(edge),
                 selected: false,
-              }) as CanvasWorkflowEdge,
+              }) satisfies CanvasWorkflowEdge,
           );
 
           const importedName =
@@ -1905,17 +1906,17 @@ export default function WorkflowCanvas({
             throw error;
           }
 
-          const storedNodes = importedNodes.map((node) =>
+          const storedNodesForPersistence = importedNodes.map((node) =>
             canvasNodeToStored(node),
           );
-          const storedEdges = importedEdges.map((edge) =>
+          const storedEdgesForPersistence = importedEdges.map((edge) =>
             canvasEdgeToStored(edge),
           );
 
           const result = saveWorkflow({
             name: importedName,
-            nodes: storedNodes,
-            edges: storedEdges,
+            nodes: storedNodesForPersistence,
+            edges: storedEdgesForPersistence,
             message: "Imported from JSON",
           });
 
@@ -1950,7 +1951,16 @@ export default function WorkflowCanvas({
       };
       reader.readAsText(file);
     },
-    [navigate, recordSnapshot, setEdgesState, setNodesState, setWorkflowName],
+    [
+      handleOpenChat,
+      navigate,
+      recordSnapshot,
+      setActiveWorkflowId,
+      setEdgesState,
+      setNodesState,
+      setVersionHistory,
+      setWorkflowName,
+    ],
   );
 
   // Handle new connections between nodes
