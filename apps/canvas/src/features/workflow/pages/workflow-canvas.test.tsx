@@ -21,6 +21,51 @@ beforeAll(() => {
     writable: true,
     value: ResizeObserverMock,
   });
+  class WebSocketMock {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+
+    readyState = WebSocketMock.CONNECTING;
+    url: string;
+    sent: string[] = [];
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    onclose: ((event: Event) => void) | null = null;
+
+    constructor(url: string) {
+      this.url = url;
+      queueMicrotask(() => {
+        this.readyState = WebSocketMock.OPEN;
+        this.onopen?.(new Event("open"));
+      });
+    }
+
+    send(data: string) {
+      this.sent.push(data);
+    }
+
+    close() {
+      this.readyState = WebSocketMock.CLOSED;
+      this.onclose?.(new Event("close"));
+    }
+
+    addEventListener() {}
+
+    removeEventListener() {}
+
+    dispatchEvent() {
+      return true;
+    }
+  }
+
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    writable: true,
+    value: WebSocketMock,
+  });
   if (!globalThis.crypto) {
     Object.defineProperty(globalThis, "crypto", {
       value: {},
