@@ -20,5 +20,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
+    alias: {
+      '@openai/chatkit-react': path.resolve(
+        __dirname,
+        './src/test-utils/chatkit-stub.ts',
+      ),
+    },
   }
 })
