@@ -487,41 +487,33 @@ export default function WorkflowCanvas({
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const edgesRef = useRef<CanvasEdge[]>(edges);
 
-  const handleAddCredential = useCallback(
-    (credential: CredentialInput) => {
-      const timestamp = new Date().toISOString();
-      const owner = credential.owner ?? "Avery Chen";
+  const handleAddCredential = useCallback((credential: CredentialInput) => {
+    const timestamp = new Date().toISOString();
+    const owner = credential.owner ?? "Avery Chen";
 
-      const credentialRecord: Credential = {
-        ...credential,
-        owner,
-        id: generateRandomId("cred"),
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
+    const credentialRecord: Credential = {
+      ...credential,
+      owner,
+      id: generateRandomId("cred"),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
 
-      setCredentials((prev) => [...prev, credentialRecord]);
-      toast({
-        title: "Credential added to vault",
-        description: `${credentialRecord.name} is now available for nodes that require secure access.`,
-      });
-    },
-    [],
-  );
+    setCredentials((prev) => [...prev, credentialRecord]);
+    toast({
+      title: "Credential added to vault",
+      description: `${credentialRecord.name} is now available for nodes that require secure access.`,
+    });
+  }, []);
 
-  const handleDeleteCredential = useCallback(
-    (id: string) => {
-      setCredentials((prev) =>
-        prev.filter((credential) => credential.id !== id),
-      );
-      toast({
-        title: "Credential removed",
-        description:
-          "Nodes referencing this credential will require reconfiguration before publish.",
-      });
-    },
-    [],
-  );
+  const handleDeleteCredential = useCallback((id: string) => {
+    setCredentials((prev) => prev.filter((credential) => credential.id !== id));
+    toast({
+      title: "Credential removed",
+      description:
+        "Nodes referencing this credential will require reconfiguration before publish.",
+    });
+  }, []);
 
   const handleCreateSubworkflow = useCallback(() => {
     const selectedNodes = nodes.filter((node) => node.selected);
@@ -584,19 +576,16 @@ export default function WorkflowCanvas({
     [],
   );
 
-  const handleDeleteSubworkflow = useCallback(
-    (id: string) => {
-      setSubworkflows((prev) =>
-        prev.filter((subworkflow) => subworkflow.id !== id),
-      );
-      toast({
-        title: "Sub-workflow removed",
-        description:
-          "It will remain available in version history for audit purposes.",
-      });
-    },
-    [],
-  );
+  const handleDeleteSubworkflow = useCallback((id: string) => {
+    setSubworkflows((prev) =>
+      prev.filter((subworkflow) => subworkflow.id !== id),
+    );
+    toast({
+      title: "Sub-workflow removed",
+      description:
+        "It will remain available in version history for audit purposes.",
+    });
+  }, []);
 
   const runPublishValidation = useCallback(() => {
     setIsValidating(true);
@@ -619,8 +608,10 @@ export default function WorkflowCanvas({
       }));
 
       const connectionErrors = edges
-        .map((edge) =>
-          validateConnection(
+        .map((edge) => {
+          const otherEdges = edges.filter((candidate) => candidate !== edge);
+
+          return validateConnection(
             {
               source: edge.source,
               target: edge.target,
@@ -632,9 +623,9 @@ export default function WorkflowCanvas({
               label?: string;
               credentials?: { id?: string } | null;
             }>[],
-            edges as unknown as Edge<Record<string, unknown>>[],
-          ),
-        )
+            otherEdges as unknown as Edge<Record<string, unknown>>[],
+          );
+        })
         .filter((error): error is ValidationError => Boolean(error));
 
       const credentialErrors = normalizedNodes
