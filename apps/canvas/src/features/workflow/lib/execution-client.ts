@@ -1,6 +1,18 @@
 const DEFAULT_API_BASE = "http://localhost:8000/api";
 const LANGGRAPH_SCRIPT_FORMAT = "langgraph_script";
 
+export class HttpRequestError extends Error {
+  public readonly status: number;
+  public readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(`Request failed with status ${status}${body ? `: ${body}` : ""}`);
+    this.name = "HttpRequestError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 const normaliseUrl = (value: string): string => value.replace(/\/+$/, "");
 
 const resolveApiBase = () => {
@@ -126,9 +138,7 @@ export const getBackendWorkflowId = (): string | null => {
 const handleResponse = async <T>(response: Response): Promise<T> => {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
-      `Request failed with status ${response.status}${text ? `: ${text}` : ""}`,
-    );
+    throw new HttpRequestError(response.status, text);
   }
   return response.json() as Promise<T>;
 };

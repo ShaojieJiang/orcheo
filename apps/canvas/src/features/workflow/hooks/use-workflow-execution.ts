@@ -41,6 +41,66 @@ interface UseWorkflowExecutionOptions {
 }
 
 const INITIAL_TOKENS: TokenMetrics = { prompt: 0, completion: 0, total: 0 };
+const MAX_LOG_ENTRIES = 200;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isExecutionTokens = (value: unknown): value is ExecutionTokens => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const { prompt, completion, total } = value;
+  return (
+    typeof prompt === "number" &&
+    typeof completion === "number" &&
+    (typeof total === "number" || typeof total === "undefined")
+  );
+};
+
+const isExecutionMetrics = (value: unknown): value is ExecutionMetrics => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if ("tokens" in value && value.tokens !== undefined) {
+    return isExecutionTokens(value.tokens);
+  }
+
+  return true;
+};
+
+const isExecutionPayload = (
+  value: unknown,
+): value is ExecutionMessage | BackendExecutionMessage => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const { status, node, event, metrics, payload: nestedPayload } = value;
+
+  const hasValidStatus =
+    typeof status === "undefined" || typeof status === "string";
+  const hasValidNode = typeof node === "undefined" || typeof node === "string";
+  const hasValidEvent =
+    typeof event === "undefined" || typeof event === "string";
+  const hasValidMetrics =
+    typeof metrics === "undefined" || isExecutionMetrics(metrics);
+  const hasValidNestedMetrics =
+    typeof nestedPayload === "undefined" ||
+    !isRecord(nestedPayload) ||
+    typeof nestedPayload.metrics === "undefined" ||
+    isExecutionMetrics(nestedPayload.metrics);
+
+  return (
+    hasValidStatus &&
+    hasValidNode &&
+    hasValidEvent &&
+    hasValidMetrics &&
+    hasValidNestedMetrics
+  );
+};
 
 const normaliseStatus = (status: string | undefined): ExecutionStatus => {
   if (!status) {
@@ -111,8 +171,8 @@ export const useWorkflowExecution = (options: UseWorkflowExecutionOptions) => {
   const appendLog = useCallback((entry: ExecutionLogEntry) => {
     setLogs((previous) => {
       const next = [...previous, entry];
-      if (next.length > 200) {
-        return next.slice(next.length - 200);
+      if (next.length > MAX_LOG_ENTRIES) {
+        return next.slice(next.length - MAX_LOG_ENTRIES);
       }
       return next;
     });
@@ -214,7 +274,17 @@ export const useWorkflowExecution = (options: UseWorkflowExecutionOptions) => {
 
         let payload: ExecutionMessage | BackendExecutionMessage | null = null;
         try {
-          payload = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          if (isExecutionPayload(parsed)) {
+            payload = parsed;
+          } else {
+            appendLog({
+              timestamp,
+              level: "ERROR",
+              message: "Received execution payload with unexpected structure.",
+            });
+            return;
+          }
         } catch {
           appendLog({
             timestamp,
@@ -229,11 +299,15 @@ export const useWorkflowExecution = (options: UseWorkflowExecutionOptions) => {
         }
 
         const metrics =
-          payload.metrics ??
-          (typeof payload.payload === "object"
-            ? payload.payload?.metrics
+          (payload.metrics && isExecutionMetrics(payload.metrics)
+            ? payload.metrics
+            : undefined) ??
+          (isRecord(payload.payload) &&
+          "metrics" in payload.payload &&
+          isExecutionMetrics(payload.payload.metrics)
+            ? payload.payload.metrics
             : undefined);
-        const tokens = parseTokens(metrics as ExecutionMetrics | undefined);
+        const tokens = parseTokens(metrics);
         if (tokens) {
           setTokenMetrics(tokens);
         }
