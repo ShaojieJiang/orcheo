@@ -2220,6 +2220,10 @@ export default function WorkflowCanvas({
         return {};
       }
 
+      if (!workflowId) {
+        throw new Error("Cannot trigger workflow without a workflow ID");
+      }
+
       const params = toolCall.params ?? {};
       const rawMessage =
         typeof params.message === "string" ? params.message : "";
@@ -2237,7 +2241,7 @@ export default function WorkflowCanvas({
 
       const response = await fetch(
         buildBackendHttpUrl(
-          `/api/chatkit/workflows/${activeChatNodeId}/trigger`,
+          `/api/chatkit/workflows/${workflowId}/trigger`,
           backendBaseUrl,
         ),
         {
@@ -2262,7 +2266,7 @@ export default function WorkflowCanvas({
 
       return result;
     },
-    [activeChatNodeId, backendBaseUrl, user.name],
+    [activeChatNodeId, backendBaseUrl, user.name, workflowId],
   );
 
   // Handle workflow execution
