@@ -12,6 +12,7 @@ export interface ValidationError {
   sourceId?: string;
   targetId?: string;
   nodeName?: string;
+  nodeId?: string;
 }
 
 interface ConnectionValidatorProps {
@@ -191,14 +192,17 @@ export function validateNodeCredentials(
 ): ValidationError | null {
   // Example validation for credentials
   if (
-    (node.data.type === "api" || node.data.type === "database") &&
+    (node.data.type === "api" ||
+      node.data.type === "database" ||
+      node.data.type === "ai") &&
     (!node.data.credentials || !node.data.credentials.id)
   ) {
     return {
-      id: `cred-${node.id}-${Date.now()}`,
+      id: `cred-${node.id}`,
       type: "credential",
       message: `${node.data.label} requires credentials to be configured`,
       nodeName: node.data.label,
+      nodeId: node.id,
     };
   }
 

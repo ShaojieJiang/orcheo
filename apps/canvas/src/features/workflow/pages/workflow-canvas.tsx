@@ -48,11 +48,23 @@ import WorkflowExecutionHistory, {
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
+import ConnectionValidator, {
+  type ValidationError,
+  validateConnection,
+  validateNodeCredentials,
+} from "@features/workflow/components/canvas/connection-validator";
+import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
+import CredentialAssignmentTable from "@features/workflow/components/panels/credential-assignment-table";
+import SubWorkflowLibrary from "@features/workflow/components/panels/sub-workflow-library";
 import {
   SAMPLE_WORKFLOWS,
   type WorkflowEdge as PersistedWorkflowEdge,
   type WorkflowNode as PersistedWorkflowNode,
 } from "@features/workflow/data/workflow-data";
+import {
+  REUSABLE_SUB_WORKFLOWS,
+  type ReusableSubWorkflow,
+} from "@features/workflow/data/sub-workflows";
 import {
   getVersionSnapshot,
   getWorkflowById,
@@ -79,19 +91,30 @@ const defaultNodeStyle = {
   boxShadow: "none",
 };
 
-const generateNodeId = () => {
+const generateIdWithPrefix = (prefix: string) => {
   if (
     typeof globalThis.crypto !== "undefined" &&
     "randomUUID" in globalThis.crypto &&
     typeof globalThis.crypto.randomUUID === "function"
   ) {
-    return `node-${globalThis.crypto.randomUUID()}`;
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
   }
 
   const timestamp = Date.now().toString(36);
   const randomSuffix = Math.random().toString(36).slice(2, 8);
-  return `node-${timestamp}-${randomSuffix}`;
+  return `${prefix}-${timestamp}-${randomSuffix}`;
 };
+
+const generateNodeId = () => generateIdWithPrefix("node");
+const generateEdgeId = () => generateIdWithPrefix("edge");
+const generateCredentialId = () => generateIdWithPrefix("cred");
+
+interface CredentialReference {
+  id: string;
+  name: string;
+  type: string;
+  access: "private" | "shared" | "public";
+}
 
 interface NodeData {
   type: string;
@@ -101,11 +124,60 @@ interface NodeData {
   icon?: React.ReactNode;
   onOpenChat?: () => void;
   isDisabled?: boolean;
+  credentials?: CredentialReference | null;
   [key: string]: unknown;
 }
 
 type CanvasNode = Node<NodeData>;
 type CanvasEdge = Edge<Record<string, unknown>>;
+
+interface CredentialRecord extends CredentialReference {
+  owner: string;
+  secrets: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type NewCredentialInput = {
+  name: string;
+  type: string;
+  access: "private" | "shared" | "public";
+  secrets: Record<string, string>;
+  owner?: string;
+};
+
+const DEFAULT_CREDENTIALS: CredentialRecord[] = [
+  {
+    id: "cred-openai-studio",
+    name: "OpenAI Studio",
+    type: "api",
+    access: "shared",
+    owner: "Workflow Team",
+    secrets: { apiKey: "sk-orcheo-***" },
+    createdAt: "2024-04-05T12:00:00Z",
+    updatedAt: "2024-09-18T09:30:00Z",
+  },
+  {
+    id: "cred-salesforce-core",
+    name: "Salesforce Core",
+    type: "oauth",
+    access: "private",
+    owner: "RevOps",
+    secrets: { refreshToken: "sf-refresh-***" },
+    createdAt: "2024-03-12T15:45:00Z",
+    updatedAt: "2024-08-29T08:05:00Z",
+  },
+  {
+    id: "cred-warehouse-loader",
+    name: "Warehouse Loader",
+    type: "api",
+    access: "shared",
+    owner: "Data Platform",
+    secrets: { apiKey: "wh-load-***" },
+    createdAt: "2024-02-20T10:15:00Z",
+    updatedAt: "2024-10-01T11:20:00Z",
+  },
+];
 
 const PERSISTED_NODE_FIELDS = new Set([
   "label",
@@ -402,6 +474,50 @@ export default function WorkflowCanvas({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const [credentials, setCredentials] =
+    useState<CredentialRecord[]>(DEFAULT_CREDENTIALS);
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>(
+    [],
+  );
+
+  const subWorkflowMap = useMemo(() => {
+    const map = new Map<string, ReusableSubWorkflow>();
+    REUSABLE_SUB_WORKFLOWS.forEach((workflow) => {
+      map.set(workflow.id, workflow);
+    });
+    return map;
+  }, []);
+
+  const subWorkflowSummaries = useMemo(
+    () =>
+      REUSABLE_SUB_WORKFLOWS.map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description,
+        category: workflow.category,
+        tags: workflow.tags,
+        nodeCount: workflow.nodes.length,
+        edgeCount: workflow.edges.length,
+      })),
+    [],
+  );
+
+  const credentialAssignmentNodes = useMemo(
+    () =>
+      nodes.map((node) => ({
+        id: node.id,
+        label:
+          typeof node.data?.label === "string"
+            ? node.data.label
+            : "Untitled node",
+        type: typeof node.data?.type === "string" ? node.data.type : undefined,
+        credentialId: node.data?.credentials?.id ?? null,
+        credentialName: node.data?.credentials?.name,
+      })),
+    [nodes],
+  );
+
+  const resourceCount = credentials.length + subWorkflowSummaries.length;
 
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
@@ -1266,7 +1382,303 @@ export default function WorkflowCanvas({
     ],
   );
 
+  const runPublishValidation = useCallback((): ValidationError[] => {
+    const validatorNodes = nodes as unknown as Node<Record<string, unknown>>[];
+    const validatorEdges = edges as unknown as Edge<Record<string, unknown>>[];
+
+    const errors: ValidationError[] = [];
+    const connectionErrorKeys = new Set<string>();
+
+    validatorEdges.forEach((edge) => {
+      const connection: Connection = {
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+      };
+      const otherEdges = validatorEdges.filter(
+        (candidate) => candidate.id !== edge.id,
+      );
+      const result = validateConnection(connection, validatorNodes, otherEdges);
+      if (result) {
+        const key = `${result.type}:${result.sourceId ?? ""}:${
+          result.targetId ?? ""
+        }:${result.message}`;
+        if (!connectionErrorKeys.has(key)) {
+          connectionErrorKeys.add(key);
+          errors.push({
+            ...result,
+            id: key || `connection-${edge.id}`,
+          });
+        }
+      }
+    });
+
+    const credentialErrorKeys = new Set<string>();
+    validatorNodes.forEach((node) => {
+      const credentialError = validateNodeCredentials(node);
+      if (credentialError) {
+        const key = credentialError.nodeId ?? credentialError.id;
+        if (!credentialErrorKeys.has(key)) {
+          credentialErrorKeys.add(key);
+          errors.push({
+            ...credentialError,
+            id: `cred-${key}`,
+          });
+        }
+      }
+    });
+
+    return errors;
+  }, [edges, nodes]);
+
+  const handleAddCredential = useCallback(
+    (credential: NewCredentialInput) => {
+      const trimmedName = credential.name.trim();
+      if (!trimmedName) {
+        toast({
+          title: "Credential name required",
+          description: "Enter a name before saving the credential.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const record: CredentialRecord = {
+        id: generateCredentialId(),
+        name: trimmedName,
+        type: credential.type,
+        access: credential.access,
+        owner: credential.owner ?? "Workflow Team",
+        secrets: credential.secrets,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      setCredentials((prev) => [...prev, record]);
+      toast({
+        title: "Credential added",
+        description: `"${record.name}" is now available for nodes.`,
+      });
+    },
+    [],
+  );
+
+  const handleDeleteCredential = useCallback(
+    (credentialId: string) => {
+      setCredentials((prev) =>
+        prev.filter((credential) => credential.id !== credentialId),
+      );
+
+      const affectedNodeIds = new Set<string>();
+      nodesRef.current.forEach((node) => {
+        if (node.data?.credentials?.id === credentialId) {
+          affectedNodeIds.add(node.id);
+        }
+      });
+
+      if (affectedNodeIds.size > 0) {
+        setNodes((current) =>
+          current.map((node) =>
+            affectedNodeIds.has(node.id)
+              ? {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    credentials: null,
+                  },
+                }
+              : node,
+          ),
+        );
+        setValidationErrors((prev) =>
+          prev.filter(
+            (error) =>
+              !(
+                error.type === "credential" &&
+                error.nodeId &&
+                affectedNodeIds.has(error.nodeId)
+              ),
+          ),
+        );
+      }
+
+      toast({
+        title: "Credential removed",
+        description: "Nodes using this credential will need reassignment.",
+      });
+    },
+    [setNodes, setValidationErrors],
+  );
+
+  const handleAssignCredential = useCallback(
+    (nodeId: string, credentialId: string | null) => {
+      const credential = credentialId
+        ? credentials.find((item) => item.id === credentialId)
+        : null;
+
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              credentials: credential
+                ? {
+                    id: credential.id,
+                    name: credential.name,
+                    type: credential.type,
+                    access: credential.access,
+                  }
+                : null,
+            },
+          };
+        }),
+      );
+
+      setValidationErrors((prev) =>
+        prev.filter(
+          (error) => !(error.type === "credential" && error.nodeId === nodeId),
+        ),
+      );
+
+      const nodeLabel =
+        nodesRef.current.find((node) => node.id === nodeId)?.data?.label ??
+        "Node";
+
+      if (credential) {
+        toast({
+          title: "Credential assigned",
+          description: `Attached ${credential.name} to ${nodeLabel}.`,
+        });
+      } else {
+        toast({
+          title: "Credential cleared",
+          description: `${nodeLabel} will need a credential before publishing.`,
+          variant: "destructive",
+        });
+      }
+    },
+    [credentials, setNodes, setValidationErrors],
+  );
+
+  const handleInsertSubWorkflow = useCallback(
+    (subWorkflowId: string) => {
+      const subWorkflow = subWorkflowMap.get(subWorkflowId);
+      if (!subWorkflow) {
+        toast({
+          title: "Sub-workflow unavailable",
+          description: "The selected sub-workflow could not be loaded.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const idMap = new Map<string, string>();
+      const existingNodes = nodesRef.current;
+      const maxX = existingNodes.reduce(
+        (max, node) => Math.max(max, node.position?.x ?? 0),
+        0,
+      );
+      const baseX = (Number.isFinite(maxX) ? maxX : 0) + 240;
+      const minY = existingNodes.reduce(
+        (min, node) => Math.min(min, node.position?.y ?? Infinity),
+        Infinity,
+      );
+      const baseY = Number.isFinite(minY) ? minY : 120;
+
+      const remappedNodes = subWorkflow.nodes.map((node) => {
+        const newId = generateNodeId();
+        idMap.set(node.id, newId);
+        return {
+          ...node,
+          id: newId,
+          position: {
+            x: (node.position?.x ?? 0) + baseX,
+            y: (node.position?.y ?? 0) + baseY,
+          },
+        };
+      });
+
+      const remappedEdges = subWorkflow.edges.map((edge) => {
+        const source = idMap.get(edge.source) ?? generateNodeId();
+        const target = idMap.get(edge.target) ?? generateNodeId();
+        return {
+          ...edge,
+          id: generateEdgeId(),
+          source,
+          target,
+        };
+      });
+
+      const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
+      const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);
+
+      setNodes((current) => [...current, ...canvasNodes]);
+      setEdges((current) => [...current, ...canvasEdges]);
+
+      toast({
+        title: "Sub-workflow inserted",
+        description: `"${subWorkflow.name}" was added to the canvas.`,
+      });
+    },
+    [convertPersistedNodesToCanvas, setEdges, setNodes, subWorkflowMap],
+  );
+
+  const handleDismissValidationError = useCallback((id: string) => {
+    setValidationErrors((prev) => prev.filter((error) => error.id !== id));
+  }, []);
+
+  const handleFixValidationError = useCallback(
+    (error: ValidationError) => {
+      if (error.type === "credential") {
+        setActiveTab("resources");
+      } else {
+        setActiveTab("canvas");
+      }
+
+      const focusId = error.nodeId ?? error.sourceId ?? error.targetId;
+      if (focusId) {
+        const node = nodesRef.current.find(
+          (candidate) => candidate.id === focusId,
+        );
+        if (node && reactFlowInstance.current) {
+          const x = node.position?.x ?? 0;
+          const y = node.position?.y ?? 0;
+          reactFlowInstance.current.setCenter(x + 80, y + 40, {
+            zoom: 1.2,
+            duration: 400,
+          });
+        }
+      }
+
+      setValidationErrors((prev) =>
+        prev.filter((candidate) => candidate.id !== error.id),
+      );
+    },
+    [setActiveTab],
+  );
+
   const handleSaveWorkflow = useCallback(() => {
+    const validationResults = runPublishValidation();
+    if (validationResults.length > 0) {
+      setValidationErrors(validationResults);
+      toast({
+        title: "Resolve validation issues",
+        description:
+          "Fix credential or connection issues before saving this workflow.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setValidationErrors([]);
+
     const snapshot = createSnapshot();
     const persistedNodes = snapshot.nodes.map(toPersistedNode);
     const persistedEdges = snapshot.edges.map(toPersistedEdge);
@@ -1304,6 +1716,8 @@ export default function WorkflowCanvas({
     createSnapshot,
     currentWorkflowId,
     navigate,
+    runPublishValidation,
+    setValidationErrors,
     workflowDescription,
     workflowId,
     workflowName,
@@ -1578,6 +1992,19 @@ export default function WorkflowCanvas({
 
   // Handle workflow execution
   const handleRunWorkflow = useCallback(() => {
+    const validationResults = runPublishValidation();
+    if (validationResults.length > 0) {
+      setValidationErrors(validationResults);
+      toast({
+        title: "Workflow not ready",
+        description:
+          "Resolve credential and connection issues before running the workflow.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setValidationErrors([]);
     setIsRunning(true);
 
     // Simulate workflow execution by updating node statuses
@@ -1631,7 +2058,7 @@ export default function WorkflowCanvas({
 
       delay += 1000; // Stagger the execution
     });
-  }, [nodes, setNodes]);
+  }, [nodes, runPublishValidation, setNodes, setValidationErrors]);
 
   // Handle workflow pause
   const handlePauseWorkflow = useCallback(() => {
@@ -1907,6 +2334,7 @@ export default function WorkflowCanvas({
         activeTab={activeTab}
         onTabChange={setActiveTab}
         executionCount={3}
+        resourceCount={resourceCount}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
@@ -1997,6 +2425,12 @@ export default function WorkflowCanvas({
                     }}
                   />
 
+                  <ConnectionValidator
+                    errors={validationErrors}
+                    onDismiss={handleDismissValidationError}
+                    onFix={handleFixValidationError}
+                  />
+
                   <Panel position="top-left" className="m-4">
                     <WorkflowControls
                       isRunning={isRunning}
@@ -2059,6 +2493,52 @@ export default function WorkflowCanvas({
                 })
               }
             />
+          </TabsContent>
+
+          <TabsContent
+            value="resources"
+            className="flex-1 m-0 p-4 overflow-auto min-h-0"
+          >
+            <div className="max-w-5xl mx-auto space-y-10">
+              <section className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-bold">Credential management</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Manage reusable credentials and attach them to workflow
+                    nodes before publishing.
+                  </p>
+                </div>
+
+                <CredentialsVault
+                  credentials={credentials}
+                  onAddCredential={handleAddCredential}
+                  onDeleteCredential={handleDeleteCredential}
+                />
+
+                <CredentialAssignmentTable
+                  nodes={credentialAssignmentNodes}
+                  credentials={credentials}
+                  onAssign={handleAssignCredential}
+                  className="mt-6"
+                />
+              </section>
+
+              <Separator />
+
+              <section className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-bold">Reusable sub-workflows</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Insert pre-built automations to accelerate canvas authoring.
+                  </p>
+                </div>
+
+                <SubWorkflowLibrary
+                  subWorkflows={subWorkflowSummaries}
+                  onInsert={handleInsertSubWorkflow}
+                />
+              </section>
+            </div>
           </TabsContent>
 
           <TabsContent value="settings" className="m-0 p-4 overflow-auto">

@@ -6,12 +6,14 @@ interface WorkflowTabsProps {
   activeTab: string;
   onTabChange: (value: string) => void;
   executionCount?: number;
+  resourceCount?: number;
 }
 
 export default function WorkflowTabs({
   activeTab,
   onTabChange,
   executionCount = 0,
+  resourceCount = 0,
 }: WorkflowTabsProps) {
   return (
     <div className="border-b border-border">
@@ -25,6 +27,14 @@ export default function WorkflowTabs({
             {executionCount > 0 && (
               <Badge variant="secondary" className="ml-1">
                 {executionCount}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="resources" className="gap-2">
+            Resources
+            {resourceCount > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {resourceCount}
               </Badge>
             )}
           </TabsTrigger>
