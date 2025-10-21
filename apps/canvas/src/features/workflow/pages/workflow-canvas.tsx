@@ -45,8 +45,7 @@ import WorkflowControls from "@features/workflow/components/canvas/workflow-cont
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
-import ChatInterface from "@features/shared/components/chat-interface";
-import type { Attachment } from "@features/shared/components/chat-input";
+import WorkflowChatKitPanel from "@features/workflow/components/workflow-chatkit-panel";
 import WorkflowExecutionHistory, {
   type WorkflowExecution as HistoryWorkflowExecution,
 } from "@features/workflow/components/panels/workflow-execution-history";
@@ -2157,68 +2156,6 @@ export default function WorkflowCanvas({
     [handleOpenChat, setNodes],
   );
 
-  // Handle chat message sending
-  const handleSendChatMessage = (
-    message: string,
-    attachments: Attachment[],
-  ) => {
-    if (!activeChatNodeId) {
-      toast({
-        title: "Select a chat-enabled node",
-        description: "Open a node chat to send messages.",
-      });
-      return;
-    }
-
-    const activeNode = nodes.find((node) => node.id === activeChatNodeId);
-    const attachmentSummary =
-      attachments.length === 0
-        ? ""
-        : attachments.length === 1
-          ? " with 1 attachment"
-          : ` with ${attachments.length} attachments`;
-
-    toast({
-      title: `Message sent to ${activeNode?.data?.label ?? "workflow"}`,
-      description: `"${message}"${attachmentSummary}`,
-    });
-
-    // Here you would typically process the message and trigger the workflow
-    // For now, we'll just update the node status to simulate activity
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id === activeChatNodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              status: "running" as NodeStatus,
-            },
-          };
-        }
-        return n;
-      }),
-    );
-
-    // Simulate workflow execution
-    setTimeout(() => {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id === activeChatNodeId) {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                status: "success" as NodeStatus,
-              },
-            };
-          }
-          return n;
-        }),
-      );
-    }, 2000);
-  };
-
   // Handle workflow execution
   const handleRunWorkflow = useCallback(() => {
     if (nodes.length === 0) {
@@ -2823,19 +2760,6 @@ export default function WorkflowCanvas({
     }, 100);
   }, [nodes]);
 
-  // User and AI info for chat
-  const user = {
-    id: "user-1",
-    name: "Avery Chen",
-    avatar: "https://avatar.vercel.sh/avery",
-  };
-
-  const ai = {
-    id: "ai-1",
-    name: "Orcheo Canvas Assistant",
-    avatar: "https://avatar.vercel.sh/orcheo-canvas",
-  };
-
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <TopNavigation
@@ -3172,28 +3096,17 @@ export default function WorkflowCanvas({
         />
       )}
 
-      {/* Chat Interface */}
-      {isChatOpen && (
-        <ChatInterface
-          title={chatTitle}
-          user={user}
-          ai={ai}
-          isClosable={true}
-          onSendMessage={handleSendChatMessage}
-          position="bottom-right"
-          initialMessages={[
-            {
-              id: "welcome-msg",
-              content: `Welcome to the ${chatTitle} interface. How can I help you today?`,
-              sender: {
-                ...ai,
-                isAI: true,
-              },
-              timestamp: new Date(),
-            },
-          ]}
-        />
-      )}
+      <WorkflowChatKitPanel
+        open={isChatOpen}
+        onClose={() => {
+          setIsChatOpen(false);
+          setActiveChatNodeId(null);
+        }}
+        workflowId={currentWorkflowId}
+        workflowName={workflowName}
+        nodeId={activeChatNodeId}
+        title={chatTitle}
+      />
     </div>
   );
 }

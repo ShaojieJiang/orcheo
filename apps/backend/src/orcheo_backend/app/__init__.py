@@ -6,6 +6,7 @@ import json
 import logging
 import secrets
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
@@ -23,6 +24,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -103,6 +105,20 @@ from orcheo_backend.app.schemas import (
 )
 
 
+ChatRequestContext: type[Any] | None = None
+StreamingResult: type[Any] | None = None
+create_chatkit_server: Callable[[], Any] | None = None
+
+try:
+    from orcheo_backend.app import chatkit_runtime as _chatkit_runtime
+except ImportError:  # pragma: no cover - optional dependency guard
+    pass
+else:
+    ChatRequestContext = _chatkit_runtime.ChatRequestContext
+    StreamingResult = _chatkit_runtime.StreamingResult
+    create_chatkit_server = _chatkit_runtime.create_chatkit_server
+
+
 # Configure logging for the backend module once on import.
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -119,6 +135,13 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_chatkit_server_ref: dict[str, Any] = {"server": None}
+
+if create_chatkit_server is not None:
+    try:
+        _chatkit_server_ref["server"] = create_chatkit_server()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to initialise ChatKit server")
 
 T = TypeVar("T")
 
@@ -1329,6 +1352,67 @@ async def dispatch_manual_runs(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.post("/chatkit", include_in_schema=False)
+async def chatkit_entrypoint(request: Request, repository: RepositoryDep) -> Response:
+    """Proxy ChatKit web component requests to the Orcheo workflow runtime."""
+    if create_chatkit_server is None or ChatRequestContext is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ChatKit integration is not enabled on this deployment.",
+        )
+
+    server = _chatkit_server_ref.get("server")
+    if server is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ChatKit server is not ready.",
+        )
+
+    workflow_header = request.headers.get("x-orcheo-workflow-id")
+    if not workflow_header:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-Orcheo-Workflow-Id header.",
+        )
+
+    try:
+        workflow_id = UUID(workflow_header)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid workflow identifier provided.",
+        ) from exc
+
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+
+    payload = await request.body()
+    context = ChatRequestContext(
+        repository=repository,
+        workflow=workflow,
+        node_id=request.headers.get("x-orcheo-node-id"),
+        actor=request.headers.get("x-orcheo-chat-actor", "chatkit"),
+        chat_label=request.headers.get("x-orcheo-chat-label"),
+    )
+
+    try:
+        result = await server.process(payload, context)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ChatKit processing failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ChatKit request processing failed.",
+        ) from exc
+
+    if StreamingResult is not None and isinstance(result, StreamingResult):
+        return StreamingResponse(result, media_type="text/event-stream")
+    return Response(content=result.json, media_type="application/json")
 
 
 def create_app(
