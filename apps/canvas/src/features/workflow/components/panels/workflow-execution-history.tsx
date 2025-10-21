@@ -60,6 +60,12 @@ export interface WorkflowExecution {
     level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
     message: string;
   }[];
+  tokenMetrics?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    lastUpdatedAt?: string;
+  };
 }
 
 interface WorkflowExecutionHistoryProps {
@@ -93,6 +99,15 @@ export default function WorkflowExecutionHistory({
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
+
+  useEffect(() => {
+    if (
+      defaultSelectedExecution &&
+      defaultSelectedExecution.id !== selectedExecution?.id
+    ) {
+      setSelectedExecution(defaultSelectedExecution);
+    }
+  }, [defaultSelectedExecution, selectedExecution?.id]);
 
   const handleSelectExecution = (execution: WorkflowExecution) => {
     setSelectedExecution(execution);
@@ -367,6 +382,47 @@ export default function WorkflowExecutionHistory({
                   </Button>
                 </div>
               </div>
+
+              {selectedExecution.tokenMetrics ? (
+                <div className="grid grid-cols-3 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-sm">
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">
+                      Input tokens
+                    </p>
+                    <p className="font-semibold">
+                      {selectedExecution.tokenMetrics.inputTokens.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">
+                      Output tokens
+                    </p>
+                    <p className="font-semibold">
+                      {selectedExecution.tokenMetrics.outputTokens.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">
+                      Total tokens
+                    </p>
+                    <p className="font-semibold">
+                      {selectedExecution.tokenMetrics.totalTokens.toLocaleString()}
+                      {selectedExecution.tokenMetrics.lastUpdatedAt ? (
+                        <span className="block text-[11px] font-normal text-muted-foreground">
+                          Updated{" "}
+                          {new Date(
+                            selectedExecution.tokenMetrics.lastUpdatedAt,
+                          ).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div
