@@ -7,6 +7,7 @@ import Signup from "@features/auth/pages/signup";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
 import HelpSupport from "@features/support/pages/help-support";
+import ChatLab from "@features/chat/pages/chat-lab";
 
 export default function OrcheoCanvasApp() {
   return (
@@ -34,6 +35,8 @@ export default function OrcheoCanvasApp() {
         <Route path="/settings" element={<Settings />} />
 
         <Route path="/help-support" element={<HelpSupport />} />
+
+        <Route path="/chat-lab" element={<ChatLab />} />
       </Routes>
     </Router>
   );

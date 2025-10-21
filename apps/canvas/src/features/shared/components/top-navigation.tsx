@@ -22,6 +22,7 @@ import {
   Folder,
   Plus,
   MoreHorizontal,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/design-system/ui/badge";
@@ -325,6 +326,13 @@ export default function TopNavigation({
                 <Settings className="mr-2 h-4 w-4" />
 
                 <span>Settings</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <Link to="/chat-lab" className="flex items-center w-full">
+                <MessageCircle className="mr-2 h-4 w-4" />
+
+                <span>Chat Lab</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem>
