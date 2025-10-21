@@ -155,8 +155,15 @@ export const useWorkflowRunner = (
   const closeWebSocket = useCallback(() => {
     clearCompletionTimer();
     const websocket = websocketRef.current;
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-      websocket.close();
+    if (websocket) {
+      const { readyState } = websocket;
+      if (
+        readyState === WebSocket.CONNECTING ||
+        readyState === WebSocket.OPEN ||
+        readyState === WebSocket.CLOSING
+      ) {
+        websocket.close();
+      }
     }
     websocketRef.current = null;
   }, [clearCompletionTimer]);
@@ -168,6 +175,8 @@ export const useWorkflowRunner = (
       if (!workflowId) {
         throw new Error("Workflow identifier is required to run a workflow");
       }
+
+      closeWebSocket();
 
       const runId = executionId ?? generateExecutionId();
 
