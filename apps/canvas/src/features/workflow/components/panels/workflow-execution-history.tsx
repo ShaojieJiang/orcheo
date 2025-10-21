@@ -60,6 +60,9 @@ export interface WorkflowExecution {
     level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
     message: string;
   }[];
+  metadata?: {
+    graphToCanvas?: Record<string, string>;
+  };
 }
 
 interface WorkflowExecutionHistoryProps {
@@ -211,6 +214,26 @@ export default function WorkflowExecutionHistory({
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
   };
+
+  useEffect(() => {
+    if (defaultSelectedExecution) {
+      setSelectedExecution(defaultSelectedExecution);
+      return;
+    }
+
+    if (executions.length === 0) {
+      setSelectedExecution(null);
+      return;
+    }
+
+    const stillSelected = executions.find(
+      (execution) => execution.id === selectedExecution?.id,
+    );
+
+    if (!stillSelected) {
+      setSelectedExecution(executions[0]);
+    }
+  }, [defaultSelectedExecution, executions, selectedExecution?.id]);
 
   // Cleanup event listeners
   useEffect(() => {

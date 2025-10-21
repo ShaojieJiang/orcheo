@@ -32,6 +32,11 @@ import "@xyflow/react/dist/style.css";
 import { Button } from "@/design-system/ui/button";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 import { Separator } from "@/design-system/ui/separator";
+import {
+  buildBackendHttpUrl,
+  buildWorkflowWebSocketUrl,
+  getBackendBaseUrl,
+} from "@/lib/config";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
@@ -73,6 +78,7 @@ import type {
   Credential,
   CredentialInput,
 } from "@features/workflow/components/dialogs/credentials-vault";
+import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
 
 // Define custom node types
 const nodeTypes = {
@@ -561,7 +567,65 @@ interface WorkflowExecution {
     level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
     message: string;
   }[];
+  metadata?: {
+    graphToCanvas?: Record<string, string>;
+  };
 }
+
+interface RunHistoryStep {
+  index: number;
+  at: string;
+  payload: Record<string, unknown>;
+}
+
+interface RunHistoryResponse {
+  execution_id: string;
+  workflow_id: string;
+  status: string;
+  started_at: string;
+  completed_at?: string | null;
+  error?: string | null;
+  inputs?: Record<string, unknown>;
+  steps: RunHistoryStep[];
+}
+
+const nodeStatusFromValue = (value?: string): NodeStatus => {
+  const normalised = value?.toLowerCase();
+  switch (normalised) {
+    case "running":
+      return "running";
+    case "error":
+    case "failed":
+      return "error";
+    case "warning":
+    case "cancelled":
+    case "partial":
+      return "warning";
+    default:
+      return "success";
+  }
+};
+
+const executionStatusFromValue = (
+  value?: string,
+): WorkflowExecutionStatus | null => {
+  const normalised = value?.toLowerCase();
+  switch (normalised) {
+    case "running":
+      return "running";
+    case "completed":
+    case "success":
+      return "success";
+    case "error":
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "partial":
+      return "partial";
+    default:
+      return null;
+  }
+};
 
 interface SidebarNodeDefinition {
   id?: string;
@@ -709,6 +773,13 @@ export default function WorkflowCanvas({
   const [lastValidationRun, setLastValidationRun] = useState<string | null>(
     null,
   );
+  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(
+    null,
+  );
+  const websocketRef = useRef<WebSocket | null>(null);
+  const isMountedRef = useRef(true);
+  const latestNodesRef = useRef(nodes);
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -731,6 +802,21 @@ export default function WorkflowCanvas({
   const isRestoringRef = useRef(false);
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const edgesRef = useRef<CanvasEdge[]>(edges);
+
+  useEffect(() => {
+    latestNodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (websocketRef.current) {
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
+    };
+  }, []);
 
   const handleAddCredential = useCallback((credential: CredentialInput) => {
     const timestamp = new Date().toISOString();
@@ -1224,355 +1310,280 @@ export default function WorkflowCanvas({
     [onEdgesChangeState, recordSnapshot],
   );
 
-  // Sample executions for the WorkflowExecutionHistory component
-  const mockExecutions: WorkflowExecution[] = [
-    {
-      id: "1",
-      runId: "842",
-      status: "success",
-      startTime: new Date().toISOString(),
-      duration: 45200,
-      issues: 0,
-      nodes: [
-        {
-          id: "node-1",
-          type: "webhook",
-          name: "New Customer Webhook",
-          position: { x: 100, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-2",
-          type: "http",
-          name: "Fetch Customer Details",
-          position: { x: 400, y: 100 },
-          status: "success",
-          details: {
-            method: "GET",
-            url: "https://api.example.com/customers/123",
-            items: 1,
-          },
-        },
-        {
-          id: "node-3",
-          type: "function",
-          name: "Format Customer Data",
-          position: { x: 700, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-4",
-          type: "api",
-          name: "Create Account",
-          position: { x: 400, y: 250 },
-          status: "success",
-        },
-        {
-          id: "node-5",
-          type: "api",
-          name: "Send Welcome Email",
-          position: { x: 700, y: 250 },
-          status: "success",
-          details: {
-            message: "Welcome to our platform!",
-          },
-        },
-      ],
-      edges: [
-        { id: "edge-1", source: "node-1", target: "node-2", type: "default" },
-        { id: "edge-2", source: "node-2", target: "node-3" },
-        { id: "edge-3", source: "node-3", target: "node-4" },
-        { id: "edge-4", source: "node-4", target: "node-5" },
-      ],
-      logs: [
-        {
-          timestamp: "10:23:15",
-          level: "INFO",
-          message: "Workflow execution started",
-        },
-        {
-          timestamp: "10:23:16",
-          level: "DEBUG",
-          message: 'Executing node "New Customer Webhook"',
-        },
-        {
-          timestamp: "10:23:17",
-          level: "INFO",
-          message: 'Node "New Customer Webhook" completed successfully',
-        },
-        {
-          timestamp: "10:23:18",
-          level: "DEBUG",
-          message: 'Executing node "Fetch Customer Details"',
-        },
-        {
-          timestamp: "10:23:20",
-          level: "INFO",
-          message: 'Node "Fetch Customer Details" completed successfully',
-        },
-        {
-          timestamp: "10:23:21",
-          level: "DEBUG",
-          message: 'Executing node "Format Customer Data"',
-        },
-        {
-          timestamp: "10:23:23",
-          level: "INFO",
-          message: 'Node "Format Customer Data" completed successfully',
-        },
-        {
-          timestamp: "10:23:24",
-          level: "DEBUG",
-          message: 'Executing node "Create Account"',
-        },
-        {
-          timestamp: "10:23:40",
-          level: "INFO",
-          message: 'Node "Create Account" completed successfully',
-        },
-        {
-          timestamp: "10:23:41",
-          level: "DEBUG",
-          message: 'Executing node "Send Welcome Email"',
-        },
-        {
-          timestamp: "10:23:45",
-          level: "INFO",
-          message: 'Node "Send Welcome Email" completed successfully',
-        },
-        {
-          timestamp: "10:23:45",
-          level: "INFO",
-          message: "Workflow execution completed successfully",
-        },
-      ],
+  const resolveNodeLabel = useCallback((canvasNodeId: string): string => {
+    const node = latestNodesRef.current.find(
+      (item) => item.id === canvasNodeId,
+    );
+    const label =
+      typeof node?.data?.label === "string" && node.data.label.trim()
+        ? node.data.label.trim()
+        : null;
+    return label ?? canvasNodeId;
+  }, []);
+
+  const determineLogLevel = useCallback(
+    (
+      payload: Record<string, unknown>,
+    ): "INFO" | "DEBUG" | "ERROR" | "WARNING" => {
+      const explicit = payload.level ?? payload.log_level;
+      if (typeof explicit === "string") {
+        const level = explicit.trim().toLowerCase();
+        if (level === "debug") {
+          return "DEBUG";
+        }
+        if (level === "error") {
+          return "ERROR";
+        }
+        if (level === "warning" || level === "warn") {
+          return "WARNING";
+        }
+      }
+
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        return "ERROR";
+      }
+
+      const status =
+        typeof payload.status === "string"
+          ? payload.status.toLowerCase()
+          : null;
+      if (status === "error" || status === "failed") {
+        return "ERROR";
+      }
+      if (
+        status === "warning" ||
+        status === "cancelled" ||
+        status === "partial"
+      ) {
+        return "WARNING";
+      }
+      if (status === "debug") {
+        return "DEBUG";
+      }
+      return "INFO";
     },
-    {
-      id: "2",
-      runId: "841",
-      status: "failed",
-      startTime: new Date(Date.now() - 86400000).toISOString(), // yesterday
-      duration: 134700,
-      issues: 3,
-      nodes: [
-        {
-          id: "node-1",
-          type: "webhook",
-          name: "New Customer Webhook",
-          position: { x: 100, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-2",
-          type: "http",
-          name: "Fetch Customer Details",
-          position: { x: 400, y: 100 },
-          status: "success",
-          details: {
-            method: "GET",
-            url: "https://api.example.com/customers/456",
-            items: 1,
-          },
-        },
-        {
-          id: "node-3",
-          type: "function",
-          name: "Format Customer Data",
-          position: { x: 700, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-4",
-          type: "api",
-          name: "Create Account",
-          position: { x: 400, y: 250 },
-          status: "error",
-          details: {
-            message: "Email already exists",
-          },
-        },
-        {
-          id: "node-5",
-          type: "api",
-          name: "Send Welcome Email",
-          position: { x: 700, y: 250 },
-          status: "idle",
-        },
-      ],
-      edges: [
-        { id: "edge-1", source: "node-1", target: "node-2" },
-        { id: "edge-2", source: "node-2", target: "node-3" },
-        { id: "edge-3", source: "node-3", target: "node-4" },
-        { id: "edge-4", source: "node-4", target: "node-5" },
-      ],
-      logs: [
-        {
-          timestamp: "15:45:10",
-          level: "INFO",
-          message: "Workflow execution started",
-        },
-        {
-          timestamp: "15:45:11",
-          level: "DEBUG",
-          message: 'Executing node "New Customer Webhook"',
-        },
-        {
-          timestamp: "15:45:12",
-          level: "INFO",
-          message: 'Node "New Customer Webhook" completed successfully',
-        },
-        {
-          timestamp: "15:45:13",
-          level: "DEBUG",
-          message: 'Executing node "Fetch Customer Details"',
-        },
-        {
-          timestamp: "15:45:15",
-          level: "INFO",
-          message: 'Node "Fetch Customer Details" completed successfully',
-        },
-        {
-          timestamp: "15:45:16",
-          level: "DEBUG",
-          message: 'Executing node "Format Customer Data"',
-        },
-        {
-          timestamp: "15:45:18",
-          level: "INFO",
-          message: 'Node "Format Customer Data" completed successfully',
-        },
-        {
-          timestamp: "15:45:19",
-          level: "DEBUG",
-          message: 'Executing node "Create Account"',
-        },
-        {
-          timestamp: "15:45:30",
-          level: "ERROR",
-          message: 'Error in node "Create Account": Email already exists',
-        },
-        {
-          timestamp: "15:45:30",
-          level: "INFO",
-          message: "Workflow execution failed",
-        },
-      ],
+    [],
+  );
+
+  const describePayload = useCallback(
+    (
+      payload: Record<string, unknown>,
+      graphToCanvas: Record<string, string>,
+    ): string => {
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        return `Run error: ${payload.error.trim()}`;
+      }
+
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message.trim();
+      }
+
+      const nodeKey = ["node", "step", "name"].find(
+        (key) => typeof payload[key] === "string" && payload[key],
+      );
+
+      const status =
+        typeof payload.status === "string"
+          ? payload.status.toLowerCase()
+          : undefined;
+
+      if (nodeKey) {
+        const graphNode = String(payload[nodeKey]);
+        const canvasNodeId = graphToCanvas[graphNode] ?? graphNode;
+        const label = resolveNodeLabel(canvasNodeId);
+        if (status) {
+          return `Node ${label} ${status}`;
+        }
+        return `Node ${label} emitted an update`;
+      }
+
+      if (status) {
+        return `Run status changed to ${status}`;
+      }
+
+      return JSON.stringify(payload);
     },
-    {
-      id: "3",
-      runId: "840",
-      status: "partial",
-      startTime: new Date("2023-11-03T09:12:00").toISOString(),
-      duration: 67300,
-      issues: 1,
-      nodes: [
-        {
-          id: "node-1",
-          type: "webhook",
-          name: "New Customer Webhook",
-          position: { x: 100, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-2",
-          type: "http",
-          name: "Fetch Customer Details",
-          position: { x: 400, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-3",
-          type: "function",
-          name: "Format Customer Data",
-          position: { x: 700, y: 100 },
-          status: "success",
-        },
-        {
-          id: "node-4",
-          type: "api",
-          name: "Create Account",
-          position: { x: 400, y: 250 },
-          status: "success",
-        },
-        {
-          id: "node-5",
-          type: "api",
-          name: "Send Welcome Email",
-          position: { x: 700, y: 250 },
-          status: "success",
-        },
-      ],
-      edges: [
-        { id: "edge-1", source: "node-1", target: "node-2" },
-        { id: "edge-2", source: "node-2", target: "node-3" },
-        { id: "edge-3", source: "node-3", target: "node-4" },
-        { id: "edge-4", source: "node-4", target: "node-5" },
-      ],
-      logs: [
-        {
-          timestamp: "09:12:00",
-          level: "INFO",
-          message: "Workflow execution started",
-        },
-        {
-          timestamp: "09:12:01",
-          level: "DEBUG",
-          message: 'Executing node "Daily Report Trigger"',
-        },
-        {
-          timestamp: "09:12:02",
-          level: "INFO",
-          message: 'Node "Daily Report Trigger" completed successfully',
-        },
-        {
-          timestamp: "09:12:03",
-          level: "DEBUG",
-          message: 'Executing node "Fetch Sales Data"',
-        },
-        {
-          timestamp: "09:12:10",
-          level: "INFO",
-          message: 'Node "Fetch Sales Data" completed successfully',
-        },
-        {
-          timestamp: "09:12:11",
-          level: "DEBUG",
-          message: 'Executing node "Generate Report"',
-        },
-        {
-          timestamp: "09:12:30",
-          level: "INFO",
-          message: 'Node "Generate Report" completed successfully',
-        },
-        {
-          timestamp: "09:12:31",
-          level: "DEBUG",
-          message: 'Executing node "Email Report"',
-        },
-        {
-          timestamp: "09:12:40",
-          level: "INFO",
-          message: 'Node "Email Report" completed successfully',
-        },
-        {
-          timestamp: "09:12:41",
-          level: "DEBUG",
-          message: 'Executing node "Slack Notification"',
-        },
-        {
-          timestamp: "09:12:45",
-          level: "WARNING",
-          message:
-            'Node "Slack Notification" completed with warnings: Channel not found',
-        },
-        {
-          timestamp: "09:12:45",
-          level: "INFO",
-          message: "Workflow execution completed with warnings",
-        },
-      ],
+    [resolveNodeLabel],
+  );
+
+  const deriveNodeStatusUpdates = useCallback(
+    (
+      payload: Record<string, unknown>,
+      graphToCanvas: Record<string, string>,
+    ): Record<string, NodeStatus> => {
+      const nodeKey = ["node", "step", "name"].find(
+        (key) => typeof payload[key] === "string" && payload[key],
+      );
+      if (!nodeKey) {
+        return {};
+      }
+      const statusValue =
+        typeof payload.status === "string" ? payload.status : undefined;
+      if (!statusValue) {
+        return {};
+      }
+      const graphNode = String(payload[nodeKey]);
+      const canvasNodeId = graphToCanvas[graphNode] ?? graphNode;
+      const status = nodeStatusFromValue(statusValue);
+      return { [canvasNodeId]: status };
     },
-  ];
+    [],
+  );
+
+  const applyExecutionUpdate = useCallback(
+    (
+      executionId: string,
+      payload: Record<string, unknown>,
+      graphToCanvas: Record<string, string>,
+    ) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      const statusValue =
+        typeof payload.status === "string" ? payload.status : undefined;
+      const hasNodeReference = ["node", "step", "name"].some(
+        (key) => typeof payload[key] === "string" && payload[key],
+      );
+      let executionStatus = executionStatusFromValue(statusValue);
+
+      if (hasNodeReference) {
+        executionStatus = null;
+      }
+
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        executionStatus = "failed";
+      }
+
+      const nodeUpdates = deriveNodeStatusUpdates(payload, graphToCanvas);
+      const timestamp = new Date();
+      const logLevel = determineLogLevel(payload);
+      const message = describePayload(payload, graphToCanvas);
+
+      setExecutions((prev) =>
+        prev.map((execution) => {
+          if (execution.id !== executionId) {
+            return execution;
+          }
+
+          const updatedNodes = execution.nodes.map((node) => {
+            const nextStatus = nodeUpdates[node.id];
+            if (nextStatus) {
+              return { ...node, status: nextStatus };
+            }
+            if (
+              executionStatus &&
+              executionStatus !== "running" &&
+              node.status === "running"
+            ) {
+              const fallback: NodeStatus =
+                executionStatus === "failed"
+                  ? "error"
+                  : executionStatus === "partial"
+                    ? "warning"
+                    : "success";
+              return { ...node, status: fallback };
+            }
+            return node;
+          });
+
+          const logs = [
+            ...execution.logs,
+            {
+              timestamp: timestamp.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              }),
+              level: logLevel,
+              message,
+            },
+          ];
+
+          const duration =
+            timestamp.getTime() - new Date(execution.startTime).getTime();
+
+          const issues =
+            logLevel === "ERROR" ? execution.issues + 1 : execution.issues;
+
+          const metadata = {
+            ...(execution.metadata ?? {}),
+            graphToCanvas: {
+              ...(execution.metadata?.graphToCanvas ?? {}),
+              ...graphToCanvas,
+            },
+          };
+
+          const endTime =
+            executionStatus && executionStatus !== "running"
+              ? timestamp.toISOString()
+              : execution.endTime;
+
+          return {
+            ...execution,
+            status: executionStatus ?? execution.status,
+            nodes: updatedNodes,
+            logs,
+            duration,
+            issues,
+            endTime,
+            metadata,
+          };
+        }),
+      );
+
+      if (
+        Object.keys(nodeUpdates).length > 0 ||
+        (executionStatus && executionStatus !== "running")
+      ) {
+        setNodes((prev) =>
+          prev.map((node) => {
+            const nextStatus = nodeUpdates[node.id];
+            if (nextStatus) {
+              return {
+                ...node,
+                data: { ...node.data, status: nextStatus },
+              };
+            }
+            if (
+              executionStatus &&
+              executionStatus !== "running" &&
+              (node.data?.status === "running" ||
+                node.data?.status === undefined)
+            ) {
+              const fallback: NodeStatus =
+                executionStatus === "failed"
+                  ? "error"
+                  : executionStatus === "partial"
+                    ? "warning"
+                    : "success";
+              return {
+                ...node,
+                data: { ...node.data, status: fallback },
+              };
+            }
+            return node;
+          }),
+        );
+      }
+
+      if (executionStatus && executionStatus !== "running") {
+        setIsRunning(false);
+        if (websocketRef.current) {
+          websocketRef.current.close();
+          websocketRef.current = null;
+        }
+      }
+    },
+    [
+      setExecutions,
+      setNodes,
+      setIsRunning,
+      deriveNodeStatusUpdates,
+      determineLogLevel,
+      describePayload,
+    ],
+  );
 
   const highlightMatch = useCallback(
     (index: number) => {
@@ -2210,81 +2221,264 @@ export default function WorkflowCanvas({
 
   // Handle workflow execution
   const handleRunWorkflow = useCallback(() => {
+    if (nodes.length === 0) {
+      toast({
+        title: "Add nodes before running",
+        description: "Create at least one node to build a runnable workflow.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { config, graphToCanvas } = buildGraphConfigFromCanvas(nodes, edges);
+    const executionId = generateRandomId("run");
+    const startTime = new Date();
+
+    const executionNodes: WorkflowExecutionNode[] = nodes.map((node) => ({
+      id: node.id,
+      type:
+        typeof node.data?.type === "string"
+          ? node.data.type
+          : (node.type ?? "custom"),
+      name:
+        typeof node.data?.label === "string" && node.data.label.trim()
+          ? node.data.label
+          : node.id,
+      position: node.position,
+      status: "running",
+    }));
+
+    const executionEdges: WorkflowEdge[] = edges.map((edge) => ({
+      id: edge.id ?? generateRandomId("edge"),
+      source: edge.source,
+      target: edge.target,
+    }));
+
+    const initialLog = {
+      timestamp: startTime.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      level: "INFO" as const,
+      message: "Workflow execution started",
+    };
+
+    const executionRecord: WorkflowExecution = {
+      id: executionId,
+      runId: executionId,
+      status: "running",
+      startTime: startTime.toISOString(),
+      duration: 0,
+      issues: 0,
+      nodes: executionNodes,
+      edges: executionEdges,
+      logs: [initialLog],
+      metadata: { graphToCanvas },
+    };
+
+    setExecutions((prev) => [executionRecord, ...prev]);
+    setActiveExecutionId(executionId);
     setIsRunning(true);
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        data: { ...node.data, status: "running" as NodeStatus },
+      })),
+    );
 
-    // Simulate workflow execution by updating node statuses
-    const nodeUpdates = [...nodes];
-    let delay = 0;
+    if (websocketRef.current) {
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
 
-    // Update nodes sequentially to simulate execution flow
-    nodeUpdates.forEach((node) => {
-      setTimeout(() => {
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.id === node.id) {
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  status: "running" as NodeStatus,
-                },
-              };
-            }
-            return n;
-          }),
-        );
+    let websocketUrl: string;
+    try {
+      websocketUrl = buildWorkflowWebSocketUrl(
+        currentWorkflowId ?? "canvas-preview",
+        getBackendBaseUrl(),
+      );
+    } catch (error) {
+      setIsRunning(false);
+      toast({
+        title: "Unable to start execution",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Invalid workflow identifier",
+        variant: "destructive",
+      });
+      return;
+    }
 
-        // After a delay, set the node to success
-        setTimeout(() => {
-          setNodes((nds) =>
-            nds.map((n) => {
-              if (n.id === node.id) {
-                return {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status:
-                      Math.random() > 0.9
-                        ? ("error" as NodeStatus)
-                        : ("success" as NodeStatus), // 10% chance of error
-                  },
-                };
-              }
-              return n;
-            }),
-          );
+    const ws = new WebSocket(websocketUrl);
+    websocketRef.current = ws;
 
-          // If this is the last node, set isRunning to false
-          if (node.id === nodeUpdates[nodeUpdates.length - 1].id) {
-            setIsRunning(false);
+    ws.onopen = () => {
+      const payload = {
+        type: "run_workflow",
+        graph_config: config,
+        inputs: {
+          canvas: {
+            triggered_from: "canvas-app",
+            workflow_id: currentWorkflowId ?? "canvas-preview",
+            at: startTime.toISOString(),
+          },
+          metadata: {
+            node_count: nodes.length,
+            edge_count: edges.length,
+          },
+        },
+        execution_id: executionId,
+      };
+      ws.send(JSON.stringify(payload));
+    };
+
+    ws.onmessage = (event) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      try {
+        const data = JSON.parse(event.data) as Record<string, unknown>;
+        applyExecutionUpdate(executionId, data, graphToCanvas);
+      } catch (error) {
+        console.error("Failed to parse workflow update", error);
+        toast({
+          title: "Workflow update error",
+          description:
+            error instanceof Error ? error.message : "Unknown parsing error",
+          variant: "destructive",
+        });
+      }
+    };
+
+    ws.onerror = () => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const timestamp = new Date();
+      setIsRunning(false);
+      setExecutions((prev) =>
+        prev.map((execution) => {
+          if (execution.id !== executionId) {
+            return execution;
           }
-        }, 1500);
-      }, delay);
+          const errorLog = {
+            timestamp: timestamp.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }),
+            level: "ERROR" as const,
+            message: "WebSocket connection reported an error.",
+          };
+          const updatedNodes = execution.nodes.map((node) =>
+            node.status === "running"
+              ? { ...node, status: "error" as NodeStatus }
+              : node,
+          );
+          return {
+            ...execution,
+            status:
+              execution.status === "success" ? execution.status : "failed",
+            nodes: updatedNodes,
+            logs: [...execution.logs, errorLog],
+            endTime: execution.endTime ?? timestamp.toISOString(),
+            duration:
+              timestamp.getTime() - new Date(execution.startTime).getTime(),
+            issues: execution.issues + 1,
+          };
+        }),
+      );
+      toast({
+        title: "Workflow stream error",
+        description: "The WebSocket connection reported an error.",
+        variant: "destructive",
+      });
+      if (websocketRef.current === ws) {
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
+    };
 
-      delay += 1000; // Stagger the execution
-    });
-  }, [nodes, setNodes]);
+    ws.onclose = () => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      setIsRunning(false);
+      if (websocketRef.current === ws) {
+        websocketRef.current = null;
+      }
+    };
+  }, [
+    nodes,
+    edges,
+    setNodes,
+    setExecutions,
+    applyExecutionUpdate,
+    currentWorkflowId,
+  ]);
 
   // Handle workflow pause
   const handlePauseWorkflow = useCallback(() => {
-    setIsRunning(false);
+    if (!isRunning) {
+      return;
+    }
 
-    // Reset all running nodes to idle
+    setIsRunning(false);
+    if (websocketRef.current) {
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+
+    const timestamp = new Date();
+
     setNodes((nds) =>
-      nds.map((n) => {
-        if (n.data.status === "running") {
+      nds.map((node) => {
+        if (node.data.status === "running") {
           return {
-            ...n,
-            data: {
-              ...n.data,
-              status: "idle" as NodeStatus,
-            },
+            ...node,
+            data: { ...node.data, status: "warning" as NodeStatus },
           };
         }
-        return n;
+        return node;
       }),
     );
-  }, [setNodes]);
+
+    if (activeExecutionId) {
+      setExecutions((prev) =>
+        prev.map((execution) => {
+          if (execution.id !== activeExecutionId) {
+            return execution;
+          }
+          return {
+            ...execution,
+            status: "partial",
+            endTime: timestamp.toISOString(),
+            duration:
+              timestamp.getTime() - new Date(execution.startTime).getTime(),
+            logs: [
+              ...execution.logs,
+              {
+                timestamp: timestamp.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                }),
+                level: "WARNING" as const,
+                message: "Execution paused from the canvas",
+              },
+            ],
+          };
+        }),
+      );
+    }
+
+    toast({
+      title: "Workflow paused",
+      description: "Live updates disconnected. Resume to reconnect.",
+    });
+  }, [activeExecutionId, isRunning, setExecutions, setNodes]);
 
   const handleUndo = useCallback(() => {
     const previousSnapshot = undoStackRef.current.pop();
@@ -2405,9 +2599,125 @@ export default function WorkflowCanvas({
           }) as Node<NodeData>,
       );
       setNodes(mappedNodes);
+      setActiveExecutionId(execution.id);
     },
     [setNodes],
   );
+
+  const handleCopyExecutionToEditor = useCallback(
+    (execution: HistoryWorkflowExecution) => {
+      handleViewExecutionDetails(execution);
+      toast({
+        title: "Execution copied to canvas",
+        description: `Run ${execution.runId} was loaded into the editor.`,
+      });
+    },
+    [handleViewExecutionDetails],
+  );
+
+  const handleDeleteExecution = useCallback(
+    (execution: HistoryWorkflowExecution) => {
+      setExecutions((prev) => prev.filter((item) => item.id !== execution.id));
+      if (activeExecutionId === execution.id) {
+        setActiveExecutionId(null);
+      }
+      toast({
+        title: "Execution removed",
+        description: `Run ${execution.runId} was cleared from the local history.`,
+      });
+    },
+    [activeExecutionId, setExecutions],
+  );
+
+  const handleRefreshExecutionHistory = useCallback(async () => {
+    if (typeof fetch === "undefined") {
+      toast({
+        title: "Refresh unavailable",
+        description: "The Fetch API is not available in this environment.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const targetExecution =
+      (activeExecutionId &&
+        executions.find((execution) => execution.id === activeExecutionId)) ||
+      executions[0];
+
+    if (!targetExecution) {
+      toast({
+        title: "No executions to refresh",
+        description: "Run a workflow to create live execution history.",
+      });
+      return;
+    }
+
+    const url = buildBackendHttpUrl(
+      `/api/executions/${targetExecution.id}/history`,
+    );
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(
+          detail || `Request failed with status ${response.status}`,
+        );
+      }
+
+      const history = (await response.json()) as RunHistoryResponse;
+      const mapping = targetExecution.metadata?.graphToCanvas ?? {};
+
+      const logs = history.steps.map((step) => ({
+        timestamp: new Date(step.at).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        level: determineLogLevel(step.payload),
+        message: describePayload(step.payload, mapping),
+      }));
+
+      setExecutions((prev) =>
+        prev.map((execution) => {
+          if (execution.id !== history.execution_id) {
+            return execution;
+          }
+          const status =
+            executionStatusFromValue(history.status) ?? execution.status;
+          const completedAt = history.completed_at ?? execution.endTime;
+          return {
+            ...execution,
+            status,
+            logs,
+            endTime: completedAt ?? undefined,
+            duration: completedAt
+              ? new Date(completedAt).getTime() -
+                new Date(history.started_at).getTime()
+              : execution.duration,
+          };
+        }),
+      );
+
+      toast({
+        title: "Execution history refreshed",
+        description: `Loaded ${history.steps.length} streamed updates.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to refresh execution history",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
+    }
+  }, [
+    activeExecutionId,
+    executions,
+    determineLogLevel,
+    describePayload,
+    setExecutions,
+  ]);
 
   // Load workflow data when workflowId changes
   useEffect(() => {
@@ -2669,33 +2979,12 @@ export default function WorkflowCanvas({
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
             <WorkflowExecutionHistory
-              executions={mockExecutions.map((execution) => ({
-                ...execution,
-                nodes: execution.nodes.map((node) => ({
-                  ...node,
-                  status: node.status || ("idle" as NodeStatus),
-                })),
-              }))}
+              executions={executions}
               onViewDetails={handleViewExecutionDetails}
-              onRefresh={() =>
-                toast({
-                  title: "Execution history refresh",
-                  description:
-                    "Live execution syncing will be added once the backend is connected.",
-                })
-              }
-              onCopyToEditor={(execution) =>
-                toast({
-                  title: "Copied execution context",
-                  description: `Run ${execution.runId} will be available in the editor soon.`,
-                })
-              }
-              onDelete={(execution) =>
-                toast({
-                  title: "Execution deletion coming soon",
-                  description: `Run ${execution.runId} can be removed once persistence is implemented.`,
-                })
-              }
+              onRefresh={handleRefreshExecutionHistory}
+              onCopyToEditor={handleCopyExecutionToEditor}
+              onDelete={handleDeleteExecution}
+              defaultSelectedExecution={executions[0]}
             />
           </TabsContent>
 
