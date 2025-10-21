@@ -12,6 +12,7 @@ export interface ValidationError {
   sourceId?: string;
   targetId?: string;
   nodeName?: string;
+  nodeId?: string;
 }
 
 interface ConnectionValidatorProps {
@@ -199,6 +200,7 @@ export function validateNodeCredentials(
       type: "credential",
       message: `${node.data.label} requires credentials to be configured`,
       nodeName: node.data.label,
+      nodeId: node.id,
     };
   }
 
