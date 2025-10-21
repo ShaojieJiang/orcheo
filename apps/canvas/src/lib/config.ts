@@ -2,6 +2,21 @@ const DEFAULT_BACKEND_URL = "http://localhost:8000";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
+const isPermittedProtocol = (protocol: string): boolean =>
+  ["http:", "https:", "ws:", "wss:"].includes(protocol);
+
+const isValidUrl = (value: string): boolean => {
+  if (!value.trim()) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return isPermittedProtocol(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
 const normaliseBaseUrl = (value: string): string => {
   if (!value) {
     return DEFAULT_BACKEND_URL;
@@ -18,7 +33,17 @@ const normaliseBaseUrl = (value: string): string => {
 
 export const getBackendBaseUrl = (): string => {
   const fromEnv = (import.meta.env?.VITE_ORCHEO_BACKEND_URL ?? "") as string;
-  return normaliseBaseUrl(fromEnv || DEFAULT_BACKEND_URL);
+  const candidate = fromEnv || DEFAULT_BACKEND_URL;
+  const normalised = normaliseBaseUrl(candidate);
+
+  if (fromEnv && !isValidUrl(normalised)) {
+    console.warn(
+      "Invalid VITE_ORCHEO_BACKEND_URL provided, falling back to default backend URL.",
+    );
+    return normaliseBaseUrl(DEFAULT_BACKEND_URL);
+  }
+
+  return normalised;
 };
 
 const ensureHttpProtocol = (baseUrl: string): string => {

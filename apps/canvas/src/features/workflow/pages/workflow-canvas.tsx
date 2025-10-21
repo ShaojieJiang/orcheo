@@ -778,6 +778,7 @@ export default function WorkflowCanvas({
     null,
   );
   const websocketRef = useRef<WebSocket | null>(null);
+  const isMountedRef = useRef(true);
   const latestNodesRef = useRef(nodes);
 
   // State for UI controls
@@ -807,7 +808,9 @@ export default function WorkflowCanvas({
   }, [nodes]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (websocketRef.current) {
         websocketRef.current.close();
         websocketRef.current = null;
@@ -1414,11 +1417,14 @@ export default function WorkflowCanvas({
       if (!nodeKey) {
         return {};
       }
+      const statusValue =
+        typeof payload.status === "string" ? payload.status : undefined;
+      if (!statusValue) {
+        return {};
+      }
       const graphNode = String(payload[nodeKey]);
       const canvasNodeId = graphToCanvas[graphNode] ?? graphNode;
-      const status = nodeStatusFromValue(
-        typeof payload.status === "string" ? payload.status : undefined,
-      );
+      const status = nodeStatusFromValue(statusValue);
       return { [canvasNodeId]: status };
     },
     [],
@@ -1430,6 +1436,10 @@ export default function WorkflowCanvas({
       payload: Record<string, unknown>,
       graphToCanvas: Record<string, string>,
     ) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
       const statusValue =
         typeof payload.status === "string" ? payload.status : undefined;
       const hasNodeReference = ["node", "step", "name"].some(
@@ -2325,6 +2335,9 @@ export default function WorkflowCanvas({
     };
 
     ws.onmessage = (event) => {
+      if (!isMountedRef.current) {
+        return;
+      }
       try {
         const data = JSON.parse(event.data) as Record<string, unknown>;
         applyExecutionUpdate(executionId, data, graphToCanvas);
@@ -2340,16 +2353,62 @@ export default function WorkflowCanvas({
     };
 
     ws.onerror = () => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const timestamp = new Date();
+      setIsRunning(false);
+      setExecutions((prev) =>
+        prev.map((execution) => {
+          if (execution.id !== executionId) {
+            return execution;
+          }
+          const errorLog = {
+            timestamp: timestamp.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }),
+            level: "ERROR" as const,
+            message: "WebSocket connection reported an error.",
+          };
+          const updatedNodes = execution.nodes.map((node) =>
+            node.status === "running"
+              ? { ...node, status: "error" as NodeStatus }
+              : node,
+          );
+          return {
+            ...execution,
+            status:
+              execution.status === "success" ? execution.status : "failed",
+            nodes: updatedNodes,
+            logs: [...execution.logs, errorLog],
+            endTime: execution.endTime ?? timestamp.toISOString(),
+            duration:
+              timestamp.getTime() - new Date(execution.startTime).getTime(),
+            issues: execution.issues + 1,
+          };
+        }),
+      );
       toast({
         title: "Workflow stream error",
         description: "The WebSocket connection reported an error.",
         variant: "destructive",
       });
+      if (websocketRef.current === ws) {
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
     };
 
     ws.onclose = () => {
+      if (!isMountedRef.current) {
+        return;
+      }
       setIsRunning(false);
-      websocketRef.current = null;
+      if (websocketRef.current === ws) {
+        websocketRef.current = null;
+      }
     };
   }, [
     nodes,
