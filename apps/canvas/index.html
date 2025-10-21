@@ -8,6 +8,12 @@
   </head>
   <body>
     <div id="root"></div>
+    <script
+      src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+      async
+      onload="window.dispatchEvent(new CustomEvent('chatkit-script-loaded'))"
+      onerror="window.dispatchEvent(new CustomEvent('chatkit-script-error', { detail: 'Failed to load ChatKit' }))"
+    ></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

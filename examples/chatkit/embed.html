@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orcheo ChatKit Embed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #0f172a;
+        color: #0f172a;
+        font-family: system-ui, sans-serif;
+      }
+
+      #root {
+        height: 100%;
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      .chat-container {
+        border-radius: 16px;
+        overflow: hidden;
+        height: 100%;
+        background: white;
+        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="chat-container"></div>
+    </div>
+    <script>
+      // Configure API endpoint overrides (optional).
+      window.CHATKIT_API_URL = window.CHATKIT_API_URL || `${window.location.origin}/api/chatkit`;
+      window.CHATKIT_DOMAIN_KEY = window.CHATKIT_DOMAIN_KEY || window.location.hostname;
+    </script>
+    <script
+      src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+      async
+      onload="window.dispatchEvent(new CustomEvent('chatkit-script-loaded'))"
+      onerror="window.dispatchEvent(new CustomEvent('chatkit-script-error', { detail: 'Failed to load ChatKit' }))"
+    ></script>
+    <script type="module">
+      import React, { useMemo } from "https://esm.sh/react@19";
+      import { createRoot } from "https://esm.sh/react-dom@19/client";
+      import { ChatKit, useChatKit } from "https://esm.sh/@openai/chatkit-react@1.1.1";
+
+      const apiUrl = window.CHATKIT_API_URL;
+      const domainKey = window.CHATKIT_DOMAIN_KEY;
+
+      function EmbeddedChat() {
+        const chatkit = useChatKit(
+          useMemo(
+            () => ({
+              api: {
+                url: apiUrl,
+                domainKey,
+              },
+              header: {
+                enabled: true,
+                title: { text: "Orcheo Chat" },
+              },
+              startScreen: {
+                greeting: "Ask Orcheo about your workflow run or send a test message.",
+              },
+              composer: {
+                placeholder: "Type to trigger your Orcheo workflow...",
+                attachments: { enabled: false },
+              },
+              threadItemActions: {
+                feedback: false,
+              },
+            }),
+            [apiUrl, domainKey],
+          ),
+        );
+
+        return React.createElement(ChatKit, {
+          control: chatkit.control,
+          className: "h-full w-full",
+        });
+      }
+
+      const container = document.querySelector("#root .chat-container");
+      const root = createRoot(container);
+      root.render(React.createElement(EmbeddedChat));
+    </script>
+  </body>
+</html>

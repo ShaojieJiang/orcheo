@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
+from chatkit.server import NonStreamingResult, StreamingResult
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
 from fastapi import (
@@ -23,6 +24,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -59,6 +61,7 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     OAuthCredentialService,
 )
+from orcheo_backend.app.chatkit_server import OrcheoChatKitServer
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -119,8 +122,17 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_chatkit_server_ref: dict[str, OrcheoChatKitServer | None] = {"server": None}
 
 T = TypeVar("T")
+
+
+def _get_chatkit_server() -> OrcheoChatKitServer:
+    server = _chatkit_server_ref["server"]
+    if server is None:
+        server = OrcheoChatKitServer()
+        _chatkit_server_ref["server"] = server
+    return server
 
 
 def _settings_value(
@@ -560,6 +572,19 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         await websocket.send_json({"status": "error", "error": str(exc)})
     finally:
         await websocket.close()
+
+
+@_http_router.post("/chatkit")
+async def handle_chatkit(request: Request) -> Response:
+    """Process ChatKit client requests and stream responses."""
+    server = _get_chatkit_server()
+    payload = await request.body()
+    result = await server.process(payload, {"request": request})
+    if isinstance(result, StreamingResult):
+        return StreamingResponse(result, media_type="text/event-stream")
+    if isinstance(result, NonStreamingResult):
+        return Response(content=result.json, media_type="application/json")
+    return JSONResponse({"error": "Unexpected ChatKit response"}, status_code=500)
 
 
 @_http_router.get("/workflows", response_model=list[Workflow])

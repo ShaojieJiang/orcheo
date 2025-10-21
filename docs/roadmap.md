@@ -47,7 +47,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Implement workflow operations: replace mocked save/load with persistence, wire JSON import/export, enable template onboarding, and surface a version diff viewer.
 - [x] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the canvas.
 - [x] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
-- [ ] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
+- [x] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
 - [ ] Execute the [frontend experience plan](./frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the canvas rebuild.
 
 ### Milestone 5 – Node Ecosystem & Integrations
@@ -70,4 +70,4 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ---
 
-_Last updated: 2025-10-06_
+_Last updated: 2025-10-21_
