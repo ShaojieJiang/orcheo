@@ -49,7 +49,7 @@ import {
   Shield,
 } from "lucide-react";
 
-interface Credential {
+export interface Credential {
   id: string;
   name: string;
   type: string;
@@ -60,11 +60,16 @@ interface Credential {
   secrets: Record<string, string>;
 }
 
+export type CredentialInput = Omit<
+  Credential,
+  "id" | "createdAt" | "updatedAt" | "owner"
+> & {
+  owner?: string;
+};
+
 interface CredentialsVaultProps {
   credentials?: Credential[];
-  onAddCredential?: (
-    credential: Omit<Credential, "id" | "createdAt" | "updatedAt">,
-  ) => void;
+  onAddCredential?: (credential: CredentialInput) => void;
   onDeleteCredential?: (id: string) => void;
   className?: string;
 }
