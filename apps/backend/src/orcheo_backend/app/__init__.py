@@ -6,6 +6,7 @@ import json
 import logging
 import secrets
 import uuid
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
@@ -25,6 +26,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.datastructures import Headers, MutableHeaders
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -574,16 +576,52 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         await websocket.close()
 
 
+def _build_chatkit_response_kwargs(
+    result: StreamingResult | NonStreamingResult,
+) -> dict[str, Any]:
+    """Extract shared response keyword arguments from ChatKit results."""
+    status_code = getattr(result, "status", None)
+    headers: Any = getattr(result, "headers", None)
+
+    normalized_headers: Any | None = None
+    if headers:
+        if isinstance(headers, Headers | MutableHeaders):
+            normalized_headers = dict(headers.items())
+        elif isinstance(headers, Mapping):
+            normalized_headers = dict(headers)
+        elif isinstance(headers, Sequence) and not isinstance(
+            headers, str | bytes | bytearray
+        ):
+            normalized_headers = list(headers)
+        else:
+            normalized_headers = headers
+
+    response_kwargs: dict[str, Any] = {}
+    if status_code is not None:
+        response_kwargs["status_code"] = status_code
+    if normalized_headers is not None:
+        response_kwargs["headers"] = normalized_headers
+
+    return response_kwargs
+
+
 @_http_router.post("/chatkit")
 async def handle_chatkit(request: Request) -> Response:
     """Process ChatKit client requests and stream responses."""
     server = _get_chatkit_server()
     payload = await request.body()
     result = await server.process(payload, {"request": request})
+    response_kwargs = _build_chatkit_response_kwargs(result)
     if isinstance(result, StreamingResult):
-        return StreamingResponse(result, media_type="text/event-stream")
+        return StreamingResponse(
+            result, media_type="text/event-stream", **response_kwargs
+        )
     if isinstance(result, NonStreamingResult):
-        return Response(content=result.json, media_type="application/json")
+        return Response(
+            content=result.json,
+            media_type="application/json",
+            **response_kwargs,
+        )
     return JSONResponse({"error": "Unexpected ChatKit response"}, status_code=500)
 
 
