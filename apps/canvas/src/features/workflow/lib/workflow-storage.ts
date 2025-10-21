@@ -1,6 +1,7 @@
 import {
   SAMPLE_WORKFLOWS,
   type Workflow,
+  type WorkflowCredential,
   type WorkflowEdge,
   type WorkflowNode,
 } from "@features/workflow/data/workflow-data";
@@ -41,6 +42,8 @@ interface SaveWorkflowInput {
   tags?: string[];
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  credentials?: WorkflowCredential[];
+  linkedSubworkflowIds?: string[];
 }
 
 interface SaveWorkflowOptions {
@@ -53,6 +56,8 @@ interface CreateWorkflowInput {
   tags?: string[];
   nodes?: WorkflowNode[];
   edges?: WorkflowEdge[];
+  credentials?: WorkflowCredential[];
+  linkedSubworkflowIds?: string[];
 }
 
 const getStorage = () => {
@@ -92,6 +97,8 @@ const readStorage = (): StoredWorkflow[] => {
       versions: workflow.versions ?? [],
       nodes: workflow.nodes ?? [],
       edges: workflow.edges ?? [],
+      credentials: workflow.credentials ?? [],
+      linkedSubworkflowIds: workflow.linkedSubworkflowIds ?? [],
     }));
   } catch (error) {
     console.warn("Failed to read workflow storage", error);
@@ -168,6 +175,8 @@ export const createWorkflow = (input: CreateWorkflowInput): StoredWorkflow => {
     tags: input.tags ?? ["draft"],
     nodes: input.nodes ?? [],
     edges: input.edges ?? [],
+    credentials: input.credentials ?? [],
+    linkedSubworkflowIds: input.linkedSubworkflowIds ?? [],
     versions: [],
   };
 
@@ -208,6 +217,8 @@ export const saveWorkflow = (
     description: workflow.description,
     nodes: workflow.nodes ?? [],
     edges: workflow.edges ?? [],
+    credentials: workflow.credentials ?? [],
+    linkedSubworkflowIds: workflow.linkedSubworkflowIds ?? [],
   };
 
   workflow.name = input.name;
@@ -215,6 +226,9 @@ export const saveWorkflow = (
   workflow.tags = input.tags ?? workflow.tags ?? [];
   workflow.nodes = input.nodes;
   workflow.edges = input.edges;
+  workflow.credentials = input.credentials ?? workflow.credentials ?? [];
+  workflow.linkedSubworkflowIds =
+    input.linkedSubworkflowIds ?? workflow.linkedSubworkflowIds ?? [];
   workflow.updatedAt = now;
 
   const snapshot: WorkflowSnapshot = {
@@ -222,6 +236,8 @@ export const saveWorkflow = (
     description: workflow.description,
     nodes: workflow.nodes,
     edges: workflow.edges,
+    credentials: workflow.credentials,
+    linkedSubworkflowIds: workflow.linkedSubworkflowIds,
   };
 
   const diff = computeWorkflowDiff(previousSnapshot, snapshot);

@@ -45,9 +45,9 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Migrate the legacy canvas app to connect to the new backend via React Flow foundation, restoring minimap, snapping, and chat affordances while preserving node compatibility.
 - [x] Finish React Flow canvas tooling: add undo/redo history, node duplication/export handlers, node search/filtering, styling updates, and collapsible configuration panels.
 - [x] Implement workflow operations: replace mocked save/load with persistence, wire JSON import/export, enable template onboarding, and surface a version diff viewer.
-- [ ] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the canvas.
-- [ ] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
-- [ ] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
+- [x] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the canvas.
+- [x] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
+- [x] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
 - [ ] Execute the [frontend experience plan](./frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the canvas rebuild.
 
 ### Milestone 5 – Node Ecosystem & Integrations

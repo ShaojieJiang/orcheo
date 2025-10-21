@@ -7,6 +7,9 @@ export interface WorkflowNode {
     description?: string;
     status?: "idle" | "running" | "success" | "error";
     isDisabled?: boolean;
+    credentials?: {
+      id: string;
+    } | null;
     [key: string]: unknown;
   };
 }
@@ -21,6 +24,30 @@ export interface WorkflowEdge {
   type?: string;
   animated?: boolean;
   style?: Record<string, unknown>;
+}
+
+export interface WorkflowCredential {
+  id: string;
+  name: string;
+  type: string;
+  access: "private" | "shared" | "public";
+  owner: string;
+  createdAt: string;
+  updatedAt: string;
+  secrets: Record<string, string>;
+  description?: string;
+}
+
+export interface ReusableSubWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tags: string[];
+  lastUpdated: string;
+  estimatedDurationMinutes: number;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
 }
 
 export interface Workflow {
@@ -42,7 +69,144 @@ export interface Workflow {
   };
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  credentials?: WorkflowCredential[];
+  linkedSubworkflowIds?: string[];
 }
+
+export const SAMPLE_CREDENTIALS: WorkflowCredential[] = [
+  {
+    id: "cred-salesforce-oauth",
+    name: "Salesforce OAuth",
+    type: "oauth",
+    access: "shared",
+    owner: "RevOps Team",
+    createdAt: "2023-09-01T08:30:00Z",
+    updatedAt: "2023-10-25T15:20:00Z",
+    secrets: { refreshToken: "••••••••••" },
+    description: "Shared credential for Salesforce CRM access",
+  },
+  {
+    id: "cred-sendgrid-api",
+    name: "SendGrid API Key",
+    type: "api_key",
+    access: "private",
+    owner: "Lifecycle Marketing",
+    createdAt: "2023-08-12T17:45:00Z",
+    updatedAt: "2023-11-04T12:10:00Z",
+    secrets: { apiKey: "SG.****.****" },
+    description: "Email delivery credential scoped to onboarding campaigns",
+  },
+  {
+    id: "cred-data-warehouse",
+    name: "Snowflake Warehouse",
+    type: "database",
+    access: "shared",
+    owner: "Data Platform",
+    createdAt: "2023-07-03T11:00:00Z",
+    updatedAt: "2023-11-02T09:05:00Z",
+    secrets: { password: "********" },
+    description: "Credential for loading curated onboarding datasets",
+  },
+];
+
+export const SAMPLE_SUBWORKFLOWS: ReusableSubWorkflow[] = [
+  {
+    id: "customer-enrichment",
+    name: "Customer Enrichment",
+    description:
+      "Enrich a newly created customer with Clearbit data and persist the record to analytics stores.",
+    category: "data",
+    tags: ["customer", "enrichment", "api"],
+    lastUpdated: "2023-10-18T14:05:00Z",
+    estimatedDurationMinutes: 4,
+    nodes: [
+      {
+        id: "enrich-trigger",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Customer Created",
+          description: "Runs when a new customer is captured",
+          status: "idle",
+        },
+      },
+      {
+        id: "enrich-api",
+        type: "api",
+        position: { x: 260, y: 0 },
+        data: {
+          label: "Clearbit Enrichment",
+          description: "Fetch firmographics and intent data",
+          status: "idle",
+          credentials: { id: "cred-salesforce-oauth" },
+        },
+      },
+      {
+        id: "enrich-db",
+        type: "data",
+        position: { x: 520, y: 0 },
+        data: {
+          label: "Persist to Warehouse",
+          description: "Store enriched payload in Snowflake",
+          status: "idle",
+          credentials: { id: "cred-data-warehouse" },
+        },
+      },
+    ],
+    edges: [
+      { id: "enrich-edge-1", source: "enrich-trigger", target: "enrich-api" },
+      { id: "enrich-edge-2", source: "enrich-api", target: "enrich-db" },
+    ],
+  },
+  {
+    id: "post-onboarding-survey",
+    name: "Post-Onboarding Survey",
+    description:
+      "Send a triggered onboarding survey and collect responses for the success team dashboard.",
+    category: "engagement",
+    tags: ["survey", "communication", "email"],
+    lastUpdated: "2023-11-03T09:40:00Z",
+    estimatedDurationMinutes: 6,
+    nodes: [
+      {
+        id: "survey-delay",
+        type: "function",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Wait 3 Days",
+          description: "Ensure user has completed onboarding tasks",
+          status: "idle",
+        },
+      },
+      {
+        id: "survey-email",
+        type: "api",
+        position: { x: 260, y: 0 },
+        data: {
+          label: "Send Survey Email",
+          description: "Deliver NPS survey via SendGrid",
+          status: "idle",
+          credentials: { id: "cred-sendgrid-api" },
+        },
+      },
+      {
+        id: "survey-logging",
+        type: "data",
+        position: { x: 520, y: 0 },
+        data: {
+          label: "Log Response",
+          description: "Track survey response in analytics table",
+          status: "idle",
+          credentials: { id: "cred-data-warehouse" },
+        },
+      },
+    ],
+    edges: [
+      { id: "survey-edge-1", source: "survey-delay", target: "survey-email" },
+      { id: "survey-edge-2", source: "survey-email", target: "survey-logging" },
+    ],
+  },
+];
 
 export const SAMPLE_WORKFLOWS: Workflow[] = [
   {
@@ -62,6 +226,8 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       timestamp: "2023-11-05T09:15:00Z",
       duration: 45.2,
     },
+    credentials: SAMPLE_CREDENTIALS,
+    linkedSubworkflowIds: ["customer-enrichment"],
     nodes: [
       {
         id: "node-1",
@@ -81,6 +247,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           label: "Fetch Customer Details",
           description: "Get full customer information from CRM API",
           status: "success",
+          credentials: { id: "cred-salesforce-oauth" },
         },
       },
       {
@@ -101,6 +268,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           label: "Create Account",
           description: "Create customer account in billing system",
           status: "success",
+          credentials: { id: "cred-salesforce-oauth" },
         },
       },
       {
@@ -111,6 +279,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           label: "Send Welcome Email",
           description: "Send personalized welcome email to customer",
           status: "success",
+          credentials: { id: "cred-sendgrid-api" },
         },
       },
     ],
@@ -159,6 +328,8 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       timestamp: "2023-11-05T02:00:00Z",
       duration: 134.7,
     },
+    credentials: [SAMPLE_CREDENTIALS[0], SAMPLE_CREDENTIALS[2]],
+    linkedSubworkflowIds: ["post-onboarding-survey"],
     nodes: [
       {
         id: "node-1",
@@ -178,6 +349,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           label: "Extract Data",
           description: "Pull data from source system",
           status: "success",
+          credentials: { id: "cred-salesforce-oauth" },
         },
       },
       {
@@ -198,6 +370,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           label: "Load to Database",
           description: "Insert data into target database",
           status: "error",
+          credentials: { id: "cred-data-warehouse" },
         },
       },
       {
@@ -209,6 +382,7 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
           description: "Notify team about sync results",
           status: "idle",
           isDisabled: true,
+          credentials: { id: "cred-sendgrid-api" },
         },
       },
     ],

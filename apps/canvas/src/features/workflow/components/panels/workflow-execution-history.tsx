@@ -94,6 +94,26 @@ export default function WorkflowExecutionHistory({
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
+  useEffect(() => {
+    if (defaultSelectedExecution) {
+      setSelectedExecution(defaultSelectedExecution);
+      return;
+    }
+    if (executions.length === 0) {
+      setSelectedExecution(null);
+      return;
+    }
+    setSelectedExecution((current) => {
+      if (
+        current &&
+        executions.some((execution) => execution.id === current.id)
+      ) {
+        return current;
+      }
+      return executions[0];
+    });
+  }, [defaultSelectedExecution, executions]);
+
   const handleSelectExecution = (execution: WorkflowExecution) => {
     setSelectedExecution(execution);
   };

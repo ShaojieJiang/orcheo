@@ -1,6 +1,7 @@
 import type {
   WorkflowNode,
   WorkflowEdge,
+  WorkflowCredential,
 } from "@features/workflow/data/workflow-data";
 
 export type WorkflowDiffType = "added" | "removed" | "modified";
@@ -11,6 +12,8 @@ export interface WorkflowSnapshot {
   description?: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  credentials?: WorkflowCredential[];
+  linkedSubworkflowIds?: string[];
 }
 
 export interface WorkflowDiffEntry {

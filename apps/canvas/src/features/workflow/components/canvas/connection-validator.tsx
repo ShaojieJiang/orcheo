@@ -21,7 +21,7 @@ interface ConnectionValidatorProps {
   className?: string;
 }
 
-interface ValidatorNodeData {
+export interface ValidatorNodeData {
   type?: string;
   label?: string;
   credentials?: {
@@ -128,7 +128,7 @@ export function validateConnection(
 
   if (!sourceNode || !targetNode) {
     return {
-      id: `conn-${Date.now()}`,
+      id: `conn-${connection.source}-${connection.target}-missing`,
       type: "connection",
       message: "Source or target node not found",
       sourceId: connection.source,
@@ -144,7 +144,7 @@ export function validateConnection(
 
   if (connectionExists) {
     return {
-      id: `conn-${Date.now()}`,
+      id: `conn-${connection.source}-${connection.target}-duplicate`,
       type: "connection",
       message: "Connection already exists between these nodes",
       sourceId: connection.source,
@@ -158,7 +158,7 @@ export function validateConnection(
     targetNode.data.type === "trigger"
   ) {
     return {
-      id: `conn-${Date.now()}`,
+      id: `conn-${connection.source}-${connection.target}-trigger-chain`,
       type: "connection",
       message: "Cannot connect a trigger node to another trigger node",
       sourceId: connection.source,
@@ -174,7 +174,7 @@ export function validateConnection(
   );
   if (wouldCreateCycle) {
     return {
-      id: `conn-${Date.now()}`,
+      id: `conn-${connection.source}-${connection.target}-cycle`,
       type: "connection",
       message: "This connection would create a circular reference",
       sourceId: connection.source,
@@ -195,9 +195,10 @@ export function validateNodeCredentials(
     (!node.data.credentials || !node.data.credentials.id)
   ) {
     return {
-      id: `cred-${node.id}-${Date.now()}`,
+      id: `cred-${node.id}`,
       type: "credential",
       message: `${node.data.label} requires credentials to be configured`,
+      sourceId: node.id,
       nodeName: node.data.label,
     };
   }
