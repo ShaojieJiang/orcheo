@@ -107,6 +107,251 @@ const generateRandomId = (prefix: string) => {
 
 const generateNodeId = () => generateRandomId("node");
 
+type SubworkflowStructure = {
+  nodes: PersistedWorkflowNode[];
+  edges: PersistedWorkflowEdge[];
+};
+
+const SUBWORKFLOW_LIBRARY: Record<string, SubworkflowStructure> = {
+  "subflow-customer-onboarding": {
+    nodes: [
+      {
+        id: "capture-intake",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        data: {
+          type: "trigger",
+          label: "Capture intake request",
+          description: "Webhook triggered when a signup is submitted.",
+          status: "idle",
+        },
+      },
+      {
+        id: "enrich-profile",
+        type: "function",
+        position: { x: 260, y: 0 },
+        data: {
+          type: "function",
+          label: "Enrich CRM profile",
+          description: "Collect firmographic data for the new customer.",
+          status: "idle",
+        },
+      },
+      {
+        id: "provision-access",
+        type: "api",
+        position: { x: 520, y: 0 },
+        data: {
+          type: "api",
+          label: "Provision access",
+          description: "Create accounts across internal and SaaS tools.",
+          status: "idle",
+        },
+      },
+      {
+        id: "send-welcome",
+        type: "api",
+        position: { x: 780, y: 0 },
+        data: {
+          type: "api",
+          label: "Send welcome sequence",
+          description: "Kick off emails, docs, and success team handoff.",
+          status: "idle",
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "edge-capture-enrich",
+        source: "capture-intake",
+        target: "enrich-profile",
+      },
+      {
+        id: "edge-enrich-provision",
+        source: "enrich-profile",
+        target: "provision-access",
+      },
+      {
+        id: "edge-provision-welcome",
+        source: "provision-access",
+        target: "send-welcome",
+      },
+    ],
+  },
+  "subflow-incident-response": {
+    nodes: [
+      {
+        id: "incident-raised",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        data: {
+          type: "trigger",
+          label: "PagerDuty incident raised",
+          description: "Triggered when a Sev1 alert fires.",
+          status: "idle",
+        },
+      },
+      {
+        id: "triage-severity",
+        type: "function",
+        position: { x: 260, y: 0 },
+        data: {
+          type: "function",
+          label: "Triage severity",
+          description: "Evaluate runbooks and required responders.",
+          status: "idle",
+        },
+      },
+      {
+        id: "notify-oncall",
+        type: "api",
+        position: { x: 520, y: -120 },
+        data: {
+          type: "api",
+          label: "Notify on-call",
+          description: "Post critical details into the on-call channel.",
+          status: "idle",
+        },
+      },
+      {
+        id: "escalate-leads",
+        type: "api",
+        position: { x: 520, y: 120 },
+        data: {
+          type: "api",
+          label: "Escalate to leads",
+          description: "Escalate if no acknowledgement within SLA.",
+          status: "idle",
+        },
+      },
+      {
+        id: "update-status",
+        type: "function",
+        position: { x: 780, y: 0 },
+        data: {
+          type: "function",
+          label: "Update status page",
+          description: "Publish current impact for stakeholders.",
+          status: "idle",
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "edge-raised-triage",
+        source: "incident-raised",
+        target: "triage-severity",
+      },
+      {
+        id: "edge-triage-notify",
+        source: "triage-severity",
+        target: "notify-oncall",
+      },
+      {
+        id: "edge-triage-escalate",
+        source: "triage-severity",
+        target: "escalate-leads",
+      },
+      {
+        id: "edge-notify-update",
+        source: "notify-oncall",
+        target: "update-status",
+      },
+      {
+        id: "edge-escalate-update",
+        source: "escalate-leads",
+        target: "update-status",
+      },
+    ],
+  },
+  "subflow-content-qa": {
+    nodes: [
+      {
+        id: "draft-ready",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        data: {
+          type: "trigger",
+          label: "Draft ready for review",
+          description: "Start QA once an AI draft is submitted.",
+          status: "idle",
+        },
+      },
+      {
+        id: "score-quality",
+        type: "ai",
+        position: { x: 260, y: 0 },
+        data: {
+          type: "ai",
+          label: "Score quality",
+          description: "Use AI rubric to score voice, tone, and accuracy.",
+          status: "idle",
+        },
+      },
+      {
+        id: "collect-feedback",
+        type: "function",
+        position: { x: 520, y: -120 },
+        data: {
+          type: "function",
+          label: "Collect revisions",
+          description: "Request edits from stakeholders when needed.",
+          status: "idle",
+        },
+      },
+      {
+        id: "schedule-publish",
+        type: "api",
+        position: { x: 520, y: 120 },
+        data: {
+          type: "api",
+          label: "Schedule publish",
+          description: "Queue approved content in the CMS calendar.",
+          status: "idle",
+        },
+      },
+      {
+        id: "final-approval",
+        type: "function",
+        position: { x: 780, y: 0 },
+        data: {
+          type: "function",
+          label: "Finalize and log",
+          description: "Capture QA notes and mark the run complete.",
+          status: "idle",
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "edge-draft-score",
+        source: "draft-ready",
+        target: "score-quality",
+      },
+      {
+        id: "edge-score-feedback",
+        source: "score-quality",
+        target: "collect-feedback",
+      },
+      {
+        id: "edge-score-schedule",
+        source: "score-quality",
+        target: "schedule-publish",
+      },
+      {
+        id: "edge-feedback-final",
+        source: "collect-feedback",
+        target: "final-approval",
+      },
+      {
+        id: "edge-schedule-final",
+        source: "schedule-publish",
+        target: "final-approval",
+      },
+    ],
+  },
+};
+
 interface NodeData {
   type: string;
   label: string;
@@ -553,29 +798,6 @@ export default function WorkflowCanvas({
     });
   }, [nodes]);
 
-  const handleInsertSubworkflow = useCallback(
-    (subworkflow: SubworkflowTemplate) => {
-      setSubworkflows((prev) =>
-        prev.map((template) =>
-          template.id === subworkflow.id
-            ? {
-                ...template,
-                usageCount: template.usageCount + 1,
-                lastUpdated: new Date().toISOString(),
-              }
-            : template,
-        ),
-      );
-
-      toast({
-        title: `${subworkflow.name} queued for insertion`,
-        description:
-          "The nodes will be added to the canvas once the sub-workflow loader is wired to the backend.",
-      });
-    },
-    [],
-  );
-
   const handleDeleteSubworkflow = useCallback((id: string) => {
     setSubworkflows((prev) =>
       prev.filter((subworkflow) => subworkflow.id !== id),
@@ -855,6 +1077,122 @@ export default function WorkflowCanvas({
       );
     },
     [recordSnapshot, setEdgesState],
+  );
+
+  const handleInsertSubworkflow = useCallback(
+    (subworkflow: SubworkflowTemplate) => {
+      const libraryEntry = SUBWORKFLOW_LIBRARY[subworkflow.id];
+
+      if (!libraryEntry) {
+        toast({
+          title: "Template unavailable",
+          description:
+            "This sub-workflow doesn't have a canvas definition yet. Please try another template.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const templateXs = libraryEntry.nodes.map(
+        (node) => node.position?.x ?? 0,
+      );
+      const templateYs = libraryEntry.nodes.map(
+        (node) => node.position?.y ?? 0,
+      );
+      const templateMinX = templateXs.length > 0 ? Math.min(...templateXs) : 0;
+      const templateMinY = templateYs.length > 0 ? Math.min(...templateYs) : 0;
+
+      const existingNodes = nodesRef.current;
+      const existingMaxX = existingNodes.length
+        ? Math.max(...existingNodes.map((node) => node.position?.x ?? 0))
+        : 0;
+      const existingMinY = existingNodes.length
+        ? Math.min(...existingNodes.map((node) => node.position?.y ?? 0))
+        : 0;
+
+      const insertionX = existingNodes.length > 0 ? existingMaxX + 320 : 200;
+      const insertionY = existingNodes.length > 0 ? existingMinY : 200;
+
+      const idMap = new Map<string, string>();
+
+      const remappedNodes = libraryEntry.nodes.map((node) => {
+        const newId = generateNodeId();
+        idMap.set(node.id, newId);
+
+        return {
+          ...node,
+          id: newId,
+          position: {
+            x: insertionX + ((node.position?.x ?? 0) - templateMinX),
+            y: insertionY + ((node.position?.y ?? 0) - templateMinY),
+          },
+          data: {
+            ...node.data,
+            type: node.data?.type ?? node.type ?? "default",
+            status: "idle",
+          },
+        };
+      });
+
+      const remappedEdges = libraryEntry.edges.map((edge) => ({
+        ...edge,
+        id: generateRandomId("edge"),
+        source: idMap.get(edge.source) ?? edge.source,
+        target: idMap.get(edge.target) ?? edge.target,
+      }));
+
+      const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
+      const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);
+
+      setNodes((current) => [...current, ...canvasNodes]);
+      setEdges((current) => [...current, ...canvasEdges]);
+
+      setSubworkflows((prev) =>
+        prev.map((template) =>
+          template.id === subworkflow.id
+            ? {
+                ...template,
+                usageCount: template.usageCount + 1,
+                lastUpdated: new Date().toISOString(),
+              }
+            : template,
+        ),
+      );
+
+      if (canvasNodes.length > 0) {
+        setSelectedNode(canvasNodes[0]);
+        setActiveTab("canvas");
+
+        if (reactFlowInstance.current) {
+          const insertedXs = canvasNodes.map((node) => node.position.x);
+          const insertedYs = canvasNodes.map((node) => node.position.y);
+          const minX = Math.min(...insertedXs);
+          const maxX = Math.max(...insertedXs);
+          const minY = Math.min(...insertedYs);
+          const maxY = Math.max(...insertedYs);
+          const centerX = minX + (maxX - minX) / 2;
+          const centerY = minY + (maxY - minY) / 2;
+
+          reactFlowInstance.current.setCenter(centerX, centerY, {
+            zoom: 1.15,
+            duration: 400,
+          });
+        }
+      }
+
+      toast({
+        title: `${subworkflow.name} inserted`,
+        description: `Added ${canvasNodes.length} nodes and ${canvasEdges.length} connections to the canvas.`,
+      });
+    },
+    [
+      convertPersistedNodesToCanvas,
+      setNodes,
+      setEdges,
+      setSubworkflows,
+      setSelectedNode,
+      setActiveTab,
+    ],
   );
 
   const handleNodesChange = useCallback(
