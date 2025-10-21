@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
@@ -69,6 +69,12 @@ import { Label } from "@/design-system/ui/label";
 import TopNavigation from "@features/shared/components/top-navigation";
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 import { toast } from "@/hooks/use-toast";
+import {
+  createPersistedSnapshot,
+  saveWorkflowVersion,
+} from "@features/workflow/utils/workflow-persistence";
+
+type WorkflowTemplate = (typeof SAMPLE_WORKFLOWS)[number];
 
 export default function WorkflowGallery() {
   const navigate = useNavigate();
@@ -97,6 +103,81 @@ export default function WorkflowGallery() {
       development: false,
     },
   });
+
+  const generateWorkflowId = useCallback(() => {
+    if (
+      typeof globalThis.crypto !== "undefined" &&
+      typeof globalThis.crypto.randomUUID === "function"
+    ) {
+      return `workflow-${globalThis.crypto.randomUUID()}`;
+    }
+
+    const timestamp = Date.now().toString(36);
+    const randomSuffix = Math.random().toString(36).slice(2, 8);
+    return `workflow-${timestamp}-${randomSuffix}`;
+  }, []);
+
+  const handleUseTemplate = useCallback(
+    (template: WorkflowTemplate) => {
+      try {
+        const flowNodes = template.nodes.map((node) => ({
+          id: node.id,
+          type:
+            node.type === "trigger" ||
+            node.type === "api" ||
+            node.type === "function" ||
+            node.type === "data" ||
+            node.type === "ai"
+              ? "default"
+              : node.type,
+          position: node.position,
+          data: {
+            type: node.type,
+            label: node.data.label,
+            description: node.data.description,
+            status: node.data.status ?? "idle",
+            isDisabled: node.data.isDisabled,
+          },
+        }));
+
+        const flowEdges = template.edges.map((edge) => ({
+          id: edge.id ?? `edge-${edge.source}-${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle ?? null,
+          targetHandle: edge.targetHandle ?? null,
+          label: edge.label,
+          type: edge.type ?? "smoothstep",
+          animated: edge.animated ?? false,
+        }));
+
+        const snapshot = createPersistedSnapshot(flowNodes, flowEdges);
+        const workflowId = generateWorkflowId();
+
+        saveWorkflowVersion(workflowId, {
+          name: template.name,
+          snapshot,
+          message: `Created from template ${template.name}`,
+        });
+
+        toast({
+          title: "Template ready",
+          description: `${template.name} copied to your workspace.`,
+        });
+        navigate(`/workflow-canvas/${workflowId}`);
+      } catch (error) {
+        toast({
+          title: "Unable to load template",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An unexpected error occurred while preparing the template.",
+          variant: "destructive",
+        });
+      }
+    },
+    [generateWorkflowId, navigate],
+  );
 
   // Filter workflows based on search query and selected tab
   const filteredWorkflows = SAMPLE_WORKFLOWS.filter((workflow) => {
@@ -722,6 +803,17 @@ export default function WorkflowGallery() {
                               >
                                 <Star className="h-3 w-3" />
                               </Button>
+                              {workflow.tags.includes("template") && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs px-2"
+                                  onClick={() => handleUseTemplate(workflow)}
+                                >
+                                  <FolderPlus className="mr-1 h-3 w-3" />
+                                  Use Template
+                                </Button>
+                              )}
                               <Link to={`/workflow-canvas/${workflow.id}`}>
                                 <Button size="sm" className="h-7 text-xs px-2">
                                   <Pencil className="mr-1 h-3 w-3" />

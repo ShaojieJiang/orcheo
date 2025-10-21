@@ -32,6 +32,7 @@ import "@xyflow/react/dist/style.css";
 import { Button } from "@/design-system/ui/button";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 import { Separator } from "@/design-system/ui/separator";
+import { Dialog, DialogContent } from "@/design-system/ui/dialog";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
@@ -46,9 +47,17 @@ import WorkflowExecutionHistory, {
   type WorkflowExecution as HistoryWorkflowExecution,
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
+import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
 import { toast } from "@/hooks/use-toast";
+import {
+  createPersistedSnapshot,
+  loadWorkflow,
+  saveWorkflowVersion,
+  type PersistedSnapshot,
+  type WorkflowVersionRecord,
+} from "@features/workflow/utils/workflow-persistence";
 
 // Define custom node types
 const nodeTypes = {
@@ -214,6 +223,7 @@ export default function WorkflowCanvas({
   initialEdges = [],
 }: WorkflowCanvasProps) {
   const { workflowId } = useParams<{ workflowId?: string }>();
+  const persistenceKey = workflowId ?? "__default__";
 
   // Initialize with empty arrays instead of sample workflow
   const [nodes, setNodesState, onNodesChangeState] =
@@ -237,6 +247,11 @@ export default function WorkflowCanvas({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const [versionHistory, setVersionHistory] = useState<WorkflowVersionRecord[]>(
+    [],
+  );
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
 
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
@@ -1183,6 +1198,119 @@ export default function WorkflowCanvas({
     [handleOpenChat, setNodes],
   );
 
+  const convertPersistedSnapshot = useCallback(
+    (snapshot: PersistedSnapshot): WorkflowSnapshot => {
+      const restoredNodes: WorkflowNode[] = snapshot.nodes.map((node) => {
+        const nodeType = node.type ?? determineNodeType(node.id);
+        const nodeData = {
+          ...node.data,
+          status: (node.data.status ?? "idle") as NodeStatus,
+          onOpenChat:
+            nodeType === "chatTrigger"
+              ? () => handleOpenChat(node.id)
+              : undefined,
+        } as NodeData;
+
+        return {
+          id: node.id,
+          type: nodeType,
+          position: node.position,
+          style: defaultNodeStyle,
+          data: nodeData,
+          draggable: true,
+        };
+      });
+
+      const restoredEdges: WorkflowEdge[] = snapshot.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle ?? undefined,
+        targetHandle: edge.targetHandle ?? undefined,
+        label: edge.label,
+        type: edge.type || "smoothstep",
+        animated: edge.animated ?? false,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+        },
+        style: { stroke: "#99a1b3", strokeWidth: 2 },
+        data: edge.data,
+      }));
+
+      return { nodes: restoredNodes, edges: restoredEdges };
+    },
+    [handleOpenChat],
+  );
+
+  const handleSaveWorkflow = useCallback(() => {
+    try {
+      const snapshot = createSnapshot();
+      const persistedSnapshot = createPersistedSnapshot(
+        snapshot.nodes,
+        snapshot.edges,
+      );
+      const savedWorkflow = saveWorkflowVersion(persistenceKey, {
+        name: workflowName,
+        snapshot: persistedSnapshot,
+      });
+      setVersionHistory(savedWorkflow.versions);
+      setCurrentVersion(savedWorkflow.currentVersion ?? null);
+      toast({
+        title: "Workflow saved",
+        description: savedWorkflow.currentVersion
+          ? `Created ${savedWorkflow.currentVersion} with ${snapshot.nodes.length} nodes.`
+          : "Workflow changes persisted.",
+      });
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description:
+          error instanceof Error ? error.message : "Unable to save workflow.",
+        variant: "destructive",
+      });
+    }
+  }, [createSnapshot, persistenceKey, workflowName]);
+
+  const handleRestoreVersion = useCallback(
+    (versionLabel: string) => {
+      const version = versionHistory.find(
+        (item) => item.version === versionLabel,
+      );
+
+      if (!version) {
+        toast({
+          title: "Version unavailable",
+          description: "Please choose another version to restore.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        const restoredSnapshot = convertPersistedSnapshot(version.snapshot);
+        applySnapshot(restoredSnapshot, { resetHistory: true });
+        setCurrentVersion(version.version);
+        setIsVersionHistoryOpen(false);
+        toast({
+          title: "Version restored",
+          description: `Restored ${version.version} onto the canvas.`,
+        });
+      } catch (error) {
+        toast({
+          title: "Restore failed",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Unable to restore the selected version.",
+          variant: "destructive",
+        });
+      }
+    },
+    [applySnapshot, convertPersistedSnapshot, versionHistory],
+  );
+
   // Handle adding a node by clicking
   const handleAddNode = useCallback(
     (node: SidebarNodeDefinition) => {
@@ -1492,14 +1620,35 @@ export default function WorkflowCanvas({
     [setNodes],
   );
 
-  // Load workflow data when workflowId changes
+  // Load workflow data when workflow identifier or persisted data changes
   useEffect(() => {
+    const persisted = loadWorkflow(persistenceKey);
+    if (persisted && persisted.versions.length > 0) {
+      const activeVersion =
+        persisted.versions.find(
+          (version) => version.version === persisted.currentVersion,
+        ) ?? persisted.versions.at(-1);
+
+      if (activeVersion) {
+        setWorkflowName(persisted.name);
+        setVersionHistory(persisted.versions);
+        setCurrentVersion(activeVersion.version);
+        const restoredSnapshot = convertPersistedSnapshot(
+          activeVersion.snapshot,
+        );
+        applySnapshot(restoredSnapshot, { resetHistory: true });
+        return;
+      }
+    }
+
+    setVersionHistory([]);
+    setCurrentVersion(null);
+
     if (workflowId) {
       const workflow = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
       if (workflow) {
         setWorkflowName(workflow.name);
 
-        // Convert workflow nodes to ReactFlow nodes
         const flowNodes = workflow.nodes.map((node) => ({
           id: node.id,
           type:
@@ -1522,7 +1671,6 @@ export default function WorkflowCanvas({
           draggable: true,
         }));
 
-        // Convert workflow edges to ReactFlow edges
         const flowEdges = workflow.edges.map((edge) => ({
           id: edge.id,
           source: edge.source,
@@ -1544,9 +1692,12 @@ export default function WorkflowCanvas({
           { nodes: flowNodes, edges: flowEdges },
           { resetHistory: true },
         );
+        return;
       }
     }
-  }, [applySnapshot, workflowId]);
+
+    setWorkflowName("New Workflow");
+  }, [applySnapshot, convertPersistedSnapshot, persistenceKey, workflowId]);
 
   // Fit view on initial render
   useEffect(() => {
@@ -1678,7 +1829,7 @@ export default function WorkflowCanvas({
                       isRunning={isRunning}
                       onRun={handleRunWorkflow}
                       onPause={handlePauseWorkflow}
-                      onSave={() => alert("Workflow saved")}
+                      onSave={handleSaveWorkflow}
                       onUndo={handleUndo}
                       onRedo={handleRedo}
                       canUndo={canUndo}
@@ -1686,6 +1837,7 @@ export default function WorkflowCanvas({
                       onDuplicate={handleDuplicateSelectedNodes}
                       onExport={handleExportWorkflow}
                       onImport={handleImportWorkflow}
+                      onVersionHistory={() => setIsVersionHistoryOpen(true)}
                       onToggleSearch={handleToggleSearch}
                       isSearchOpen={isSearchOpen}
                     />
@@ -1911,6 +2063,20 @@ export default function WorkflowCanvas({
           ]}
         />
       )}
+
+      <Dialog
+        open={isVersionHistoryOpen}
+        onOpenChange={setIsVersionHistoryOpen}
+      >
+        <DialogContent className="max-w-5xl p-0 overflow-hidden">
+          <WorkflowHistory
+            versions={versionHistory}
+            currentVersion={currentVersion ?? undefined}
+            onRestoreVersion={handleRestoreVersion}
+            className="max-h-[70vh]"
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

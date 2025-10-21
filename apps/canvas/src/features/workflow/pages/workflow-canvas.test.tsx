@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
   render,
@@ -47,6 +47,10 @@ beforeAll(() => {
     value: vi.fn(),
     configurable: true,
   });
+});
+
+afterEach(() => {
+  localStorage.clear();
 });
 
 const renderCanvas = () => {
@@ -118,9 +122,7 @@ describe("WorkflowCanvas editing history", () => {
     fireEvent.change(searchInput, { target: { value: "Initial" } });
 
     await waitFor(() => {
-      const matches = document.querySelectorAll(
-        "[data-search-match=\"true\"]",
-      );
+      const matches = document.querySelectorAll('[data-search-match="true"]');
       expect(matches.length).toBeGreaterThan(0);
     });
   });
@@ -135,5 +137,20 @@ describe("WorkflowCanvas editing history", () => {
     const searchPanels = await screen.findAllByTestId("workflow-search");
 
     expect(searchPanels.length).toBeGreaterThan(0);
+  });
+
+  it("persists workflow state when saving", async () => {
+    renderCanvas();
+
+    const saveButton = await screen.findByLabelText(/save workflow/i);
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      const stored = localStorage.getItem("orcheo.workflow.persistence");
+      expect(stored).not.toBeNull();
+      const parsed = JSON.parse(stored ?? "{}");
+      expect(parsed.__default__).toBeDefined();
+      expect(parsed.__default__.versions.length).toBeGreaterThan(0);
+    });
   });
 });

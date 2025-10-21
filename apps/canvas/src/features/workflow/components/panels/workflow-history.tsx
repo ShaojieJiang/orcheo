@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/design-system/ui/button";
 import {
   Dialog,
@@ -36,25 +36,15 @@ import {
   FileDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface WorkflowVersion {
-  id: string;
-  version: string;
-  timestamp: string;
-  author: {
-    name: string;
-    avatar: string;
-  };
-  message: string;
-  changes: {
-    added: number;
-    removed: number;
-    modified: number;
-  };
-}
+import {
+  computeWorkflowDiff,
+  type WorkflowDiff,
+  type WorkflowDiffEntry,
+  type WorkflowVersionRecord,
+} from "@features/workflow/utils/workflow-persistence";
 
 interface WorkflowHistoryProps {
-  versions?: WorkflowVersion[];
+  versions?: WorkflowVersionRecord[];
   currentVersion?: string;
   onSelectVersion?: (version: string) => void;
   onRestoreVersion?: (version: string) => void;
@@ -74,6 +64,24 @@ export default function WorkflowHistory({
   );
   const [compareVersion, setCompareVersion] = useState<string | null>(null);
   const [showDiffDialog, setShowDiffDialog] = useState(false);
+
+  const selectedVersionSnapshot = useMemo(() => {
+    return versions.find((version) => version.version === selectedVersion);
+  }, [selectedVersion, versions]);
+
+  const compareVersionSnapshot = useMemo(() => {
+    return versions.find((version) => version.version === compareVersion);
+  }, [compareVersion, versions]);
+
+  const diffResult: WorkflowDiff | null = useMemo(() => {
+    if (!selectedVersionSnapshot || !compareVersionSnapshot) {
+      return null;
+    }
+    return computeWorkflowDiff(
+      selectedVersionSnapshot.snapshot,
+      compareVersionSnapshot.snapshot,
+    );
+  }, [compareVersionSnapshot, selectedVersionSnapshot]);
 
   // Filter versions based on search query
   const filteredVersions = searchQuery
@@ -102,7 +110,7 @@ export default function WorkflowHistory({
     }
   };
 
-  const getStatusBadge = (version: WorkflowVersion) => {
+  const getStatusBadge = (version: WorkflowVersionRecord) => {
     if (version.version === currentVersion) {
       return (
         <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
@@ -296,10 +304,29 @@ export default function WorkflowHistory({
 
                 <span className="font-medium">{compareVersion}</span>
               </div>
-              <Button variant="outline" size="sm">
-                <FileDown className="h-4 w-4 mr-2" />
-                Export Diff
-              </Button>
+              <div className="flex items-center gap-2">
+                {diffResult && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      +{diffResult.added}
+                    </Badge>
+                    <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                      -{diffResult.removed}
+                    </Badge>
+                    <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                      ~{diffResult.modified}
+                    </Badge>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!diffResult || diffResult.entries.length === 0}
+                >
+                  <FileDown className="h-4 w-4 mr-2" />
+                  Export Diff
+                </Button>
+              </div>
             </div>
 
             <div className="border rounded-md overflow-hidden">
@@ -320,45 +347,18 @@ export default function WorkflowHistory({
 
               <div className="p-4 bg-muted/20">
                 <div className="space-y-4">
-                  {/* Sample diff visualization */}
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">HTTP Request Node</span>
+                  {!diffResult || diffResult.entries.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      No differences detected between the selected versions.
                     </div>
-                    <div className="p-2">
-                      <div className="bg-green-100 dark:bg-green-900/20 p-1 rounded text-sm font-mono">
-                        + "url": "https://api.example.com/v2/data"
-                      </div>
-                      <div className="bg-red-100 dark:bg-red-900/20 p-1 rounded text-sm font-mono">
-                        - "url": "https://api.example.com/v1/data"
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">Transform Data Node</span>
-                    </div>
-                    <div className="p-2">
-                      <div className="bg-blue-100 dark:bg-blue-900/20 p-1 rounded text-sm font-mono">
-                        ~ "expression": "data.items[?value {">"} `200`]"
-                      </div>
-                      <div className="bg-blue-100 dark:bg-blue-900/20 p-1 rounded text-sm font-mono">
-                        ~ "expression": "data.items[?value {">"} `100`]"
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border rounded-md overflow-hidden">
-                    <div className="bg-muted p-2 border-b border-border">
-                      <span className="font-medium">Send Email Node</span>
-                    </div>
-                    <div className="p-2">
-                      <div className="bg-green-100 dark:bg-green-900/20 p-1 rounded text-sm font-mono">
-                        + Added new node
-                      </div>
-                    </div>
-                  </div>
+                  ) : (
+                    diffResult.entries.map((entry) => (
+                      <DiffEntryCard
+                        key={`${entry.type}-${entry.id}-${entry.change}`}
+                        entry={entry}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -368,3 +368,58 @@ export default function WorkflowHistory({
     </div>
   );
 }
+
+const DiffEntryCard = ({ entry }: { entry: WorkflowDiffEntry }) => {
+  const changeStyles: Record<WorkflowDiffEntry["change"], string> = {
+    added: "bg-green-100 dark:bg-green-900/20",
+    removed: "bg-red-100 dark:bg-red-900/20",
+    modified: "bg-blue-100 dark:bg-blue-900/20",
+  };
+
+  const badgeVariants: Record<WorkflowDiffEntry["change"], string> = {
+    added:
+      "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    removed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    modified:
+      "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  };
+
+  const title =
+    entry.label ||
+    (entry.type === "node" ? `Node ${entry.id}` : `Edge ${entry.id}`);
+
+  const formatValue = (value: unknown) => {
+    if (typeof value === "undefined") {
+      return "undefined";
+    }
+    return JSON.stringify(value);
+  };
+
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <div className="bg-muted p-2 border-b border-border flex items-center justify-between">
+        <span className="font-medium">{title}</span>
+        <Badge className={badgeVariants[entry.change]}>{entry.change}</Badge>
+      </div>
+      <div className="p-3 space-y-2 text-sm font-mono">
+        {entry.change === "added" && (
+          <div className={changeStyles.added}>Added to the workflow</div>
+        )}
+        {entry.change === "removed" && (
+          <div className={changeStyles.removed}>Removed from the workflow</div>
+        )}
+        {entry.change === "modified" &&
+          entry.details &&
+          Object.entries(entry.details).map(([field, change]) => (
+            <div key={field} className={changeStyles.modified}>
+              {field}: {formatValue(change.before)} →{" "}
+              {formatValue(change.after)}
+            </div>
+          ))}
+        {entry.change === "modified" && !entry.details && (
+          <div className={changeStyles.modified}>Updated</div>
+        )}
+      </div>
+    </div>
+  );
+};
