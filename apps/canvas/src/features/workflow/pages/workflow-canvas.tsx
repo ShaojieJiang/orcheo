@@ -46,7 +46,6 @@ import WorkflowSearch from "@features/workflow/components/canvas/workflow-search
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
-import type { Attachment } from "@features/shared/components/chat-input";
 import WorkflowExecutionHistory, {
   type WorkflowExecution as HistoryWorkflowExecution,
 } from "@features/workflow/components/panels/workflow-execution-history";
@@ -796,6 +795,23 @@ export default function WorkflowCanvas({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const backendBaseUrl = getBackendBaseUrl();
+  const user = useMemo(
+    () => ({
+      id: "user-1",
+      name: "Avery Chen",
+      avatar: "https://avatar.vercel.sh/avery",
+    }),
+    [],
+  );
+  const ai = useMemo(
+    () => ({
+      id: "ai-1",
+      name: "Orcheo Canvas Assistant",
+      avatar: "https://avatar.vercel.sh/orcheo-canvas",
+    }),
+    [],
+  );
 
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
@@ -2158,66 +2174,96 @@ export default function WorkflowCanvas({
   );
 
   // Handle chat message sending
-  const handleSendChatMessage = (
-    message: string,
-    attachments: Attachment[],
-  ) => {
+  const handleChatResponseStart = useCallback(() => {
     if (!activeChatNodeId) {
-      toast({
-        title: "Select a chat-enabled node",
-        description: "Open a node chat to send messages.",
-      });
       return;
     }
 
-    const activeNode = nodes.find((node) => node.id === activeChatNodeId);
-    const attachmentSummary =
-      attachments.length === 0
-        ? ""
-        : attachments.length === 1
-          ? " with 1 attachment"
-          : ` with ${attachments.length} attachments`;
-
-    toast({
-      title: `Message sent to ${activeNode?.data?.label ?? "workflow"}`,
-      description: `"${message}"${attachmentSummary}`,
-    });
-
-    // Here you would typically process the message and trigger the workflow
-    // For now, we'll just update the node status to simulate activity
     setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id === activeChatNodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              status: "running" as NodeStatus,
-            },
-          };
-        }
-        return n;
-      }),
-    );
-
-    // Simulate workflow execution
-    setTimeout(() => {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id === activeChatNodeId) {
-            return {
-              ...n,
+      nds.map((node) =>
+        node.id === activeChatNodeId
+          ? {
+              ...node,
               data: {
-                ...n.data,
+                ...node.data,
+                status: "running" as NodeStatus,
+              },
+            }
+          : node,
+      ),
+    );
+  }, [activeChatNodeId, setNodes]);
+
+  const handleChatResponseEnd = useCallback(() => {
+    if (!activeChatNodeId) {
+      return;
+    }
+
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === activeChatNodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
                 status: "success" as NodeStatus,
               },
-            };
-          }
-          return n;
-        }),
+            }
+          : node,
+      ),
+    );
+  }, [activeChatNodeId, setNodes]);
+
+  const handleChatClientTool = useCallback(
+    async (toolCall: { name: string; params: Record<string, unknown> }) => {
+      if (!activeChatNodeId || toolCall.name !== "orcheo.run_workflow") {
+        return {};
+      }
+
+      const params = toolCall.params ?? {};
+      const rawMessage =
+        typeof params.message === "string" ? params.message : "";
+      const threadId =
+        typeof params.threadId === "string"
+          ? params.threadId
+          : typeof params.thread_id === "string"
+            ? params.thread_id
+            : null;
+
+      const metadata = { ...(params as Record<string, unknown>) };
+      delete metadata.message;
+      delete metadata.threadId;
+      delete metadata.thread_id;
+
+      const response = await fetch(
+        buildBackendHttpUrl(
+          `/api/chatkit/workflows/${activeChatNodeId}/trigger`,
+          backendBaseUrl,
+        ),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: rawMessage,
+            actor: user.name,
+            client_thread_id: threadId,
+            metadata,
+          }),
+        },
       );
-    }, 2000);
-  };
+
+      if (!response.ok) {
+        throw new Error("Failed to trigger workflow via ChatKit client tool");
+      }
+
+      const result = await response.json();
+
+      return result;
+    },
+    [activeChatNodeId, backendBaseUrl, user.name],
+  );
 
   // Handle workflow execution
   const handleRunWorkflow = useCallback(() => {
@@ -2823,19 +2869,6 @@ export default function WorkflowCanvas({
     }, 100);
   }, [nodes]);
 
-  // User and AI info for chat
-  const user = {
-    id: "user-1",
-    name: "Avery Chen",
-    avatar: "https://avatar.vercel.sh/avery",
-  };
-
-  const ai = {
-    id: "ai-1",
-    name: "Orcheo Canvas Assistant",
-    avatar: "https://avatar.vercel.sh/orcheo-canvas",
-  };
-
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <TopNavigation
@@ -3179,7 +3212,6 @@ export default function WorkflowCanvas({
           user={user}
           ai={ai}
           isClosable={true}
-          onSendMessage={handleSendChatMessage}
           position="bottom-right"
           initialMessages={[
             {
@@ -3192,6 +3224,19 @@ export default function WorkflowCanvas({
               timestamp: new Date(),
             },
           ]}
+          backendBaseUrl={getBackendBaseUrl()}
+          sessionPayload={{
+            workflowId: activeChatNodeId,
+            workflowLabel: chatTitle,
+          }}
+          onResponseStart={handleChatResponseStart}
+          onResponseEnd={handleChatResponseEnd}
+          chatkitOptions={{
+            composer: {
+              placeholder: `Send a message to ${chatTitle}`,
+            },
+            onClientTool: handleChatClientTool,
+          }}
         />
       )}
     </div>

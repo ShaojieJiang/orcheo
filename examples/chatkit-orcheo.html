@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orcheo ChatKit Integration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script
+      async
+      src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+      crossorigin="anonymous"
+    ></script>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 2rem;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .container {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        display: grid;
+        gap: 1rem;
+      }
+
+      openai-chatkit {
+        width: min(420px, 100%);
+        height: 620px;
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.55);
+      }
+
+      code {
+        background: rgba(30, 41, 59, 0.8);
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.4rem;
+      }
+
+      a {
+        color: #38bdf8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Embeddable ChatKit + Orcheo Backend</h1>
+    <div class="container">
+      <p>
+        This page shows a minimal wiring between the
+        <strong>OpenAI ChatKit</strong> web component and the new Orcheo backend
+        endpoints (<code>/api/chatkit/session</code> and
+        <code>/api/chatkit/workflows/:id/trigger</code>). Configure your backend
+        URL and workflow identifier in the script block below, then open the
+        ChatKit widget to dispatch workflow runs straight from the embedded UI.
+      </p>
+
+      <openai-chatkit></openai-chatkit>
+
+      <p>
+        Generate or copy a ChatKit client secret and expose it to the backend by
+        setting <code>CHATKIT_CLIENT_SECRET</code> (or
+        <code>CHATKIT_CLIENT_SECRET_&lt;WORKFLOW_ID&gt;</code>) in the API
+        environment. The session endpoint will hand that token to the widget and
+        the client-tool callback invokes the workflow trigger endpoint.
+      </p>
+    </div>
+
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        const chatkit = document.querySelector("openai-chatkit");
+        const backendBase = window.ORCHEO_BACKEND_URL || "http://localhost:8000";
+        const workflowId = window.ORCHEO_WORKFLOW_ID || "00000000-0000-0000-0000-000000000000";
+        const workflowName = window.ORCHEO_WORKFLOW_NAME || "Canvas Preview";
+
+        const configureChatKit = () => {
+          const options = {
+            api: {
+              async getClientSecret(currentSecret) {
+                const response = await fetch(`${backendBase}/api/chatkit/session`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    currentClientSecret: currentSecret,
+                    workflowId,
+                    workflowLabel: workflowName,
+                  }),
+                });
+
+                if (!response.ok) {
+                  throw new Error("Unable to fetch ChatKit client secret from Orcheo backend");
+                }
+
+                const data = await response.json();
+                return data.client_secret || data.clientSecret;
+              },
+            },
+            header: {
+              enabled: true,
+              title: { text: workflowName },
+            },
+            composer: {
+              placeholder: `Test the ${workflowName} workflow…`,
+              tools: [
+                {
+                  id: "orcheo.run_workflow",
+                  label: "Run workflow",
+                  icon: "bolt",
+                  shortLabel: "Run",
+                },
+              ],
+            },
+            onClientTool: async ({ name, params }) => {
+              if (name !== "orcheo.run_workflow") {
+                return {};
+              }
+
+              const response = await fetch(
+                `${backendBase}/api/chatkit/workflows/${workflowId}/trigger`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    message: typeof params?.message === "string" ? params.message : "",
+                    metadata: params || {},
+                    actor: "chatkit-demo",
+                  }),
+                },
+              );
+
+              if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Workflow trigger failed: ${text}`);
+              }
+
+              return response.json();
+            },
+          };
+
+          if (chatkit.setOptions) {
+            chatkit.setOptions(options);
+          } else {
+            customElements.whenDefined("openai-chatkit").then(() => {
+              chatkit.setOptions(options);
+            });
+          }
+        };
+
+        configureChatKit();
+      });
+    </script>
+  </body>
+</html>

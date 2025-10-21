@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.models import (
     AesGcmCredentialCipher,
@@ -25,6 +25,8 @@ from orcheo.vault import (
     WorkflowScopeError,
 )
 from orcheo.vault.oauth import (
+    CredentialHealthReport,
+    CredentialHealthResult,
     OAuthCredentialService,
     OAuthProvider,
     OAuthValidationResult,
@@ -159,6 +161,159 @@ def _create_workflow_with_version(api_client: TestClient) -> tuple[str, str]:
     version_id = version_response.json()["id"]
 
     return workflow_id, version_id
+
+
+def _format_scoped_chatkit_key(workflow_id: str) -> str:
+    """Return the environment variable key for a workflow-scoped ChatKit secret."""
+
+    return f"CHATKIT_CLIENT_SECRET_{workflow_id.replace('-', '').upper()}"
+
+
+def test_chatkit_session_returns_configured_secret(
+    monkeypatch: pytest.MonkeyPatch, api_client: TestClient
+) -> None:
+    """The ChatKit session endpoint surfaces the configured secret."""
+
+    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "canvas-secret")
+
+    response = api_client.post(
+        "/api/chatkit/session",
+        json={"user": {"id": "tester"}, "assistant": {"id": "orcheo"}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["client_secret"] == "canvas-secret"
+
+
+def test_chatkit_session_prefers_workflow_specific_secret(
+    monkeypatch: pytest.MonkeyPatch, api_client: TestClient
+) -> None:
+    """Workflow-scoped secrets take precedence over the global value."""
+
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    scoped_key = _format_scoped_chatkit_key(workflow_id)
+    monkeypatch.setenv(scoped_key, "scoped-secret")
+    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "global-secret")
+
+    response = api_client.post(
+        "/api/chatkit/session",
+        json={"workflowId": workflow_id, "currentClientSecret": None},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["client_secret"] == "scoped-secret"
+
+
+def test_chatkit_session_missing_secret_returns_service_unavailable(
+    monkeypatch: pytest.MonkeyPatch, api_client: TestClient
+) -> None:
+    """Missing ChatKit secrets surface a 503 to guide configuration."""
+
+    monkeypatch.delenv("CHATKIT_CLIENT_SECRET", raising=False)
+
+    response = api_client.post("/api/chatkit/session", json={})
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    detail = response.json()["detail"]
+    assert "client secret" in detail["message"].lower()
+
+
+def test_chatkit_workflow_trigger_dispatches_run(api_client: TestClient) -> None:
+    """Client tool triggers create workflow runs with ChatKit metadata."""
+
+    workflow_id, workflow_version_id = _create_workflow_with_version(api_client)
+
+    response = api_client.post(
+        f"/api/chatkit/workflows/{workflow_id}/trigger",
+        json={
+            "message": "Launch QA pipeline",
+            "actor": "canvas-user",
+            "client_thread_id": "thread-123",
+            "metadata": {"priority": "high"},
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    payload = response.json()
+    assert payload["workflow_version_id"] == workflow_version_id
+    assert payload["triggered_by"] == "canvas-user"
+    assert payload["input_payload"]["source"] == "chatkit"
+    assert payload["input_payload"]["message"] == "Launch QA pipeline"
+    assert payload["input_payload"]["client_thread_id"] == "thread-123"
+    assert payload["input_payload"]["metadata"]["priority"] == "high"
+
+
+def test_chatkit_workflow_trigger_requires_existing_workflow(
+    api_client: TestClient,
+) -> None:
+    """Triggering a missing workflow returns a 404."""
+
+    response = api_client.post(
+        f"/api/chatkit/workflows/{uuid4()}/trigger",
+        json={"message": "Unknown workflow"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_chatkit_workflow_trigger_requires_version(api_client: TestClient) -> None:
+    """Workflows without versions return a not found response."""
+
+    workflow_response = api_client.post(
+        "/api/workflows", json={"name": "No Version", "actor": "tester"}
+    )
+    workflow_id = workflow_response.json()["id"]
+
+    response = api_client.post(
+        f"/api/chatkit/workflows/{workflow_id}/trigger",
+        json={"message": "Should fail"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_chatkit_workflow_trigger_surfaces_credential_health_error(
+    monkeypatch: pytest.MonkeyPatch, api_client: TestClient
+) -> None:
+    """Credential health failures are mapped to a 422 response."""
+
+    workflow_id, _ = _create_workflow_with_version(api_client)
+    repository = api_client.app.dependency_overrides[backend_app.get_repository]()
+
+    failing_report = CredentialHealthReport(
+        workflow_id=UUID(workflow_id),
+        results=[
+            CredentialHealthResult(
+                credential_id=uuid4(),
+                name="Slack",
+                provider="slack",
+                status=CredentialHealthStatus.UNHEALTHY,
+                last_checked_at=datetime.now(tz=UTC),
+                failure_reason="token expired",
+            )
+        ],
+        checked_at=datetime.now(tz=UTC),
+    )
+
+    class UnhealthyService:
+        async def ensure_workflow_health(self, workflow_id, actor=None):  # type: ignore[override]
+            return failing_report
+
+    monkeypatch.setattr(repository, "_credential_service", UnhealthyService())
+
+    response = api_client.post(
+        f"/api/chatkit/workflows/{workflow_id}/trigger",
+        json={
+            "message": "Launch QA pipeline",
+            "actor": "canvas-user",
+            "client_thread_id": "thread-123",
+            "metadata": {"priority": "high"},
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    detail = response.json()["detail"]
+    assert "unhealthy credentials" in detail["message"].lower()
 
 
 def test_credential_validation_endpoint_blocks_unhealthy_run(
