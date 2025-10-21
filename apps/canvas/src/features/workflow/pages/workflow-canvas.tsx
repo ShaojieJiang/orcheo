@@ -46,7 +46,6 @@ import WorkflowSearch from "@features/workflow/components/canvas/workflow-search
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
-import type { Attachment } from "@features/shared/components/chat-input";
 import WorkflowExecutionHistory, {
   type WorkflowExecution as HistoryWorkflowExecution,
 } from "@features/workflow/components/panels/workflow-execution-history";
@@ -2158,67 +2157,6 @@ export default function WorkflowCanvas({
   );
 
   // Handle chat message sending
-  const handleSendChatMessage = (
-    message: string,
-    attachments: Attachment[],
-  ) => {
-    if (!activeChatNodeId) {
-      toast({
-        title: "Select a chat-enabled node",
-        description: "Open a node chat to send messages.",
-      });
-      return;
-    }
-
-    const activeNode = nodes.find((node) => node.id === activeChatNodeId);
-    const attachmentSummary =
-      attachments.length === 0
-        ? ""
-        : attachments.length === 1
-          ? " with 1 attachment"
-          : ` with ${attachments.length} attachments`;
-
-    toast({
-      title: `Message sent to ${activeNode?.data?.label ?? "workflow"}`,
-      description: `"${message}"${attachmentSummary}`,
-    });
-
-    // Here you would typically process the message and trigger the workflow
-    // For now, we'll just update the node status to simulate activity
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id === activeChatNodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              status: "running" as NodeStatus,
-            },
-          };
-        }
-        return n;
-      }),
-    );
-
-    // Simulate workflow execution
-    setTimeout(() => {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id === activeChatNodeId) {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                status: "success" as NodeStatus,
-              },
-            };
-          }
-          return n;
-        }),
-      );
-    }, 2000);
-  };
-
   // Handle workflow execution
   const handleRunWorkflow = useCallback(() => {
     if (nodes.length === 0) {
@@ -2823,18 +2761,24 @@ export default function WorkflowCanvas({
     }, 100);
   }, [nodes]);
 
-  // User and AI info for chat
-  const user = {
-    id: "user-1",
-    name: "Avery Chen",
-    avatar: "https://avatar.vercel.sh/avery",
-  };
-
-  const ai = {
-    id: "ai-1",
-    name: "Orcheo Canvas Assistant",
-    avatar: "https://avatar.vercel.sh/orcheo-canvas",
-  };
+  const chatGreeting = `Welcome to the ${chatTitle} interface. How can I help you today?`;
+  const chatStarterPrompts = [
+    {
+      label: "Trigger the workflow",
+      prompt: "Run this workflow now.",
+      icon: "sparkle",
+    },
+    {
+      label: "Check last run",
+      prompt: "Summarise the most recent workflow run.",
+      icon: "notebook",
+    },
+    {
+      label: "Explain configuration",
+      prompt: "Explain how this workflow is configured and what it does.",
+      icon: "circle-question",
+    },
+  ];
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -3176,24 +3120,69 @@ export default function WorkflowCanvas({
       {isChatOpen && (
         <ChatInterface
           title={chatTitle}
-          user={user}
-          ai={ai}
-          isClosable={true}
-          onSendMessage={handleSendChatMessage}
-          position="bottom-right"
-          initialMessages={[
-            {
-              id: "welcome-msg",
-              content: `Welcome to the ${chatTitle} interface. How can I help you today?`,
-              sender: {
-                ...ai,
-                isAI: true,
-              },
-              timestamp: new Date(),
-            },
-          ]}
+          workflowId={currentWorkflowId ?? undefined}
+          chatNodeId={activeChatNodeId ?? undefined}
+          chatNodeLabel={chatTitle}
+          greeting={chatGreeting}
+          starterPrompts={chatStarterPrompts}
+          composerPlaceholder="Ask the workflow to run or explain what it does"
+          onResponseStart={handleChatResponseStart}
+          onResponseEnd={handleChatResponseEnd}
         />
       )}
     </div>
   );
 }
+const handleChatResponseStart = () => {
+  if (!activeChatNodeId) {
+    toast({
+      title: "Select a chat-enabled node",
+      description: "Open a node chat to send a message.",
+    });
+    return;
+  }
+
+  const activeNode = nodesRef.current.find(
+    (node) => node.id === activeChatNodeId,
+  );
+  const targetLabel = activeNode?.data?.label ?? "workflow";
+
+  toast({
+    title: `Dispatching ${targetLabel}`,
+    description: "ChatKit forwarded your message to this workflow.",
+  });
+
+  setNodes((current) =>
+    current.map((node) =>
+      node.id === activeChatNodeId
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              status: "running" as NodeStatus,
+            },
+          }
+        : node,
+    ),
+  );
+};
+
+const handleChatResponseEnd = () => {
+  if (!activeChatNodeId) {
+    return;
+  }
+
+  setNodes((current) =>
+    current.map((node) =>
+      node.id === activeChatNodeId
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              status: "success" as NodeStatus,
+            },
+          }
+        : node,
+    ),
+  );
+};

@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
+from chatkit.server import NonStreamingResult, StreamingResult
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
 from fastapi import (
@@ -23,6 +24,8 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from orcheo.chatkit import OrcheoChatKitServer
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -119,6 +122,7 @@ _history_store_ref: dict[str, InMemoryRunHistoryStore] = {
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_chatkit_server_ref: dict[str, OrcheoChatKitServer | None] = {"server": None}
 
 T = TypeVar("T")
 
@@ -144,6 +148,14 @@ def _settings_value(
             return cast(T, current)
 
     return default
+
+
+def _get_chatkit_server() -> OrcheoChatKitServer:
+    server = _chatkit_server_ref["server"]
+    if server is None:
+        server = OrcheoChatKitServer()
+        _chatkit_server_ref["server"] = server
+    return server
 
 
 def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
@@ -1329,6 +1341,20 @@ async def dispatch_manual_runs(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.post("/chatkit")
+async def chatkit_entrypoint(request: Request, repository: RepositoryDep) -> Response:
+    server = _get_chatkit_server()
+    payload = await request.body()
+    result = await server.process(
+        payload, {"request": request, "repository": repository}
+    )
+    if isinstance(result, StreamingResult):
+        return StreamingResponse(result, media_type="text/event-stream")
+    if isinstance(result, NonStreamingResult):
+        return Response(content=result.json, media_type="application/json")
+    return Response(content=result, media_type="application/json")
 
 
 def create_app(

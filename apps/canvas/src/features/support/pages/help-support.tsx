@@ -29,26 +29,23 @@ import ChatInterface from "@features/shared/components/chat-interface";
 export default function HelpSupport() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const user = {
-    id: "user-1",
-    name: "Avery Chen",
-    avatar: "https://avatar.vercel.sh/avery",
-  };
-
-  const ai = {
-    id: "ai-1",
-    name: "Orcheo Canvas Support",
-    avatar: "https://avatar.vercel.sh/orcheo-canvas",
-    isAI: true,
-  };
-
-  const initialMessages = [
+  const supportGreeting =
+    "Hello! I'm the Orcheo Canvas support assistant. How can I help you today?";
+  const supportPrompts = [
     {
-      id: "msg-1",
-      content:
-        "Hello! I'm the Orcheo Canvas support assistant. How can I help you today?",
-      sender: ai,
-      timestamp: new Date(Date.now() - 60000),
+      label: "Reset my credentials",
+      prompt: "How do I rotate or reset stored credentials?",
+      icon: "keys",
+    },
+    {
+      label: "Canvas walkthrough",
+      prompt: "Give me a quick tour of Orcheo Canvas features.",
+      icon: "compass",
+    },
+    {
+      label: "Debug a workflow",
+      prompt: "Help me debug a failing workflow run.",
+      icon: "bug",
     },
   ];
 
@@ -531,9 +528,9 @@ export default function HelpSupport() {
             </div>
             <ChatInterface
               title="Orcheo Canvas Support"
-              initialMessages={initialMessages}
-              user={user}
-              ai={ai}
+              greeting={supportGreeting}
+              starterPrompts={supportPrompts}
+              composerPlaceholder="Ask a question about Canvas"
               triggerButton={
                 <Button size="lg" className="w-full md:w-auto">
                   <svg

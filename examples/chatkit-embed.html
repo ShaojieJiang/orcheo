@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orcheo ChatKit Embed Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script
+      src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+      async
+    ></script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        color: #e2e8f0;
+      }
+      openai-chatkit {
+        height: 600px;
+        width: min(420px, 90vw);
+        border-radius: 16px;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45);
+        overflow: hidden;
+      }
+      code {
+        background: rgba(15, 23, 42, 0.4);
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>ChatKit + Orcheo Backend</h1>
+      <p>
+        Replace <code>&lt;workflow-id&gt;</code> with a workflow identifier from
+        your Orcheo environment and open this file in a browser while the
+        backend is running on <code>http://localhost:8000</code>.
+      </p>
+    </div>
+    <openai-chatkit id="orcheo-chat"></openai-chatkit>
+    <script type="module">
+      const chatkit = document.getElementById("orcheo-chat");
+      if (!chatkit) {
+        throw new Error("ChatKit element not found");
+      }
+
+      chatkit.setOptions({
+        api: {
+          url: "http://localhost:8000/api/chatkit",
+          domainKey: "domain_pk_orcheo_dev",
+          fetch(url, init) {
+            const headers = new Headers(init?.headers ?? {});
+            headers.set("x-orcheo-chat-workflow-id", "<workflow-id>");
+            // Optional: scope runs to a specific node on the canvas.
+            headers.set("x-orcheo-chat-node-id", "chat-trigger-node-id");
+            return fetch(url, { ...init, headers });
+          },
+        },
+        header: {
+          title: {
+            enabled: true,
+            text: "Orcheo Assistant",
+          },
+        },
+        startScreen: {
+          greeting: "Hello! I can dispatch Orcheo workflows from chat.",
+          prompts: [
+            {
+              label: "Trigger the workflow",
+              prompt: "Run this workflow now.",
+              icon: "sparkle",
+            },
+            {
+              label: "Summarise last run",
+              prompt: "Summarise the most recent workflow execution.",
+              icon: "notebook",
+            },
+          ],
+        },
+        composer: {
+          placeholder: "Describe what you want the workflow to do",
+        },
+      });
+    </script>
+  </body>
+</html>
