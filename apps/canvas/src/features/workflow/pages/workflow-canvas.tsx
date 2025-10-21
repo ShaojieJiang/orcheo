@@ -1019,6 +1019,60 @@ export default function WorkflowCanvas({
     }
   }, []);
 
+  const handleChatResponseStart = useCallback(() => {
+    if (!activeChatNodeId) {
+      toast({
+        title: "Select a chat-enabled node",
+        description: "Open a node chat to send a message.",
+      });
+      return;
+    }
+
+    const activeNode = nodesRef.current.find(
+      (node) => node.id === activeChatNodeId,
+    );
+    const targetLabel = activeNode?.data?.label ?? "workflow";
+
+    toast({
+      title: `Dispatching ${targetLabel}`,
+      description: "ChatKit forwarded your message to this workflow.",
+    });
+
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === activeChatNodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                status: "running" as NodeStatus,
+              },
+            }
+          : node,
+      ),
+    );
+  }, [activeChatNodeId, setNodes]);
+
+  const handleChatResponseEnd = useCallback(() => {
+    if (!activeChatNodeId) {
+      return;
+    }
+
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === activeChatNodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                status: "success" as NodeStatus,
+              },
+            }
+          : node,
+      ),
+    );
+  }, [activeChatNodeId, setNodes]);
+
   const convertPersistedNodesToCanvas = useCallback(
     (persistedNodes: PersistedWorkflowNode[]) =>
       persistedNodes.map((node) => {
@@ -3133,56 +3187,3 @@ export default function WorkflowCanvas({
     </div>
   );
 }
-const handleChatResponseStart = () => {
-  if (!activeChatNodeId) {
-    toast({
-      title: "Select a chat-enabled node",
-      description: "Open a node chat to send a message.",
-    });
-    return;
-  }
-
-  const activeNode = nodesRef.current.find(
-    (node) => node.id === activeChatNodeId,
-  );
-  const targetLabel = activeNode?.data?.label ?? "workflow";
-
-  toast({
-    title: `Dispatching ${targetLabel}`,
-    description: "ChatKit forwarded your message to this workflow.",
-  });
-
-  setNodes((current) =>
-    current.map((node) =>
-      node.id === activeChatNodeId
-        ? {
-            ...node,
-            data: {
-              ...node.data,
-              status: "running" as NodeStatus,
-            },
-          }
-        : node,
-    ),
-  );
-};
-
-const handleChatResponseEnd = () => {
-  if (!activeChatNodeId) {
-    return;
-  }
-
-  setNodes((current) =>
-    current.map((node) =>
-      node.id === activeChatNodeId
-        ? {
-            ...node,
-            data: {
-              ...node.data,
-              status: "success" as NodeStatus,
-            },
-          }
-        : node,
-    ),
-  );
-};
