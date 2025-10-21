@@ -131,6 +131,14 @@ interface NodeData {
 type CanvasNode = Node<NodeData>;
 type CanvasEdge = Edge<Record<string, unknown>>;
 
+interface NodeCredentialRow {
+  id: string;
+  label: string;
+  type?: string;
+  credentialId: string | null;
+  credentialName?: string;
+}
+
 interface CredentialRecord extends CredentialReference {
   owner: string;
   secrets: Record<string, string>;
@@ -480,6 +488,8 @@ export default function WorkflowCanvas({
     [],
   );
 
+  const credentialAssignmentNodesRef = useRef<NodeCredentialRow[]>([]);
+
   const subWorkflowMap = useMemo(() => {
     const map = new Map<string, ReusableSubWorkflow>();
     REUSABLE_SUB_WORKFLOWS.forEach((workflow) => {
@@ -502,9 +512,12 @@ export default function WorkflowCanvas({
     [],
   );
 
-  const credentialAssignmentNodes = useMemo(
-    () =>
-      nodes.map((node) => ({
+  const credentialAssignmentNodes = useMemo(() => {
+    const previous = credentialAssignmentNodesRef.current;
+    let hasChanges = previous.length !== nodes.length;
+
+    const next = nodes.map<NodeCredentialRow>((node, index) => {
+      const mappedNode: NodeCredentialRow = {
         id: node.id,
         label:
           typeof node.data?.label === "string"
@@ -513,9 +526,32 @@ export default function WorkflowCanvas({
         type: typeof node.data?.type === "string" ? node.data.type : undefined,
         credentialId: node.data?.credentials?.id ?? null,
         credentialName: node.data?.credentials?.name,
-      })),
-    [nodes],
-  );
+      };
+
+      if (!hasChanges) {
+        const previousNode = previous[index];
+        if (
+          !previousNode ||
+          previousNode.id !== mappedNode.id ||
+          previousNode.label !== mappedNode.label ||
+          previousNode.type !== mappedNode.type ||
+          previousNode.credentialId !== mappedNode.credentialId ||
+          previousNode.credentialName !== mappedNode.credentialName
+        ) {
+          hasChanges = true;
+        }
+      }
+
+      return mappedNode;
+    });
+
+    if (hasChanges) {
+      credentialAssignmentNodesRef.current = next;
+      return next;
+    }
+
+    return previous;
+  }, [nodes]);
 
   const resourceCount = credentials.length + subWorkflowSummaries.length;
 
@@ -1432,38 +1468,35 @@ export default function WorkflowCanvas({
     return errors;
   }, [edges, nodes]);
 
-  const handleAddCredential = useCallback(
-    (credential: NewCredentialInput) => {
-      const trimmedName = credential.name.trim();
-      if (!trimmedName) {
-        toast({
-          title: "Credential name required",
-          description: "Enter a name before saving the credential.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const record: CredentialRecord = {
-        id: generateCredentialId(),
-        name: trimmedName,
-        type: credential.type,
-        access: credential.access,
-        owner: credential.owner ?? "Workflow Team",
-        secrets: credential.secrets,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      setCredentials((prev) => [...prev, record]);
+  const handleAddCredential = useCallback((credential: NewCredentialInput) => {
+    const trimmedName = credential.name.trim();
+    if (!trimmedName) {
       toast({
-        title: "Credential added",
-        description: `"${record.name}" is now available for nodes.`,
+        title: "Credential name required",
+        description: "Enter a name before saving the credential.",
+        variant: "destructive",
       });
-    },
-    [],
-  );
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const record: CredentialRecord = {
+      id: generateCredentialId(),
+      name: trimmedName,
+      type: credential.type,
+      access: credential.access,
+      owner: credential.owner ?? "Workflow Team",
+      secrets: credential.secrets,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setCredentials((prev) => [...prev, record]);
+    toast({
+      title: "Credential added",
+      description: `"${record.name}" is now available for nodes.`,
+    });
+  }, []);
 
   const handleDeleteCredential = useCallback(
     (credentialId: string) => {
@@ -1581,6 +1614,13 @@ export default function WorkflowCanvas({
 
       const idMap = new Map<string, string>();
       const existingNodes = nodesRef.current;
+      const existingNodeIds = new Set<string>(
+        existingNodes.map((node) => node.id),
+      );
+      const existingEdges = edgesRef.current;
+      const existingEdgePairs = new Set<string>(
+        existingEdges.map((edge) => `${edge.source}->${edge.target}`),
+      );
       const maxX = existingNodes.reduce(
         (max, node) => Math.max(max, node.position?.x ?? 0),
         0,
@@ -1595,19 +1635,63 @@ export default function WorkflowCanvas({
       const remappedNodes = subWorkflow.nodes.map((node) => {
         const newId = generateNodeId();
         idMap.set(node.id, newId);
+        const x = (node.position?.x ?? 0) + baseX;
+        const y = (node.position?.y ?? 0) + baseY;
         return {
           ...node,
           id: newId,
           position: {
-            x: (node.position?.x ?? 0) + baseX,
-            y: (node.position?.y ?? 0) + baseY,
+            x,
+            y,
           },
         };
       });
 
+      const conflictingNode = remappedNodes.find((node) =>
+        existingNodeIds.has(node.id),
+      );
+      if (conflictingNode) {
+        toast({
+          title: "Sub-workflow insert blocked",
+          description:
+            "Generated node identifiers conflict with existing nodes. Try again or refresh the canvas.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const invalidPositionNode = remappedNodes.find((node) => {
+        const { x, y } = node.position ?? {};
+        return !Number.isFinite(x) || !Number.isFinite(y);
+      });
+
+      if (invalidPositionNode) {
+        toast({
+          title: "Unable to position nodes",
+          description:
+            "Calculated positions for the sub-workflow nodes were invalid. Adjust the canvas layout and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const hasMissingReferences = subWorkflow.edges.some(
+        (edge) => !idMap.has(edge.source) || !idMap.has(edge.target),
+      );
+
+      if (hasMissingReferences) {
+        toast({
+          title: "Sub-workflow is incomplete",
+          description:
+            "One or more connections reference nodes that could not be remapped.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const remappedEdges = subWorkflow.edges.map((edge) => {
-        const source = idMap.get(edge.source) ?? generateNodeId();
-        const target = idMap.get(edge.target) ?? generateNodeId();
+        const source = idMap.get(edge.source)!;
+        const target = idMap.get(edge.target)!;
         return {
           ...edge,
           id: generateEdgeId(),
@@ -1615,6 +1699,20 @@ export default function WorkflowCanvas({
           target,
         };
       });
+
+      const conflictingEdge = remappedEdges.find((edge) =>
+        existingEdgePairs.has(`${edge.source}->${edge.target}`),
+      );
+
+      if (conflictingEdge) {
+        toast({
+          title: "Duplicate connection detected",
+          description:
+            "Inserting this sub-workflow would create duplicate connections on the canvas.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
       const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);

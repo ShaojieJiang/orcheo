@@ -27,11 +27,30 @@ interface ValidatorNodeData {
   label?: string;
   credentials?: {
     id?: string;
+    type?: string;
   } | null;
 }
 
 type ValidatorNode = Node<ValidatorNodeData>;
 type ValidatorEdge = Edge<Record<string, unknown>>;
+
+const CREDENTIAL_COMPATIBILITY: Record<string, string[]> = {
+  api: ["api", "oauth"],
+  database: ["database", "api"],
+  ai: ["api", "oauth"],
+};
+
+function validateCredentialType(
+  nodeType?: string,
+  credentialType?: string,
+): boolean {
+  if (!nodeType || !credentialType) {
+    return true;
+  }
+
+  const compatibleTypes = CREDENTIAL_COMPATIBILITY[nodeType];
+  return compatibleTypes ? compatibleTypes.includes(credentialType) : true;
+}
 
 export default function ConnectionValidator({
   errors,
@@ -190,17 +209,31 @@ export function validateConnection(
 export function validateNodeCredentials(
   node: ValidatorNode,
 ): ValidationError | null {
+  const nodeType = node.data.type;
   // Example validation for credentials
   if (
-    (node.data.type === "api" ||
-      node.data.type === "database" ||
-      node.data.type === "ai") &&
+    (nodeType === "api" || nodeType === "database" || nodeType === "ai") &&
     (!node.data.credentials || !node.data.credentials.id)
   ) {
     return {
       id: `cred-${node.id}`,
       type: "credential",
       message: `${node.data.label} requires credentials to be configured`,
+      nodeName: node.data.label,
+      nodeId: node.id,
+    };
+  }
+
+  const credentialType = node.data.credentials?.type;
+  if (
+    nodeType &&
+    credentialType &&
+    !validateCredentialType(nodeType, credentialType)
+  ) {
+    return {
+      id: `cred-type-${node.id}`,
+      type: "credential",
+      message: `${node.data.label} requires a credential compatible with ${nodeType} nodes.`,
       nodeName: node.data.label,
       nodeId: node.id,
     };
