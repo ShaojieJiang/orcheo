@@ -1410,9 +1410,24 @@ async def chatkit_entrypoint(request: Request, repository: RepositoryDep) -> Res
             detail="ChatKit request processing failed.",
         ) from exc
 
+    status_code = getattr(result, "status_code", status.HTTP_200_OK)
+    headers = getattr(result, "headers", None) or {}
+
     if StreamingResult is not None and isinstance(result, StreamingResult):
-        return StreamingResponse(result, media_type="text/event-stream")
-    return Response(content=result.json, media_type="application/json")
+        response = StreamingResponse(
+            result,
+            media_type="text/event-stream",
+            status_code=status_code,
+        )
+    else:
+        response = Response(
+            content=result.json,
+            media_type="application/json",
+            status_code=status_code,
+        )
+
+    response.headers.update(headers)
+    return response
 
 
 def create_app(
