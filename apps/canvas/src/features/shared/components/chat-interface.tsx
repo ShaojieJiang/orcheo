@@ -15,12 +15,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
-import { buildBackendHttpUrl } from "@/lib/config";
+import { toast } from "@/hooks/use-toast";
+import {
+  buildBackendHttpUrl,
+  getChatKitComposerPlaceholder,
+  getChatKitDomainKey,
+} from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { MessageSquare, MinimizeIcon, XIcon } from "lucide-react";
-
-const DEFAULT_DOMAIN_KEY = "domain_pk_orcheo_dev";
-const DEFAULT_PLACEHOLDER = "Describe what you want the workflow to do";
 
 export interface ChatInterfaceProps {
   title?: string;
@@ -58,7 +60,7 @@ export default function ChatInterface({
   domainKey,
   greeting,
   starterPrompts,
-  composerPlaceholder = DEFAULT_PLACEHOLDER,
+  composerPlaceholder = getChatKitComposerPlaceholder(),
   onResponseStart,
   onResponseEnd,
 }: ChatInterfaceProps) {
@@ -80,7 +82,7 @@ export default function ChatInterface({
   const chatkit = useChatKit({
     api: {
       url: backendUrl,
-      domainKey: domainKey ?? DEFAULT_DOMAIN_KEY,
+      domainKey: domainKey ?? getChatKitDomainKey(),
       fetch: (url: string, init?: RequestInit) => {
         const headers = new Headers(init?.headers ?? {});
         if (workflowId) {
@@ -114,6 +116,15 @@ export default function ChatInterface({
     },
     onError: ({ error }) => {
       console.error("ChatKit error", error);
+      const description =
+        error instanceof Error
+          ? error.message
+          : "Check the server logs for details.";
+      toast({
+        title: "Chat session unavailable",
+        description,
+        variant: "destructive",
+      });
     },
   });
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from chatkit.store import NotFoundError, Store
 from chatkit.types import Attachment, Page, Thread, ThreadItem, ThreadMetadata
@@ -25,9 +25,21 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
     support attachment storage.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        max_threads: int = 200,
+        max_items_per_thread: int = 200,
+    ) -> None:
         """Initialise the in-memory structures for ChatKit conversations."""
+        if max_threads <= 0:
+            raise ValueError("max_threads must be greater than zero")
+        if max_items_per_thread <= 0:
+            raise ValueError("max_items_per_thread must be greater than zero")
+
         self._threads: dict[str, _ThreadState] = {}
+        self._max_threads = max_threads
+        self._max_items_per_thread = max_items_per_thread
 
     @staticmethod
     def _coerce_thread_metadata(thread: ThreadMetadata | Thread) -> ThreadMetadata:
@@ -61,6 +73,7 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
             state.thread = metadata
         else:
             self._threads[thread.id] = _ThreadState(thread=metadata, items=[])
+        self._prune_threads()
 
     async def load_threads(
         self,
@@ -75,7 +88,7 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
                 self._coerce_thread_metadata(state.thread)
                 for state in self._threads.values()
             ),
-            key=lambda thread: thread.created_at or datetime.min,
+            key=self._metadata_created_at,
             reverse=(order == "desc"),
         )
 
@@ -100,11 +113,50 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
         state = self._threads.get(thread_id)
         if state is None:
             state = _ThreadState(
-                thread=ThreadMetadata(id=thread_id, created_at=datetime.utcnow()),
+                thread=ThreadMetadata(id=thread_id, created_at=datetime.now(UTC)),
                 items=[],
             )
             self._threads[thread_id] = state
+            self._prune_threads()
         return state.items
+
+    def _prune_threads(self) -> None:
+        """Ensure the store does not exceed the configured thread limit."""
+        if len(self._threads) <= self._max_threads:
+            return
+
+        sorted_threads = sorted(
+            self._threads.items(),
+            key=lambda item: self._thread_created_at(item[1]),
+        )
+        for thread_id, _ in sorted_threads[: len(self._threads) - self._max_threads]:
+            self._threads.pop(thread_id, None)
+
+    def _prune_thread_items(self, thread_id: str) -> None:
+        """Trim stored items for a thread to the configured maximum."""
+        state = self._threads.get(thread_id)
+        if not state:
+            return
+
+        excess = len(state.items) - self._max_items_per_thread
+        if excess <= 0:
+            return
+
+        state.items = state.items[excess:]
+
+    @staticmethod
+    def _thread_created_at(state: _ThreadState) -> datetime:
+        created = state.thread.created_at
+        if created is not None:
+            return created
+        return datetime.min.replace(tzinfo=UTC)
+
+    @staticmethod
+    def _metadata_created_at(metadata: ThreadMetadata) -> datetime:
+        created = metadata.created_at
+        if created is not None:
+            return created
+        return datetime.min.replace(tzinfo=UTC)
 
     async def load_thread_items(
         self,
@@ -117,7 +169,7 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
         """Return a paginated set of thread items for a conversation."""
         items = [item.model_copy(deep=True) for item in self._items(thread_id)]
         items.sort(
-            key=lambda item: getattr(item, "created_at", datetime.utcnow()),
+            key=lambda item: getattr(item, "created_at", datetime.now(UTC)),
             reverse=(order == "desc"),
         )
 
@@ -138,6 +190,7 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
     ) -> None:
         """Append a new item to the specified thread."""
         self._items(thread_id).append(item.model_copy(deep=True))
+        self._prune_thread_items(thread_id)
 
     async def save_item(
         self, thread_id: str, item: ThreadItem, context: dict[str, Any]
@@ -147,8 +200,10 @@ class InMemoryChatKitStore(Store[dict[str, Any]]):
         for index, existing in enumerate(items):
             if existing.id == item.id:
                 items[index] = item.model_copy(deep=True)
+                self._prune_thread_items(thread_id)
                 return
         items.append(item.model_copy(deep=True))
+        self._prune_thread_items(thread_id)
 
     async def load_item(
         self, thread_id: str, item_id: str, context: dict[str, Any]

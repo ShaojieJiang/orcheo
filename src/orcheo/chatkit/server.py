@@ -1,8 +1,10 @@
 """ChatKit server implementation backed by Orcheo services."""
 
 from __future__ import annotations
+import logging
 from collections.abc import AsyncIterator, Iterable
-from datetime import datetime
+from datetime import UTC, datetime
+from uuid import UUID
 from chatkit.server import ChatKitServer
 from chatkit.types import (
     AssistantMessageContent,
@@ -15,6 +17,9 @@ from chatkit.types import (
 from orcheo_backend.app.repository import WorkflowRepository
 from .service import ChatTriggerService
 from .store import InMemoryChatKitStore
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class OrcheoChatKitServer(ChatKitServer[dict[str, object]]):
@@ -53,7 +58,10 @@ class OrcheoChatKitServer(ChatKitServer[dict[str, object]]):
 
         if request is not None:
             headers = getattr(request, "headers", {})
-            workflow_id = headers.get("x-orcheo-chat-workflow-id")
+            workflow_id = self._validated_uuid_header(
+                headers.get("x-orcheo-chat-workflow-id"),
+                header_name="x-orcheo-chat-workflow-id",
+            )
             node_id = headers.get("x-orcheo-chat-node-id")
             node_label = headers.get("x-orcheo-chat-node-name")
 
@@ -84,7 +92,7 @@ class OrcheoChatKitServer(ChatKitServer[dict[str, object]]):
         return AssistantMessageItem(
             id=self.store.generate_item_id("message", thread, context),
             thread_id=thread.id,
-            created_at=datetime.now(),
+            created_at=datetime.now(UTC),
             content=[AssistantMessageContent(text=content)],
         )
 
@@ -103,3 +111,17 @@ class OrcheoChatKitServer(ChatKitServer[dict[str, object]]):
         if isinstance(repository, WorkflowRepository):
             return repository
         return None
+
+    @staticmethod
+    def _validated_uuid_header(value: object, *, header_name: str) -> str | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        candidate = value.strip()
+        try:
+            return str(UUID(candidate))
+        except ValueError:
+            LOGGER.warning(
+                "Ignoring invalid UUID header",
+                extra={"header": header_name, "value": candidate},
+            )
+            return None

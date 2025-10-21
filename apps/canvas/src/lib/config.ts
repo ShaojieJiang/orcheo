@@ -1,4 +1,6 @@
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
+const DEFAULT_CHATKIT_DOMAIN_KEY = "domain_pk_orcheo_dev";
+const DEFAULT_CHATKIT_PLACEHOLDER = "Describe what you want the workflow to do";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
@@ -64,6 +66,28 @@ export const buildBackendHttpUrl = (path: string, baseUrl?: string): string => {
   const normalised = trimTrailingSlash(resolved);
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${normalised}${suffix}`;
+};
+
+const resolveEnvString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+export const getChatKitDomainKey = (): string => {
+  return (
+    resolveEnvString(import.meta.env?.VITE_ORCHEO_CHATKIT_DOMAIN_KEY) ??
+    DEFAULT_CHATKIT_DOMAIN_KEY
+  );
+};
+
+export const getChatKitComposerPlaceholder = (): string => {
+  return (
+    resolveEnvString(import.meta.env?.VITE_ORCHEO_CHATKIT_PLACEHOLDER) ??
+    DEFAULT_CHATKIT_PLACEHOLDER
+  );
 };
 
 export const buildWorkflowWebSocketUrl = (

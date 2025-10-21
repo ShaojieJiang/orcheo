@@ -96,15 +96,19 @@ class ChatTriggerService:
                 )
             else:
                 run = runs[0]
-                snippet = shorten(stripped, width=120, placeholder="…")
                 node_display = node_label or node_id or "chat trigger"
                 response = (
                     f"Queued workflow run {run.id} from {node_display}. "
-                    f'Message excerpt: "{snippet}". '
+                    f'Message excerpt: "{self._format_message_excerpt(stripped)}". '
                     "Track progress from the execution history panel."
                 )
 
         return response
+
+    @staticmethod
+    def _format_message_excerpt(message: str) -> str:
+        """Return a shortened representation of the user message."""
+        return shorten(message, width=120, placeholder="…")
 
     @staticmethod
     def _acknowledge_without_dispatch(
