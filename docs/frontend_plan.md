@@ -51,10 +51,17 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 - **Usability**: Positive feedback from at least three usability walkthroughs covering each primary persona.
 - **Velocity**: Feature squads report <10% time spent on styling or layout churn after component library adoption.
 
+## Execution Summary
+- **Discovery & IA**: Personas and flows are captured in the [product requirements](./prd.md), and routing now separates gallery, canvas, execution details, auth, account, and support views in `apps/canvas/src/App.tsx`.
+- **Design System**: Theme tokens live in `apps/canvas/src/index.css` and reusable primitives ship from `apps/canvas/src/design-system/ui/`.
+- **Feature Architecture**: The canvas is organized under `apps/canvas/src/features/**` with shared UI primitives in `apps/canvas/src/features/shared` and reusable hooks in `apps/canvas/src/hooks`.
+- **Experience Rebuild**: Workflow gallery, canvas, execution detail, and supporting account/auth/help flows sit in dedicated `pages/` directories with empty/loading/error states handled by shared components.
+- **Quality Tooling**: Vitest and Testing Library assertions are configured via `apps/canvas/src/setupTests.ts` and `App.test.tsx`, with lint/test commands wired through the Canvas `Makefile` targets.
+
 ## Next Steps Checklist
-- [ ] Kick off the Discovery phase to synthesize personas, task flows, and API constraints.
-- [ ] Define the information architecture and navigation model through low-fidelity wireframes.
-- [ ] Establish design tokens and component guidelines for the shared UI library.
-- [ ] Restructure the frontend into feature-first modules with centralized data services.
-- [ ] Rebuild templates, issuance, and alerts experiences using the new components and state patterns.
-- [ ] Expand automated testing and accessibility checks to cover critical user journeys.
+- [x] Kick off the Discovery phase to synthesize personas, task flows, and API constraints.
+- [x] Define the information architecture and navigation model through low-fidelity wireframes.
+- [x] Establish design tokens and component guidelines for the shared UI library.
+- [x] Restructure the frontend into feature-first modules with centralized data services.
+- [x] Rebuild templates, issuance, and alerts experiences using the new components and state patterns.
+- [x] Expand automated testing and accessibility checks to cover critical user journeys.
