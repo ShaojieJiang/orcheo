@@ -32,6 +32,7 @@ import "@xyflow/react/dist/style.css";
 import { Button } from "@/design-system/ui/button";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 import { Separator } from "@/design-system/ui/separator";
+import { ScrollArea } from "@/design-system/ui/scroll-area";
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
@@ -2595,48 +2596,53 @@ export default function WorkflowCanvas({
 
           <TabsContent
             value="resources"
-            className="flex-1 m-0 p-4 overflow-auto min-h-0"
+            className="flex-1 m-0 overflow-hidden min-h-0"
           >
-            <div className="max-w-5xl mx-auto space-y-10">
-              <section className="space-y-4">
-                <div>
-                  <h2 className="text-xl font-bold">Credential management</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Manage reusable credentials and attach them to workflow
-                    nodes before publishing.
-                  </p>
-                </div>
+            <ScrollArea className="h-full">
+              <div className="max-w-5xl mx-auto space-y-10 p-4 pb-10">
+                <section className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-bold">Credential management</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Manage reusable credentials and attach them to workflow
+                      nodes before publishing.
+                    </p>
+                  </div>
 
-                <CredentialsVault
-                  credentials={credentials}
-                  onAddCredential={handleAddCredential}
-                  onDeleteCredential={handleDeleteCredential}
-                />
+                  <CredentialsVault
+                    credentials={credentials}
+                    onAddCredential={handleAddCredential}
+                    onDeleteCredential={handleDeleteCredential}
+                  />
 
-                <CredentialAssignmentTable
-                  nodes={credentialAssignmentNodes}
-                  credentials={credentials}
-                  onAssign={handleAssignCredential}
-                  className="mt-6"
-                />
-              </section>
+                  <CredentialAssignmentTable
+                    nodes={credentialAssignmentNodes}
+                    credentials={credentials}
+                    onAssign={handleAssignCredential}
+                    className="mt-6"
+                  />
+                </section>
 
-              <Separator />
+                <Separator />
 
-              <section className="space-y-4">
-                <div>
-                  <h2 className="text-xl font-bold">Reusable sub-workflows</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Insert pre-built automations to accelerate canvas authoring.
-                  </p>
-                </div>
+                <section className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      Reusable sub-workflows
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Insert pre-built automations to accelerate canvas
+                      authoring.
+                    </p>
+                  </div>
 
-                <SubWorkflowLibrary
-                  subWorkflows={subWorkflowSummaries}
-                  onInsert={handleInsertSubWorkflow}
-                />
-              </section>
-            </div>
+                  <SubWorkflowLibrary
+                    subWorkflows={subWorkflowSummaries}
+                    onInsert={handleInsertSubWorkflow}
+                  />
+                </section>
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           <TabsContent value="settings" className="m-0 p-4 overflow-auto">
