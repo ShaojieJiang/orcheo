@@ -15,6 +15,10 @@ export default defineConfig({
       '@lib': path.resolve(__dirname, './src/lib'),
       '@design-system': path.resolve(__dirname, './src/design-system'),
       '@features': path.resolve(__dirname, './src/features'),
+      '@openai/chatkit-react': path.resolve(
+        __dirname,
+        './src/test-utils/chatkit-stub.ts',
+      ),
     }
   },
   test: {

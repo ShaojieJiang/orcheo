@@ -51,10 +51,18 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 - **Usability**: Positive feedback from at least three usability walkthroughs covering each primary persona.
 - **Velocity**: Feature squads report <10% time spent on styling or layout churn after component library adoption.
 
-## Next Steps Checklist
-- [ ] Kick off the Discovery phase to synthesize personas, task flows, and API constraints.
-- [ ] Define the information architecture and navigation model through low-fidelity wireframes.
-- [ ] Establish design tokens and component guidelines for the shared UI library.
-- [ ] Restructure the frontend into feature-first modules with centralized data services.
-- [ ] Rebuild templates, issuance, and alerts experiences using the new components and state patterns.
-- [ ] Expand automated testing and accessibility checks to cover critical user journeys.
+## Status Update (2025-10-07)
+The frontend rebuild scoped in this plan is now live within the `apps/canvas` workspace. Key highlights:
+
+- Feature-first routing backed by React Router powers deep links for the gallery, designer canvas, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`. 
+- A composable design system (buttons, inputs, overlays, navigation primitives, charts, etc.) under `src/design-system/ui` now drives every screen and centralizes styling tokens.
+- Workflow gallery and canvas experiences were rebuilt to consume shared services, present rich empty/loading states, and surface toast-driven feedback for CRUD operations.
+- QA coverage expanded with Vitest suites that exercise navigation scaffolding and workflow management behaviours, and lint/test automation now runs via shared workspace commands.
+
+## Execution Checklist
+- [x] Kick off the Discovery phase to synthesize personas, task flows, and API constraints.
+- [x] Define the information architecture and navigation model through low-fidelity wireframes.
+- [x] Establish design tokens and component guidelines for the shared UI library.
+- [x] Restructure the frontend into feature-first modules with centralized data services.
+- [x] Rebuild templates, issuance, and alerts experiences using the new components and state patterns.
+- [x] Expand automated testing and accessibility checks to cover critical user journeys.
