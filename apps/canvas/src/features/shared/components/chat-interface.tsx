@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Button } from "@/design-system/ui/button";
 import {
   Dialog,
@@ -14,16 +14,18 @@ import {
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { buildBackendHttpUrl } from "@/lib/config";
+import {
+  ChatKit,
+  useChatKit,
+  type UseChatKitOptions,
+} from "@openai/chatkit-react";
 import { MessageSquare, MinimizeIcon, XIcon } from "lucide-react";
-import ChatMessage, {
-  ChatMessageProps,
-} from "@features/shared/components/chat-message";
-import ChatInput, { Attachment } from "@features/shared/components/chat-input";
+import type { ChatMessageProps } from "@features/shared/components/chat-message";
 
 export interface ChatInterfaceProps {
   title?: string;
   initialMessages?: ChatMessageProps[];
-  onSendMessage?: (message: string, attachments: Attachment[]) => void;
   className?: string;
   isMinimizable?: boolean;
   isClosable?: boolean;
@@ -44,12 +46,19 @@ export interface ChatInterfaceProps {
     name: string;
     avatar?: string;
   };
+  backendBaseUrl?: string;
+  sessionPayload?: Record<string, unknown>;
+  getClientSecret?: (currentSecret: string | null) => Promise<string>;
+  chatkitOptions?: Partial<UseChatKitOptions>;
+  onResponseStart?: () => void;
+  onResponseEnd?: () => void;
+  onThreadChange?: (threadId: string | null) => void;
+  onLog?: (payload: Record<string, unknown>) => void;
 }
 
 export default function ChatInterface({
   title = "Chat",
   initialMessages = [],
-  onSendMessage,
   className,
   isMinimizable = true,
   isClosable = true,
@@ -57,84 +66,138 @@ export default function ChatInterface({
   triggerButton,
   user,
   ai,
+  backendBaseUrl,
+  sessionPayload,
+  getClientSecret,
+  chatkitOptions,
+  onResponseStart,
+  onResponseEnd,
+  onThreadChange,
+  onLog,
 }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const handleSendMessage = (message: string, attachments: Attachment[]) => {
-    if (!message.trim() && attachments.length === 0) return;
+  const initialGreeting = initialMessages.find(
+    (message) =>
+      typeof message.content === "string" && message.sender?.id === ai.id,
+  )?.content as string | undefined;
 
-    const newMessage: ChatMessageProps = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      content: message,
-      sender: user,
-      timestamp: new Date(),
-      isUserMessage: true,
-      status: "sending",
-      attachments: attachments.map((att) => ({
-        id: att.id,
-        type: att.type,
-        name: att.file.name,
-        url: att.previewUrl || URL.createObjectURL(att.file),
-        size: formatFileSize(att.file.size),
-      })),
+  const resolveSessionSecret = useCallback(
+    async (currentSecret: string | null) => {
+      if (getClientSecret) {
+        return getClientSecret(currentSecret);
+      }
+
+      const url = buildBackendHttpUrl("/api/chatkit/session", backendBaseUrl);
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          current_client_secret: currentSecret,
+          currentClientSecret: currentSecret,
+          user,
+          assistant: ai,
+          metadata: {
+            title,
+            ...sessionPayload,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch ChatKit client secret");
+      }
+
+      const data = (await response.json()) as {
+        client_secret?: string;
+        clientSecret?: string;
+      };
+
+      const secret = data.client_secret ?? data.clientSecret;
+      if (!secret) {
+        throw new Error("ChatKit session response missing client secret");
+      }
+      return secret;
+    },
+    [ai, backendBaseUrl, getClientSecret, sessionPayload, title, user],
+  );
+
+  const composeHandlers = useCallback(
+    <T extends unknown[]>(
+      ...handlers: Array<((...args: T) => void) | undefined>
+    ) => {
+      const valid = handlers.filter(Boolean) as Array<(...args: T) => void>;
+      if (valid.length === 0) {
+        return undefined;
+      }
+      return (...args: T) => {
+        valid.forEach((handler) => handler(...args));
+      };
+    },
+    [],
+  );
+
+  const options = useMemo<UseChatKitOptions>(() => {
+    const merged = {
+      ...(chatkitOptions as UseChatKitOptions),
+    } as UseChatKitOptions;
+
+    merged.api = {
+      ...(chatkitOptions?.api ?? {}),
+      getClientSecret:
+        chatkitOptions?.api?.getClientSecret ?? resolveSessionSecret,
     };
 
-    setMessages((prev) => [...prev, newMessage]);
-
-    // Simulate sending and response
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === newMessage.id ? { ...msg, status: "sent" } : msg,
-        ),
-      );
-
-      if (onSendMessage) {
-        onSendMessage(message, attachments);
-      }
-
-      // Simulate AI response after a delay
-      if (!onSendMessage) {
-        setTimeout(() => {
-          const aiResponse: ChatMessageProps = {
-            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            content: getAIResponse(message),
-            sender: {
-              ...ai,
-              isAI: true,
-            },
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, aiResponse]);
-        }, 1000);
-      }
-    }, 500);
-  };
-
-  const getAIResponse = (message: string): string => {
-    if (
-      message.toLowerCase().includes("hello") ||
-      message.toLowerCase().includes("hi")
-    ) {
-      return "Hello! How can I assist you with your workflow today?";
-    } else if (message.toLowerCase().includes("help")) {
-      return "I'm here to help! You can ask me about creating workflows, connecting nodes, or troubleshooting issues.";
-    } else if (message.toLowerCase().includes("workflow")) {
-      return "Workflows in Orcheo Canvas allow you to automate processes by connecting different nodes together. Would you like me to explain how to create one?";
-    } else {
-      return "I understand. Is there anything specific about the Orcheo Canvas platform you'd like to know more about?";
+    if (!merged.header) {
+      merged.header = {
+        enabled: true,
+        title: {
+          enabled: true,
+          text: title,
+        },
+      };
     }
-  };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + " B";
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-    else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + " MB";
-    else return (bytes / 1073741824).toFixed(1) + " GB";
-  };
+    if (!merged.startScreen && initialGreeting) {
+      merged.startScreen = {
+        greeting: initialGreeting,
+      };
+    }
+
+    merged.onResponseStart = composeHandlers(
+      chatkitOptions?.onResponseStart,
+      onResponseStart,
+    );
+    merged.onResponseEnd = composeHandlers(
+      chatkitOptions?.onResponseEnd,
+      onResponseEnd,
+    );
+    merged.onThreadChange = composeHandlers(
+      chatkitOptions?.onThreadChange,
+      onThreadChange,
+    );
+    merged.onThreadLoadStart = chatkitOptions?.onThreadLoadStart;
+    merged.onThreadLoadEnd = chatkitOptions?.onThreadLoadEnd;
+    merged.onLog = composeHandlers(chatkitOptions?.onLog, onLog);
+    merged.onError = chatkitOptions?.onError;
+
+    return merged;
+  }, [
+    chatkitOptions,
+    composeHandlers,
+    initialGreeting,
+    onLog,
+    onResponseEnd,
+    onResponseStart,
+    onThreadChange,
+    resolveSessionSecret,
+    title,
+  ]);
+
+  const { control } = useChatKit(options);
 
   const handleToggleMinimize = () => {
     setIsMinimized(!isMinimized);
@@ -144,13 +207,6 @@ export default function ChatInterface({
     setIsOpen(false);
     setIsMinimized(false);
   };
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages]);
 
   // Position classes
   const positionClasses = {
@@ -170,26 +226,10 @@ export default function ChatInterface({
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col h-[60vh]">
-            <div className="flex-1 overflow-y-auto p-2">
-              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                  <MessageSquare className="h-12 w-12 mb-2 opacity-20" />
-
-                  <p>No messages yet</p>
-                  <p className="text-sm">Start a conversation!</p>
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <ChatMessage key={message.id} {...message} />
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              placeholder="Type your message..."
-              className="border-t"
+          <div className="flex h-[60vh] flex-col">
+            <ChatKit
+              control={control}
+              className="flex h-full w-full flex-col"
             />
           </div>
         </DialogContent>
@@ -253,26 +293,12 @@ export default function ChatInterface({
 
           {!isMinimized && (
             <>
-              <div className="flex-1 overflow-y-auto p-2">
-                {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                    <MessageSquare className="h-12 w-12 mb-2 opacity-20" />
-
-                    <p>No messages yet</p>
-                    <p className="text-sm">Start a conversation!</p>
-                  </div>
-                ) : (
-                  messages.map((message) => (
-                    <ChatMessage key={message.id} {...message} />
-                  ))
-                )}
-                <div ref={messagesEndRef} />
+              <div className="flex-1 overflow-hidden">
+                <ChatKit
+                  control={control}
+                  className="flex h-full w-full flex-col"
+                />
               </div>
-              <ChatInput
-                onSendMessage={handleSendMessage}
-                placeholder="Type your message..."
-                className="border-t"
-              />
             </>
           )}
         </div>

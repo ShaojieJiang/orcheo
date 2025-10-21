@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets
 import uuid
 from pathlib import Path
@@ -74,6 +75,9 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.schemas import (
     AlertAcknowledgeRequest,
+    ChatKitSessionRequest,
+    ChatKitSessionResponse,
+    ChatKitWorkflowTriggerRequest,
     CredentialHealthItem,
     CredentialHealthResponse,
     CredentialIssuancePolicyPayload,
@@ -560,6 +564,84 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         await websocket.send_json({"status": "error", "error": str(exc)})
     finally:
         await websocket.close()
+
+
+@_http_router.post(
+    "/chatkit/session",
+    response_model=ChatKitSessionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_chatkit_session_endpoint(
+    request: ChatKitSessionRequest,
+) -> ChatKitSessionResponse:
+    """Return a ChatKit client secret derived from environment configuration."""
+    candidate_keys: list[str] = []
+    if request.workflow_id:
+        workflow_key = str(request.workflow_id).replace("-", "").upper()
+        candidate_keys.append(f"CHATKIT_CLIENT_SECRET_{workflow_key}")
+    candidate_keys.append("CHATKIT_CLIENT_SECRET")
+
+    for env_key in candidate_keys:
+        secret = os.getenv(env_key)
+        if secret:
+            logger.info("Issuing ChatKit client secret via %s", env_key)
+            return ChatKitSessionResponse(client_secret=secret)
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "message": "ChatKit client secret is not configured.",
+            "hint": (
+                "Set CHATKIT_CLIENT_SECRET or CHATKIT_CLIENT_SECRET_<WORKFLOW_ID> "
+                "in the backend environment to enable the ChatKit integration."
+            ),
+        },
+    )
+
+
+@_http_router.post(
+    "/chatkit/workflows/{workflow_id}/trigger",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_201_CREATED,
+)
+async def trigger_chatkit_workflow(
+    workflow_id: UUID,
+    request: ChatKitWorkflowTriggerRequest,
+    repository: RepositoryDep,
+) -> WorkflowRun:
+    """Create a workflow run initiated from the ChatKit interface."""
+    try:
+        latest_version = await repository.get_latest_version(workflow_id)
+    except WorkflowNotFoundError as exc:
+        _raise_not_found("Workflow not found", exc)
+    except WorkflowVersionNotFoundError as exc:
+        _raise_not_found("Workflow version not found", exc)
+
+    payload = {
+        "source": "chatkit",
+        "message": request.message,
+        "client_thread_id": request.client_thread_id,
+        "metadata": request.metadata,
+    }
+
+    try:
+        run = await repository.create_run(
+            workflow_id,
+            workflow_version_id=latest_version.id,
+            triggered_by=request.actor,
+            input_payload=payload,
+        )
+    except CredentialHealthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "failures": exc.report.failures},
+        ) from exc
+
+    logger.info(
+        "Dispatched ChatKit workflow run",
+        extra={"workflow_id": str(workflow_id), "run_id": str(run.id)},
+    )
+    return run
 
 
 @_http_router.get("/workflows", response_model=list[Workflow])
