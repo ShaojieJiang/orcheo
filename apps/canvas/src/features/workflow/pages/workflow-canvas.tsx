@@ -471,20 +471,43 @@ const toPersistedEdge = (edge: CanvasEdge): PersistedWorkflowEdge => ({
   style: edge.style,
 });
 
+const resolveReactFlowType = (
+  persistedType?: string,
+): "default" | "chatTrigger" | "startEnd" => {
+  if (!persistedType) {
+    return "default";
+  }
+
+  if (persistedType === "chatTrigger") {
+    return "chatTrigger";
+  }
+
+  if (
+    persistedType === "start" ||
+    persistedType === "end" ||
+    persistedType === "startEnd"
+  ) {
+    return "startEnd";
+  }
+
+  return "default";
+};
+
 const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
   const extraEntries = Object.entries(node.data ?? {}).filter(
     ([key]) => !PERSISTED_NODE_FIELDS.has(key),
   );
 
   const extraData = Object.fromEntries(extraEntries);
+  const semanticType = node.data?.type ?? node.type ?? "default";
 
   return {
     id: node.id,
-    type: node.type ?? "default",
+    type: resolveReactFlowType(node.type),
     position: node.position ?? { x: 0, y: 0 },
     style: defaultNodeStyle,
     data: {
-      type: node.data?.type ?? node.type ?? "default",
+      type: semanticType,
       label: node.data?.label ?? "New Node",
       description: node.data?.description ?? "",
       status: (node.data?.status ?? "idle") as NodeStatus,

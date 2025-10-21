@@ -323,6 +323,7 @@ export default function WorkflowGallery() {
       function: "#8b5cf6",
       data: "#10b981",
       ai: "#6366f1",
+      python: "#f97316",
     };
 
     return (
@@ -864,6 +865,11 @@ export default function WorkflowGallery() {
                                 {workflow.description ||
                                   "No description provided"}
                               </CardDescription>
+                              {isTemplateCard && workflow.sourceExample && (
+                                <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-1">
+                                  Based on {workflow.sourceExample}
+                                </p>
+                              )}
                             </CardHeader>
 
                             <CardContent className="pb-2 px-3">

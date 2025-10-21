@@ -118,7 +118,7 @@ describe("workflow-storage", () => {
   });
 
   it("creates workflows from curated templates", () => {
-    const template = createWorkflowFromTemplate("workflow-1");
+    const template = createWorkflowFromTemplate("workflow-quickstart");
     expect(template).toBeTruthy();
     expect(template?.tags).not.toContain("template");
   });
