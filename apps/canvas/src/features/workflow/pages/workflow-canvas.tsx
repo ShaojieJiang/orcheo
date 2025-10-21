@@ -607,11 +607,10 @@ export default function WorkflowCanvas({
         },
       }));
 
+      const evaluatedEdges: Edge<Record<string, unknown>>[] = [];
       const connectionErrors = edges
         .map((edge) => {
-          const otherEdges = edges.filter((candidate) => candidate !== edge);
-
-          return validateConnection(
+          const error = validateConnection(
             {
               source: edge.source,
               target: edge.target,
@@ -623,8 +622,12 @@ export default function WorkflowCanvas({
               label?: string;
               credentials?: { id?: string } | null;
             }>[],
-            otherEdges as unknown as Edge<Record<string, unknown>>[],
+            evaluatedEdges,
           );
+
+          evaluatedEdges.push(edge as Edge<Record<string, unknown>>);
+
+          return error;
         })
         .filter((error): error is ValidationError => Boolean(error));
 
