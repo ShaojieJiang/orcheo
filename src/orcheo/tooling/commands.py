@@ -56,3 +56,8 @@ def test() -> None:
 def canvas_lint() -> None:
     """Lint the React canvas application."""
     _run(["npm", "--prefix", "apps/canvas", "run", "lint"])
+
+
+def canvas_dev() -> None:
+    """Start the React canvas development server."""
+    _run(["npm", "--prefix", "apps/canvas", "run", "dev"])

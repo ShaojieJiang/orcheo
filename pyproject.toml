@@ -60,6 +60,7 @@ version = "0.7.0"
 
 [project.scripts]
 orcheo-canvas-lint = "orcheo.tooling.commands:canvas_lint"
+orcheo-dev-canvas = "orcheo.tooling.commands:canvas_dev"
 orcheo-dev-server = "orcheo.tooling.commands:dev_server"
 orcheo-format = "orcheo.tooling.commands:format_code"
 orcheo-lint = "orcheo.tooling.commands:lint"

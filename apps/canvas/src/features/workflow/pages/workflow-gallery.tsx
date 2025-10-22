@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
@@ -84,9 +84,7 @@ import { toast } from "@/hooks/use-toast";
 
 export default function WorkflowGallery() {
   const navigate = useNavigate();
-  const [workflows, setWorkflows] = useState<StoredWorkflow[]>(() =>
-    listWorkflows(),
-  );
+  const [workflows, setWorkflows] = useState<StoredWorkflow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState("all");
   const [sortBy, setSortBy] = useState("updated");
@@ -114,20 +112,43 @@ export default function WorkflowGallery() {
   });
 
   useEffect(() => {
-    const updateWorkflows = () => {
-      setWorkflows(listWorkflows());
+    let isMounted = true;
+
+    const load = async () => {
+      try {
+        const items = await listWorkflows();
+        if (isMounted) {
+          setWorkflows(items);
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error("Failed to load workflows", error);
+          toast({
+            title: "Unable to load workflows",
+            description:
+              error instanceof Error ? error.message : "Unknown error occurred",
+            variant: "destructive",
+          });
+        }
+      }
     };
 
-    updateWorkflows();
+    void load();
 
     if (typeof window !== "undefined") {
-      window.addEventListener(WORKFLOW_STORAGE_EVENT, updateWorkflows);
+      const handler = () => {
+        void load();
+      };
+      window.addEventListener(WORKFLOW_STORAGE_EVENT, handler);
       return () => {
-        window.removeEventListener(WORKFLOW_STORAGE_EVENT, updateWorkflows);
+        isMounted = false;
+        window.removeEventListener(WORKFLOW_STORAGE_EVENT, handler);
       };
     }
 
-    return undefined;
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const templates = useMemo(() => SAMPLE_WORKFLOWS, []);
@@ -204,66 +225,103 @@ export default function WorkflowGallery() {
     setShowNewFolderDialog(false);
   };
 
-  const handleCreateWorkflow = () => {
+  const handleCreateWorkflow = useCallback(async () => {
     const name = newWorkflowName.trim() || "Untitled Workflow";
-    const workflow = createWorkflow({
-      name,
-      description: "",
-      tags: ["draft"],
-      nodes: [],
-      edges: [],
-    });
+    try {
+      const workflow = await createWorkflow({
+        name,
+        description: "",
+        tags: ["draft"],
+        nodes: [],
+        edges: [],
+      });
 
-    setNewWorkflowName("");
-    setShowNewWorkflowDialog(false);
-    setSelectedTab("all");
+      setNewWorkflowName("");
+      setShowNewWorkflowDialog(false);
+      setSelectedTab("all");
 
-    toast({
-      title: "Workflow created",
-      description: `"${workflow.name}" is ready to edit.`,
-    });
-
-    navigate(`/workflow-canvas/${workflow.id}`);
-  };
-
-  const handleUseTemplate = (templateId: string) => {
-    const workflow = createWorkflowFromTemplate(templateId);
-    if (!workflow) {
       toast({
-        title: "Template unavailable",
-        description: "We couldn't find that template. Please try another one.",
+        title: "Workflow created",
+        description: `"${workflow.name}" is ready to edit.`,
+      });
+
+      navigate(`/workflow-canvas/${workflow.id}`);
+    } catch (error) {
+      toast({
+        title: "Failed to create workflow",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
         variant: "destructive",
       });
-      return;
     }
+  }, [navigate, newWorkflowName]);
 
-    toast({
-      title: "Template copied",
-      description: `"${workflow.name}" has been added to your workspace.`,
-    });
+  const handleUseTemplate = useCallback(
+    async (templateId: string) => {
+      try {
+        const workflow = await createWorkflowFromTemplate(templateId);
+        if (!workflow) {
+          toast({
+            title: "Template unavailable",
+            description: "We couldn't find that template. Please try another.",
+            variant: "destructive",
+          });
+          return;
+        }
 
-    setSelectedTab("all");
-    navigate(`/workflow-canvas/${workflow.id}`);
-  };
+        setSelectedTab("all");
 
-  const handleDuplicateWorkflow = (workflowId: string) => {
-    const copy = duplicateWorkflow(workflowId);
-    if (!copy) {
-      toast({
-        title: "Duplicate failed",
-        description: "We couldn't duplicate this workflow. Please try again.",
-        variant: "destructive",
-      });
-      return;
-    }
+        toast({
+          title: "Template copied",
+          description: `"${workflow.name}" has been added to your workspace.`,
+        });
 
-    toast({
-      title: "Workflow duplicated",
-      description: `"${copy.name}" is ready to edit.`,
-    });
+        navigate(`/workflow-canvas/${workflow.id}`);
+      } catch (error) {
+        toast({
+          title: "Failed to create workflow from template",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
+    },
+    [navigate],
+  );
 
-    navigate(`/workflow-canvas/${copy.id}`);
-  };
+  const handleDuplicateWorkflow = useCallback(
+    async (workflowId: string) => {
+      try {
+        const copy = await duplicateWorkflow(workflowId);
+        if (!copy) {
+          toast({
+            title: "Duplicate failed",
+            description:
+              "We couldn't duplicate this workflow. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setSelectedTab("all");
+
+        toast({
+          title: "Workflow duplicated",
+          description: `"${copy.name}" is ready to edit.`,
+        });
+
+        navigate(`/workflow-canvas/${copy.id}`);
+      } catch (error) {
+        toast({
+          title: "Failed to duplicate workflow",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
+    },
+    [navigate],
+  );
 
   const handleExportWorkflow = (workflow: Workflow) => {
     try {
@@ -297,13 +355,25 @@ export default function WorkflowGallery() {
     }
   };
 
-  const handleDeleteWorkflow = (workflowId: string, workflowName: string) => {
-    deleteWorkflow(workflowId);
-    toast({
-      title: "Workflow deleted",
-      description: `"${workflowName}" has been removed from your workspace.`,
-    });
-  };
+  const handleDeleteWorkflow = useCallback(
+    async (workflowId: string, workflowName: string) => {
+      try {
+        await deleteWorkflow(workflowId);
+        toast({
+          title: "Workflow deleted",
+          description: `"${workflowName}" has been removed from your workspace.`,
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to delete workflow",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
+    },
+    [],
+  );
 
   const handleApplyFilters = () => {
     toast({
@@ -323,6 +393,7 @@ export default function WorkflowGallery() {
       function: "#8b5cf6",
       data: "#10b981",
       ai: "#6366f1",
+      python: "#f97316",
     };
 
     return (
@@ -864,6 +935,11 @@ export default function WorkflowGallery() {
                                 {workflow.description ||
                                   "No description provided"}
                               </CardDescription>
+                              {isTemplateCard && workflow.sourceExample && (
+                                <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-1">
+                                  Based on {workflow.sourceExample}
+                                </p>
+                              )}
                             </CardHeader>
 
                             <CardContent className="pb-2 px-3">

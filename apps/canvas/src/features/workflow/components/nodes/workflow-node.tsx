@@ -85,6 +85,8 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
       "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/50",
     data: "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800/50",
     ai: "bg-indigo-50 border-indigo-200 dark:bg-indigo-950/30 dark:border-indigo-800/50",
+    python:
+      "bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800/50",
   } as const;
 
   const nodeColor =

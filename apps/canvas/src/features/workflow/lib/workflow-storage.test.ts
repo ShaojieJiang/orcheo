@@ -2,124 +2,198 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   WORKFLOW_STORAGE_EVENT,
-  clearWorkflowStorage,
-  createWorkflow,
-  createWorkflowFromTemplate,
-  deleteWorkflow,
-  duplicateWorkflow,
-  getVersionSnapshot,
   listWorkflows,
   saveWorkflow,
 } from "./workflow-storage";
 
-const baseNode = {
-  id: "trigger-1",
-  type: "trigger" as const,
-  position: { x: 0, y: 0 },
-  data: {
-    type: "trigger" as const,
-    label: "Webhook trigger",
-    description: "Starts the workflow when a webhook fires.",
-    status: "idle" as const,
-  },
-};
+const mockFetch = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>();
 
-const updatedNode = {
-  ...baseNode,
-  data: {
-    ...baseNode.data,
-    label: "Webhook trigger (updated)",
-  },
+const jsonResponse = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+const queueResponses = (responses: Response[]) => {
+  const queue = [...responses];
+  mockFetch.mockImplementation(() => {
+    const next = queue.shift();
+    if (!next) {
+      throw new Error("No more mocked responses available");
+    }
+    return Promise.resolve(next);
+  });
 };
 
 beforeEach(() => {
-  clearWorkflowStorage();
-  window.localStorage.clear();
+  mockFetch.mockReset();
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
 });
 
-describe("workflow-storage", () => {
-  it("creates and persists workflows while notifying listeners", () => {
+describe("workflow-storage API integration", () => {
+  it("saves workflows by invoking the backend endpoints", async () => {
+    const timestamp = new Date().toISOString();
+    const snapshot = {
+      name: "Marketing qualification",
+      description: "Scores inbound leads and routes them to reps.",
+      nodes: [
+        {
+          id: "trigger-1",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          data: {
+            type: "trigger",
+            label: "Webhook trigger",
+            description: "Starts the workflow when a webhook fires.",
+            status: "idle" as const,
+          },
+        },
+      ],
+      edges: [],
+    };
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-123",
+        name: snapshot.name,
+        slug: "workflow-123",
+        description: snapshot.description,
+        tags: ["draft"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "version-1",
+        workflow_id: "workflow-123",
+        version: 1,
+        graph: { nodes: [], edges: [] },
+        metadata: {},
+        notes: "Initial draft",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-123",
+        name: snapshot.name,
+        slug: "workflow-123",
+        description: snapshot.description,
+        tags: ["draft"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "version-1",
+          workflow_id: "workflow-123",
+          version: 1,
+          graph: { nodes: [], edges: [] },
+          metadata: {
+            canvas: {
+              snapshot,
+              summary: { added: 0, removed: 0, modified: 0 },
+              message: "Initial draft",
+            },
+          },
+          notes: "Initial draft",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
     const listener = vi.fn();
     window.addEventListener(WORKFLOW_STORAGE_EVENT, listener);
 
-    const workflow = createWorkflow({
-      name: "Marketing qualification",
-      description: "Scores inbound leads and routes them to reps.",
-      nodes: [baseNode],
-      edges: [],
-    });
-
-    expect(workflow.id).toMatch(/^workflow-/);
-    expect(listWorkflows()).toHaveLength(1);
-    expect(listener).toHaveBeenCalled();
-
-    window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
-  });
-
-  it("tracks version history whenever the workflow graph changes", () => {
-    const workflow = createWorkflow({
-      name: "Onboarding journey",
-      description: "Collects documents and provisions access.",
-      nodes: [baseNode],
-      edges: [],
-    });
-
-    const firstSave = saveWorkflow(
+    const saved = await saveWorkflow(
       {
-        id: workflow.id,
-        name: "Onboarding journey",
-        description: "Collects documents and provisions access.",
-        nodes: [baseNode],
-        edges: [],
+        name: snapshot.name,
+        description: snapshot.description,
+        tags: ["draft"],
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
       },
       { versionMessage: "Initial draft" },
     );
 
-    expect(firstSave.versions).toHaveLength(1);
-    expect(firstSave.versions[0]?.message).toContain("Initial draft");
+    expect(saved.id).toBe("workflow-123");
+    expect(saved.versions).toHaveLength(1);
+    expect(saved.nodes).toHaveLength(1);
+    expect(listener).toHaveBeenCalled();
 
-    const secondSave = saveWorkflow(
-      {
-        id: workflow.id,
-        name: "Onboarding journey",
-        description: "Collects documents and provisions access.",
-        nodes: [updatedNode],
-        edges: [],
-      },
-      { versionMessage: "Updated webhook copy" },
+    const versionPayload = JSON.parse(
+      (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
     );
 
-    expect(secondSave.versions).toHaveLength(2);
-    const latest = secondSave.versions.at(-1);
-    expect(latest?.summary.modified).toBeGreaterThanOrEqual(1);
-    expect(getVersionSnapshot(secondSave.id, latest?.id ?? "")).toMatchObject({
-      name: "Onboarding journey",
-      nodes: [updatedNode],
-    });
+    expect(versionPayload.metadata.canvas.snapshot.nodes[0]?.id).toBe(
+      "trigger-1",
+    );
+
+    window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
+
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(String(mockFetch.mock.calls[0]?.[0])).toContain("/api/workflows");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+      "/api/workflows/workflow-123/versions",
+    );
   });
 
-  it("duplicates and removes workflows to support CRUD operations", () => {
-    const original = createWorkflow({
-      name: "Support triage",
-      nodes: [baseNode],
-      edges: [],
-    });
+  it("lists workflows by merging backing metadata", async () => {
+    const timestamp = new Date().toISOString();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "workflow-abc",
+          name: "Support triage",
+          slug: "workflow-abc",
+          description: "Routes support tickets to the right queue.",
+          tags: ["support"],
+          is_archived: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+      jsonResponse([
+        {
+          id: "version-1",
+          workflow_id: "workflow-abc",
+          version: 1,
+          graph: {},
+          metadata: {
+            canvas: {
+              snapshot: {
+                name: "Support triage",
+                description: "Routes support tickets to the right queue.",
+                nodes: [
+                  {
+                    id: "start",
+                    type: "trigger",
+                    position: { x: 0, y: 0 },
+                    data: { label: "Start" },
+                  },
+                ],
+                edges: [],
+              },
+              summary: { added: 0, removed: 0, modified: 0 },
+              message: "Initial draft",
+            },
+          },
+          notes: null,
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
 
-    const copy = duplicateWorkflow(original.id);
-    expect(copy).toBeTruthy();
-    expect(copy?.id).not.toEqual(original.id);
-    expect(listWorkflows()).toHaveLength(2);
+    const workflows = await listWorkflows();
 
-    if (copy) {
-      deleteWorkflow(copy.id);
-    }
-
-    expect(listWorkflows()).toHaveLength(1);
-  });
-
-  it("creates workflows from curated templates", () => {
-    const template = createWorkflowFromTemplate("workflow-1");
-    expect(template).toBeTruthy();
-    expect(template?.tags).not.toContain("template");
+    expect(workflows).toHaveLength(1);
+    expect(workflows[0]?.nodes).toHaveLength(1);
+    expect(workflows[0]?.versions[0]?.summary.modified).toBe(0);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
