@@ -1,12 +1,14 @@
-"""Tests for the in-memory execution history store."""
+"""Tests for execution history stores."""
 
 from __future__ import annotations
+from pathlib import Path
 import pytest
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryError,
     RunHistoryNotFoundError,
     RunHistoryRecord,
+    SqliteRunHistoryStore,
 )
 
 
@@ -96,3 +98,44 @@ async def test_clear_removes_all_histories() -> None:
 
     with pytest.raises(RunHistoryNotFoundError):
         await store.get_history("exec")
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_persists_history(tmp_path: Path) -> None:
+    """SQLite-backed store writes and retrieves execution metadata."""
+
+    db_path = tmp_path / "history.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        inputs={"foo": "bar"},
+    )
+    await store.append_step("exec", {"status": "running"})
+    await store.mark_completed("exec")
+
+    history = await store.get_history("exec")
+    assert history.status == "completed"
+    assert history.inputs == {"foo": "bar"}
+    assert len(history.steps) == 1
+    assert history.steps[0].payload == {"status": "running"}
+
+    # Reload via a new instance to confirm persistence
+    store_reloaded = SqliteRunHistoryStore(str(db_path))
+    persisted = await store_reloaded.get_history("exec")
+    assert persisted.status == "completed"
+    assert persisted.steps[0].payload == {"status": "running"}
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_duplicate_execution_id_raises(
+    tmp_path: Path,
+) -> None:
+    """Duplicate execution identifiers surface a descriptive error."""
+
+    db_path = tmp_path / "history-dupe.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    with pytest.raises(RunHistoryError, match="execution_id=exec"):
+        await store.start_run(workflow_id="wf", execution_id="exec")

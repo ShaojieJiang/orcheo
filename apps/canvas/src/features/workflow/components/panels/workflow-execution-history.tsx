@@ -24,18 +24,27 @@ import {
   Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import WorkflowNodeComponent from "@features/workflow/components/nodes/workflow-node";
+import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
+import StartEndNode from "@features/workflow/components/nodes/start-end-node";
+import {
+  getNodeIcon,
+  inferNodeIconKey,
+} from "@features/workflow/lib/node-icons";
 
 export interface WorkflowNode {
   id: string;
   type: string;
   name: string;
   position: { x: number; y: number };
+  iconKey?: string;
   status?: "success" | "error" | "running" | "idle" | "warning";
   details?: {
     method?: string;
     url?: string;
     message?: string;
     items?: number;
+    description?: string;
   };
 }
 
@@ -75,6 +84,65 @@ interface WorkflowExecutionHistoryProps {
   showList?: boolean;
   defaultSelectedExecution?: WorkflowExecution;
 }
+
+const nodeTypes = {
+  default: WorkflowNodeComponent,
+  chatTrigger: ChatTriggerNode,
+  startEnd: StartEndNode,
+};
+
+const defaultNodeStyle = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  borderRadius: 0,
+  width: "auto",
+  boxShadow: "none",
+};
+
+const determineReactFlowNodeType = (
+  type: string | undefined,
+): keyof typeof nodeTypes => {
+  if (type === "chatTrigger") {
+    return "chatTrigger";
+  }
+  if (type === "start" || type === "end") {
+    return "startEnd";
+  }
+  return "default";
+};
+
+const normaliseNodeStatus = (
+  status: WorkflowNode["status"],
+): "idle" | "running" | "success" | "error" => {
+  switch (status) {
+    case "running":
+      return "running";
+    case "success":
+      return "success";
+    case "error":
+      return "error";
+    case "warning":
+      return "running";
+    default:
+      return "idle";
+  }
+};
+
+const parseChatTriggerDescription = (
+  details: WorkflowNode["details"],
+): string | undefined => {
+  if (!details) {
+    return undefined;
+  }
+  if (typeof details.message === "string" && details.message.trim()) {
+    return details.message;
+  }
+  if (typeof details.description === "string" && details.description.trim()) {
+    return details.description;
+  }
+  return undefined;
+};
 
 export default function WorkflowExecutionHistory({
   executions = [],
@@ -149,25 +217,59 @@ export default function WorkflowExecutionHistory({
   const getReactFlowNodes = (): Node[] => {
     if (!selectedExecution) return [];
 
-    return selectedExecution.nodes.map((node) => ({
-      id: node.id,
-      type: "default",
-      position: node.position,
-      style: {
-        background: "none",
-        border: "none",
-        padding: 0,
-        borderRadius: 0,
-        width: "auto",
-        boxShadow: "none",
-      },
-      data: {
-        label: node.name,
-        status: node.status,
-        type: node.type,
-        details: node.details,
-      },
-    }));
+    return selectedExecution.nodes.map((node) => {
+      const semanticType =
+        typeof node.type === "string" ? node.type : "default";
+      const reactFlowType = determineReactFlowNodeType(semanticType);
+      const status = normaliseNodeStatus(node.status);
+
+      if (reactFlowType === "startEnd") {
+        return {
+          id: node.id,
+          type: reactFlowType,
+          position: node.position,
+          style: defaultNodeStyle,
+          data: {
+            label: node.name,
+            type: semanticType === "end" ? "end" : "start",
+          },
+        } as Node;
+      }
+
+      if (reactFlowType === "chatTrigger") {
+        return {
+          id: node.id,
+          type: reactFlowType,
+          position: node.position,
+          data: {
+            label: node.name,
+            description: parseChatTriggerDescription(node.details),
+            status,
+          },
+        } as Node;
+      }
+
+      const iconKey =
+        inferNodeIconKey({
+          iconKey: node.iconKey,
+          label: node.name,
+          type: semanticType,
+        }) ?? node.iconKey;
+
+      return {
+        id: node.id,
+        type: reactFlowType,
+        position: node.position,
+        style: defaultNodeStyle,
+        data: {
+          label: node.name,
+          status,
+          type: semanticType,
+          iconKey,
+          icon: getNodeIcon(iconKey),
+        },
+      } as Node;
+    });
   };
 
   // Convert workflow edges to ReactFlow edges
@@ -405,6 +507,7 @@ export default function WorkflowExecutionHistory({
                     <ReactFlow
                       nodes={getReactFlowNodes()}
                       edges={getReactFlowEdges()}
+                      nodeTypes={nodeTypes}
                       fitView
                       fitViewOptions={{ padding: 0.2 }}
                       nodesDraggable={false}
@@ -414,6 +517,17 @@ export default function WorkflowExecutionHistory({
                       zoomOnPinch={true}
                       panOnScroll={true}
                       connectionLineType={ConnectionLineType.SmoothStep}
+                      connectionLineStyle={{
+                        stroke: "#99a1b3",
+                        strokeWidth: 2,
+                      }}
+                      defaultEdgeOptions={{
+                        style: { stroke: "#99a1b3", strokeWidth: 2 },
+                        type: "smoothstep",
+                        markerEnd: {
+                          type: MarkerType.ArrowClosed,
+                        },
+                      }}
                     >
                       <Background gap={15} size={1} color="#f0f0f0" />
 

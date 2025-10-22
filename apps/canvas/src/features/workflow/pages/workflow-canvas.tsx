@@ -51,6 +51,10 @@ import WorkflowExecutionHistory, {
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
+import {
+  loadWorkflowExecutions,
+  saveWorkflowExecutions,
+} from "@features/workflow/lib/workflow-execution-storage";
 import ConnectionValidator, {
   validateConnection,
   validateNodeCredentials,
@@ -599,6 +603,7 @@ interface WorkflowExecutionNode {
   name: string;
   position: { x: number; y: number };
   status: NodeStatus;
+  iconKey?: string;
   details?: Record<string, unknown>;
 }
 
@@ -824,7 +829,9 @@ export default function WorkflowCanvas({
   const [lastValidationRun, setLastValidationRun] = useState<string | null>(
     null,
   );
-  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
+  const [executions, setExecutions] = useState<WorkflowExecution[]>(() =>
+    workflowId ? loadWorkflowExecutions(workflowId) : [],
+  );
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(
     null,
   );
@@ -864,6 +871,33 @@ export default function WorkflowCanvas({
     }),
     [],
   );
+
+  useEffect(() => {
+    if (!workflowId) {
+      setExecutions([]);
+      return;
+    }
+    setExecutions(loadWorkflowExecutions(workflowId));
+  }, [workflowId]);
+
+  useEffect(() => {
+    if (!workflowId) {
+      return;
+    }
+    saveWorkflowExecutions(workflowId, executions);
+  }, [executions, workflowId]);
+
+  useEffect(() => {
+    setActiveExecutionId((current) => {
+      if (executions.length === 0) {
+        return null;
+      }
+      if (current && executions.some((execution) => execution.id === current)) {
+        return current;
+      }
+      return executions[0]?.id ?? null;
+    });
+  }, [executions]);
 
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
@@ -2534,6 +2568,8 @@ export default function WorkflowCanvas({
           : node.id,
       position: node.position,
       status: "running",
+      iconKey:
+        typeof node.data?.iconKey === "string" ? node.data.iconKey : undefined,
     }));
 
     const executionEdges: WorkflowEdge[] = edges.map((edge) => ({
@@ -3171,7 +3207,6 @@ export default function WorkflowCanvas({
       <WorkflowTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        executionCount={3}
         readinessAlertCount={validationErrors.length}
       />
 
