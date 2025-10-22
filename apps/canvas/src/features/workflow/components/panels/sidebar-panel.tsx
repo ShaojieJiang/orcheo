@@ -30,6 +30,7 @@ import {
   getNodeIcon,
   type NodeIconKey,
 } from "@features/workflow/lib/node-icons";
+import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
 
 interface NodeCategory {
   id: string;
@@ -47,6 +48,7 @@ interface NodeCategory {
       type: string;
       description: string;
       iconKey: NodeIconKey;
+      [key: string]: unknown;
     };
   }[];
 }
@@ -66,13 +68,14 @@ const buildSidebarNode = ({
   description: string;
   iconKey: NodeIconKey;
   type: string;
-  data?: Partial<NodeCategory["nodes"][number]["data"]>;
+  data?: Record<string, unknown>;
 }): SidebarNode => {
-  const mergedData = {
+  const mergedData: NodeCategory["nodes"][number]["data"] = {
     label: name,
     type,
     description,
     ...(data ?? {}),
+    iconKey,
   };
 
   return {
@@ -82,10 +85,7 @@ const buildSidebarNode = ({
     iconKey,
     icon: getNodeIcon(iconKey),
     type,
-    data: {
-      ...mergedData,
-      iconKey,
-    },
+    data: mergedData,
   };
 };
 
@@ -265,6 +265,16 @@ export default function SidebarPanel({
           type: "data",
         }),
         buildSidebarNode({
+          id: "python-code",
+          name: "Python Code",
+          description: "Execute custom Python scripts",
+          iconKey: "python",
+          type: "python",
+          data: {
+            code: DEFAULT_PYTHON_CODE,
+          },
+        }),
+        buildSidebarNode({
           id: "filter",
           name: "Filter Data",
           description: "Filter data based on conditions",
@@ -356,11 +366,14 @@ export default function SidebarPanel({
       type: "api",
     }),
     buildSidebarNode({
-      id: "code-recent",
-      name: "Code",
-      description: "Execute custom JavaScript code",
-      iconKey: "code",
-      type: "function",
+      id: "python-recent",
+      name: "Python Code",
+      description: "Execute custom Python scripts",
+      iconKey: "python",
+      type: "python",
+      data: {
+        code: DEFAULT_PYTHON_CODE,
+      },
     }),
     buildSidebarNode({
       id: "text-generation-recent",
@@ -399,6 +412,16 @@ export default function SidebarPanel({
       description: "Transform data between steps",
       iconKey: "transform",
       type: "data",
+    }),
+    buildSidebarNode({
+      id: "python-favorite",
+      name: "Python Code",
+      description: "Execute custom Python scripts",
+      iconKey: "python",
+      type: "python",
+      data: {
+        code: DEFAULT_PYTHON_CODE,
+      },
     }),
   ];
 
