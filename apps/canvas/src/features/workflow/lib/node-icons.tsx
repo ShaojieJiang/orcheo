@@ -48,6 +48,7 @@ const NODE_ICON_FACTORIES = {
   transform: () => <Code className={`${ICON_CLASSES} text-green-500`} />,
   filterData: () => <Filter className={`${ICON_CLASSES} text-green-500`} />,
   aggregate: () => <BarChart className={`${ICON_CLASSES} text-green-500`} />,
+  python: () => <Code className={`${ICON_CLASSES} text-orange-500`} />,
   code: () => <Code className={`${ICON_CLASSES} text-purple-500`} />,
   textGeneration: () => (
     <FileText className={`${ICON_CLASSES} text-indigo-500`} />
@@ -88,6 +89,7 @@ const DEFAULT_TYPE_ICON_KEY: Record<string, NodeIconKey> = {
   data: "defaultData",
   ai: "defaultAi",
   visualization: "defaultVisualization",
+  python: "python",
   chatTrigger: "chatTrigger",
   group: "group",
   start: "start",
@@ -109,6 +111,7 @@ const LABEL_ICON_MATCHERS: Array<[RegExp, NodeIconKey]> = [
   [/error/i, "errorHandler"],
   [/database|sql/i, "database"],
   [/transform/i, "transform"],
+  [/python/i, "python"],
   [/filter/i, "filterData"],
   [/(aggregate|group)/i, "aggregate"],
   [/(code|script)/i, "code"],

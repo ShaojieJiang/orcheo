@@ -106,15 +106,6 @@ const nodeTypes = {
   startEnd: StartEndNode,
 };
 
-const defaultNodeStyle = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  borderRadius: 0,
-  width: "auto",
-  boxShadow: "none",
-};
-
 const determineReactFlowNodeType = (
   type: string | undefined,
 ): keyof typeof nodeTypes => {
@@ -257,7 +248,6 @@ export default function WorkflowExecutionHistory({
           id: node.id,
           type: reactFlowType,
           position: node.position,
-          style: defaultNodeStyle,
           data: {
             label: node.name,
             type: semanticType === "end" ? "end" : "start",
@@ -289,7 +279,6 @@ export default function WorkflowExecutionHistory({
         id: node.id,
         type: reactFlowType,
         position: node.position,
-        style: defaultNodeStyle,
         data: {
           label: node.name,
           status,
@@ -347,29 +336,34 @@ export default function WorkflowExecutionHistory({
   };
 
   useEffect(() => {
-    if (defaultSelectedExecution) {
-      setSelectedExecution(defaultSelectedExecution);
-      return;
-    }
+    setSelectedExecution((current) => {
+      if (executions.length === 0) {
+        return null;
+      }
 
-    if (totalExecutions === 0) {
-      setSelectedExecution(null);
-      return;
-    }
+      if (current) {
+        const currentMatch = executions.find(
+          (execution) => execution.id === current.id,
+        );
 
-    const stillSelected = executions.find(
-      (execution) => execution.id === selectedExecution?.id,
-    );
+        if (currentMatch) {
+          return currentMatch;
+        }
+      }
 
-    if (!stillSelected) {
-      setSelectedExecution(executions[0]);
-    }
-  }, [
-    defaultSelectedExecution,
-    executions,
-    selectedExecution?.id,
-    totalExecutions,
-  ]);
+      if (defaultSelectedExecution) {
+        const defaultMatch = executions.find(
+          (execution) => execution.id === defaultSelectedExecution.id,
+        );
+
+        if (defaultMatch) {
+          return defaultMatch;
+        }
+      }
+
+      return executions[0];
+    });
+  }, [executions, defaultSelectedExecution]);
 
   useEffect(() => {
     if (pageCount === 0) {

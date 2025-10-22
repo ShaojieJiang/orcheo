@@ -186,6 +186,22 @@ export default function WorkflowNodeGallery() {
       ),
     },
     {
+      id: "python-code",
+      category: "data",
+      component: (
+        <WorkflowNode
+          id="python-code"
+          data={{
+            label: "Python Code",
+            description: "Execute custom Python scripts",
+            iconKey: "python",
+            icon: getNodeIcon("python"),
+            type: "python",
+          }}
+        />
+      ),
+    },
+    {
       id: "database",
       category: "data",
       component: (

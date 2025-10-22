@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
 
 type NodeStatus = "idle" | "running" | "success" | "error" | "warning";
 
@@ -64,13 +65,25 @@ export const buildGraphConfigFromCanvas = (
 
   const graphNodes: Array<Record<string, unknown>> = [
     { name: "START", type: "START" },
-    ...nodes.map((node, index) => ({
-      name: canvasToGraph[node.id],
-      type: "PythonCode",
-      code: DEFAULT_NODE_CODE,
-      display_name: node.data?.label ?? node.id ?? `Node ${index + 1}`,
-      canvas_id: node.id,
-    })),
+    ...nodes.map((node, index) => {
+      const data = node.data ?? {};
+      const semanticTypeRaw =
+        typeof data?.type === "string" ? data.type.toLowerCase() : undefined;
+      const defaultCode =
+        semanticTypeRaw === "python" ? DEFAULT_PYTHON_CODE : DEFAULT_NODE_CODE;
+      const code =
+        typeof data?.code === "string" && data.code.length > 0
+          ? data.code
+          : defaultCode;
+
+      return {
+        name: canvasToGraph[node.id],
+        type: "PythonCode",
+        code,
+        display_name: node.data?.label ?? node.id ?? `Node ${index + 1}`,
+        canvas_id: node.id,
+      };
+    }),
     { name: "END", type: "END" },
   ];
 

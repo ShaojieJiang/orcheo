@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Tabs,
   TabsContent,
@@ -38,8 +38,10 @@ import {
   GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
 import Split from "react-split";
+import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
 
 interface NodeInspectorProps {
   node?: {
@@ -85,14 +87,46 @@ export default function NodeInspector({
     : null;
   const hasRuntime = Boolean(runtime);
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
-  const [pythonCode, setPythonCode] = useState(
-    `def process_data(input_data):\n    # Add your Python code here\n    result = input_data\n    \n    # Example: Filter items with value > 100\n    if "items" in input_data:\n        result = {\n            "filtered_items": [item for item in input_data["items"] if item["value"] > 100]\n        }\n    \n    return result`,
-  );
+  const extractPythonCode = (
+    targetNode: NodeInspectorProps["node"],
+  ): string => {
+    if (!targetNode) {
+      return DEFAULT_PYTHON_CODE;
+    }
+    const candidate = targetNode.data?.code;
+    return typeof candidate === "string" && candidate.length > 0
+      ? candidate
+      : DEFAULT_PYTHON_CODE;
+  };
+
+  const getSemanticType = (
+    targetNode: NodeInspectorProps["node"],
+  ): string | null => {
+    if (!targetNode) {
+      return null;
+    }
+    const dataType = targetNode.data?.type;
+    if (typeof dataType === "string" && dataType.length > 0) {
+      return dataType.toLowerCase();
+    }
+    return typeof targetNode.type === "string" && targetNode.type.length > 0
+      ? targetNode.type.toLowerCase()
+      : null;
+  };
+
+  const [pythonCode, setPythonCode] = useState(() => extractPythonCode(node));
   const [inputViewMode, setInputViewMode] = useState("input-json");
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
   const configTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previouslyHadRuntimeRef = useRef(hasRuntime);
+  const editorKeydownDisposableRef = useRef<MonacoEditor.IDisposable | null>(
+    null,
+  );
+  const handleSaveRef = useRef<() => void>();
+
+  const semanticType = getSemanticType(node);
+  const isPythonNode = semanticType === "python";
 
   useEffect(() => {
     if (!hasRuntime) {
@@ -103,7 +137,19 @@ export default function NodeInspector({
     previouslyHadRuntimeRef.current = hasRuntime;
   }, [hasRuntime]);
 
-  if (!node) return null;
+  useEffect(() => {
+    if (node && isPythonNode) {
+      setPythonCode(extractPythonCode(node));
+    }
+  }, [isPythonNode, node]);
+
+  const nodeLabel =
+    typeof node.data?.label === "string" && node.data.label.length > 0
+      ? node.data.label
+      : node.type;
+  const formattedSemanticType = semanticType
+    ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
+    : null;
 
   const renderLiveDataUnavailable = (label: string) => (
     <div className="flex items-center justify-center h-full">
@@ -153,11 +199,51 @@ export default function NodeInspector({
         });
   }
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (onSave && node) {
-      onSave(node.id, node.data);
+      const updatedData = { ...(node.data as Record<string, unknown>) };
+      if (isPythonNode) {
+        updatedData.code =
+          pythonCode && pythonCode.length > 0
+            ? pythonCode
+            : DEFAULT_PYTHON_CODE;
+      }
+      onSave(node.id, updatedData);
     }
-  };
+  }, [isPythonNode, node, onSave, pythonCode]);
+
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
+
+  useEffect(() => {
+    return () => {
+      editorKeydownDisposableRef.current?.dispose();
+    };
+  }, []);
+
+  const handleEditorMount = useCallback<OnMount>((editorInstance) => {
+    editorKeydownDisposableRef.current?.dispose();
+    editorKeydownDisposableRef.current = editorInstance.onKeyDown((event) => {
+      const { key, ctrlKey, metaKey, altKey } = event.browserEvent;
+
+      const isPlainSpace =
+        (key === " " || key === "Spacebar") && !ctrlKey && !metaKey && !altKey;
+
+      if (isPlainSpace) {
+        event.browserEvent.stopPropagation();
+        return;
+      }
+
+      if ((ctrlKey || metaKey) && (key === "s" || key === "S")) {
+        event.browserEvent.preventDefault();
+        event.browserEvent.stopPropagation();
+        handleSaveRef.current?.();
+      }
+    });
+  }, []);
+
+  if (!node) return null;
 
   // Sample input data for demonstration
   const sampleInput = {
@@ -459,7 +545,7 @@ export default function NodeInspector({
       });
     }
 
-    if (node.type === "Python") {
+    if (isPythonNode) {
       configurationSections.push({
         id: "python",
         title: "Python Code",
@@ -473,6 +559,7 @@ export default function NodeInspector({
                   defaultLanguage="python"
                   value={pythonCode}
                   onChange={(value) => setPythonCode(value || "")}
+                  onMount={handleEditorMount}
                   options={{
                     minimap: { enabled: false },
                     scrollBeyondLastLine: false,
@@ -672,8 +759,13 @@ export default function NodeInspector({
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="flex flex-col">
-              <h3 className="font-medium">{node.type}</h3>
+              <h3 className="font-medium">{nodeLabel}</h3>
               <p className="text-xs text-muted-foreground">ID: {node.id}</p>
+              {formattedSemanticType && (
+                <p className="text-xs text-muted-foreground">
+                  Node type: {formattedSemanticType}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

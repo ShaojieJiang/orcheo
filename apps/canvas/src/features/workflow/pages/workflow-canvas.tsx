@@ -384,6 +384,7 @@ interface NodeData {
   onDelete?: (id: string) => void;
   isDisabled?: boolean;
   runtime?: NodeRuntimeData;
+  code?: string;
   [key: string]: unknown;
 }
 

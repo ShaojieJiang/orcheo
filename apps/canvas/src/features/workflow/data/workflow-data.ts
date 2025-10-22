@@ -1,3 +1,5 @@
+import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
+
 export interface WorkflowNode {
   id: string;
   type: string;
@@ -135,12 +137,13 @@ export const SAMPLE_WORKFLOWS: Workflow[] = [
       },
       {
         id: "python-greet",
-        type: "Python",
+        type: "python",
         position: { x: 260, y: 0 },
         data: {
           label: "Run Python code",
           type: "python",
           description: "PythonCode node that returns a hello message.",
+          code: DEFAULT_PYTHON_CODE,
           codeExample: "return {'message': 'Hello from Python!'}",
         },
       },
