@@ -23,6 +23,7 @@ export type WorkflowNodeData = {
   label: string;
   description?: string;
   icon?: React.ReactNode;
+  iconKey?: string;
   status?: NodeStatus;
   type?: string;
   isDisabled?: boolean;

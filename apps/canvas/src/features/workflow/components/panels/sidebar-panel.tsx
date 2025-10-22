@@ -18,28 +18,18 @@ import {
   Search,
   ChevronLeft,
   Globe,
-  Code,
   Zap,
   Database,
   Sparkles,
-  MessageSquare,
-  Mail,
-  FileText,
-  Clock,
-  Calendar,
-  Briefcase,
   GitBranch,
-  RotateCw,
   Settings,
-  Filter,
-  AlertCircle,
   BarChart,
-  PieChart,
-  LineChart,
-  Play,
-  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getNodeIcon,
+  type NodeIconKey,
+} from "@features/workflow/lib/node-icons";
 
 interface NodeCategory {
   id: string;
@@ -49,17 +39,55 @@ interface NodeCategory {
     id: string;
     name: string;
     description: string;
-    icon: React.ReactNode;
+    iconKey: NodeIconKey;
+    icon?: React.ReactNode;
     type: string;
     data: {
       label: string;
       type: string;
       description: string;
+      iconKey: NodeIconKey;
     };
   }[];
 }
 
 type SidebarNode = NodeCategory["nodes"][number];
+
+const buildSidebarNode = ({
+  id,
+  name,
+  description,
+  iconKey,
+  type,
+  data,
+}: {
+  id: string;
+  name: string;
+  description: string;
+  iconKey: NodeIconKey;
+  type: string;
+  data?: Partial<NodeCategory["nodes"][number]["data"]>;
+}): SidebarNode => {
+  const mergedData = {
+    label: name,
+    type,
+    description,
+    ...(data ?? {}),
+  };
+
+  return {
+    id,
+    name,
+    description,
+    iconKey,
+    icon: getNodeIcon(iconKey),
+    type,
+    data: {
+      ...mergedData,
+      iconKey,
+    },
+  };
+};
 
 interface SidebarPanelProps {
   isCollapsed?: boolean;
@@ -85,45 +113,27 @@ export default function SidebarPanel({
       icon: <Settings className="h-4 w-4 text-gray-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "start-node",
           name: "Workflow Start",
           description: "Beginning of the workflow",
-          icon: <Play className="h-4 w-4 text-emerald-600" />,
-
+          iconKey: "start",
           type: "start",
-          data: {
-            label: "Workflow Start",
-            type: "start",
-            description: "Beginning of the workflow",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "end-node",
           name: "Workflow End",
           description: "End of the workflow",
-          icon: <Square className="h-4 w-4 text-rose-600" />,
-
+          iconKey: "end",
           type: "end",
-          data: {
-            label: "Workflow End",
-            type: "end",
-            description: "End of the workflow",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "group-node",
           name: "Node Group",
           description: "Group related nodes together",
-          icon: <Briefcase className="h-4 w-4 text-blue-500" />,
-
+          iconKey: "group",
           type: "group",
-          data: {
-            label: "Node Group",
-            type: "group",
-            description: "Group related nodes together",
-          },
-        },
+        }),
       ],
     },
     {
@@ -132,58 +142,34 @@ export default function SidebarPanel({
       icon: <Zap className="h-4 w-4 text-amber-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "webhook-trigger",
           name: "Webhook",
           description: "Trigger workflow via HTTP request",
-          icon: <Globe className="h-4 w-4 text-amber-500" />,
-
+          iconKey: "webhook",
           type: "trigger",
-          data: {
-            label: "Webhook",
-            type: "trigger",
-            description: "Trigger workflow via HTTP request",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "schedule-trigger",
           name: "Schedule",
           description: "Run workflow on a schedule",
-          icon: <Clock className="h-4 w-4 text-amber-500" />,
-
+          iconKey: "schedule",
           type: "trigger",
-          data: {
-            label: "Schedule",
-            type: "trigger",
-            description: "Run workflow on a schedule",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "calendar-trigger",
           name: "Calendar",
           description: "Trigger on calendar events",
-          icon: <Calendar className="h-4 w-4 text-amber-500" />,
-
+          iconKey: "calendar",
           type: "trigger",
-          data: {
-            label: "Calendar",
-            type: "trigger",
-            description: "Trigger on calendar events",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "chat-trigger",
           name: "Chat Trigger",
           description: "Trigger workflow from chat interactions",
-          icon: <MessageSquare className="h-4 w-4 text-amber-500" />,
-
+          iconKey: "chatTrigger",
           type: "chatTrigger",
-          data: {
-            label: "Chat Trigger",
-            type: "chatTrigger",
-            description: "Trigger workflow from chat interactions",
-          },
-        },
+        }),
       ],
     },
     {
@@ -192,45 +178,27 @@ export default function SidebarPanel({
       icon: <Globe className="h-4 w-4 text-blue-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "http-request",
           name: "HTTP Request",
           description: "Make HTTP requests to external APIs",
-          icon: <Globe className="h-4 w-4 text-blue-500" />,
-
+          iconKey: "http",
           type: "api",
-          data: {
-            label: "HTTP Request",
-            type: "api",
-            description: "Make HTTP requests to external APIs",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "email-send",
           name: "Send Email",
           description: "Send and receive emails",
-          icon: <Mail className="h-4 w-4 text-blue-500" />,
-
+          iconKey: "email",
           type: "api",
-          data: {
-            label: "Send Email",
-            type: "api",
-            description: "Send and receive emails",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "slack",
           name: "Slack",
           description: "Interact with Slack channels",
-          icon: <MessageSquare className="h-4 w-4 text-blue-500" />,
-
+          iconKey: "slack",
           type: "api",
-          data: {
-            label: "Slack",
-            type: "api",
-            description: "Interact with Slack channels",
-          },
-        },
+        }),
       ],
     },
     {
@@ -239,71 +207,41 @@ export default function SidebarPanel({
       icon: <GitBranch className="h-4 w-4 text-purple-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "condition",
           name: "Condition",
           description: "Branch based on condition",
-          icon: <GitBranch className="h-4 w-4 text-purple-500" />,
-
+          iconKey: "condition",
           type: "function",
-          data: {
-            label: "Condition",
-            type: "function",
-            description: "Branch based on condition",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "loop",
           name: "Loop",
           description: "Iterate over items",
-          icon: <RotateCw className="h-4 w-4 text-purple-500" />,
-
+          iconKey: "loop",
           type: "function",
-          data: {
-            label: "Loop",
-            type: "function",
-            description: "Iterate over items",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "switch",
           name: "Switch",
           description: "Multiple conditional branches",
-          icon: <Filter className="h-4 w-4 text-purple-500" />,
-
+          iconKey: "switch",
           type: "function",
-          data: {
-            label: "Switch",
-            type: "function",
-            description: "Multiple conditional branches",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "delay",
           name: "Delay",
           description: "Pause workflow execution",
-          icon: <Clock className="h-4 w-4 text-purple-500" />,
-
+          iconKey: "delay",
           type: "function",
-          data: {
-            label: "Delay",
-            type: "function",
-            description: "Pause workflow execution",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "error-handler",
           name: "Error Handler",
           description: "Handle errors in workflow",
-          icon: <AlertCircle className="h-4 w-4 text-purple-500" />,
-
+          iconKey: "errorHandler",
           type: "function",
-          data: {
-            label: "Error Handler",
-            type: "function",
-            description: "Handle errors in workflow",
-          },
-        },
+        }),
       ],
     },
     {
@@ -312,58 +250,34 @@ export default function SidebarPanel({
       icon: <Database className="h-4 w-4 text-green-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "database",
           name: "Database",
           description: "Query databases with SQL",
-          icon: <Database className="h-4 w-4 text-green-500" />,
-
+          iconKey: "database",
           type: "data",
-          data: {
-            label: "Database",
-            type: "data",
-            description: "Query databases with SQL",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "transform",
           name: "Transform",
           description: "Transform data between steps",
-          icon: <Code className="h-4 w-4 text-green-500" />,
-
+          iconKey: "transform",
           type: "data",
-          data: {
-            label: "Transform",
-            type: "data",
-            description: "Transform data between steps",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "filter",
           name: "Filter Data",
           description: "Filter data based on conditions",
-          icon: <Filter className="h-4 w-4 text-green-500" />,
-
+          iconKey: "filterData",
           type: "data",
-          data: {
-            label: "Filter Data",
-            type: "data",
-            description: "Filter data based on conditions",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "aggregate",
           name: "Aggregate",
           description: "Group and aggregate data",
-          icon: <BarChart className="h-4 w-4 text-green-500" />,
-
+          iconKey: "aggregate",
           type: "data",
-          data: {
-            label: "Aggregate",
-            type: "data",
-            description: "Group and aggregate data",
-          },
-        },
+        }),
       ],
     },
     {
@@ -372,58 +286,34 @@ export default function SidebarPanel({
       icon: <Sparkles className="h-4 w-4 text-indigo-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "text-generation",
           name: "Text Generation",
           description: "Generate text with AI models",
-          icon: <FileText className="h-4 w-4 text-indigo-500" />,
-
+          iconKey: "textGeneration",
           type: "ai",
-          data: {
-            label: "Text Generation",
-            type: "ai",
-            description: "Generate text with AI models",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "chat-completion",
           name: "Chat Completion",
           description: "Generate chat responses",
-          icon: <MessageSquare className="h-4 w-4 text-indigo-500" />,
-
+          iconKey: "chatCompletion",
           type: "ai",
-          data: {
-            label: "Chat Completion",
-            type: "ai",
-            description: "Generate chat responses",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "classification",
           name: "Classification",
           description: "Classify content with ML models",
-          icon: <Sparkles className="h-4 w-4 text-indigo-500" />,
-
+          iconKey: "classification",
           type: "ai",
-          data: {
-            label: "Classification",
-            type: "ai",
-            description: "Classify content with ML models",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "image-generation",
           name: "Image Generation",
           description: "Generate images with AI",
-          icon: <Sparkles className="h-4 w-4 text-indigo-500" />,
-
+          iconKey: "imageGeneration",
           type: "ai",
-          data: {
-            label: "Image Generation",
-            type: "ai",
-            description: "Generate images with AI",
-          },
-        },
+        }),
       ],
     },
     {
@@ -432,144 +322,84 @@ export default function SidebarPanel({
       icon: <BarChart className="h-4 w-4 text-orange-500" />,
 
       nodes: [
-        {
+        buildSidebarNode({
           id: "bar-chart",
           name: "Bar Chart",
           description: "Create bar charts from data",
-          icon: <BarChart className="h-4 w-4 text-orange-500" />,
-
+          iconKey: "barChart",
           type: "visualization",
-          data: {
-            label: "Bar Chart",
-            type: "visualization",
-            description: "Create bar charts from data",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "line-chart",
           name: "Line Chart",
           description: "Create line charts from data",
-          icon: <LineChart className="h-4 w-4 text-orange-500" />,
-
+          iconKey: "lineChart",
           type: "visualization",
-          data: {
-            label: "Line Chart",
-            type: "visualization",
-            description: "Create line charts from data",
-          },
-        },
-        {
+        }),
+        buildSidebarNode({
           id: "pie-chart",
           name: "Pie Chart",
           description: "Create pie charts from data",
-          icon: <PieChart className="h-4 w-4 text-orange-500" />,
-
+          iconKey: "pieChart",
           type: "visualization",
-          data: {
-            label: "Pie Chart",
-            type: "visualization",
-            description: "Create pie charts from data",
-          },
-        },
+        }),
       ],
     },
   ];
 
   const recentNodes = [
-    {
+    buildSidebarNode({
       id: "http-recent",
       name: "HTTP Request",
       description: "Make HTTP requests to external APIs",
-      icon: <Globe className="h-4 w-4 text-blue-500" />,
-
+      iconKey: "http",
       type: "api",
-      data: {
-        label: "HTTP Request",
-        type: "api",
-        description: "Make HTTP requests to external APIs",
-      },
-    },
-    {
+    }),
+    buildSidebarNode({
       id: "code-recent",
       name: "Code",
       description: "Execute custom JavaScript code",
-      icon: <Code className="h-4 w-4 text-purple-500" />,
-
+      iconKey: "code",
       type: "function",
-      data: {
-        label: "Code",
-        type: "function",
-        description: "Execute custom JavaScript code",
-      },
-    },
-    {
+    }),
+    buildSidebarNode({
       id: "text-generation-recent",
       name: "Text Generation",
       description: "Generate text with AI models",
-      icon: <Sparkles className="h-4 w-4 text-indigo-500" />,
-
+      iconKey: "textGeneration",
       type: "ai",
-      data: {
-        label: "Text Generation",
-        type: "ai",
-        description: "Generate text with AI models",
-      },
-    },
-    {
+    }),
+    buildSidebarNode({
       id: "start-node-recent",
       name: "Workflow Start",
       description: "Beginning of the workflow",
-      icon: <Play className="h-4 w-4 text-emerald-600" />,
-
+      iconKey: "start",
       type: "start",
-      data: {
-        label: "Workflow Start",
-        type: "start",
-        description: "Beginning of the workflow",
-      },
-    },
-    {
+    }),
+    buildSidebarNode({
       id: "end-node-recent",
       name: "Workflow End",
       description: "End of the workflow",
-      icon: <Square className="h-4 w-4 text-rose-600" />,
-
+      iconKey: "end",
       type: "end",
-      data: {
-        label: "Workflow End",
-        type: "end",
-        description: "End of the workflow",
-      },
-    },
+    }),
   ];
 
   const favoriteNodes = [
-    {
+    buildSidebarNode({
       id: "http-favorite",
       name: "HTTP Request",
       description: "Make HTTP requests to external APIs",
-      icon: <Globe className="h-4 w-4 text-blue-500" />,
-
+      iconKey: "http",
       type: "api",
-      data: {
-        label: "HTTP Request",
-        type: "api",
-        description: "Make HTTP requests to external APIs",
-      },
-    },
-    {
+    }),
+    buildSidebarNode({
       id: "transform-favorite",
       name: "Transform",
       description: "Transform data between steps",
-      icon: <Code className="h-4 w-4 text-purple-500" />,
-
+      iconKey: "transform",
       type: "data",
-      data: {
-        label: "Transform",
-        type: "data",
-        description: "Transform data between steps",
-      },
-    },
+    }),
   ];
 
   const filteredCategories = nodeCategories
@@ -599,26 +429,35 @@ export default function SidebarPanel({
   }: {
     node: SidebarNode;
     onClick?: () => void;
-  }) => (
-    <div
-      className="flex items-start gap-3 p-2 rounded-md hover:bg-accent cursor-pointer"
-      onClick={() => {
-        handleNodeClick(node);
-        if (onClick) onClick();
-      }}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("application/reactflow", JSON.stringify(node));
-        e.dataTransfer.effectAllowed = "move";
-      }}
-    >
-      <div className="mt-0.5">{node.icon}</div>
-      <div>
-        <div className="font-medium text-sm">{node.name}</div>
-        <div className="text-xs text-muted-foreground">{node.description}</div>
+  }) => {
+    const icon = node.icon ?? getNodeIcon(node.iconKey);
+    return (
+      <div
+        className="flex items-start gap-3 p-2 rounded-md hover:bg-accent cursor-pointer"
+        onClick={() => {
+          handleNodeClick(node);
+          if (onClick) onClick();
+        }}
+        draggable
+        onDragStart={(e) => {
+          const serializableNode = { ...node, icon: undefined };
+          e.dataTransfer.setData(
+            "application/reactflow",
+            JSON.stringify(serializableNode),
+          );
+          e.dataTransfer.effectAllowed = "move";
+        }}
+      >
+        <div className="mt-0.5">{icon}</div>
+        <div>
+          <div className="font-medium text-sm">{node.name}</div>
+          <div className="text-xs text-muted-foreground">
+            {node.description}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // Determine the appropriate classes based on position
   const containerClasses =

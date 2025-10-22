@@ -78,6 +78,10 @@ import type {
   CredentialInput,
 } from "@features/workflow/components/dialogs/credentials-vault";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
+import {
+  getNodeIcon,
+  inferNodeIconKey,
+} from "@features/workflow/lib/node-icons";
 
 // Define custom node types
 const nodeTypes = {
@@ -362,6 +366,7 @@ interface NodeData {
   label: string;
   description?: string;
   status: "idle" | "running" | "success" | "error" | "warning";
+  iconKey?: string;
   icon?: React.ReactNode;
   onOpenChat?: () => void;
   onDelete?: (id: string) => void;
@@ -501,6 +506,26 @@ const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
 
   const extraData = Object.fromEntries(extraEntries);
   const semanticType = node.data?.type ?? node.type ?? "default";
+  const extraDataRecord = { ...extraData } as Record<string, unknown>;
+  const storedIconKeyRaw = extraDataRecord.iconKey;
+  delete extraDataRecord.iconKey;
+  delete extraDataRecord.icon;
+  const otherExtraData = extraDataRecord;
+
+  const label =
+    typeof node.data?.label === "string" ? node.data.label : "New Node";
+  const description =
+    typeof node.data?.description === "string" ? node.data.description : "";
+
+  const storedIconKey =
+    typeof storedIconKeyRaw === "string" ? storedIconKeyRaw : undefined;
+  const resolvedIconKey =
+    inferNodeIconKey({
+      iconKey: storedIconKey,
+      label,
+      type: semanticType,
+    }) ?? storedIconKey;
+  const icon = getNodeIcon(resolvedIconKey);
 
   return {
     id: node.id,
@@ -509,11 +534,13 @@ const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
     style: defaultNodeStyle,
     data: {
       type: semanticType,
-      label: node.data?.label ?? "New Node",
-      description: node.data?.description ?? "",
+      label,
+      description,
       status: (node.data?.status ?? "idle") as NodeStatus,
       isDisabled: node.data?.isDisabled,
-      ...extraData,
+      iconKey: resolvedIconKey,
+      icon,
+      ...otherExtraData,
     } as NodeData,
     draggable: true,
   };
@@ -655,6 +682,7 @@ interface SidebarNodeDefinition {
   type?: string;
   name?: string;
   description?: string;
+  iconKey?: string;
   icon?: React.ReactNode;
   data?: Record<string, unknown>;
 }
@@ -2222,6 +2250,49 @@ export default function WorkflowCanvas({
 
         const nodeType = determineNodeType(node.id);
 
+        const baseDataRest: Partial<NodeData> = isRecord(node.data)
+          ? { ...(node.data as Partial<NodeData>) }
+          : {};
+        delete baseDataRest.icon;
+        delete baseDataRest.onOpenChat;
+        const semanticType =
+          nodeType === "startEnd"
+            ? node.id === "start-node"
+              ? "start"
+              : "end"
+            : typeof node.type === "string" && node.type.length > 0
+              ? node.type
+              : typeof baseDataRest.type === "string" &&
+                  baseDataRest.type.length > 0
+                ? baseDataRest.type
+                : "default";
+        const label =
+          typeof node.name === "string" && node.name.length > 0
+            ? node.name
+            : typeof baseDataRest.label === "string" &&
+                baseDataRest.label.length > 0
+              ? baseDataRest.label
+              : "New Node";
+        const description =
+          typeof node.description === "string" && node.description.length > 0
+            ? node.description
+            : typeof baseDataRest.description === "string"
+              ? baseDataRest.description
+              : "";
+        const rawIconKey =
+          typeof node.iconKey === "string"
+            ? node.iconKey
+            : typeof baseDataRest.iconKey === "string"
+              ? baseDataRest.iconKey
+              : undefined;
+        const finalIconKey =
+          inferNodeIconKey({
+            iconKey: rawIconKey,
+            label,
+            type: semanticType,
+          }) ?? rawIconKey;
+        const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
+
         // Create a new node
         const nodeId = generateNodeId();
 
@@ -2231,17 +2302,13 @@ export default function WorkflowCanvas({
           position,
           style: defaultNodeStyle,
           data: {
-            ...node,
-            label: node.name || "New Node",
-            description: node.description || "",
-            type:
-              nodeType === "startEnd"
-                ? node.id === "start-node"
-                  ? "start"
-                  : "end"
-                : node.id?.split("-")[0] || "default",
+            ...baseDataRest,
+            label,
+            description,
+            type: semanticType,
             status: "idle" as NodeStatus,
-            icon: node.icon,
+            iconKey: finalIconKey,
+            icon: iconNode,
             onOpenChat:
               nodeType === "chatTrigger"
                 ? () => handleOpenChat(nodeId)
@@ -2265,6 +2332,11 @@ export default function WorkflowCanvas({
       if (!reactFlowInstance.current) return;
 
       const nodeType = determineNodeType(node.id);
+      const baseDataRest: Partial<NodeData> = isRecord(node.data)
+        ? { ...(node.data as Partial<NodeData>) }
+        : {};
+      delete baseDataRest.icon;
+      delete baseDataRest.onOpenChat;
 
       // Calculate a position for the new node
       const position = {
@@ -2274,6 +2346,43 @@ export default function WorkflowCanvas({
 
       // Create a new node with explicit NodeData type
       const nodeId = generateNodeId();
+      const semanticType =
+        nodeType === "startEnd"
+          ? node.id === "start-node"
+            ? "start"
+            : "end"
+          : typeof node.type === "string" && node.type.length > 0
+            ? node.type
+            : typeof baseDataRest.type === "string" &&
+                baseDataRest.type.length > 0
+              ? baseDataRest.type
+              : "default";
+      const label =
+        typeof node.name === "string" && node.name.length > 0
+          ? node.name
+          : typeof baseDataRest.label === "string" &&
+              baseDataRest.label.length > 0
+            ? baseDataRest.label
+            : "New Node";
+      const description =
+        typeof node.description === "string" && node.description.length > 0
+          ? node.description
+          : typeof baseDataRest.description === "string"
+            ? baseDataRest.description
+            : "";
+      const rawIconKey =
+        typeof node.iconKey === "string"
+          ? node.iconKey
+          : typeof baseDataRest.iconKey === "string"
+            ? baseDataRest.iconKey
+            : undefined;
+      const finalIconKey =
+        inferNodeIconKey({
+          iconKey: rawIconKey,
+          label,
+          type: semanticType,
+        }) ?? rawIconKey;
+      const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
 
       const newNode: Node<NodeData> = {
         id: nodeId,
@@ -2281,16 +2390,13 @@ export default function WorkflowCanvas({
         position,
         style: defaultNodeStyle,
         data: {
-          type:
-            nodeType === "startEnd"
-              ? node.id === "start-node"
-                ? "start"
-                : "end"
-              : node.type || "default",
-          label: node.name || "New Node",
-          description: node.description || "",
+          ...baseDataRest,
+          type: semanticType,
+          label,
+          description,
           status: "idle" as NodeStatus,
-          icon: node.icon,
+          iconKey: finalIconKey,
+          icon: iconNode,
           onOpenChat:
             nodeType === "chatTrigger"
               ? () => handleOpenChat(nodeId)
