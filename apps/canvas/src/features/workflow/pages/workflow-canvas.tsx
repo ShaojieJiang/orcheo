@@ -364,6 +364,7 @@ interface NodeData {
   status: "idle" | "running" | "success" | "error" | "warning";
   icon?: React.ReactNode;
   onOpenChat?: () => void;
+  onDelete?: (id: string) => void;
   isDisabled?: boolean;
   [key: string]: unknown;
 }
@@ -1087,42 +1088,6 @@ export default function WorkflowCanvas({
 
   const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
 
-  const decoratedNodes = useMemo(() => {
-    if (!isSearchOpen && searchMatches.length === 0) {
-      return nodes;
-    }
-
-    return nodes.map((node) => {
-      const isMatch = searchMatchSet.has(node.id);
-      const isActive =
-        isMatch &&
-        isSearchOpen &&
-        searchMatches[currentSearchIndex] === node.id;
-
-      if (!isSearchOpen) {
-        return isMatch
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                isSearchMatch: false,
-                isSearchActive: false,
-              },
-            }
-          : node;
-      }
-
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          isSearchMatch: isMatch,
-          isSearchActive: isActive,
-        },
-      };
-    });
-  }, [currentSearchIndex, isSearchOpen, nodes, searchMatchSet, searchMatches]);
-
   const createSnapshot = useCallback(
     (): WorkflowSnapshot => ({
       nodes: nodesRef.current.map(cloneNode),
@@ -1359,6 +1324,132 @@ export default function WorkflowCanvas({
         : null;
     return label ?? canvasNodeId;
   }, []);
+
+  const deleteNodes = useCallback(
+    (nodeIds: string[]) => {
+      const uniqueIds = Array.from(new Set(nodeIds)).filter(Boolean);
+      if (uniqueIds.length === 0) {
+        return;
+      }
+
+      const labels = uniqueIds.map((id) => resolveNodeLabel(id));
+
+      isRestoringRef.current = true;
+      recordSnapshot({ force: true });
+      try {
+        setNodesState((current) =>
+          current.filter((node) => !uniqueIds.includes(node.id)),
+        );
+        setEdgesState((current) =>
+          current.filter(
+            (edge) =>
+              !uniqueIds.includes(edge.source) &&
+              !uniqueIds.includes(edge.target),
+          ),
+        );
+      } catch (error) {
+        isRestoringRef.current = false;
+        throw error;
+      }
+
+      setValidationErrors((errors) =>
+        errors.filter((error) => {
+          if (error.nodeId && uniqueIds.includes(error.nodeId)) {
+            return false;
+          }
+          if (error.sourceId && uniqueIds.includes(error.sourceId)) {
+            return false;
+          }
+          if (error.targetId && uniqueIds.includes(error.targetId)) {
+            return false;
+          }
+          return true;
+        }),
+      );
+
+      setSearchMatches((matches) =>
+        matches.filter((match) => !uniqueIds.includes(match)),
+      );
+
+      setSelectedNode((current) =>
+        current && uniqueIds.includes(current.id) ? null : current,
+      );
+
+      if (activeChatNodeId && uniqueIds.includes(activeChatNodeId)) {
+        setActiveChatNodeId(null);
+        setIsChatOpen(false);
+      }
+
+      toast({
+        title: uniqueIds.length === 1 ? "Node deleted" : "Nodes deleted",
+        description:
+          uniqueIds.length === 1
+            ? `Removed ${labels[0]}.`
+            : `Removed ${uniqueIds.length} nodes.`,
+      });
+    },
+    [
+      activeChatNodeId,
+      recordSnapshot,
+      resolveNodeLabel,
+      setActiveChatNodeId,
+      setEdgesState,
+      setIsChatOpen,
+      setNodesState,
+      setSearchMatches,
+      setSelectedNode,
+      setValidationErrors,
+    ],
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      deleteNodes([nodeId]);
+    },
+    [deleteNodes],
+  );
+
+  const decoratedNodes = useMemo(() => {
+    return nodes.map((node) => {
+      const isMatch = searchMatchSet.has(node.id);
+      const isActive =
+        isMatch &&
+        isSearchOpen &&
+        searchMatches[currentSearchIndex] === node.id;
+
+      const baseData = {
+        ...node.data,
+        onDelete: handleDeleteNode,
+      };
+
+      if (!isSearchOpen) {
+        return {
+          ...node,
+          data: {
+            ...baseData,
+            isSearchMatch: false,
+            isSearchActive: false,
+          },
+        };
+      }
+
+      return {
+        ...node,
+        data: {
+          ...baseData,
+          isSearchMatch: isMatch,
+          isSearchActive: isActive,
+        },
+      };
+    });
+  }, [
+    currentSearchIndex,
+    handleDeleteNode,
+    isSearchOpen,
+    nodes,
+    searchMatchSet,
+    searchMatches,
+  ]);
 
   const determineLogLevel = useCallback(
     (
@@ -2601,6 +2692,27 @@ export default function WorkflowCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        !isEditable
+      ) {
+        const selectedIds = nodesRef.current
+          .filter((node) => node.selected)
+          .map((node) => node.id);
+        if (selectedIds.length > 0) {
+          event.preventDefault();
+          deleteNodes(selectedIds);
+          return;
+        }
+      }
+
       if (!(event.ctrlKey || event.metaKey)) {
         return;
       }
@@ -2634,6 +2746,7 @@ export default function WorkflowCanvas({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [
+    deleteNodes,
     handleRedo,
     handleUndo,
     setCurrentSearchIndex,
