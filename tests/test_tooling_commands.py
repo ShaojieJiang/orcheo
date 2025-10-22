@@ -46,6 +46,10 @@ def test_canvas_lint_invokes_npm(successful_run: None) -> None:
     commands.canvas_lint()
 
 
+def test_canvas_dev_invokes_npm(successful_run: None) -> None:
+    commands.canvas_dev()
+
+
 def test_run_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def _run(command: Sequence[str], check: bool = False) -> CompletedProcess[str]:
         return CompletedProcess(args=command, returncode=1)
