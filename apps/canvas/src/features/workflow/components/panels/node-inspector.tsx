@@ -83,7 +83,8 @@ export default function NodeInspector({
   const runtime = isRecord(runtimeCandidate)
     ? (runtimeCandidate as NodeRuntimeData)
     : null;
-  const [useLiveData, setUseLiveData] = useState(() => Boolean(runtime));
+  const hasRuntime = Boolean(runtime);
+  const [useLiveData, setUseLiveData] = useState(hasRuntime);
   const [pythonCode, setPythonCode] = useState(
     `def process_data(input_data):\n    # Add your Python code here\n    result = input_data\n    \n    # Example: Filter items with value > 100\n    if "items" in input_data:\n        result = {\n            "filtered_items": [item for item in input_data["items"] if item["value"] > 100]\n        }\n    \n    return result`,
   );
@@ -91,18 +92,16 @@ export default function NodeInspector({
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
   const configTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const runtimeAvailabilityRef = useRef(Boolean(runtime));
+  const previouslyHadRuntimeRef = useRef(hasRuntime);
 
   useEffect(() => {
-    const hasRuntime = Boolean(runtime);
-    if (hasRuntime && !runtimeAvailabilityRef.current) {
-      setUseLiveData(true);
-    }
     if (!hasRuntime) {
       setUseLiveData(false);
+    } else if (!previouslyHadRuntimeRef.current) {
+      setUseLiveData(true);
     }
-    runtimeAvailabilityRef.current = hasRuntime;
-  }, [runtime]);
+    previouslyHadRuntimeRef.current = hasRuntime;
+  }, [hasRuntime]);
 
   if (!node) return null;
 

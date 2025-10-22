@@ -1,7 +1,22 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/design-system/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/design-system/ui/pagination";
 import {
   ReactFlow,
   Background,
@@ -161,9 +176,23 @@ export default function WorkflowExecutionHistory({
     );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
+  const totalExecutions = executions.length;
+  const pageCount =
+    totalExecutions === 0 ? 0 : Math.ceil(totalExecutions / pageSize);
+  const startOffset = page * pageSize;
+  const endOffset = Math.min(totalExecutions, startOffset + pageSize);
+  const currentPageExecutions = useMemo(() => {
+    const startIndex = page * pageSize;
+    return executions.slice(startIndex, startIndex + pageSize);
+  }, [executions, page, pageSize]);
+  const pageSizeOptions = [10, 20, 50];
+  const isFirstPage = page === 0 || pageCount === 0;
+  const isLastPage = pageCount === 0 || page === pageCount - 1;
 
   const handleSelectExecution = (execution: WorkflowExecution) => {
     setSelectedExecution(execution);
@@ -323,7 +352,7 @@ export default function WorkflowExecutionHistory({
       return;
     }
 
-    if (executions.length === 0) {
+    if (totalExecutions === 0) {
       setSelectedExecution(null);
       return;
     }
@@ -335,7 +364,25 @@ export default function WorkflowExecutionHistory({
     if (!stillSelected) {
       setSelectedExecution(executions[0]);
     }
-  }, [defaultSelectedExecution, executions, selectedExecution?.id]);
+  }, [
+    defaultSelectedExecution,
+    executions,
+    selectedExecution?.id,
+    totalExecutions,
+  ]);
+
+  useEffect(() => {
+    if (pageCount === 0) {
+      if (page !== 0) {
+        setPage(0);
+      }
+      return;
+    }
+
+    if (page > pageCount - 1) {
+      setPage(pageCount - 1);
+    }
+  }, [page, pageCount]);
 
   // Cleanup event listeners
   useEffect(() => {
@@ -357,98 +404,183 @@ export default function WorkflowExecutionHistory({
             className="w-full md:w-auto border-r border-border flex-shrink-0 relative"
             style={{ width: sidebarWidth }}
           >
-            <div className="p-2 border-b border-border">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-xl font-bold">Executions</h2>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={onRefresh}
-                    title="Refresh"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" title="Filter">
-                    <Filter className="h-4 w-4" />
-                  </Button>
+            <div className="flex h-full flex-col">
+              <div className="space-y-2 border-b border-border p-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold">Executions</h2>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={onRefresh}
+                      title="Refresh"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" title="Filter">
+                      <Filter className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {totalExecutions === 1
+                      ? "1 execution"
+                      : `${totalExecutions} executions`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span>Rows</span>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) => {
+                        const nextPageSize = Number(value);
+                        setPage(0);
+                        setPageSize(nextPageSize);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[80px]">
+                        <SelectValue aria-label="Rows per page" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pageSizeOptions.map((option) => (
+                          <SelectItem key={option} value={String(option)}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
-            </div>
-            <ScrollArea className="h-[calc(100%-3rem)]">
-              <div className="p-2 overflow-auto">
-                {executions.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No executions found
-                  </div>
-                ) : (
-                  executions.map((execution) => (
-                    <div
-                      key={execution.id}
-                      className={cn(
-                        "border rounded-lg p-4 mb-2 cursor-pointer transition-colors",
-                        selectedExecution?.id === execution.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50",
-                      )}
-                      onClick={() => handleSelectExecution(execution)}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            className={cn(
-                              getStatusBadgeClass(execution.status),
-                            )}
-                          >
-                            {execution.status.charAt(0).toUpperCase() +
-                              execution.status.slice(1)}
-                          </Badge>
-                          <span className="font-medium">
-                            Run #{execution.runId}
-                          </span>
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {formatDate(execution.startTime)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1">
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-
-                            <span>{formatDuration(execution.duration)}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-
-                            <span>
-                              {execution.issues}{" "}
-                              {execution.issues === 1 ? "issue" : "issues"}
+              <ScrollArea className="flex-1">
+                <div className="p-2">
+                  {totalExecutions === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground">
+                      No executions found
+                    </div>
+                  ) : (
+                    currentPageExecutions.map((execution) => (
+                      <div
+                        key={execution.id}
+                        className={cn(
+                          "mb-2 cursor-pointer rounded-lg border p-4 transition-colors",
+                          selectedExecution?.id === execution.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50",
+                        )}
+                        onClick={() => handleSelectExecution(execution)}
+                      >
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              className={cn(
+                                getStatusBadgeClass(execution.status),
+                              )}
+                            >
+                              {execution.status.charAt(0).toUpperCase() +
+                                execution.status.slice(1)}
+                            </Badge>
+                            <span className="font-medium">
+                              Run #{execution.runId}
                             </span>
                           </div>
+                          <span className="text-sm text-muted-foreground">
+                            {formatDate(execution.startTime)}
+                          </span>
                         </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onViewDetails?.(execution);
-                            }}
-                          >
-                            View Details
-                          </Button>
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+
+                              <span>{formatDuration(execution.duration)}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+
+                              <span>
+                                {execution.issues}{" "}
+                                {execution.issues === 1 ? "issue" : "issues"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewDetails?.(execution);
+                              }}
+                            >
+                              View Details
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+              <div className="flex flex-col gap-2 border-t border-border p-2 text-sm md:flex-row md:items-center md:justify-between">
+                <span className="text-xs text-muted-foreground md:text-sm">
+                  {totalExecutions === 0
+                    ? "No executions to display"
+                    : `Showing ${startOffset + 1}-${endOffset} of ${totalExecutions}`}
+                </span>
+                <Pagination className="mx-0 justify-center md:justify-end">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (!isFirstPage) {
+                            setPage((prev) => Math.max(prev - 1, 0));
+                          }
+                        }}
+                        className={cn(
+                          isFirstPage && "pointer-events-none opacity-50",
+                        )}
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationLink
+                        href="#"
+                        isActive
+                        onClick={(event) => event.preventDefault()}
+                        className="px-3"
+                      >
+                        {`Page ${pageCount === 0 ? 0 : page + 1} of ${Math.max(
+                          pageCount,
+                          1,
+                        )}`}
+                      </PaginationLink>
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (!isLastPage) {
+                            setPage((prev) =>
+                              Math.min(prev + 1, pageCount - 1),
+                            );
+                          }
+                        }}
+                        className={cn(
+                          isLastPage && "pointer-events-none opacity-50",
+                        )}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
-            </ScrollArea>
+            </div>
             {/* Resize handle */}
             <div
-              className="absolute top-0 right-0 w-1 h-full cursor-col-resize bg-border hover:bg-primary/50 transition-colors"
+              className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
               onMouseDown={handleMouseDown}
             />
           </div>
