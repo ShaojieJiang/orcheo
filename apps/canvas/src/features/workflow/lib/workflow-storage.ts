@@ -458,13 +458,16 @@ export const WORKFLOW_STORAGE_EVENT = "orcheo:workflows-updated";
 
 export const listWorkflows = async (): Promise<StoredWorkflow[]> => {
   const workflows = await request<ApiWorkflow[]>(API_BASE);
+  const activeWorkflows = workflows.filter(
+    (workflow) => workflow.is_archived !== true,
+  );
   const items = await Promise.all(
-    workflows.map(async (workflow) => {
+    activeWorkflows.map(async (workflow) => {
       const versions = await fetchWorkflowVersions(workflow.id);
       return toStoredWorkflow(workflow, versions);
     }),
   );
-  return items;
+  return items.filter((workflow) => workflow.isArchived !== true);
 };
 
 export const getWorkflowById = async (

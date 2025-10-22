@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Tabs,
   TabsContent,
@@ -59,13 +59,32 @@ interface SchemaField {
   description?: string;
 }
 
+type NodeRuntimeData = {
+  inputs?: unknown;
+  outputs?: unknown;
+  messages?: unknown;
+  raw?: unknown;
+  updatedAt?: string;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
 export default function NodeInspector({
   node,
   onClose,
   onSave,
   className,
 }: NodeInspectorProps) {
-  const [useLiveData, setUseLiveData] = useState(true);
+  const runtimeCandidate = node
+    ? (node.data as Record<string, unknown>)["runtime"]
+    : undefined;
+  const runtime = isRecord(runtimeCandidate)
+    ? (runtimeCandidate as NodeRuntimeData)
+    : null;
+  const hasRuntime = Boolean(runtime);
+  const [useLiveData, setUseLiveData] = useState(hasRuntime);
   const [pythonCode, setPythonCode] = useState(
     `def process_data(input_data):\n    # Add your Python code here\n    result = input_data\n    \n    # Example: Filter items with value > 100\n    if "items" in input_data:\n        result = {\n            "filtered_items": [item for item in input_data["items"] if item["value"] > 100]\n        }\n    \n    return result`,
   );
@@ -73,33 +92,71 @@ export default function NodeInspector({
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
   const configTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const previouslyHadRuntimeRef = useRef(hasRuntime);
+
+  useEffect(() => {
+    if (!hasRuntime) {
+      setUseLiveData(false);
+    } else if (!previouslyHadRuntimeRef.current) {
+      setUseLiveData(true);
+    }
+    previouslyHadRuntimeRef.current = hasRuntime;
+  }, [hasRuntime]);
 
   if (!node) return null;
+
+  const renderLiveDataUnavailable = (label: string) => (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+        <Badge variant="outline" className="mb-2">
+          {label}
+        </Badge>
+        <p className="text-sm text-muted-foreground">
+          {runtime
+            ? "No live data captured for this node yet."
+            : "Run the workflow to capture live data."}
+        </p>
+      </div>
+    </div>
+  );
+
+  const liveInputs = runtime?.inputs;
+  let outputDisplay: unknown = runtime?.raw;
+  if (runtime?.outputs !== undefined || runtime?.messages !== undefined) {
+    const merged: Record<string, unknown> = {};
+    if (runtime.outputs !== undefined) {
+      merged.outputs = runtime.outputs;
+    }
+    if (runtime.messages !== undefined) {
+      merged.messages = runtime.messages;
+    }
+    outputDisplay =
+      runtime.outputs !== undefined && runtime.messages === undefined
+        ? runtime.outputs
+        : merged;
+  }
+  const hasLiveInputs = liveInputs !== undefined;
+  const hasLiveOutputs =
+    runtime?.outputs !== undefined ||
+    runtime?.messages !== undefined ||
+    outputDisplay !== undefined;
+
+  let formattedUpdatedAt: string | null = null;
+  if (runtime?.updatedAt) {
+    const parsed = new Date(runtime.updatedAt);
+    formattedUpdatedAt = Number.isNaN(parsed.getTime())
+      ? runtime.updatedAt
+      : parsed.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+  }
 
   const handleSave = () => {
     if (onSave && node) {
       onSave(node.id, node.data);
     }
-  };
-
-  // Sample JSON output for demonstration
-  const sampleOutput = {
-    result: {
-      id: "123456",
-      name: "Sample Response",
-      status: "success",
-      timestamp: new Date().toISOString(),
-      data: {
-        items: [
-          { id: 1, name: "Item 1", value: 100 },
-          { id: 2, name: "Item 2", value: 200 },
-          { id: 3, name: "Item 3", value: 300 },
-        ],
-
-        total: 3,
-        processed: true,
-      },
-    },
   };
 
   // Sample input data for demonstration
@@ -182,9 +239,19 @@ export default function NodeInspector({
 
           <TabsContent value="input-json" className="p-0 m-0">
             <div className="flex-1 p-4 bg-muted/30">
-              <div className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                {JSON.stringify(sampleInput, null, 2)}
-              </div>
+              {useLiveData ? (
+                hasLiveInputs ? (
+                  <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                    {JSON.stringify(liveInputs, null, 2)}
+                  </pre>
+                ) : (
+                  renderLiveDataUnavailable("Live Input")
+                )
+              ) : (
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                  {JSON.stringify(sampleInput, null, 2)}
+                </pre>
+              )}
             </div>
           </TabsContent>
 
@@ -522,6 +589,7 @@ export default function NodeInspector({
                   id="live-data"
                   checked={useLiveData}
                   onCheckedChange={setUseLiveData}
+                  disabled={!runtime}
                 />
 
                 <Label htmlFor="live-data" className="text-xs">
@@ -531,6 +599,11 @@ export default function NodeInspector({
               <Button variant="ghost" size="icon" className="h-8 w-8">
                 <RefreshCw className="h-4 w-4" />
               </Button>
+              {formattedUpdatedAt && runtime && (
+                <span className="text-[10px] text-muted-foreground">
+                  Updated {formattedUpdatedAt}
+                </span>
+              )}
             </div>
           </Tabs>
         </div>
@@ -540,9 +613,13 @@ export default function NodeInspector({
         <TabsContent value="output-json" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
             {useLiveData ? (
-              <div className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                {JSON.stringify(sampleOutput, null, 2)}
-              </div>
+              hasLiveOutputs && outputDisplay !== undefined ? (
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                  {JSON.stringify(outputDisplay, null, 2)}
+                </pre>
+              ) : (
+                renderLiveDataUnavailable("Live Output")
+              )
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">

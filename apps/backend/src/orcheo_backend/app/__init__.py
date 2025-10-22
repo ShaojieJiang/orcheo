@@ -64,6 +64,8 @@ from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
     RunHistoryRecord,
+    RunHistoryStore,
+    SqliteRunHistoryStore,
 )
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -118,9 +120,7 @@ load_dotenv()
 _ws_router = APIRouter()
 _http_router = APIRouter(prefix="/api")
 _repository: WorkflowRepository
-_history_store_ref: dict[str, InMemoryRunHistoryStore] = {
-    "store": InMemoryRunHistoryStore()
-}
+_history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
 
@@ -236,8 +236,10 @@ def _create_repository() -> WorkflowRepository:
                 default="~/.orcheo/workflows.sqlite",
             ),
         )
+        _history_store_ref["store"] = SqliteRunHistoryStore(sqlite_path)
         return SqliteWorkflowRepository(sqlite_path, credential_service=service)
     if backend == "inmemory":
+        _history_store_ref["store"] = InMemoryRunHistoryStore()
         return InMemoryWorkflowRepository(credential_service=service)
     msg = "Unsupported repository backend configured."
     raise ValueError(msg)
@@ -254,12 +256,12 @@ def get_repository() -> WorkflowRepository:
 RepositoryDep = Annotated[WorkflowRepository, Depends(get_repository)]
 
 
-def get_history_store() -> InMemoryRunHistoryStore:
+def get_history_store() -> RunHistoryStore:
     """Return the singleton execution history store."""
     return _history_store_ref["store"]
 
 
-HistoryStoreDep = Annotated[InMemoryRunHistoryStore, Depends(get_history_store)]
+HistoryStoreDep = Annotated[RunHistoryStore, Depends(get_history_store)]
 
 
 def get_credential_service() -> OAuthCredentialService | None:
@@ -1416,7 +1418,7 @@ async def dispatch_manual_runs(
 def create_app(
     repository: WorkflowRepository | None = None,
     *,
-    history_store: InMemoryRunHistoryStore | None = None,
+    history_store: RunHistoryStore | None = None,
     credential_service: OAuthCredentialService | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""

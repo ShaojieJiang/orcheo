@@ -7,15 +7,7 @@ import { Search } from "lucide-react";
 import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import GroupNode from "@features/workflow/components/nodes/group-node";
-import {
-  Globe,
-  Code,
-  Zap,
-  Database,
-  FileText,
-  MessageSquare,
-  Mail,
-} from "lucide-react";
+import { getNodeIcon } from "@features/workflow/lib/node-icons";
 
 const NODE_CATEGORIES = {
   all: "All Nodes",
@@ -87,8 +79,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Webhook",
             description: "Trigger on HTTP webhook",
-            icon: <Zap className="h-4 w-4 text-amber-500" />,
-
+            iconKey: "webhook",
+            icon: getNodeIcon("webhook"),
             type: "trigger",
           }}
         />
@@ -103,8 +95,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Schedule",
             description: "Trigger on schedule",
-            icon: <Clock className="h-4 w-4 text-amber-500" />,
-
+            iconKey: "schedule",
+            icon: getNodeIcon("schedule"),
             type: "trigger",
           }}
         />
@@ -120,8 +112,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "HTTP Request",
             description: "Make HTTP requests",
-            icon: <Globe className="h-4 w-4 text-blue-500" />,
-
+            iconKey: "http",
+            icon: getNodeIcon("http"),
             type: "api",
           }}
         />
@@ -136,8 +128,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Send Email",
             description: "Send an email",
-            icon: <Mail className="h-4 w-4 text-blue-500" />,
-
+            iconKey: "email",
+            icon: getNodeIcon("email"),
             type: "api",
           }}
         />
@@ -153,8 +145,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Condition",
             description: "Branch based on condition",
-            icon: <GitBranch className="h-4 w-4 text-purple-500" />,
-
+            iconKey: "condition",
+            icon: getNodeIcon("condition"),
             type: "function",
           }}
         />
@@ -169,8 +161,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Loop",
             description: "Iterate over items",
-            icon: <RotateCw className="h-4 w-4 text-purple-500" />,
-
+            iconKey: "loop",
+            icon: getNodeIcon("loop"),
             type: "function",
           }}
         />
@@ -186,8 +178,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Transform",
             description: "Transform data",
-            icon: <Code className="h-4 w-4 text-green-500" />,
-
+            iconKey: "transform",
+            icon: getNodeIcon("transform"),
             type: "data",
           }}
         />
@@ -202,8 +194,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Database",
             description: "Query database",
-            icon: <Database className="h-4 w-4 text-green-500" />,
-
+            iconKey: "database",
+            icon: getNodeIcon("database"),
             type: "data",
           }}
         />
@@ -219,8 +211,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Text Generation",
             description: "Generate text with AI",
-            icon: <FileText className="h-4 w-4 text-indigo-500" />,
-
+            iconKey: "textGeneration",
+            icon: getNodeIcon("textGeneration"),
             type: "ai",
           }}
         />
@@ -235,8 +227,8 @@ export default function WorkflowNodeGallery() {
           data={{
             label: "Chat Completion",
             description: "Generate chat responses",
-            icon: <MessageSquare className="h-4 w-4 text-indigo-500" />,
-
+            iconKey: "chatCompletion",
+            icon: getNodeIcon("chatCompletion"),
             type: "ai",
           }}
         />
@@ -312,6 +304,3 @@ export default function WorkflowNodeGallery() {
     </div>
   );
 }
-
-// Import missing icons
-import { Clock, GitBranch, RotateCw } from "lucide-react";

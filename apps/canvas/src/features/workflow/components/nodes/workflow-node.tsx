@@ -23,17 +23,19 @@ export type WorkflowNodeData = {
   label: string;
   description?: string;
   icon?: React.ReactNode;
+  iconKey?: string;
   status?: NodeStatus;
   type?: string;
   isDisabled?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
+  onDelete?: (id: string) => void;
   isSearchMatch?: boolean;
   isSearchActive?: boolean;
   [key: string]: unknown;
 };
 
-const WorkflowNode = ({ data, selected }: NodeProps) => {
+const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
   const nodeData = data as WorkflowNodeData;
   const [controlsVisible, setControlsVisible] = useState(false);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -221,7 +223,14 @@ const WorkflowNode = ({ data, selected }: NodeProps) => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="p-1.5 rounded-sm hover:bg-accent hover:text-destructive focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-1">
+              <button
+                className="p-1.5 rounded-sm hover:bg-accent hover:text-destructive focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-1"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  nodeData.onDelete?.(id);
+                }}
+              >
                 <Trash className="h-4 w-4" />
               </button>
             </TooltipTrigger>

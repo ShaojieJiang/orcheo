@@ -51,6 +51,10 @@ import WorkflowExecutionHistory, {
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
+import {
+  loadWorkflowExecutions,
+  saveWorkflowExecutions,
+} from "@features/workflow/lib/workflow-execution-storage";
 import ConnectionValidator, {
   validateConnection,
   validateNodeCredentials,
@@ -78,6 +82,10 @@ import type {
   CredentialInput,
 } from "@features/workflow/components/dialogs/credentials-vault";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
+import {
+  getNodeIcon,
+  inferNodeIconKey,
+} from "@features/workflow/lib/node-icons";
 
 // Define custom node types
 const nodeTypes = {
@@ -357,14 +365,25 @@ const SUBWORKFLOW_LIBRARY: Record<string, SubworkflowStructure> = {
   },
 };
 
+interface NodeRuntimeData {
+  inputs?: unknown;
+  outputs?: unknown;
+  messages?: unknown;
+  raw?: unknown;
+  updatedAt: string;
+}
+
 interface NodeData {
   type: string;
   label: string;
   description?: string;
   status: "idle" | "running" | "success" | "error" | "warning";
+  iconKey?: string;
   icon?: React.ReactNode;
   onOpenChat?: () => void;
+  onDelete?: (id: string) => void;
   isDisabled?: boolean;
+  runtime?: NodeRuntimeData;
   [key: string]: unknown;
 }
 
@@ -500,6 +519,26 @@ const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
 
   const extraData = Object.fromEntries(extraEntries);
   const semanticType = node.data?.type ?? node.type ?? "default";
+  const extraDataRecord = { ...extraData } as Record<string, unknown>;
+  const storedIconKeyRaw = extraDataRecord.iconKey;
+  delete extraDataRecord.iconKey;
+  delete extraDataRecord.icon;
+  const otherExtraData = extraDataRecord;
+
+  const label =
+    typeof node.data?.label === "string" ? node.data.label : "New Node";
+  const description =
+    typeof node.data?.description === "string" ? node.data.description : "";
+
+  const storedIconKey =
+    typeof storedIconKeyRaw === "string" ? storedIconKeyRaw : undefined;
+  const resolvedIconKey =
+    inferNodeIconKey({
+      iconKey: storedIconKey,
+      label,
+      type: semanticType,
+    }) ?? storedIconKey;
+  const icon = getNodeIcon(resolvedIconKey);
 
   return {
     id: node.id,
@@ -508,11 +547,13 @@ const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
     style: defaultNodeStyle,
     data: {
       type: semanticType,
-      label: node.data?.label ?? "New Node",
-      description: node.data?.description ?? "",
+      label,
+      description,
       status: (node.data?.status ?? "idle") as NodeStatus,
       isDisabled: node.data?.isDisabled,
-      ...extraData,
+      iconKey: resolvedIconKey,
+      icon,
+      ...otherExtraData,
     } as NodeData,
     draggable: true,
   };
@@ -571,6 +612,7 @@ interface WorkflowExecutionNode {
   name: string;
   position: { x: number; y: number };
   status: NodeStatus;
+  iconKey?: string;
   details?: Record<string, unknown>;
 }
 
@@ -654,6 +696,7 @@ interface SidebarNodeDefinition {
   type?: string;
   name?: string;
   description?: string;
+  iconKey?: string;
   icon?: React.ReactNode;
   data?: Record<string, unknown>;
 }
@@ -795,7 +838,9 @@ export default function WorkflowCanvas({
   const [lastValidationRun, setLastValidationRun] = useState<string | null>(
     null,
   );
-  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
+  const [executions, setExecutions] = useState<WorkflowExecution[]>(() =>
+    workflowId ? loadWorkflowExecutions(workflowId) : [],
+  );
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(
     null,
   );
@@ -808,11 +853,17 @@ export default function WorkflowCanvas({
   const [isRunning, setIsRunning] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [selectedNode, setSelectedNode] = useState<CanvasNode | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("canvas");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) {
+      return null;
+    }
+    return nodes.find((node) => node.id === selectedNodeId) ?? null;
+  }, [nodes, selectedNodeId]);
 
   // Chat interface state
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -835,6 +886,33 @@ export default function WorkflowCanvas({
     }),
     [],
   );
+
+  useEffect(() => {
+    if (!workflowId) {
+      setExecutions([]);
+      return;
+    }
+    setExecutions(loadWorkflowExecutions(workflowId));
+  }, [workflowId]);
+
+  useEffect(() => {
+    if (!workflowId) {
+      return;
+    }
+    saveWorkflowExecutions(workflowId, executions);
+  }, [executions, workflowId]);
+
+  useEffect(() => {
+    setActiveExecutionId((current) => {
+      if (executions.length === 0) {
+        return null;
+      }
+      if (current && executions.some((execution) => execution.id === current)) {
+        return current;
+      }
+      return executions[0]?.id ?? null;
+    });
+  }, [executions]);
 
   const undoStackRef = useRef<WorkflowSnapshot[]>([]);
   const redoStackRef = useRef<WorkflowSnapshot[]>([]);
@@ -1031,7 +1109,7 @@ export default function WorkflowCanvas({
       if (error.nodeId) {
         const nodeToFocus = nodes.find((node) => node.id === error.nodeId);
         if (nodeToFocus) {
-          setSelectedNode(nodeToFocus);
+          setSelectedNodeId(nodeToFocus.id);
           requestAnimationFrame(() => {
             reactFlowInstance.current?.setCenter(
               nodeToFocus.position.x + (nodeToFocus.width ?? 0) / 2,
@@ -1047,7 +1125,7 @@ export default function WorkflowCanvas({
         });
       }
     },
-    [nodes, setActiveTab, setSelectedNode],
+    [nodes, setActiveTab, setSelectedNodeId],
   );
 
   const handleOpenChat = useCallback((nodeId: string) => {
@@ -1086,42 +1164,6 @@ export default function WorkflowCanvas({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
-
-  const decoratedNodes = useMemo(() => {
-    if (!isSearchOpen && searchMatches.length === 0) {
-      return nodes;
-    }
-
-    return nodes.map((node) => {
-      const isMatch = searchMatchSet.has(node.id);
-      const isActive =
-        isMatch &&
-        isSearchOpen &&
-        searchMatches[currentSearchIndex] === node.id;
-
-      if (!isSearchOpen) {
-        return isMatch
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                isSearchMatch: false,
-                isSearchActive: false,
-              },
-            }
-          : node;
-      }
-
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          isSearchMatch: isMatch,
-          isSearchActive: isActive,
-        },
-      };
-    });
-  }, [currentSearchIndex, isSearchOpen, nodes, searchMatchSet, searchMatches]);
 
   const createSnapshot = useCallback(
     (): WorkflowSnapshot => ({
@@ -1285,7 +1327,7 @@ export default function WorkflowCanvas({
       );
 
       if (canvasNodes.length > 0) {
-        setSelectedNode(canvasNodes[0]);
+        setSelectedNodeId(canvasNodes[0].id);
         setActiveTab("canvas");
 
         if (reactFlowInstance.current) {
@@ -1315,7 +1357,7 @@ export default function WorkflowCanvas({
       setNodes,
       setEdges,
       setSubworkflows,
-      setSelectedNode,
+      setSelectedNodeId,
       setActiveTab,
     ],
   );
@@ -1359,6 +1401,132 @@ export default function WorkflowCanvas({
         : null;
     return label ?? canvasNodeId;
   }, []);
+
+  const deleteNodes = useCallback(
+    (nodeIds: string[]) => {
+      const uniqueIds = Array.from(new Set(nodeIds)).filter(Boolean);
+      if (uniqueIds.length === 0) {
+        return;
+      }
+
+      const labels = uniqueIds.map((id) => resolveNodeLabel(id));
+
+      isRestoringRef.current = true;
+      recordSnapshot({ force: true });
+      try {
+        setNodesState((current) =>
+          current.filter((node) => !uniqueIds.includes(node.id)),
+        );
+        setEdgesState((current) =>
+          current.filter(
+            (edge) =>
+              !uniqueIds.includes(edge.source) &&
+              !uniqueIds.includes(edge.target),
+          ),
+        );
+      } catch (error) {
+        isRestoringRef.current = false;
+        throw error;
+      }
+
+      setValidationErrors((errors) =>
+        errors.filter((error) => {
+          if (error.nodeId && uniqueIds.includes(error.nodeId)) {
+            return false;
+          }
+          if (error.sourceId && uniqueIds.includes(error.sourceId)) {
+            return false;
+          }
+          if (error.targetId && uniqueIds.includes(error.targetId)) {
+            return false;
+          }
+          return true;
+        }),
+      );
+
+      setSearchMatches((matches) =>
+        matches.filter((match) => !uniqueIds.includes(match)),
+      );
+
+      setSelectedNodeId((current) =>
+        current && uniqueIds.includes(current) ? null : current,
+      );
+
+      if (activeChatNodeId && uniqueIds.includes(activeChatNodeId)) {
+        setActiveChatNodeId(null);
+        setIsChatOpen(false);
+      }
+
+      toast({
+        title: uniqueIds.length === 1 ? "Node deleted" : "Nodes deleted",
+        description:
+          uniqueIds.length === 1
+            ? `Removed ${labels[0]}.`
+            : `Removed ${uniqueIds.length} nodes.`,
+      });
+    },
+    [
+      activeChatNodeId,
+      recordSnapshot,
+      resolveNodeLabel,
+      setActiveChatNodeId,
+      setEdgesState,
+      setIsChatOpen,
+      setNodesState,
+      setSearchMatches,
+      setSelectedNodeId,
+      setValidationErrors,
+    ],
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      deleteNodes([nodeId]);
+    },
+    [deleteNodes],
+  );
+
+  const decoratedNodes = useMemo(() => {
+    return nodes.map((node) => {
+      const isMatch = searchMatchSet.has(node.id);
+      const isActive =
+        isMatch &&
+        isSearchOpen &&
+        searchMatches[currentSearchIndex] === node.id;
+
+      const baseData = {
+        ...node.data,
+        onDelete: handleDeleteNode,
+      };
+
+      if (!isSearchOpen) {
+        return {
+          ...node,
+          data: {
+            ...baseData,
+            isSearchMatch: false,
+            isSearchActive: false,
+          },
+        };
+      }
+
+      return {
+        ...node,
+        data: {
+          ...baseData,
+          isSearchMatch: isMatch,
+          isSearchActive: isActive,
+        },
+      };
+    });
+  }, [
+    currentSearchIndex,
+    handleDeleteNode,
+    isSearchOpen,
+    nodes,
+    searchMatchSet,
+    searchMatches,
+  ]);
 
   const determineLogLevel = useCallback(
     (
@@ -1496,6 +1664,82 @@ export default function WorkflowCanvas({
 
       const nodeUpdates = deriveNodeStatusUpdates(payload, graphToCanvas);
       const timestamp = new Date();
+      const updatedAt = timestamp.toISOString();
+
+      const runtimeUpdates: Record<string, NodeRuntimeData> = {};
+      Object.entries(payload).forEach(([key, value]) => {
+        if (typeof key !== "string") {
+          return;
+        }
+        if (
+          key === "status" ||
+          key === "level" ||
+          key === "error" ||
+          key === "message" ||
+          key === "type" ||
+          key === "timestamp" ||
+          key === "step"
+        ) {
+          return;
+        }
+        const canvasNodeId = graphToCanvas[key] ?? null;
+        if (!canvasNodeId) {
+          return;
+        }
+        if (!isRecord(value)) {
+          return;
+        }
+
+        const resultsCandidate = value["results"];
+        let candidatePayload: unknown;
+
+        if (isRecord(resultsCandidate)) {
+          candidatePayload =
+            resultsCandidate[key] ??
+            resultsCandidate[canvasNodeId] ??
+            Object.values(resultsCandidate)[0];
+        }
+
+        if (candidatePayload === undefined) {
+          const directValue =
+            typeof value[key] !== "undefined" ? value[key] : undefined;
+          if (directValue !== undefined) {
+            candidatePayload = directValue;
+          }
+        }
+
+        if (candidatePayload === undefined && value["value"] !== undefined) {
+          candidatePayload = value["value"];
+        }
+
+        if (candidatePayload === undefined) {
+          candidatePayload = value;
+        }
+
+        let inputs: unknown;
+        let outputs: unknown;
+        let messages: unknown;
+        if (isRecord(candidatePayload)) {
+          inputs =
+            candidatePayload["inputs"] !== undefined
+              ? candidatePayload["inputs"]
+              : candidatePayload["input"];
+          outputs =
+            candidatePayload["outputs"] !== undefined
+              ? candidatePayload["outputs"]
+              : (candidatePayload["output"] ?? candidatePayload["result"]);
+          messages = candidatePayload["messages"];
+        }
+
+        runtimeUpdates[canvasNodeId] = {
+          ...(inputs !== undefined ? { inputs } : {}),
+          ...(outputs !== undefined ? { outputs } : {}),
+          ...(messages !== undefined ? { messages } : {}),
+          raw: candidatePayload,
+          updatedAt,
+        };
+      });
+
       const logLevel = determineLogLevel(payload);
       const message = describePayload(payload, graphToCanvas);
 
@@ -1507,10 +1751,11 @@ export default function WorkflowCanvas({
 
           const updatedNodes = execution.nodes.map((node) => {
             const nextStatus = nodeUpdates[node.id];
+            const runtime = runtimeUpdates[node.id];
+            let updatedNode = node;
             if (nextStatus) {
-              return { ...node, status: nextStatus };
-            }
-            if (
+              updatedNode = { ...updatedNode, status: nextStatus };
+            } else if (
               executionStatus &&
               executionStatus !== "running" &&
               node.status === "running"
@@ -1521,9 +1766,32 @@ export default function WorkflowCanvas({
                   : executionStatus === "partial"
                     ? "warning"
                     : "success";
-              return { ...node, status: fallback };
+              updatedNode = { ...updatedNode, status: fallback };
             }
-            return node;
+
+            if (runtime) {
+              const existingDetails =
+                node.details && isRecord(node.details)
+                  ? (node.details as Record<string, unknown>)
+                  : {};
+              const nextDetails: Record<string, unknown> = {
+                ...existingDetails,
+              };
+              if (runtime.inputs !== undefined) {
+                nextDetails.inputs = runtime.inputs;
+              }
+              if (runtime.outputs !== undefined) {
+                nextDetails.outputs = runtime.outputs;
+              }
+              if (runtime.messages !== undefined) {
+                nextDetails.messages = runtime.messages;
+              }
+              nextDetails.raw = runtime.raw;
+              nextDetails.updatedAt = runtime.updatedAt;
+              updatedNode = { ...updatedNode, details: nextDetails };
+            }
+
+            return updatedNode;
           });
 
           const logs = [
@@ -1571,20 +1839,24 @@ export default function WorkflowCanvas({
         }),
       );
 
+      const hasRuntimeUpdates = Object.keys(runtimeUpdates).length > 0;
+
       if (
         Object.keys(nodeUpdates).length > 0 ||
+        hasRuntimeUpdates ||
         (executionStatus && executionStatus !== "running")
       ) {
         setNodes((prev) =>
           prev.map((node) => {
             const nextStatus = nodeUpdates[node.id];
+            const runtime = runtimeUpdates[node.id];
+            let nextData = node.data;
+            let changed = false;
+
             if (nextStatus) {
-              return {
-                ...node,
-                data: { ...node.data, status: nextStatus },
-              };
-            }
-            if (
+              nextData = { ...nextData, status: nextStatus };
+              changed = true;
+            } else if (
               executionStatus &&
               executionStatus !== "running" &&
               (node.data?.status === "running" ||
@@ -1596,11 +1868,36 @@ export default function WorkflowCanvas({
                   : executionStatus === "partial"
                     ? "warning"
                     : "success";
+              nextData = { ...nextData, status: fallback };
+              changed = true;
+            }
+
+            if (runtime) {
+              const nextRuntime: NodeRuntimeData = {
+                ...((nextData.runtime ?? {}) as NodeRuntimeData),
+                ...(runtime.inputs !== undefined
+                  ? { inputs: runtime.inputs }
+                  : {}),
+                ...(runtime.outputs !== undefined
+                  ? { outputs: runtime.outputs }
+                  : {}),
+                ...(runtime.messages !== undefined
+                  ? { messages: runtime.messages }
+                  : {}),
+                raw: runtime.raw,
+                updatedAt: runtime.updatedAt,
+              };
+              nextData = { ...nextData, runtime: nextRuntime };
+              changed = true;
+            }
+
+            if (changed) {
               return {
                 ...node,
-                data: { ...node.data, status: fallback },
+                data: nextData,
               };
             }
+
             return node;
           }),
         );
@@ -2097,7 +2394,7 @@ export default function WorkflowCanvas({
   // Handle node double click for inspection
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: CanvasNode) => {
-      setSelectedNode(node);
+      setSelectedNodeId(node.id);
     },
     [],
   );
@@ -2131,6 +2428,49 @@ export default function WorkflowCanvas({
 
         const nodeType = determineNodeType(node.id);
 
+        const baseDataRest: Partial<NodeData> = isRecord(node.data)
+          ? { ...(node.data as Partial<NodeData>) }
+          : {};
+        delete baseDataRest.icon;
+        delete baseDataRest.onOpenChat;
+        const semanticType =
+          nodeType === "startEnd"
+            ? node.id === "start-node"
+              ? "start"
+              : "end"
+            : typeof node.type === "string" && node.type.length > 0
+              ? node.type
+              : typeof baseDataRest.type === "string" &&
+                  baseDataRest.type.length > 0
+                ? baseDataRest.type
+                : "default";
+        const label =
+          typeof node.name === "string" && node.name.length > 0
+            ? node.name
+            : typeof baseDataRest.label === "string" &&
+                baseDataRest.label.length > 0
+              ? baseDataRest.label
+              : "New Node";
+        const description =
+          typeof node.description === "string" && node.description.length > 0
+            ? node.description
+            : typeof baseDataRest.description === "string"
+              ? baseDataRest.description
+              : "";
+        const rawIconKey =
+          typeof node.iconKey === "string"
+            ? node.iconKey
+            : typeof baseDataRest.iconKey === "string"
+              ? baseDataRest.iconKey
+              : undefined;
+        const finalIconKey =
+          inferNodeIconKey({
+            iconKey: rawIconKey,
+            label,
+            type: semanticType,
+          }) ?? rawIconKey;
+        const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
+
         // Create a new node
         const nodeId = generateNodeId();
 
@@ -2140,17 +2480,13 @@ export default function WorkflowCanvas({
           position,
           style: defaultNodeStyle,
           data: {
-            ...node,
-            label: node.name || "New Node",
-            description: node.description || "",
-            type:
-              nodeType === "startEnd"
-                ? node.id === "start-node"
-                  ? "start"
-                  : "end"
-                : node.id?.split("-")[0] || "default",
+            ...baseDataRest,
+            label,
+            description,
+            type: semanticType,
             status: "idle" as NodeStatus,
-            icon: node.icon,
+            iconKey: finalIconKey,
+            icon: iconNode,
             onOpenChat:
               nodeType === "chatTrigger"
                 ? () => handleOpenChat(nodeId)
@@ -2174,6 +2510,11 @@ export default function WorkflowCanvas({
       if (!reactFlowInstance.current) return;
 
       const nodeType = determineNodeType(node.id);
+      const baseDataRest: Partial<NodeData> = isRecord(node.data)
+        ? { ...(node.data as Partial<NodeData>) }
+        : {};
+      delete baseDataRest.icon;
+      delete baseDataRest.onOpenChat;
 
       // Calculate a position for the new node
       const position = {
@@ -2183,6 +2524,43 @@ export default function WorkflowCanvas({
 
       // Create a new node with explicit NodeData type
       const nodeId = generateNodeId();
+      const semanticType =
+        nodeType === "startEnd"
+          ? node.id === "start-node"
+            ? "start"
+            : "end"
+          : typeof node.type === "string" && node.type.length > 0
+            ? node.type
+            : typeof baseDataRest.type === "string" &&
+                baseDataRest.type.length > 0
+              ? baseDataRest.type
+              : "default";
+      const label =
+        typeof node.name === "string" && node.name.length > 0
+          ? node.name
+          : typeof baseDataRest.label === "string" &&
+              baseDataRest.label.length > 0
+            ? baseDataRest.label
+            : "New Node";
+      const description =
+        typeof node.description === "string" && node.description.length > 0
+          ? node.description
+          : typeof baseDataRest.description === "string"
+            ? baseDataRest.description
+            : "";
+      const rawIconKey =
+        typeof node.iconKey === "string"
+          ? node.iconKey
+          : typeof baseDataRest.iconKey === "string"
+            ? baseDataRest.iconKey
+            : undefined;
+      const finalIconKey =
+        inferNodeIconKey({
+          iconKey: rawIconKey,
+          label,
+          type: semanticType,
+        }) ?? rawIconKey;
+      const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
 
       const newNode: Node<NodeData> = {
         id: nodeId,
@@ -2190,16 +2568,13 @@ export default function WorkflowCanvas({
         position,
         style: defaultNodeStyle,
         data: {
-          type:
-            nodeType === "startEnd"
-              ? node.id === "start-node"
-                ? "start"
-                : "end"
-              : node.type || "default",
-          label: node.name || "New Node",
-          description: node.description || "",
+          ...baseDataRest,
+          type: semanticType,
+          label,
+          description,
           status: "idle" as NodeStatus,
-          icon: node.icon,
+          iconKey: finalIconKey,
+          icon: iconNode,
           onOpenChat:
             nodeType === "chatTrigger"
               ? () => handleOpenChat(nodeId)
@@ -2337,6 +2712,8 @@ export default function WorkflowCanvas({
           : node.id,
       position: node.position,
       status: "running",
+      iconKey:
+        typeof node.data?.iconKey === "string" ? node.data.iconKey : undefined,
     }));
 
     const executionEdges: WorkflowEdge[] = edges.map((edge) => ({
@@ -2601,6 +2978,27 @@ export default function WorkflowCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        !isEditable
+      ) {
+        const selectedIds = nodesRef.current
+          .filter((node) => node.selected)
+          .map((node) => node.id);
+        if (selectedIds.length > 0) {
+          event.preventDefault();
+          deleteNodes(selectedIds);
+          return;
+        }
+      }
+
       if (!(event.ctrlKey || event.metaKey)) {
         return;
       }
@@ -2634,6 +3032,7 @@ export default function WorkflowCanvas({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [
+    deleteNodes,
     handleRedo,
     handleUndo,
     setCurrentSearchIndex,
@@ -2643,7 +3042,7 @@ export default function WorkflowCanvas({
 
   // Handle node inspector close
   const handleCloseNodeInspector = useCallback(() => {
-    setSelectedNode(null);
+    setSelectedNodeId(null);
   }, []);
 
   // Handle node update from inspector
@@ -2666,9 +3065,9 @@ export default function WorkflowCanvas({
           return n;
         }),
       );
-      setSelectedNode(null);
+      setSelectedNodeId(null);
     },
-    [setNodes],
+    [setNodes, setSelectedNodeId],
   );
 
   // Handle execution selection
@@ -2952,7 +3351,6 @@ export default function WorkflowCanvas({
       <WorkflowTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        executionCount={3}
         readinessAlertCount={validationErrors.length}
       />
 
