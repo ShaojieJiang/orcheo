@@ -143,10 +143,11 @@ export default function NodeInspector({
     }
   }, [isPythonNode, node]);
 
+  const nodeLabelCandidate = node?.data?.label;
   const nodeLabel =
-    typeof node.data?.label === "string" && node.data.label.length > 0
-      ? node.data.label
-      : node.type;
+    typeof nodeLabelCandidate === "string" && nodeLabelCandidate.length > 0
+      ? nodeLabelCandidate
+      : (node?.type ?? "");
   const formattedSemanticType = semanticType
     ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
     : null;
