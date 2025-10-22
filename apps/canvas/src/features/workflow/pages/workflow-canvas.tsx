@@ -1948,7 +1948,7 @@ export default function WorkflowCanvas({
     ],
   );
 
-  const handleSaveWorkflow = useCallback(() => {
+  const handleSaveWorkflow = useCallback(async () => {
     const snapshot = createSnapshot();
     const persistedNodes = snapshot.nodes.map(toPersistedNode);
     const persistedEdges = snapshot.edges.map(toPersistedEdge);
@@ -1956,31 +1956,40 @@ export default function WorkflowCanvas({
 
     const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
 
-    const saved = persistWorkflow(
-      {
-        id: currentWorkflowId ?? undefined,
-        name: workflowName.trim() || "Untitled Workflow",
-        description: workflowDescription.trim(),
-        tags: tagsToPersist,
-        nodes: persistedNodes,
-        edges: persistedEdges,
-      },
-      { versionMessage: `Manual save (${timestampLabel})` },
-    );
+    try {
+      const saved = await persistWorkflow(
+        {
+          id: currentWorkflowId ?? undefined,
+          name: workflowName.trim() || "Untitled Workflow",
+          description: workflowDescription.trim(),
+          tags: tagsToPersist,
+          nodes: persistedNodes,
+          edges: persistedEdges,
+        },
+        { versionMessage: `Manual save (${timestampLabel})` },
+      );
 
-    setCurrentWorkflowId(saved.id);
-    setWorkflowName(saved.name);
-    setWorkflowDescription(saved.description ?? "");
-    setWorkflowTags(saved.tags ?? tagsToPersist);
-    setWorkflowVersions(saved.versions ?? []);
+      setCurrentWorkflowId(saved.id);
+      setWorkflowName(saved.name);
+      setWorkflowDescription(saved.description ?? "");
+      setWorkflowTags(saved.tags ?? tagsToPersist);
+      setWorkflowVersions(saved.versions ?? []);
 
-    toast({
-      title: "Workflow saved",
-      description: `"${saved.name}" has been updated.`,
-    });
+      toast({
+        title: "Workflow saved",
+        description: `"${saved.name}" has been updated.`,
+      });
 
-    if (!workflowId || workflowId !== saved.id) {
-      navigate(`/workflow-canvas/${saved.id}`, { replace: !!workflowId });
+      if (!workflowId || workflowId !== saved.id) {
+        navigate(`/workflow-canvas/${saved.id}`, { replace: !!workflowId });
+      }
+    } catch (error) {
+      toast({
+        title: "Failed to save workflow",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
     }
   }, [
     createSnapshot,
@@ -2001,7 +2010,7 @@ export default function WorkflowCanvas({
   }, []);
 
   const handleRestoreVersion = useCallback(
-    (versionId: string) => {
+    async (versionId: string) => {
       if (!currentWorkflowId) {
         toast({
           title: "Save required",
@@ -2011,28 +2020,37 @@ export default function WorkflowCanvas({
         return;
       }
 
-      const snapshot = getVersionSnapshot(currentWorkflowId, versionId);
-      if (!snapshot) {
+      try {
+        const snapshot = await getVersionSnapshot(currentWorkflowId, versionId);
+        if (!snapshot) {
+          toast({
+            title: "Version unavailable",
+            description: "We couldn't load that version. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const canvasNodes = convertPersistedNodesToCanvas(snapshot.nodes ?? []);
+        const canvasEdges = convertPersistedEdgesToCanvas(snapshot.edges ?? []);
+        applySnapshot(
+          { nodes: canvasNodes, edges: canvasEdges },
+          { resetHistory: true },
+        );
+        setWorkflowName(snapshot.name);
+        setWorkflowDescription(snapshot.description ?? "");
         toast({
-          title: "Version unavailable",
-          description: "We couldn't load that version. Please try again.",
+          title: "Version loaded",
+          description: "Review the restored version and save to keep it.",
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to restore version",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",
         });
-        return;
       }
-
-      const canvasNodes = convertPersistedNodesToCanvas(snapshot.nodes ?? []);
-      const canvasEdges = convertPersistedEdgesToCanvas(snapshot.edges ?? []);
-      applySnapshot(
-        { nodes: canvasNodes, edges: canvasEdges },
-        { resetHistory: true },
-      );
-      setWorkflowName(snapshot.name);
-      setWorkflowDescription(snapshot.description ?? "");
-      toast({
-        title: "Version loaded",
-        description: "Review the restored version and save to keep it.",
-      });
     },
     [applySnapshot, convertPersistedNodesToCanvas, currentWorkflowId],
   );
@@ -2794,41 +2812,64 @@ export default function WorkflowCanvas({
 
   // Load workflow data when workflowId changes
   useEffect(() => {
-    const loadWorkflow = () => {
+    let isMounted = true;
+
+    const resetToBlankWorkflow = () => {
+      setCurrentWorkflowId(null);
+      setWorkflowName("New Workflow");
+      setWorkflowDescription("");
+      setWorkflowTags(["draft"]);
+      setWorkflowVersions([]);
+      if (nodesRef.current.length === 0 && edgesRef.current.length === 0) {
+        applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
+      } else {
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setCanUndo(false);
+        setCanRedo(false);
+      }
+    };
+
+    const loadWorkflow = async () => {
       if (!workflowId) {
-        setCurrentWorkflowId(null);
-        setWorkflowName("New Workflow");
-        setWorkflowDescription("");
-        setWorkflowTags(["draft"]);
-        setWorkflowVersions([]);
-        if (nodesRef.current.length === 0 && edgesRef.current.length === 0) {
-          applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
-        } else {
-          undoStackRef.current = [];
-          redoStackRef.current = [];
-          setCanUndo(false);
-          setCanRedo(false);
+        if (isMounted) {
+          resetToBlankWorkflow();
         }
         return;
       }
 
-      const persisted = getWorkflowById(workflowId);
-      if (persisted) {
-        setCurrentWorkflowId(persisted.id);
-        setWorkflowName(persisted.name);
-        setWorkflowDescription(persisted.description ?? "");
-        setWorkflowTags(persisted.tags ?? ["draft"]);
-        setWorkflowVersions(persisted.versions ?? []);
-        const canvasNodes = convertPersistedNodesToCanvas(
-          persisted.nodes ?? [],
-        );
-        const canvasEdges = convertPersistedEdgesToCanvas(
-          persisted.edges ?? [],
-        );
-        applySnapshot(
-          { nodes: canvasNodes, edges: canvasEdges },
-          { resetHistory: true },
-        );
+      try {
+        const persisted = await getWorkflowById(workflowId);
+        if (persisted && isMounted) {
+          setCurrentWorkflowId(persisted.id);
+          setWorkflowName(persisted.name);
+          setWorkflowDescription(persisted.description ?? "");
+          setWorkflowTags(persisted.tags ?? ["draft"]);
+          setWorkflowVersions(persisted.versions ?? []);
+          const canvasNodes = convertPersistedNodesToCanvas(
+            persisted.nodes ?? [],
+          );
+          const canvasEdges = convertPersistedEdgesToCanvas(
+            persisted.edges ?? [],
+          );
+          applySnapshot(
+            { nodes: canvasNodes, edges: canvasEdges },
+            { resetHistory: true },
+          );
+          return;
+        }
+      } catch (error) {
+        if (isMounted) {
+          toast({
+            title: "Failed to load workflow",
+            description:
+              error instanceof Error ? error.message : "Unknown error occurred",
+            variant: "destructive",
+          });
+        }
+      }
+
+      if (!isMounted) {
         return;
       }
 
@@ -2857,15 +2898,14 @@ export default function WorkflowCanvas({
         description: "Starting a new workflow instead.",
         variant: "destructive",
       });
-      setCurrentWorkflowId(null);
-      setWorkflowName("New Workflow");
-      setWorkflowDescription("");
-      setWorkflowTags(["draft"]);
-      setWorkflowVersions([]);
-      applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
+      resetToBlankWorkflow();
     };
 
-    loadWorkflow();
+    void loadWorkflow();
+
+    return () => {
+      isMounted = false;
+    };
   }, [applySnapshot, convertPersistedNodesToCanvas, workflowId]);
 
   useEffect(() => {
@@ -2873,11 +2913,15 @@ export default function WorkflowCanvas({
       return;
     }
 
-    const handleStorageUpdate = () => {
-      const updated = getWorkflowById(currentWorkflowId);
-      if (updated) {
-        setWorkflowVersions(updated.versions ?? []);
-        setWorkflowTags(updated.tags ?? ["draft"]);
+    const handleStorageUpdate = async () => {
+      try {
+        const updated = await getWorkflowById(currentWorkflowId);
+        if (updated) {
+          setWorkflowVersions(updated.versions ?? []);
+          setWorkflowTags(updated.tags ?? ["draft"]);
+        }
+      } catch (error) {
+        console.error("Failed to reload workflow", error);
       }
     };
 
