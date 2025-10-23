@@ -203,6 +203,22 @@ async def test_in_memory_mark_cancelled_missing_execution_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_memory_list_histories_filters_and_limits() -> None:
+    """Listing histories returns records for the specified workflow."""
+
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf-a", execution_id="exec-1")
+    await store.start_run(workflow_id="wf-b", execution_id="exec-2")
+
+    records_all = await store.list_histories("wf-a")
+    assert [record.execution_id for record in records_all] == ["exec-1"]
+
+    records_limited = await store.list_histories("wf-a", limit=1)
+    assert len(records_limited) == 1
+    assert records_limited[0].execution_id == "exec-1"
+
+
+@pytest.mark.asyncio
 async def test_sqlite_store_persists_history(tmp_path: Path) -> None:
     """SQLite-backed store writes and retrieves execution metadata."""
 
@@ -254,6 +270,23 @@ async def test_sqlite_store_append_step_missing_execution_raises(
 
     with pytest.raises(RunHistoryNotFoundError, match="execution_id=missing"):
         await store.append_step("missing", {"action": "start"})
+
+
+@pytest.mark.asyncio
+async def test_sqlite_list_histories_filters_by_workflow(tmp_path: Path) -> None:
+    """Listing histories from SQLite store scopes results by workflow."""
+
+    db_path = tmp_path / "history-list.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(workflow_id="wf-a", execution_id="exec-1")
+    await store.start_run(workflow_id="wf-b", execution_id="exec-2")
+
+    results = await store.list_histories("wf-a")
+    assert [record.execution_id for record in results] == ["exec-1"]
+
+    limited = await store.list_histories("wf-a", limit=1)
+    assert len(limited) == 1
+    assert limited[0].execution_id == "exec-1"
 
 
 @pytest.mark.asyncio

@@ -45,10 +45,7 @@ import WorkflowExecutionHistory, {
 } from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
-import {
-  loadWorkflowExecutions,
-  saveWorkflowExecutions,
-} from "@features/workflow/lib/workflow-execution-storage";
+import { loadWorkflowExecutions } from "@features/workflow/lib/workflow-execution-storage";
 import ConnectionValidator, {
   validateConnection,
   validateNodeCredentials,
@@ -825,9 +822,7 @@ export default function WorkflowCanvas({
   const [lastValidationRun, setLastValidationRun] = useState<string | null>(
     null,
   );
-  const [executions, setExecutions] = useState<WorkflowExecution[]>(() =>
-    workflowId ? loadWorkflowExecutions(workflowId) : [],
-  );
+  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(
     null,
   );
@@ -873,21 +868,6 @@ export default function WorkflowCanvas({
     }),
     [],
   );
-
-  useEffect(() => {
-    if (!workflowId) {
-      setExecutions([]);
-      return;
-    }
-    setExecutions(loadWorkflowExecutions(workflowId));
-  }, [workflowId]);
-
-  useEffect(() => {
-    if (!workflowId) {
-      return;
-    }
-    saveWorkflowExecutions(workflowId, executions);
-  }, [executions, workflowId]);
 
   useEffect(() => {
     setActiveExecutionId((current) => {
@@ -3100,7 +3080,7 @@ export default function WorkflowCanvas({
       }
       toast({
         title: "Execution removed",
-        description: `Run ${execution.runId} was cleared from the local history.`,
+        description: `Run ${execution.runId} was removed from the history view.`,
       });
     },
     [activeExecutionId, setExecutions],
@@ -3206,6 +3186,7 @@ export default function WorkflowCanvas({
       setWorkflowDescription("");
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
+      setExecutions([]);
       if (nodesRef.current.length === 0 && edgesRef.current.length === 0) {
         applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
       } else {
@@ -3242,6 +3223,27 @@ export default function WorkflowCanvas({
             { nodes: canvasNodes, edges: canvasEdges },
             { resetHistory: true },
           );
+          try {
+            const history = await loadWorkflowExecutions(workflowId, {
+              workflow: persisted,
+            });
+            if (isMounted) {
+              setExecutions(history);
+            }
+          } catch (historyError) {
+            if (isMounted) {
+              setExecutions([]);
+              toast({
+                title: "Failed to load execution history",
+                description:
+                  historyError instanceof Error
+                    ? historyError.message
+                    : "Unable to retrieve workflow runs.",
+                variant: "destructive",
+              });
+            }
+            console.error("Failed to load workflow executions", historyError);
+          }
           return;
         }
       } catch (error) {
@@ -3252,6 +3254,7 @@ export default function WorkflowCanvas({
               error instanceof Error ? error.message : "Unknown error occurred",
             variant: "destructive",
           });
+          setExecutions([]);
         }
       }
 
@@ -3266,6 +3269,7 @@ export default function WorkflowCanvas({
         setWorkflowDescription(template.description ?? "");
         setWorkflowTags(template.tags.filter((tag) => tag !== "template"));
         setWorkflowVersions([]);
+        setExecutions([]);
         const canvasNodes = convertPersistedNodesToCanvas(template.nodes);
         const canvasEdges = convertPersistedEdgesToCanvas(template.edges);
         applySnapshot(
