@@ -1142,6 +1142,20 @@ async def list_workflow_runs(
         _raise_not_found("Workflow not found", exc)
 
 
+@_http_router.get(
+    "/workflows/{workflow_id}/executions",
+    response_model=list[RunHistoryResponse],
+)
+async def list_workflow_execution_histories(
+    workflow_id: UUID,
+    history_store: HistoryStoreDep,
+    limit: int = Query(50, ge=1, le=200),
+) -> list[RunHistoryResponse]:
+    """Return execution histories recorded for the workflow."""
+    records = await history_store.list_histories(str(workflow_id), limit=limit)
+    return [_history_to_response(record) for record in records]
+
+
 @_http_router.get("/runs/{run_id}", response_model=WorkflowRun)
 async def get_workflow_run(
     run_id: UUID,

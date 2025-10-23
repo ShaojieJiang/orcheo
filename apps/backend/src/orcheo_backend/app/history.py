@@ -117,6 +117,14 @@ class RunHistoryStore(Protocol):
     async def clear(self) -> None:
         """Clear all stored histories. Intended for testing only."""
 
+    async def list_histories(
+        self,
+        workflow_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[RunHistoryRecord]:
+        """Return histories associated with the provided workflow."""
+
 
 class InMemoryRunHistoryStore:
     """Async-safe in-memory store for execution histories."""
@@ -196,6 +204,25 @@ class InMemoryRunHistoryStore:
             msg = f"History not found for execution_id={execution_id}"
             raise RunHistoryNotFoundError(msg)
         return record
+
+    async def list_histories(
+        self,
+        workflow_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[RunHistoryRecord]:
+        """Return histories associated with the provided workflow."""
+        async with self._lock:
+            records = [
+                record.model_copy(deep=True)
+                for record in self._histories.values()
+                if record.workflow_id == workflow_id
+            ]
+
+        records.sort(key=lambda record: record.started_at, reverse=True)
+        if limit is not None:
+            return records[:limit]
+        return records
 
 
 class SqliteRunHistoryStore:
@@ -358,6 +385,33 @@ class SqliteRunHistoryStore:
                 await conn.execute("DELETE FROM execution_history_steps")
                 await conn.execute("DELETE FROM execution_history")
                 await conn.commit()
+
+    async def list_histories(
+        self,
+        workflow_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[RunHistoryRecord]:
+        """Return histories associated with the provided workflow."""
+        await self._ensure_initialized()
+        query = (
+            "SELECT execution_id, workflow_id, inputs, status, started_at, "
+            "completed_at, error FROM execution_history WHERE workflow_id = ? "
+            "ORDER BY started_at DESC"
+        )
+        params: list[object] = [workflow_id]
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        async with self._connection() as conn:
+            cursor = await conn.execute(query, tuple(params))
+            rows = await cursor.fetchall()
+            records: list[RunHistoryRecord] = []
+            for row in rows:
+                steps = await self._load_steps(conn, row["execution_id"])
+                records.append(self._row_to_record(row, steps))
+        return records
 
     async def _update_status(
         self,

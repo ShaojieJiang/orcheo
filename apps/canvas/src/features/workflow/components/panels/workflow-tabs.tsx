@@ -1,4 +1,3 @@
-import React from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/design-system/ui/tabs";
 import { Badge } from "@/design-system/ui/badge";
 
@@ -16,22 +15,28 @@ export default function WorkflowTabs({
   return (
     <div className="border-b border-border">
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
-        <TabsList className="h-12">
-          <TabsTrigger value="canvas" className="gap-2">
+        <TabsList className="h-9">
+          <TabsTrigger value="canvas" className="gap-1.5 text-sm px-3 py-1.5">
             Editor
           </TabsTrigger>
-          <TabsTrigger value="execution" className="gap-2">
+          <TabsTrigger
+            value="execution"
+            className="gap-1.5 text-sm px-3 py-1.5"
+          >
             Execution
           </TabsTrigger>
-          <TabsTrigger value="readiness" className="gap-2">
+          <TabsTrigger
+            value="readiness"
+            className="gap-1.5 text-sm px-3 py-1.5"
+          >
             Readiness
             {readinessAlertCount > 0 && (
-              <Badge variant="destructive" className="ml-1">
+              <Badge variant="destructive" className="ml-1 text-xs px-1 py-0">
                 {readinessAlertCount}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="settings" className="gap-2">
+          <TabsTrigger value="settings" className="gap-1.5 text-sm px-3 py-1.5">
             Settings
           </TabsTrigger>
         </TabsList>

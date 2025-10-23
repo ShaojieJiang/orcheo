@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import type React from "react";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
@@ -17,16 +18,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/design-system/ui/pagination";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  Edge,
-  Node,
-  MiniMap,
-  ConnectionLineType,
-  MarkerType,
-} from "@xyflow/react";
+import { Edge, Node, MarkerType } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   Clock,
@@ -39,13 +31,23 @@ import {
   Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import WorkflowNodeComponent from "@features/workflow/components/nodes/workflow-node";
-import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
-import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import {
   getNodeIcon,
   inferNodeIconKey,
 } from "@features/workflow/lib/node-icons";
+import SidebarLayout from "@features/workflow/components/layouts/sidebar-layout";
+import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
+import NodeInspector from "@features/workflow/components/panels/node-inspector";
+
+// Remove default ReactFlow node container styling
+const defaultNodeStyle = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  borderRadius: 0,
+  width: "auto",
+  boxShadow: "none",
+};
 
 export interface WorkflowNode {
   id: string;
@@ -100,15 +102,9 @@ interface WorkflowExecutionHistoryProps {
   defaultSelectedExecution?: WorkflowExecution;
 }
 
-const nodeTypes = {
-  default: WorkflowNodeComponent,
-  chatTrigger: ChatTriggerNode,
-  startEnd: StartEndNode,
-};
-
 const determineReactFlowNodeType = (
   type: string | undefined,
-): keyof typeof nodeTypes => {
+): "default" | "chatTrigger" | "startEnd" => {
   if (type === "chatTrigger") {
     return "chatTrigger";
   }
@@ -169,10 +165,34 @@ export default function WorkflowExecutionHistory({
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
-  const resizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(0);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const totalExecutions = executions.length;
+
+  // Get selected node for inspector
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId || !selectedExecution) {
+      return null;
+    }
+    const node = selectedExecution.nodes.find((n) => n.id === selectedNodeId);
+    if (!node) {
+      return null;
+    }
+
+    // Transform WorkflowNode to the format expected by NodeInspector
+    return {
+      id: node.id,
+      type: node.type || "default",
+      data: {
+        type: node.type || "default",
+        label: node.name,
+        status: normaliseNodeStatus(node.status),
+        iconKey: node.iconKey,
+        details: node.details,
+        // Include any other fields that might be useful
+        ...(node.details || {}),
+      },
+    };
+  }, [selectedNodeId, selectedExecution]);
   const pageCount =
     totalExecutions === 0 ? 0 : Math.ceil(totalExecutions / pageSize);
   const startOffset = page * pageSize;
@@ -248,6 +268,9 @@ export default function WorkflowExecutionHistory({
           id: node.id,
           type: reactFlowType,
           position: node.position,
+          style: defaultNodeStyle,
+          width: 64,
+          height: 64,
           data: {
             label: node.name,
             type: semanticType === "end" ? "end" : "start",
@@ -260,8 +283,12 @@ export default function WorkflowExecutionHistory({
           id: node.id,
           type: reactFlowType,
           position: node.position,
+          style: defaultNodeStyle,
+          width: 180,
+          height: 120,
           data: {
             label: node.name,
+            type: "chatTrigger",
             description: parseChatTriggerDescription(node.details),
             status,
           },
@@ -269,22 +296,26 @@ export default function WorkflowExecutionHistory({
       }
 
       const iconKey =
+        node.iconKey ??
         inferNodeIconKey({
           iconKey: node.iconKey,
           label: node.name,
           type: semanticType,
-        }) ?? node.iconKey;
+        });
 
       return {
         id: node.id,
         type: reactFlowType,
         position: node.position,
+        style: defaultNodeStyle,
+        width: 64,
+        height: 64,
         data: {
           label: node.name,
           status,
           type: semanticType,
           iconKey,
-          icon: getNodeIcon(iconKey),
+          icon: iconKey ? getNodeIcon(iconKey) : undefined,
         },
       } as Node;
     });
@@ -307,32 +338,6 @@ export default function WorkflowExecutionHistory({
         height: 20,
       },
     }));
-  };
-
-  // Handle sidebar resizing
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
-    startXRef.current = e.clientX;
-    startWidthRef.current = sidebarWidth;
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!resizingRef.current) return;
-    const delta = e.clientX - startXRef.current;
-    const newWidth = Math.max(
-      200,
-      Math.min(500, startWidthRef.current + delta),
-    );
-    setSidebarWidth(newWidth);
-  };
-
-  const handleMouseUp = () => {
-    resizingRef.current = false;
-    document.removeEventListener("mousemove", handleMouseMove);
-    document.removeEventListener("mouseup", handleMouseUp);
   };
 
   useEffect(() => {
@@ -378,344 +383,297 @@ export default function WorkflowExecutionHistory({
     }
   }, [page, pageCount]);
 
-  // Cleanup event listeners
-  useEffect(() => {
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <div
-      className={cn("flex flex-col h-full w-full overflow-hidden", className)}
-    >
-      <div className="flex flex-col md:flex-row h-full">
-        {/* Executions List */}
-        {showList && (
-          <div
-            className="w-full md:w-auto border-r border-border flex-shrink-0 relative"
-            style={{ width: sidebarWidth }}
-          >
-            <div className="flex h-full flex-col">
-              <div className="space-y-2 border-b border-border p-2">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold">Executions</h2>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={onRefresh}
-                      title="Refresh"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="icon" title="Filter">
-                      <Filter className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {totalExecutions === 1
-                      ? "1 execution"
-                      : `${totalExecutions} executions`}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span>Rows</span>
-                    <Select
-                      value={String(pageSize)}
-                      onValueChange={(value) => {
-                        const nextPageSize = Number(value);
-                        setPage(0);
-                        setPageSize(nextPageSize);
-                      }}
-                    >
-                      <SelectTrigger className="h-8 w-[80px]">
-                        <SelectValue aria-label="Rows per page" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {pageSizeOptions.map((option) => (
-                          <SelectItem key={option} value={String(option)}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-2">
-                  {totalExecutions === 0 ? (
-                    <div className="py-8 text-center text-muted-foreground">
-                      No executions found
-                    </div>
-                  ) : (
-                    currentPageExecutions.map((execution) => (
-                      <div
-                        key={execution.id}
-                        className={cn(
-                          "mb-2 cursor-pointer rounded-lg border p-4 transition-colors",
-                          selectedExecution?.id === execution.id
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/50",
-                        )}
-                        onClick={() => handleSelectExecution(execution)}
-                      >
-                        <div className="mb-2 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              className={cn(
-                                getStatusBadgeClass(execution.status),
-                              )}
-                            >
-                              {execution.status.charAt(0).toUpperCase() +
-                                execution.status.slice(1)}
-                            </Badge>
-                            <span className="font-medium">
-                              Run #{execution.runId}
-                            </span>
-                          </div>
-                          <span className="text-sm text-muted-foreground">
-                            {formatDate(execution.startTime)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-4 w-4 text-muted-foreground" />
-
-                              <span>{formatDuration(execution.duration)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-
-                              <span>
-                                {execution.issues}{" "}
-                                {execution.issues === 1 ? "issue" : "issues"}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onViewDetails?.(execution);
-                              }}
-                            >
-                              View Details
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-              <div className="flex flex-col gap-2 border-t border-border p-2 text-sm md:flex-row md:items-center md:justify-between">
-                <span className="text-xs text-muted-foreground md:text-sm">
-                  {totalExecutions === 0
-                    ? "No executions to display"
-                    : `Showing ${startOffset + 1}-${endOffset} of ${totalExecutions}`}
-                </span>
-                <Pagination className="mx-0 justify-center md:justify-end">
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        href="#"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (!isFirstPage) {
-                            setPage((prev) => Math.max(prev - 1, 0));
-                          }
-                        }}
-                        className={cn(
-                          isFirstPage && "pointer-events-none opacity-50",
-                        )}
-                      />
-                    </PaginationItem>
-                    <PaginationItem>
-                      <PaginationLink
-                        href="#"
-                        isActive
-                        onClick={(event) => event.preventDefault()}
-                        className="px-3"
-                      >
-                        {`Page ${pageCount === 0 ? 0 : page + 1} of ${Math.max(
-                          pageCount,
-                          1,
-                        )}`}
-                      </PaginationLink>
-                    </PaginationItem>
-                    <PaginationItem>
-                      <PaginationNext
-                        href="#"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (!isLastPage) {
-                            setPage((prev) =>
-                              Math.min(prev + 1, pageCount - 1),
-                            );
-                          }
-                        }}
-                        className={cn(
-                          isLastPage && "pointer-events-none opacity-50",
-                        )}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-              </div>
-            </div>
-            {/* Resize handle */}
-            <div
-              className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
-              onMouseDown={handleMouseDown}
-            />
+  // Sidebar content (executions list)
+  const sidebarContent = (
+    <div className="flex h-full flex-col">
+      <div className="space-y-2 border-b border-border p-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">Executions</h2>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onRefresh}
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" title="Filter">
+              <Filter className="h-4 w-4" />
+            </Button>
           </div>
-        )}
-
-        {/* Execution Details */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {selectedExecution ? (
-            <>
-              <div className="p-2 border-b border-border flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold flex items-center gap-2">
+        </div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {totalExecutions === 1
+              ? "1 execution"
+              : `${totalExecutions} executions`}
+          </span>
+          <div className="flex items-center gap-2">
+            <span>Rows</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                const nextPageSize = Number(value);
+                setPage(0);
+                setPageSize(nextPageSize);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[80px]">
+                <SelectValue aria-label="Rows per page" />
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-2">
+          {totalExecutions === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No executions found
+            </div>
+          ) : (
+            currentPageExecutions.map((execution) => (
+              <div
+                key={execution.id}
+                className={cn(
+                  "mb-2 cursor-pointer rounded-lg border p-4 transition-colors",
+                  selectedExecution?.id === execution.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50",
+                )}
+                onClick={() => handleSelectExecution(execution)}
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     <Badge
-                      className={cn(
-                        getStatusBadgeClass(selectedExecution.status),
-                      )}
+                      className={cn(getStatusBadgeClass(execution.status))}
                     >
-                      {selectedExecution.status.charAt(0).toUpperCase() +
-                        selectedExecution.status.slice(1)}
+                      {execution.status.charAt(0).toUpperCase() +
+                        execution.status.slice(1)}
                     </Badge>
-                    Run #{selectedExecution.runId}
-                  </h2>
+                    <span className="font-medium">Run #{execution.runId}</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDate(execution.startTime)}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onCopyToEditor?.(selectedExecution)}
-                    title="Copy to editor"
-                  >
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy to editor
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => onDelete?.(selectedExecution)}
-                    title="Delete execution"
-                  >
-                    <Trash className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
 
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <div
-                  className={cn(
-                    "relative border border-border rounded-lg overflow-auto bg-muted/20 flex-1",
-                    isFullscreen
-                      ? "fixed inset-0 z-50 p-4 bg-background"
-                      : "h-[calc(100%-3rem)]",
-                  )}
-                >
-                  {/* ReactFlow Canvas */}
-                  <div className="w-full h-full relative">
-                    <ReactFlow
-                      nodes={getReactFlowNodes()}
-                      edges={getReactFlowEdges()}
-                      nodeTypes={nodeTypes}
-                      fitView
-                      fitViewOptions={{ padding: 0.2 }}
-                      nodesDraggable={false}
-                      nodesConnectable={false}
-                      elementsSelectable={false}
-                      zoomOnScroll={false}
-                      zoomOnPinch={true}
-                      panOnScroll={true}
-                      connectionLineType={ConnectionLineType.SmoothStep}
-                      connectionLineStyle={{
-                        stroke: "#99a1b3",
-                        strokeWidth: 2,
-                      }}
-                      defaultEdgeOptions={{
-                        style: { stroke: "#99a1b3", strokeWidth: 2 },
-                        type: "smoothstep",
-                        markerEnd: {
-                          type: MarkerType.ArrowClosed,
-                        },
+                      <span>{formatDuration(execution.duration)}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+
+                      <span>
+                        {execution.issues}{" "}
+                        {execution.issues === 1 ? "issue" : "issues"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewDetails?.(execution);
                       }}
                     >
-                      <Background gap={15} size={1} color="#f0f0f0" />
-
-                      <Controls
-                        showInteractive={false}
-                        position="bottom-right"
-                      />
-
-                      <MiniMap
-                        nodeStrokeWidth={3}
-                        zoomable
-                        pannable
-                        position="bottom-left"
-                        nodeColor={(node) => {
-                          switch (node.data?.type) {
-                            case "api":
-                              return "#93c5fd";
-                            case "function":
-                              return "#d8b4fe";
-                            case "trigger":
-                              return "#fcd34d";
-                            case "data":
-                              return "#86efac";
-                            case "ai":
-                              return "#a5b4fc";
-                            case "chatTrigger":
-                              return "#fdba74";
-                            default:
-                              return "#e2e8f0";
-                          }
-                        }}
-                      />
-
-                      {/* Fullscreen button only */}
-                      <div className="absolute top-4 right-4 z-10">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => setIsFullscreen(!isFullscreen)}
-                          title={
-                            isFullscreen ? "Exit fullscreen" : "Fullscreen"
-                          }
-                        >
-                          {isFullscreen ? (
-                            <Minimize2 className="h-4 w-4" />
-                          ) : (
-                            <Maximize2 className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </ReactFlow>
+                      View Details
+                    </Button>
                   </div>
                 </div>
               </div>
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select an execution to view details
-            </div>
+            ))
           )}
         </div>
+      </ScrollArea>
+      <div className="flex flex-col gap-2 border-t border-border p-2 text-sm md:flex-row md:items-center md:justify-between">
+        <span className="text-xs text-muted-foreground md:text-sm">
+          {totalExecutions === 0
+            ? "No executions to display"
+            : `Showing ${startOffset + 1}-${endOffset} of ${totalExecutions}`}
+        </span>
+        <Pagination className="mx-0 justify-center md:justify-end">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!isFirstPage) {
+                    setPage((prev) => Math.max(prev - 1, 0));
+                  }
+                }}
+                className={cn(isFirstPage && "pointer-events-none opacity-50")}
+              />
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationLink
+                href="#"
+                isActive
+                onClick={(event) => event.preventDefault()}
+                className="px-3"
+              >
+                {`Page ${pageCount === 0 ? 0 : page + 1} of ${Math.max(
+                  pageCount,
+                  1,
+                )}`}
+              </PaginationLink>
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!isLastPage) {
+                    setPage((prev) => Math.min(prev + 1, pageCount - 1));
+                  }
+                }}
+                className={cn(isLastPage && "pointer-events-none opacity-50")}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
       </div>
     </div>
   );
+
+  // Main content (execution details)
+  const mainContent = selectedExecution ? (
+    <>
+      <div className="p-2 border-b border-border flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Badge
+              className={cn(getStatusBadgeClass(selectedExecution.status))}
+            >
+              {selectedExecution.status.charAt(0).toUpperCase() +
+                selectedExecution.status.slice(1)}
+            </Badge>
+            Run #{selectedExecution.runId}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onCopyToEditor?.(selectedExecution)}
+            title="Copy to editor"
+          >
+            <Copy className="h-4 w-4 mr-2" />
+            Copy to editor
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => onDelete?.(selectedExecution)}
+            title="Delete execution"
+          >
+            <Trash className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden p-2">
+        <div
+          className={cn(
+            "relative border border-border rounded-lg overflow-hidden bg-muted/20 flex-1",
+            isFullscreen && "fixed inset-0 z-50 p-4 bg-background",
+          )}
+        >
+          <WorkflowFlow
+            nodes={getReactFlowNodes()}
+            edges={getReactFlowEdges()}
+            fitView
+            editable={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={true}
+            zoomOnDoubleClick={false}
+            showMiniMap={true}
+            onNodeDoubleClick={(_event: React.MouseEvent, node: Node) => {
+              // Ignore double-clicks on Start and End nodes
+              if (node.type === "startEnd") {
+                return;
+              }
+              setSelectedNodeId(node.id);
+            }}
+          >
+            {/* Fullscreen button */}
+            <div className="absolute top-4 right-4 z-10">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setIsFullscreen(!isFullscreen)}
+                title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </WorkflowFlow>
+        </div>
+      </div>
+    </>
+  ) : (
+    <div className="flex items-center justify-center h-full text-muted-foreground">
+      Select an execution to view details
+    </div>
+  );
+
+  // Render with or without sidebar
+  const content = (
+    <>
+      {showList ? (
+        <SidebarLayout
+          sidebar={sidebarContent}
+          sidebarWidth={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          resizable
+          minWidth={200}
+          maxWidth={500}
+          showCollapseButton={false}
+        >
+          <div className="flex flex-col h-full">{mainContent}</div>
+        </SidebarLayout>
+      ) : (
+        mainContent
+      )}
+
+      {/* Node Inspector */}
+      {selectedNode && (
+        <NodeInspector
+          node={selectedNode}
+          onClose={() => setSelectedNodeId(null)}
+          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
+        />
+      )}
+    </>
+  );
+
+  if (!showList) {
+    return (
+      <div className={cn("h-full w-full flex flex-col", className)}>
+        {content}
+      </div>
+    );
+  }
+
+  return <div className={cn("h-full w-full", className)}>{content}</div>;
 }

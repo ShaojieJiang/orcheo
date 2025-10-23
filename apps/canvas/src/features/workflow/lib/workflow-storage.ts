@@ -268,6 +268,7 @@ const toVersionRecord = (
     summary: metadata.summary ?? { ...DEFAULT_SUMMARY },
     snapshot:
       metadata.snapshot ?? emptySnapshot(workflowName, workflowDescription),
+    graphToCanvas: metadata.graphToCanvas,
   };
 };
 
@@ -397,6 +398,7 @@ export interface WorkflowVersionRecord {
   author: Workflow["owner"];
   summary: WorkflowDiffResult["summary"];
   snapshot: WorkflowSnapshot;
+  graphToCanvas?: Record<string, string>;
 }
 
 export interface StoredWorkflow extends Workflow {
