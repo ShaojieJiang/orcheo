@@ -52,9 +52,10 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ### Milestone 5 – Node Ecosystem & Integrations
 - [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
+- [ ] Build basic nodes and utilities (If/Else, Switch, While, Set Variable, Delay, Sticky Note) with tests, docs, and templates.
+- [ ] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, Merge) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
+- [ ] Add utility nodes (Python/JavaScript execution sandbox, Debug, Sub-workflow orchestration) with tests, docs, and templates.
 - [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
-- [ ] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
-- [ ] Add utility nodes (Python/JavaScript execution sandbox, Delay, Debug, Sub-workflow orchestration) with tests, docs, and templates.
 - [ ] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting.
 
 ### Milestone 6 – Observability, Testing & Launch Prep
