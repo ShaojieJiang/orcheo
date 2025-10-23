@@ -169,6 +169,11 @@ export default function WorkflowFlow<
           zoomable
           pannable
           nodeColor={getMiniMapNodeColor}
+          style={{
+            backgroundColor: "hsl(var(--background))",
+            border: "1px solid hsl(var(--border))",
+          }}
+          maskColor="hsl(var(--muted) / 0.6)"
         />
       )}
 

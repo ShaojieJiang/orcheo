@@ -268,6 +268,8 @@ export default function WorkflowExecutionHistory({
           type: reactFlowType,
           position: node.position,
           style: defaultNodeStyle,
+          width: 64,
+          height: 64,
           data: {
             label: node.name,
             type: semanticType === "end" ? "end" : "start",
@@ -281,6 +283,8 @@ export default function WorkflowExecutionHistory({
           type: reactFlowType,
           position: node.position,
           style: defaultNodeStyle,
+          width: 180,
+          height: 120,
           data: {
             label: node.name,
             type: "chatTrigger",
@@ -303,6 +307,8 @@ export default function WorkflowExecutionHistory({
         type: reactFlowType,
         position: node.position,
         style: defaultNodeStyle,
+        width: 64,
+        height: 64,
         data: {
           label: node.name,
           status,
@@ -596,6 +602,7 @@ export default function WorkflowExecutionHistory({
             nodesConnectable={false}
             elementsSelectable={true}
             zoomOnDoubleClick={false}
+            showMiniMap={true}
             onNodeDoubleClick={(_event: React.MouseEvent, node: Node) => {
               setSelectedNodeId(node.id);
             }}
