@@ -48,6 +48,7 @@ export interface WorkflowFlowProps<
   nodesConnectable?: boolean;
   nodesFocusable?: boolean;
   elementsSelectable?: boolean;
+  zoomOnDoubleClick?: boolean;
 }
 
 const nodeTypes = {
@@ -78,6 +79,12 @@ const getMiniMapNodeColor = (node: Node) => {
       return "#a5b4fc";
     case "chatTrigger":
       return "#fdba74";
+    case "python":
+      return "#fb923c";
+    case "start":
+      return "#86efac";
+    case "end":
+      return "#fca5a5";
     default:
       return "#e2e8f0";
   }
@@ -119,6 +126,7 @@ export default function WorkflowFlow<
   nodesConnectable,
   nodesFocusable,
   elementsSelectable,
+  zoomOnDoubleClick = true,
 }: WorkflowFlowProps<NodeType, EdgeType>) {
   // Default interaction props based on editable mode
   const defaultNodesDraggable = nodesDraggable ?? editable;
@@ -148,6 +156,7 @@ export default function WorkflowFlow<
       nodesConnectable={defaultNodesConnectable}
       nodesFocusable={defaultNodesFocusable}
       elementsSelectable={defaultElementsSelectable}
+      zoomOnDoubleClick={zoomOnDoubleClick}
       className={cn("h-full", className)}
     >
       {showBackground && <Background variant={backgroundVariant} />}

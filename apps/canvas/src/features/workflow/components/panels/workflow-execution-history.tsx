@@ -36,6 +36,17 @@ import {
 } from "@features/workflow/lib/node-icons";
 import SidebarLayout from "@features/workflow/components/layouts/sidebar-layout";
 import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
+import NodeInspector from "@features/workflow/components/panels/node-inspector";
+
+// Remove default ReactFlow node container styling
+const defaultNodeStyle = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  borderRadius: 0,
+  width: "auto",
+  boxShadow: "none",
+};
 
 export interface WorkflowNode {
   id: string;
@@ -153,7 +164,34 @@ export default function WorkflowExecutionHistory({
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const totalExecutions = executions.length;
+
+  // Get selected node for inspector
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId || !selectedExecution) {
+      return null;
+    }
+    const node = selectedExecution.nodes.find((n) => n.id === selectedNodeId);
+    if (!node) {
+      return null;
+    }
+
+    // Transform WorkflowNode to the format expected by NodeInspector
+    return {
+      id: node.id,
+      type: node.type || "default",
+      data: {
+        type: node.type || "default",
+        label: node.name,
+        status: normaliseNodeStatus(node.status),
+        iconKey: node.iconKey,
+        details: node.details,
+        // Include any other fields that might be useful
+        ...(node.details || {}),
+      },
+    };
+  }, [selectedNodeId, selectedExecution]);
   const pageCount =
     totalExecutions === 0 ? 0 : Math.ceil(totalExecutions / pageSize);
   const startOffset = page * pageSize;
@@ -229,6 +267,7 @@ export default function WorkflowExecutionHistory({
           id: node.id,
           type: reactFlowType,
           position: node.position,
+          style: defaultNodeStyle,
           data: {
             label: node.name,
             type: semanticType === "end" ? "end" : "start",
@@ -241,8 +280,10 @@ export default function WorkflowExecutionHistory({
           id: node.id,
           type: reactFlowType,
           position: node.position,
+          style: defaultNodeStyle,
           data: {
             label: node.name,
+            type: "chatTrigger",
             description: parseChatTriggerDescription(node.details),
             status,
           },
@@ -250,22 +291,24 @@ export default function WorkflowExecutionHistory({
       }
 
       const iconKey =
+        node.iconKey ??
         inferNodeIconKey({
           iconKey: node.iconKey,
           label: node.name,
           type: semanticType,
-        }) ?? node.iconKey;
+        });
 
       return {
         id: node.id,
         type: reactFlowType,
         position: node.position,
+        style: defaultNodeStyle,
         data: {
           label: node.name,
           status,
           type: semanticType,
           iconKey,
-          icon: getNodeIcon(iconKey),
+          icon: iconKey ? getNodeIcon(iconKey) : undefined,
         },
       } as Node;
     });
@@ -551,7 +594,11 @@ export default function WorkflowExecutionHistory({
             editable={false}
             nodesDraggable={false}
             nodesConnectable={false}
-            elementsSelectable={false}
+            elementsSelectable={true}
+            zoomOnDoubleClick={false}
+            onNodeDoubleClick={(_event: React.MouseEvent, node: Node) => {
+              setSelectedNodeId(node.id);
+            }}
           >
             {/* Fullscreen button */}
             <div className="absolute top-4 right-4 z-10">
@@ -579,27 +626,42 @@ export default function WorkflowExecutionHistory({
   );
 
   // Render with or without sidebar
+  const content = (
+    <>
+      {showList ? (
+        <SidebarLayout
+          sidebar={sidebarContent}
+          sidebarWidth={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          resizable
+          minWidth={200}
+          maxWidth={500}
+          showCollapseButton={false}
+        >
+          <div className="flex flex-col h-full">{mainContent}</div>
+        </SidebarLayout>
+      ) : (
+        mainContent
+      )}
+
+      {/* Node Inspector */}
+      {selectedNode && (
+        <NodeInspector
+          node={selectedNode}
+          onClose={() => setSelectedNodeId(null)}
+          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
+        />
+      )}
+    </>
+  );
+
   if (!showList) {
     return (
       <div className={cn("h-full w-full flex flex-col", className)}>
-        {mainContent}
+        {content}
       </div>
     );
   }
 
-  return (
-    <div className={cn("h-full w-full", className)}>
-      <SidebarLayout
-        sidebar={sidebarContent}
-        sidebarWidth={sidebarWidth}
-        onWidthChange={setSidebarWidth}
-        resizable
-        minWidth={200}
-        maxWidth={500}
-        showCollapseButton={false}
-      >
-        <div className="flex flex-col h-full">{mainContent}</div>
-      </SidebarLayout>
-    </div>
-  );
+  return <div className={cn("h-full w-full", className)}>{content}</div>;
 }
