@@ -37,6 +37,9 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
+import StickyNotesLayer, {
+  type StickyNote,
+} from "@features/workflow/components/canvas/sticky-notes-layer";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatInterface from "@features/shared/components/chat-interface";
 import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
@@ -840,6 +843,7 @@ export default function WorkflowCanvas({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([]);
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) {
       return null;
@@ -886,6 +890,36 @@ export default function WorkflowCanvas({
   const isRestoringRef = useRef(false);
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const edgesRef = useRef<CanvasEdge[]>(edges);
+
+  const handleAddStickyNote = useCallback(() => {
+    setStickyNotes((notes) => {
+      const id = generateRandomId("sticky");
+      const offset = notes.length * 18;
+      return [
+        ...notes,
+        {
+          id,
+          x: 180 + offset,
+          y: 140 + Math.floor(offset / 2),
+          color: "yellow",
+          content: "Leave a note for collaborators",
+        },
+      ];
+    });
+  }, []);
+
+  const handleUpdateStickyNote = useCallback(
+    (id: string, updates: Partial<StickyNote>) => {
+      setStickyNotes((notes) =>
+        notes.map((note) => (note.id === id ? { ...note, ...updates } : note)),
+      );
+    },
+    [],
+  );
+
+  const handleDeleteStickyNote = useCallback((id: string) => {
+    setStickyNotes((notes) => notes.filter((note) => note.id !== id));
+  }, []);
 
   useEffect(() => {
     latestNodesRef.current = nodes;
@@ -3364,6 +3398,7 @@ export default function WorkflowCanvas({
                 isCollapsed={sidebarCollapsed}
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onAddNode={handleAddNode}
+                onAddStickyNote={handleAddStickyNote}
               />
 
               <div
@@ -3424,6 +3459,11 @@ export default function WorkflowCanvas({
                     onChange={handleWorkflowFileSelected}
                   />
                 </WorkflowFlow>
+                <StickyNotesLayer
+                  notes={stickyNotes}
+                  onUpdateNote={handleUpdateStickyNote}
+                  onDeleteNote={handleDeleteStickyNote}
+                />
                 <ConnectionValidator
                   errors={validationErrors}
                   onDismiss={handleDismissValidation}

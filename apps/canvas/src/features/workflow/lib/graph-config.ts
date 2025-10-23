@@ -16,6 +16,12 @@ export interface GraphBuildResult {
   config: {
     nodes: Array<Record<string, unknown>>;
     edges: Array<{ source: string; target: string }>;
+    conditional_edges?: Array<{
+      source: string;
+      path: string;
+      mapping: Record<string, string>;
+      default?: string;
+    }>;
   };
   canvasToGraph: Record<string, string>;
   graphToCanvas: Record<string, string>;
@@ -54,6 +60,8 @@ export const buildGraphConfigFromCanvas = (
   const canvasToGraph: Record<string, string> = {};
   const graphToCanvas: Record<string, string> = {};
   const usedNames = new Set<string>();
+  const branchPathByCanvasId: Record<string, string> = {};
+  const defaultBranchKeyByCanvasId: Record<string, string | undefined> = {};
 
   const getBackendType = (node: CanvasNode): string | undefined => {
     const data = node.data ?? {};
@@ -99,25 +107,141 @@ export const buildGraphConfigFromCanvas = (
       }
 
       if (backendType === "IfElseNode") {
-        nodeConfig.left = data?.left ?? null;
-        nodeConfig.right = data?.right ?? null;
-        nodeConfig.operator = data?.operator ?? "equals";
-        nodeConfig.case_sensitive = data?.caseSensitive ?? true;
+        const conditionsRaw = Array.isArray(data?.conditions)
+          ? (data.conditions as Array<Record<string, unknown>>)
+          : [];
+        const normalisedConditions =
+          conditionsRaw.length > 0
+            ? conditionsRaw
+            : [
+                {
+                  left: null,
+                  operator: "equals",
+                  right: null,
+                  caseSensitive: true,
+                },
+              ];
+
+        nodeConfig.conditions = normalisedConditions.map(
+          (condition, conditionIndex) => ({
+            left: condition?.left ?? null,
+            operator:
+              typeof condition?.operator === "string"
+                ? (condition.operator as string)
+                : "equals",
+            right: condition?.right ?? null,
+            case_sensitive:
+              typeof condition?.caseSensitive === "boolean"
+                ? (condition.caseSensitive as boolean)
+                : true,
+            id:
+              typeof condition?.id === "string"
+                ? condition.id
+                : `condition-${conditionIndex + 1}`,
+          }),
+        );
+        nodeConfig.condition_logic =
+          typeof data?.conditionLogic === "string"
+            ? data.conditionLogic
+            : "and";
+        branchPathByCanvasId[node.id] =
+          `results.${canvasToGraph[node.id]}.branch`;
       }
 
       if (backendType === "SwitchNode") {
         nodeConfig.value = data?.value ?? null;
         nodeConfig.case_sensitive = data?.caseSensitive ?? true;
+        const casesRaw = Array.isArray(data?.cases)
+          ? (data.cases as Array<Record<string, unknown>>)
+          : [];
+        const normalisedCases =
+          casesRaw.length > 0
+            ? casesRaw
+            : [
+                {
+                  label: "Case 1",
+                  match: null,
+                  branchKey: "case_1",
+                },
+              ];
+
+        nodeConfig.cases = normalisedCases.map((caseEntry, caseIndex) => {
+          const rawBranchKey =
+            typeof caseEntry?.branchKey === "string" &&
+            caseEntry.branchKey.trim().length > 0
+              ? (caseEntry.branchKey as string).trim()
+              : `case_${caseIndex + 1}`;
+          return {
+            label:
+              typeof caseEntry?.label === "string"
+                ? (caseEntry.label as string)
+                : undefined,
+            match: caseEntry?.match ?? null,
+            branch_key: rawBranchKey,
+            case_sensitive:
+              typeof caseEntry?.caseSensitive === "boolean"
+                ? (caseEntry.caseSensitive as boolean)
+                : undefined,
+          };
+        });
+
+        const defaultBranchKey =
+          typeof data?.defaultBranchKey === "string" &&
+          data.defaultBranchKey.trim().length > 0
+            ? (data.defaultBranchKey as string).trim()
+            : "default";
+        nodeConfig.default_branch_key = defaultBranchKey;
+        defaultBranchKeyByCanvasId[node.id] = defaultBranchKey;
+        branchPathByCanvasId[node.id] =
+          `results.${canvasToGraph[node.id]}.branch`;
       }
 
       if (backendType === "WhileNode") {
-        nodeConfig.left = data?.left ?? null;
-        nodeConfig.right = data?.right ?? null;
-        nodeConfig.operator = data?.operator ?? "less_than";
-        nodeConfig.case_sensitive = data?.caseSensitive ?? true;
-        if (typeof data?.maxIterations === "number") {
+        const conditionsRaw = Array.isArray(data?.conditions)
+          ? (data.conditions as Array<Record<string, unknown>>)
+          : [];
+        const normalisedConditions =
+          conditionsRaw.length > 0
+            ? conditionsRaw
+            : [
+                {
+                  left: null,
+                  operator: "less_than",
+                  right: null,
+                  caseSensitive: true,
+                },
+              ];
+
+        nodeConfig.conditions = normalisedConditions.map(
+          (condition, conditionIndex) => ({
+            left: condition?.left ?? null,
+            operator:
+              typeof condition?.operator === "string"
+                ? (condition.operator as string)
+                : "less_than",
+            right: condition?.right ?? null,
+            case_sensitive:
+              typeof condition?.caseSensitive === "boolean"
+                ? (condition.caseSensitive as boolean)
+                : true,
+            id:
+              typeof condition?.id === "string"
+                ? condition.id
+                : `condition-${conditionIndex + 1}`,
+          }),
+        );
+        nodeConfig.condition_logic =
+          typeof data?.conditionLogic === "string"
+            ? data.conditionLogic
+            : "and";
+        if (
+          typeof data?.maxIterations === "number" &&
+          Number.isFinite(data.maxIterations)
+        ) {
           nodeConfig.max_iterations = data.maxIterations;
         }
+        branchPathByCanvasId[node.id] =
+          `results.${canvasToGraph[node.id]}.branch`;
       }
 
       if (backendType === "SetVariableNode") {
@@ -132,31 +256,88 @@ export const buildGraphConfigFromCanvas = (
         nodeConfig.duration_seconds = Number.isFinite(parsed) ? parsed : 0;
       }
 
-      if (backendType === "StickyNoteNode") {
-        nodeConfig.title = data?.title ?? nodeConfig.display_name;
-        nodeConfig.body = data?.content ?? "";
-      }
-
       return nodeConfig;
     }),
     { name: "END", type: "END" },
   ];
 
   const graphEdges: Array<{ source: string; target: string }> = [];
+  const conditionalEdgesMap: Record<
+    string,
+    { path: string; mapping: Record<string, string>; defaultTarget?: string }
+  > = {};
 
   edges.forEach((edge) => {
     const source = canvasToGraph[edge.source];
     const target = canvasToGraph[edge.target];
-    if (source && target) {
-      graphEdges.push({ source, target });
+    if (!source || !target) {
+      return;
     }
+
+    const branchPath = branchPathByCanvasId[edge.source];
+    const defaultBranchKey = defaultBranchKeyByCanvasId[edge.source];
+    const rawHandle =
+      typeof edge.sourceHandle === "string" && edge.sourceHandle.length > 0
+        ? edge.sourceHandle.trim()
+        : undefined;
+
+    if (branchPath) {
+      const entry = conditionalEdgesMap[source] ?? {
+        path: branchPath,
+        mapping: {},
+        defaultTarget: undefined,
+      };
+
+      if (rawHandle && defaultBranchKey && rawHandle === defaultBranchKey) {
+        entry.defaultTarget = target;
+      } else if (rawHandle) {
+        entry.mapping[rawHandle] = target;
+      } else if (!rawHandle && defaultBranchKey) {
+        entry.defaultTarget = target;
+      }
+
+      conditionalEdgesMap[source] = entry;
+      return;
+    }
+
+    graphEdges.push({ source, target });
   });
+
+  const conditionalEdges = Object.entries(conditionalEdgesMap)
+    .map(([source, entry]) => {
+      if (Object.keys(entry.mapping).length === 0 && !entry.defaultTarget) {
+        return null;
+      }
+      const payload: {
+        source: string;
+        path: string;
+        mapping: Record<string, string>;
+        default?: string;
+      } = {
+        source,
+        path: entry.path,
+        mapping: entry.mapping,
+      };
+      if (entry.defaultTarget) {
+        payload.default = entry.defaultTarget;
+      }
+      return payload;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
   if (nodes.length === 0) {
     graphEdges.push({ source: "START", target: "END" });
   } else {
     const incoming = new Set(graphEdges.map((edge) => edge.target));
     const outgoing = new Set(graphEdges.map((edge) => edge.source));
+
+    conditionalEdges.forEach((entry) => {
+      Object.values(entry.mapping).forEach((target) => incoming.add(target));
+      if (entry.default) {
+        incoming.add(entry.default);
+      }
+      outgoing.add(entry.source);
+    });
 
     nodes.forEach((node) => {
       const graphName = canvasToGraph[node.id];
@@ -169,8 +350,17 @@ export const buildGraphConfigFromCanvas = (
     });
   }
 
+  const config: GraphBuildResult["config"] = {
+    nodes: graphNodes,
+    edges: graphEdges,
+  };
+
+  if (conditionalEdges.length > 0) {
+    config.conditional_edges = conditionalEdges;
+  }
+
   return {
-    config: { nodes: graphNodes, edges: graphEdges },
+    config,
     canvasToGraph,
     graphToCanvas,
   };

@@ -10,11 +10,12 @@ from orcheo.nodes.logic import (
     DelayNode,
     IfElseNode,
     SetVariableNode,
-    StickyNoteNode,
     SwitchNode,
     WhileNode,
     evaluate_condition,
     _build_nested,
+    _coerce_branch_key,
+    _combine_condition_results,
 )
 
 
@@ -23,46 +24,69 @@ async def test_if_else_contains_and_membership_operations():
     state = State({"results": {}})
     contains_node = IfElseNode(
         name="contains_list",
-        left=["alpha", "beta"],
-        operator="contains",
-        right="beta",
+        conditions=[
+            {
+                "left": ["alpha", "beta"],
+                "operator": "contains",
+                "right": "beta",
+            }
+        ],
     )
     contains_result = await contains_node(state, RunnableConfig())
     assert contains_result["results"]["contains_list"]["condition"] is True
+    assert (
+        contains_result["results"]["contains_list"]["conditions"][0]["result"] is True
+    )
 
     not_contains_node = IfElseNode(
         name="no_match",
-        left="Signal",
-        operator="not_contains",
-        right="noise",
-        case_sensitive=False,
+        conditions=[
+            {
+                "left": "Signal",
+                "operator": "not_contains",
+                "right": "noise",
+                "case_sensitive": False,
+            }
+        ],
     )
     not_contains_result = await not_contains_node(state, RunnableConfig())
     assert not_contains_result["results"]["no_match"]["condition"] is True
 
     in_node = IfElseNode(
         name="key_lookup",
-        left="token",
-        operator="in",
-        right={"token": 1},
+        conditions=[
+            {
+                "left": "token",
+                "operator": "in",
+                "right": {"token": 1},
+            }
+        ],
     )
     in_result = await in_node(state, RunnableConfig())
     assert in_result["results"]["key_lookup"]["condition"] is True
 
     not_in_node = IfElseNode(
         name="missing_key",
-        left="gamma",
-        operator="not_in",
-        right={"alpha": 1},
+        conditions=[
+            {
+                "left": "gamma",
+                "operator": "not_in",
+                "right": {"alpha": 1},
+            }
+        ],
     )
     not_in_result = await not_in_node(state, RunnableConfig())
     assert not_in_result["results"]["missing_key"]["condition"] is True
 
     invalid_node = IfElseNode(
         name="bad_container",
-        left=object(),
-        operator="contains",
-        right="value",
+        conditions=[
+            {
+                "left": object(),
+                "operator": "contains",
+                "right": "value",
+            }
+        ],
     )
     with pytest.raises(ValueError):
         await invalid_node(state, RunnableConfig())
@@ -81,10 +105,14 @@ async def test_if_else_node(left, operator, right, case_sensitive, expected):
     state = State({"results": {}})
     node = IfElseNode(
         name="condition",
-        left=left,
-        operator=operator,
-        right=right,
-        case_sensitive=case_sensitive,
+        conditions=[
+            {
+                "left": left,
+                "operator": operator,
+                "right": right,
+                "case_sensitive": case_sensitive,
+            }
+        ],
     )
 
     result = await node(state, RunnableConfig())
@@ -95,28 +123,82 @@ async def test_if_else_node(left, operator, right, case_sensitive, expected):
 
 
 @pytest.mark.asyncio
+async def test_if_else_node_combines_multiple_conditions():
+    state = State({"results": {}})
+    node = IfElseNode(
+        name="multi",
+        condition_logic="or",
+        conditions=[
+            {
+                "left": 1,
+                "operator": "equals",
+                "right": 2,
+            },
+            {
+                "left": 5,
+                "operator": "greater_than",
+                "right": 4,
+            },
+        ],
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["multi"]
+
+    assert payload["condition"] is True
+    assert payload["branch"] == "true"
+    assert [entry["result"] for entry in payload["conditions"]] == [False, True]
+
+
+@pytest.mark.asyncio
 async def test_switch_node_casefolds_strings():
     state = State({"results": {}})
-    node = SwitchNode(name="router", value="Completed", case_sensitive=False)
+    node = SwitchNode(
+        name="router",
+        value="Completed",
+        case_sensitive=False,
+        cases=[{"match": "completed", "branch_key": "completed"}],
+    )
 
     result = await node(state, RunnableConfig())
     payload = result["results"]["router"]
 
-    assert payload["case"] == "completed"
+    assert payload["branch"] == "completed"
     assert payload["processed"] == "completed"
     assert payload["value"] == "Completed"
+    assert payload["cases"][0]["result"] is True
 
 
 @pytest.mark.asyncio
 async def test_switch_node_formats_special_values():
     state = State({"results": {}})
-    true_node = SwitchNode(name="router_true", value=True)
-    true_payload = (await true_node(state, RunnableConfig()))["results"]["router_true"]
-    assert true_payload["case"] == "true"
+    node = SwitchNode(
+        name="router",
+        value=None,
+        cases=[{"match": True, "branch_key": "truthy"}],
+        default_branch_key="fallback",
+    )
 
-    none_node = SwitchNode(name="router_none", value=None)
-    none_payload = (await none_node(state, RunnableConfig()))["results"]["router_none"]
-    assert none_payload["case"] == "null"
+    payload = (await node(state, RunnableConfig()))["results"]["router"]
+    assert payload["branch"] == "fallback"
+    assert payload["cases"][0]["result"] is False
+
+
+@pytest.mark.asyncio
+async def test_switch_node_matches_first_successful_case():
+    state = State({"results": {}})
+    node = SwitchNode(
+        name="router",
+        value="beta",
+        cases=[
+            {"match": "alpha", "branch_key": "alpha"},
+            {"match": "beta", "branch_key": "beta", "label": "Second"},
+        ],
+    )
+
+    payload = (await node(state, RunnableConfig()))["results"]["router"]
+    assert payload["branch"] == "beta"
+    assert payload["cases"][1]["result"] is True
 
 
 def test_evaluate_condition_raises_for_unknown_operator():
@@ -135,8 +217,7 @@ async def test_while_node_iterations_and_limit():
     state = State({"results": {}})
     node = WhileNode(
         name="loop",
-        operator="less_than",
-        right=2,
+        conditions=[{"operator": "less_than", "right": 2}],
         max_iterations=2,
     )
 
@@ -144,6 +225,7 @@ async def test_while_node_iterations_and_limit():
     first_payload = first["results"]["loop"]
     assert first_payload["should_continue"] is True
     assert first_payload["iteration"] == 1
+    assert first_payload["branch"] == "continue"
 
     state["results"]["loop"] = first_payload
 
@@ -159,6 +241,7 @@ async def test_while_node_iterations_and_limit():
     assert third_payload["should_continue"] is False
     assert third_payload["limit_reached"] is True
     assert third_payload["iteration"] == 2
+    assert third_payload["branch"] == "exit"
 
 
 def test_while_node_previous_iteration_reads_state():
@@ -212,12 +295,16 @@ async def test_delay_node_sleeps(monkeypatch):
     assert payload["duration_seconds"] == 0.5
 
 
-@pytest.mark.asyncio
-async def test_sticky_note_node_returns_content():
-    state = State({"results": {}})
-    node = StickyNoteNode(name="note", title="Reminder", body="Review PR")
+def test_coerce_branch_key_prefers_candidate_and_generates_slug():
+    assert _coerce_branch_key("  custom-branch  ", "fallback") == "custom-branch"
+    assert _coerce_branch_key("", "Default Value") == "default_value"
 
-    result = await node(state, RunnableConfig())
-    payload = result["results"]["note"]
 
-    assert payload == {"title": "Reminder", "body": "Review PR"}
+def test_combine_condition_results_handles_empty_input():
+    aggregated, evaluations = _combine_condition_results(
+        conditions=[],
+        combinator="and",
+    )
+
+    assert aggregated is False
+    assert evaluations == []

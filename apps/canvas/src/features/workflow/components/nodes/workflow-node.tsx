@@ -33,7 +33,34 @@ export type WorkflowNodeData = {
   onDelete?: (id: string) => void;
   isSearchMatch?: boolean;
   isSearchActive?: boolean;
+  inputs?: NodeHandleConfig[];
+  outputs?: NodeHandleConfig[];
+  hideInputHandle?: boolean;
   [key: string]: unknown;
+};
+
+type NodeHandleConfig = {
+  id?: string;
+  label?: string;
+  position?: "left" | "right" | "top" | "bottom";
+};
+
+const toHandlePosition = (
+  value: NodeHandleConfig["position"],
+  fallback: Position,
+) => {
+  switch (value) {
+    case "left":
+      return Position.Left;
+    case "right":
+      return Position.Right;
+    case "top":
+      return Position.Top;
+    case "bottom":
+      return Position.Bottom;
+    default:
+      return fallback;
+  }
 };
 
 const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
@@ -105,6 +132,57 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
     setControlsVisible(false);
   };
 
+  const inputHandles = nodeData.hideInputHandle
+    ? []
+    : nodeData.inputs && nodeData.inputs.length > 0
+      ? nodeData.inputs
+      : [{ id: undefined }];
+
+  const outputHandles =
+    nodeData.outputs && nodeData.outputs.length > 0
+      ? nodeData.outputs
+      : [{ id: undefined }];
+
+  const renderHandle = (
+    handle: NodeHandleConfig,
+    index: number,
+    total: number,
+    type: "source" | "target",
+  ) => {
+    const fallbackPosition = type === "target" ? Position.Left : Position.Right;
+    const position = toHandlePosition(handle.position, fallbackPosition);
+    const percent = ((index + 1) / (total + 1)) * 100;
+    const style: React.CSSProperties = {};
+
+    if (position === Position.Left || position === Position.Right) {
+      style.top = `${percent}%`;
+      style.transform = "translateY(-50%)";
+    } else {
+      style.left = `${percent}%`;
+      style.transform = "translateX(-50%)";
+    }
+
+    return (
+      <React.Fragment key={`${type}-${handle.id ?? index}`}>
+        <Handle
+          type={type}
+          id={handle.id}
+          position={position}
+          className="!h-3 !w-3 !bg-primary !border-2 !border-background"
+          style={style}
+        />
+        {type === "source" && handle.label && (
+          <span
+            className="absolute right-[-72px] text-[10px] uppercase tracking-wide text-muted-foreground"
+            style={{ top: `${percent}%`, transform: "translateY(-50%)" }}
+          >
+            {handle.label}
+          </span>
+        )}
+      </React.Fragment>
+    );
+  };
+
   return (
     <div
       ref={nodeRef}
@@ -144,18 +222,14 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       </div>
 
       {/* Input handle */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!h-3 !w-3 !bg-primary !border-2 !border-background"
-      />
+      {inputHandles.map((handle, index) =>
+        renderHandle(handle, index, inputHandles.length, "target"),
+      )}
 
       {/* Output handle */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!h-3 !w-3 !bg-primary !border-2 !border-background"
-      />
+      {outputHandles.map((handle, index) =>
+        renderHandle(handle, index, outputHandles.length, "source"),
+      )}
 
       {/* Node content */}
       <div className="h-full w-full flex items-center justify-center relative">

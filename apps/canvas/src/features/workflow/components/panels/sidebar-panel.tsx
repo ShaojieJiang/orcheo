@@ -44,6 +44,7 @@ interface NodeCategory {
     icon?: React.ReactNode;
     type: string;
     backendType?: string;
+    isStickyNote?: boolean;
     data: {
       label: string;
       type: string;
@@ -65,6 +66,7 @@ const buildSidebarNode = ({
   type,
   backendType,
   data,
+  isStickyNote,
 }: {
   id: string;
   name: string;
@@ -73,6 +75,7 @@ const buildSidebarNode = ({
   type: string;
   backendType?: string;
   data?: Record<string, unknown>;
+  isStickyNote?: boolean;
 }): SidebarNode => {
   const mergedData: NodeCategory["nodes"][number]["data"] = {
     label: name,
@@ -91,6 +94,7 @@ const buildSidebarNode = ({
     icon: getNodeIcon(iconKey),
     type,
     backendType,
+    isStickyNote,
     data: mergedData,
   };
 };
@@ -99,6 +103,7 @@ interface SidebarPanelProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   onAddNode?: (node: SidebarNode) => void;
+  onAddStickyNote?: () => void;
   className?: string;
   position?: "left" | "canvas";
 }
@@ -107,6 +112,7 @@ export default function SidebarPanel({
   isCollapsed = false,
   onToggleCollapse,
   onAddNode,
+  onAddStickyNote,
   className,
   position = "left",
 }: SidebarPanelProps) {
@@ -145,10 +151,10 @@ export default function SidebarPanel({
           name: "Sticky Note",
           description: "Add workflow annotations",
           iconKey: "stickyNote",
-          type: "function",
-          backendType: "StickyNoteNode",
+          type: "annotation",
+          isStickyNote: true,
           data: {
-            title: "Note",
+            color: "yellow",
             content: "Document why this branch exists.",
           },
         }),
@@ -238,10 +244,20 @@ export default function SidebarPanel({
           type: "function",
           backendType: "IfElseNode",
           data: {
-            left: "{{previous.result}}",
-            right: "expected",
-            operator: "equals",
-            caseSensitive: false,
+            conditionLogic: "and",
+            conditions: [
+              {
+                id: "condition-1",
+                left: "{{previous.result}}",
+                operator: "equals",
+                right: "expected",
+                caseSensitive: false,
+              },
+            ],
+            outputs: [
+              { id: "true", label: "True" },
+              { id: "false", label: "False" },
+            ],
           },
         }),
         buildSidebarNode({
@@ -252,10 +268,19 @@ export default function SidebarPanel({
           type: "function",
           backendType: "WhileNode",
           data: {
-            operator: "less_than",
-            right: 3,
+            conditionLogic: "and",
+            conditions: [
+              {
+                id: "condition-1",
+                operator: "less_than",
+                right: 3,
+              },
+            ],
             maxIterations: 10,
-            caseSensitive: false,
+            outputs: [
+              { id: "continue", label: "Continue" },
+              { id: "exit", label: "Exit" },
+            ],
           },
         }),
         buildSidebarNode({
@@ -268,6 +293,26 @@ export default function SidebarPanel({
           data: {
             value: "{{previous.status}}",
             caseSensitive: false,
+            defaultBranchKey: "default",
+            cases: [
+              {
+                id: "case-1",
+                match: "approved",
+                label: "Approved",
+                branchKey: "approved",
+              },
+              {
+                id: "case-2",
+                match: "rejected",
+                label: "Rejected",
+                branchKey: "rejected",
+              },
+            ],
+            outputs: [
+              { id: "approved", label: "Approved" },
+              { id: "rejected", label: "Rejected" },
+              { id: "default", label: "Default" },
+            ],
           },
         }),
         buildSidebarNode({
@@ -298,6 +343,7 @@ export default function SidebarPanel({
           data: {
             targetPath: "context.value",
             value: "sample",
+            outputs: [{ id: "default", label: "Next" }],
           },
         }),
       ],
@@ -496,6 +542,10 @@ export default function SidebarPanel({
     .filter((category) => category.nodes.length > 0);
 
   const handleNodeClick = (node: SidebarNode) => {
+    if (node.isStickyNote) {
+      onAddStickyNote?.();
+      return;
+    }
     onAddNode?.(node);
   };
 

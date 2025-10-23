@@ -6,7 +6,6 @@ from orcheo.nodes.logic import (
     DelayNode,
     IfElseNode,
     SetVariableNode,
-    StickyNoteNode,
     SwitchNode,
     WhileNode,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "WhileNode",
     "SetVariableNode",
     "DelayNode",
-    "StickyNoteNode",
     "MessageTelegram",
     "WebhookTriggerNode",
     "CronTriggerNode",

@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -91,15 +91,8 @@ def evaluate_condition(
     raise ValueError(msg)
 
 
-@registry.register(
-    NodeMetadata(
-        name="IfElseNode",
-        description="Branch execution based on a condition",
-        category="logic",
-    )
-)
-class IfElseNode(TaskNode):
-    """Evaluate a boolean expression and emit the chosen branch."""
+class Condition(BaseModel):
+    """Configuration for evaluating a single comparison."""
 
     left: Any | None = Field(default=None, description="Left-hand operand")
     operator: ComparisonOperator = Field(
@@ -113,22 +106,105 @@ class IfElseNode(TaskNode):
         description="Apply case-sensitive comparison for string operands",
     )
 
+
+class SwitchCase(BaseModel):
+    """Configuration describing an individual switch branch."""
+
+    match: Any | None = Field(
+        default=None, description="Value that activates this branch"
+    )
+    label: str | None = Field(
+        default=None, description="Optional label used in the canvas"
+    )
+    branch_key: str | None = Field(
+        default=None,
+        description="Identifier emitted when this branch is selected",
+    )
+    case_sensitive: bool | None = Field(
+        default=None,
+        description="Override case-sensitivity for this branch",
+    )
+
+
+def _coerce_branch_key(candidate: str | None, fallback: str) -> str:
+    """Return a normalised branch identifier."""
+    if candidate:
+        candidate = candidate.strip()
+    if candidate:
+        return candidate
+    slug = fallback.strip().lower().replace(" ", "_")
+    slug = "".join(char for char in slug if char.isalnum() or char in {"_", "-"})
+    return slug or fallback
+
+
+def _combine_condition_results(
+    *,
+    conditions: Sequence[Condition],
+    combinator: Literal["and", "or"],
+    default_left: Any | None = None,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Evaluate the supplied conditions returning the aggregate and detail payload."""
+    if not conditions:
+        return False, []
+
+    evaluations: list[dict[str, Any]] = []
+    results: list[bool] = []
+    for index, condition in enumerate(conditions):
+        left_operand = condition.left if condition.left is not None else default_left
+        outcome = evaluate_condition(
+            left=left_operand,
+            right=condition.right,
+            operator=condition.operator,
+            case_sensitive=condition.case_sensitive,
+        )
+        evaluations.append(
+            {
+                "index": index,
+                "left": left_operand,
+                "right": condition.right,
+                "operator": condition.operator,
+                "case_sensitive": condition.case_sensitive,
+                "result": outcome,
+            }
+        )
+        results.append(outcome)
+
+    aggregated = all(results) if combinator == "and" else any(results)
+    return aggregated, evaluations
+
+
+@registry.register(
+    NodeMetadata(
+        name="IfElseNode",
+        description="Branch execution based on a condition",
+        category="logic",
+    )
+)
+class IfElseNode(TaskNode):
+    """Evaluate a boolean expression and emit the chosen branch."""
+
+    conditions: list[Condition] = Field(
+        default_factory=lambda: [Condition(left=True, operator="is_truthy")],
+        min_length=1,
+        description="Collection of conditions that control branching",
+    )
+    condition_logic: Literal["and", "or"] = Field(
+        default="and",
+        description="Combine conditions using logical AND/OR semantics",
+    )
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return the evaluated operands and the resulting branch key."""
-        outcome = evaluate_condition(
-            left=self.left,
-            right=self.right,
-            operator=self.operator,
-            case_sensitive=self.case_sensitive,
+        outcome, evaluations = _combine_condition_results(
+            conditions=self.conditions,
+            combinator=self.condition_logic,
         )
         branch = "true" if outcome else "false"
         return {
             "condition": outcome,
             "branch": branch,
-            "left": self.left,
-            "right": self.right,
-            "operator": self.operator,
-            "case_sensitive": self.case_sensitive,
+            "condition_logic": self.condition_logic,
+            "conditions": evaluations,
         }
 
 
@@ -147,28 +223,66 @@ class SwitchNode(TaskNode):
         default=True,
         description="Preserve case when deriving branch keys",
     )
+    default_branch_key: str = Field(
+        default="default",
+        description="Branch identifier returned when no cases match",
+    )
+    cases: list[SwitchCase] = Field(
+        default_factory=list,
+        min_length=1,
+        description="Collection of matchable branches",
+    )
 
-    @staticmethod
-    def _format_case(value: Any) -> str:
-        if isinstance(value, bool):
-            return "true" if value else "false"
-        if value is None:
-            return "null"
-        return str(value)
+    def _resolve_case(
+        self, case: SwitchCase, *, index: int, normalised_value: Any
+    ) -> tuple[str, bool, dict[str, Any]]:
+        case_sensitive = (
+            case.case_sensitive
+            if case.case_sensitive is not None
+            else self.case_sensitive
+        )
+        branch_key = _coerce_branch_key(
+            case.branch_key,
+            fallback=f"case_{index + 1}",
+        )
+        expected = _normalise_case(
+            case.match,
+            case_sensitive=case_sensitive,
+        )
+        is_match = normalised_value == expected
+        payload = {
+            "branch": branch_key,
+            "label": case.label,
+            "match": case.match,
+            "case_sensitive": case_sensitive,
+            "result": is_match,
+        }
+        return branch_key, is_match, payload
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return the raw value and a normalised case key."""
         raw_value = self.value
-        processed = raw_value
-        if isinstance(raw_value, str) and not self.case_sensitive:
-            processed = raw_value.casefold()
+        processed = _normalise_case(raw_value, case_sensitive=self.case_sensitive)
+        branch_key = self.default_branch_key
+        evaluations: list[dict[str, Any]] = []
 
-        branch_key = self._format_case(processed)
+        for index, case in enumerate(self.cases):
+            candidate_branch, is_match, payload = self._resolve_case(
+                case,
+                index=index,
+                normalised_value=processed,
+            )
+            evaluations.append(payload)
+            if is_match and branch_key == self.default_branch_key:
+                branch_key = candidate_branch
+
         return {
             "value": raw_value,
             "processed": processed,
-            "case": branch_key,
+            "branch": branch_key,
             "case_sensitive": self.case_sensitive,
+            "default_branch": self.default_branch_key,
+            "cases": evaluations,
         }
 
 
@@ -182,17 +296,14 @@ class SwitchNode(TaskNode):
 class WhileNode(TaskNode):
     """Evaluate a condition and loop until it fails or a limit is reached."""
 
-    left: Any | None = Field(default=None, description="Left-hand operand")
-    operator: ComparisonOperator = Field(
-        default="less_than",
-        description="Comparison operator used to decide whether to continue",
+    conditions: list[Condition] = Field(
+        default_factory=lambda: [Condition(operator="less_than")],
+        min_length=1,
+        description="Collection of conditions that control continuation",
     )
-    right: Any | None = Field(
-        default=None, description="Right-hand operand (if required)"
-    )
-    case_sensitive: bool = Field(
-        default=True,
-        description="Apply case-sensitive comparison for string operands",
+    condition_logic: Literal["and", "or"] = Field(
+        default="and",
+        description="Combine conditions using logical AND/OR semantics",
     )
     max_iterations: int | None = Field(
         default=None,
@@ -214,13 +325,12 @@ class WhileNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return loop metadata and whether execution should continue."""
         previous_iteration = self._previous_iteration(state)
-        comparator_left = self.left if self.left is not None else previous_iteration
-        should_continue = evaluate_condition(
-            left=comparator_left,
-            right=self.right,
-            operator=self.operator,
-            case_sensitive=self.case_sensitive,
+        outcome, evaluations = _combine_condition_results(
+            conditions=self.conditions,
+            combinator=self.condition_logic,
+            default_left=previous_iteration,
         )
+        should_continue = outcome
         limit_reached = False
 
         if (
@@ -234,14 +344,14 @@ class WhileNode(TaskNode):
         if should_continue:
             iteration += 1
 
+        branch = "continue" if should_continue else "exit"
         return {
             "should_continue": should_continue,
             "iteration": iteration,
             "limit_reached": limit_reached,
-            "left": comparator_left,
-            "right": self.right,
-            "operator": self.operator,
-            "case_sensitive": self.case_sensitive,
+            "branch": branch,
+            "condition_logic": self.condition_logic,
+            "conditions": evaluations,
             "max_iterations": self.max_iterations,
         }
 
@@ -312,30 +422,13 @@ class DelayNode(TaskNode):
         }
 
 
-@registry.register(
-    NodeMetadata(
-        name="StickyNoteNode",
-        description="Annotate the workflow with contextual information",
-        category="utility",
-    )
-)
-class StickyNoteNode(TaskNode):
-    """A no-op node that carries human readable context."""
-
-    title: str = Field(default="Note", description="Sticky note title")
-    body: str = Field(default="", description="Sticky note contents")
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the note payload so it is captured in execution history."""
-        return {"title": self.title, "body": self.body}
-
-
 __all__ = [
     "ComparisonOperator",
+    "Condition",
+    "SwitchCase",
     "IfElseNode",
     "SwitchNode",
     "WhileNode",
     "SetVariableNode",
     "DelayNode",
-    "StickyNoteNode",
 ]

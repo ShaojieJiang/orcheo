@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Tabs,
   TabsContent,
@@ -61,6 +67,22 @@ interface SchemaField {
   description?: string;
 }
 
+type ConditionForm = {
+  id: string;
+  left?: unknown;
+  operator?: string;
+  right?: unknown;
+  caseSensitive?: boolean;
+};
+
+type SwitchCaseForm = {
+  id: string;
+  label?: string;
+  match?: unknown;
+  branchKey?: string;
+  caseSensitive?: boolean;
+};
+
 type NodeRuntimeData = {
   inputs?: unknown;
   outputs?: unknown;
@@ -71,6 +93,35 @@ type NodeRuntimeData = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
+};
+
+const COMPARISON_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "equals", label: "Equals" },
+  { value: "not_equals", label: "Not equals" },
+  { value: "greater_than", label: "Greater than" },
+  { value: "greater_than_or_equal", label: "Greater than or equal" },
+  { value: "less_than", label: "Less than" },
+  { value: "less_than_or_equal", label: "Less than or equal" },
+  { value: "contains", label: "Contains" },
+  { value: "not_contains", label: "Does not contain" },
+  { value: "in", label: "In collection" },
+  { value: "not_in", label: "Not in collection" },
+  { value: "is_truthy", label: "Is truthy" },
+  { value: "is_falsy", label: "Is falsy" },
+];
+
+const createUniqueId = (prefix: string) => {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    "randomUUID" in globalThis.crypto &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  }
+
+  const timestamp = Date.now().toString(36);
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  return `${prefix}-${timestamp}-${randomSuffix}`;
 };
 
 export default function NodeInspector({
@@ -87,6 +138,9 @@ export default function NodeInspector({
     : null;
   const hasRuntime = Boolean(runtime);
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
+  const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
+    node?.data ? { ...(node.data as Record<string, unknown>) } : {},
+  );
   const extractPythonCode = (
     targetNode: NodeInspectorProps["node"],
   ): string => {
@@ -141,6 +195,9 @@ export default function NodeInspector({
     if (node && isPythonNode) {
       setPythonCode(extractPythonCode(node));
     }
+    setDraftData(
+      node?.data ? { ...(node.data as Record<string, unknown>) } : {},
+    );
   }, [isPythonNode, node]);
 
   const nodeLabelCandidate = node?.data?.label;
@@ -151,6 +208,58 @@ export default function NodeInspector({
   const formattedSemanticType = semanticType
     ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
     : null;
+  const backendType =
+    node && typeof node.data?.backendType === "string"
+      ? (node.data.backendType as string)
+      : null;
+
+  const conditionForms = useMemo<ConditionForm[]>(() => {
+    if (!Array.isArray(draftData.conditions)) {
+      return [];
+    }
+    return (draftData.conditions as ConditionForm[]).map(
+      (condition, index) => ({
+        id:
+          typeof condition?.id === "string"
+            ? condition.id
+            : `condition-${index + 1}`,
+        left: (condition as Record<string, unknown>).left,
+        operator:
+          typeof (condition as Record<string, unknown>).operator === "string"
+            ? ((condition as Record<string, unknown>).operator as string)
+            : "equals",
+        right: (condition as Record<string, unknown>).right,
+        caseSensitive:
+          typeof (condition as Record<string, unknown>).caseSensitive ===
+          "boolean"
+            ? ((condition as Record<string, unknown>).caseSensitive as boolean)
+            : undefined,
+      }),
+    );
+  }, [draftData.conditions]);
+
+  const switchCaseForms = useMemo<SwitchCaseForm[]>(() => {
+    if (!Array.isArray(draftData.cases)) {
+      return [];
+    }
+    return (draftData.cases as SwitchCaseForm[]).map((caseEntry, index) => ({
+      id:
+        typeof caseEntry?.id === "string" ? caseEntry.id : `case-${index + 1}`,
+      label:
+        typeof caseEntry?.label === "string"
+          ? (caseEntry.label as string)
+          : undefined,
+      match: (caseEntry as Record<string, unknown>).match,
+      branchKey:
+        typeof caseEntry?.branchKey === "string"
+          ? (caseEntry.branchKey as string)
+          : undefined,
+      caseSensitive:
+        typeof caseEntry?.caseSensitive === "boolean"
+          ? (caseEntry.caseSensitive as boolean)
+          : undefined,
+    }));
+  }, [draftData.cases]);
 
   const renderLiveDataUnavailable = (label: string) => (
     <div className="flex items-center justify-center h-full">
@@ -202,7 +311,7 @@ export default function NodeInspector({
 
   const handleSave = useCallback(() => {
     if (onSave && node) {
-      const updatedData = { ...(node.data as Record<string, unknown>) };
+      const updatedData = { ...draftData };
       if (isPythonNode) {
         updatedData.code =
           pythonCode && pythonCode.length > 0
@@ -211,7 +320,7 @@ export default function NodeInspector({
       }
       onSave(node.id, updatedData);
     }
-  }, [isPythonNode, node, onSave, pythonCode]);
+  }, [draftData, isPythonNode, node, onSave, pythonCode]);
 
   useEffect(() => {
     handleSaveRef.current = handleSave;
@@ -401,8 +510,18 @@ export default function NodeInspector({
               <Label htmlFor="node-name">Node Name</Label>
               <Input
                 id="node-name"
-                defaultValue={node.data.label || ""}
+                value={
+                  typeof draftData.label === "string"
+                    ? draftData.label
+                    : node.data.label || ""
+                }
                 placeholder="Enter node name"
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    label: event.target.value,
+                  }))
+                }
               />
             </div>
 
@@ -410,16 +529,605 @@ export default function NodeInspector({
               <Label htmlFor="node-description">Description</Label>
               <Textarea
                 id="node-description"
-                defaultValue={node.data.description || ""}
+                value={
+                  typeof draftData.description === "string"
+                    ? draftData.description
+                    : node.data.description || ""
+                }
                 placeholder="Enter description"
                 rows={3}
                 ref={configTextareaRef}
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
               />
             </div>
           </div>
         ),
       },
     ];
+
+    if (backendType === "SetVariableNode") {
+      configurationSections.push({
+        id: "set-variable",
+        title: "Variable Assignment",
+        defaultOpen: true,
+        content: (
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="set-variable-path">Target Path</Label>
+              <Input
+                id="set-variable-path"
+                value={
+                  typeof draftData.targetPath === "string"
+                    ? draftData.targetPath
+                    : "context.value"
+                }
+                placeholder="e.g. context.user.name"
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    targetPath: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="set-variable-value">Value</Label>
+              <Textarea
+                id="set-variable-value"
+                value={
+                  typeof draftData.value === "string"
+                    ? draftData.value
+                    : draftData.value !== undefined
+                      ? String(draftData.value)
+                      : ""
+                }
+                placeholder="Enter value or expression"
+                rows={3}
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    value: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+        ),
+      });
+    }
+
+    if (backendType === "DelayNode") {
+      configurationSections.push({
+        id: "delay",
+        title: "Delay Settings",
+        content: (
+          <div className="grid gap-2">
+            <Label htmlFor="delay-duration">Duration (seconds)</Label>
+            <Input
+              id="delay-duration"
+              type="number"
+              min={0}
+              step={0.1}
+              value={
+                typeof draftData.durationSeconds === "number"
+                  ? draftData.durationSeconds
+                  : Number(draftData.durationSeconds ?? 0)
+              }
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                setDraftData((current) => ({
+                  ...current,
+                  durationSeconds: Number.isFinite(parsed) ? parsed : 0,
+                }));
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Configure how long the workflow should wait before continuing.
+            </p>
+          </div>
+        ),
+      });
+    }
+
+    if (backendType === "IfElseNode" || backendType === "WhileNode") {
+      const conditionLogic =
+        typeof draftData.conditionLogic === "string"
+          ? draftData.conditionLogic
+          : "and";
+
+      const handleConditionUpdate = (
+        index: number,
+        updates: Partial<ConditionForm>,
+      ) => {
+        const nextConditions = conditionForms.map((condition, idx) =>
+          idx === index ? { ...condition, ...updates } : condition,
+        );
+        setDraftData((current) => ({
+          ...current,
+          conditions: nextConditions,
+        }));
+      };
+
+      const handleRemoveCondition = (index: number) => {
+        if (conditionForms.length <= 1) {
+          return;
+        }
+        const nextConditions = conditionForms.filter((_, idx) => idx !== index);
+        setDraftData((current) => ({
+          ...current,
+          conditions: nextConditions,
+        }));
+      };
+
+      const handleAddCondition = () => {
+        const newCondition: ConditionForm = {
+          id: createUniqueId("condition"),
+          left: "",
+          operator: "equals",
+          right: "",
+          caseSensitive: true,
+        };
+        setDraftData((current) => ({
+          ...current,
+          conditions: [...conditionForms, newCondition],
+        }));
+      };
+
+      configurationSections.push({
+        id: backendType === "IfElseNode" ? "if-conditions" : "while-conditions",
+        title: backendType === "IfElseNode" ? "Conditions" : "Loop Conditions",
+        defaultOpen: true,
+        content: (
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="condition-logic">Combine using</Label>
+              <Select
+                value={conditionLogic}
+                onValueChange={(value) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    conditionLogic: value,
+                  }))
+                }
+              >
+                <SelectTrigger id="condition-logic">
+                  <SelectValue placeholder="Choose logic" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="and">
+                    All conditions must pass (AND)
+                  </SelectItem>
+                  <SelectItem value="or">
+                    Any condition may pass (OR)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {backendType === "WhileNode" && (
+              <div className="grid gap-2">
+                <Label htmlFor="while-max-iterations">Max iterations</Label>
+                <Input
+                  id="while-max-iterations"
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={
+                    typeof draftData.maxIterations === "number" &&
+                    Number.isFinite(draftData.maxIterations)
+                      ? draftData.maxIterations
+                      : ""
+                  }
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    setDraftData((current) => {
+                      const base = {
+                        ...(current as Record<string, unknown>),
+                      };
+                      if (raw === "") {
+                        delete base.maxIterations;
+                        return base;
+                      }
+                      const parsed = Number(raw);
+                      if (Number.isFinite(parsed) && parsed >= 1) {
+                        return { ...base, maxIterations: parsed };
+                      }
+                      return base;
+                    });
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Leave blank to continue until the loop condition fails.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {conditionForms.map((condition, index) => {
+                const caseSensitive =
+                  condition.caseSensitive === undefined
+                    ? true
+                    : condition.caseSensitive;
+                return (
+                  <div
+                    key={condition.id}
+                    className="rounded-md border border-border bg-muted/30 p-3 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Condition {index + 1}
+                      </span>
+                      {conditionForms.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground"
+                          onClick={() => handleRemoveCondition(index)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Left operand</Label>
+                      <Input
+                        placeholder={
+                          backendType === "WhileNode"
+                            ? "Leave blank to use loop iteration"
+                            : "Value or expression"
+                        }
+                        value={
+                          typeof condition.left === "string"
+                            ? condition.left
+                            : condition.left !== undefined
+                              ? String(condition.left)
+                              : ""
+                        }
+                        onChange={(event) =>
+                          handleConditionUpdate(index, {
+                            left: event.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Operator</Label>
+                      <Select
+                        value={condition.operator ?? "equals"}
+                        onValueChange={(value) =>
+                          handleConditionUpdate(index, { operator: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select operator" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {COMPARISON_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Right operand</Label>
+                      <Input
+                        placeholder="Value to compare"
+                        value={
+                          typeof condition.right === "string"
+                            ? condition.right
+                            : condition.right !== undefined
+                              ? String(condition.right)
+                              : ""
+                        }
+                        onChange={(event) =>
+                          handleConditionUpdate(index, {
+                            right: event.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-xs">Case sensitive</Label>
+                        <p className="text-[10px] text-muted-foreground">
+                          Disable for case-insensitive string comparisons.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={caseSensitive}
+                        onCheckedChange={(checked) =>
+                          handleConditionUpdate(index, {
+                            caseSensitive: checked,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button variant="outline" size="sm" onClick={handleAddCondition}>
+              <Plus className="h-3 w-3 mr-1" /> Add Condition
+            </Button>
+          </div>
+        ),
+      });
+    }
+
+    if (backendType === "SwitchNode") {
+      const normaliseBranchKey = (
+        value?: string | null,
+        fallback = "default",
+      ) => {
+        if (typeof value !== "string") {
+          return fallback;
+        }
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : fallback;
+      };
+
+      const defaultBranchKey = normaliseBranchKey(
+        typeof draftData.defaultBranchKey === "string"
+          ? (draftData.defaultBranchKey as string)
+          : undefined,
+      );
+
+      const globalCaseSensitive =
+        typeof draftData.caseSensitive === "boolean"
+          ? (draftData.caseSensitive as boolean)
+          : true;
+
+      const deriveCaseBranchKey = (
+        caseEntry: SwitchCaseForm,
+        index: number,
+      ) => {
+        if (
+          typeof caseEntry.branchKey === "string" &&
+          caseEntry.branchKey.trim().length > 0
+        ) {
+          return caseEntry.branchKey.trim();
+        }
+        if (
+          typeof caseEntry.id === "string" &&
+          caseEntry.id.trim().length > 0
+        ) {
+          return caseEntry.id.trim();
+        }
+        return `case_${index + 1}`;
+      };
+
+      const buildOutputs = (cases: SwitchCaseForm[], defaultKey: string) => [
+        ...cases.map((caseEntry, index) => ({
+          id: deriveCaseBranchKey(caseEntry, index),
+          label:
+            caseEntry.label && caseEntry.label.length > 0
+              ? caseEntry.label
+              : `Case ${index + 1}`,
+        })),
+        { id: defaultKey, label: "Default" },
+      ];
+
+      const applySwitchDraft = (
+        cases: SwitchCaseForm[],
+        nextDefaultKey: string,
+      ) => {
+        const outputs = buildOutputs(cases, nextDefaultKey);
+        setDraftData((current) => ({
+          ...current,
+          cases,
+          outputs,
+          defaultBranchKey: nextDefaultKey,
+        }));
+      };
+
+      const updateCases = (cases: SwitchCaseForm[]) => {
+        applySwitchDraft(cases, defaultBranchKey);
+      };
+
+      const handleUpdateCase = (
+        index: number,
+        updates: Partial<SwitchCaseForm>,
+      ) => {
+        const nextCases = switchCaseForms.map((caseEntry, idx) =>
+          idx === index ? { ...caseEntry, ...updates } : caseEntry,
+        );
+        updateCases(nextCases);
+      };
+
+      const handleRemoveCase = (index: number) => {
+        if (switchCaseForms.length <= 1) {
+          return;
+        }
+        const nextCases = switchCaseForms.filter((_, idx) => idx !== index);
+        updateCases(nextCases);
+      };
+
+      const handleAddCase = () => {
+        const newCaseId = createUniqueId("case");
+        const newCase: SwitchCaseForm = {
+          id: newCaseId,
+          label: `Case ${switchCaseForms.length + 1}`,
+          match: "",
+          branchKey: newCaseId,
+          caseSensitive: false,
+        };
+        updateCases([...switchCaseForms, newCase]);
+      };
+
+      const handleDefaultBranchKeyChange = (value: string) => {
+        const resolved = normaliseBranchKey(value);
+        applySwitchDraft(switchCaseForms, resolved);
+      };
+
+      configurationSections.push({
+        id: "switch-cases",
+        title: "Switch Cases",
+        defaultOpen: true,
+        content: (
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="switch-value">Value to evaluate</Label>
+              <Input
+                id="switch-value"
+                value={
+                  typeof draftData.value === "string"
+                    ? draftData.value
+                    : draftData.value !== undefined
+                      ? String(draftData.value)
+                      : ""
+                }
+                placeholder="Expression or context value"
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    value: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Case sensitive comparisons</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Disable to compare values using case-insensitive matching.
+                </p>
+              </div>
+              <Switch
+                checked={globalCaseSensitive}
+                onCheckedChange={(checked) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    caseSensitive: checked,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="switch-default-branch">Default branch key</Label>
+              <Input
+                id="switch-default-branch"
+                value={
+                  typeof draftData.defaultBranchKey === "string"
+                    ? draftData.defaultBranchKey
+                    : defaultBranchKey
+                }
+                placeholder="default"
+                onChange={(event) =>
+                  handleDefaultBranchKeyChange(event.target.value)
+                }
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Used when no cases match. Update connectors by changing this
+                key.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {switchCaseForms.map((caseEntry, index) => (
+                <div
+                  key={caseEntry.id}
+                  className="rounded-md border border-border bg-muted/30 p-3 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Case {index + 1}
+                    </span>
+                    {switchCaseForms.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground"
+                        onClick={() => handleRemoveCase(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Label</Label>
+                    <Input
+                      value={caseEntry.label ?? ""}
+                      placeholder="Human readable label"
+                      onChange={(event) =>
+                        handleUpdateCase(index, { label: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Match value</Label>
+                    <Input
+                      value={
+                        typeof caseEntry.match === "string"
+                          ? caseEntry.match
+                          : caseEntry.match !== undefined
+                            ? String(caseEntry.match)
+                            : ""
+                      }
+                      placeholder="Value to compare"
+                      onChange={(event) =>
+                        handleUpdateCase(index, { match: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Branch key</Label>
+                    <Input
+                      value={caseEntry.branchKey ?? ""}
+                      placeholder={`case_${index + 1}`}
+                      onChange={(event) =>
+                        handleUpdateCase(index, {
+                          branchKey: event.target.value,
+                        })
+                      }
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Determines the connector ID used for this branch.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-xs">Case sensitive</Label>
+                      <p className="text-[10px] text-muted-foreground">
+                        Enable when the match should respect casing.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={caseEntry.caseSensitive ?? false}
+                      onCheckedChange={(checked) =>
+                        handleUpdateCase(index, { caseSensitive: checked })
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button variant="outline" size="sm" onClick={handleAddCase}>
+              <Plus className="h-3 w-3 mr-1" /> Add Case
+            </Button>
+          </div>
+        ),
+      });
+    }
 
     if (node.type === "HTTP Request") {
       configurationSections.push({
