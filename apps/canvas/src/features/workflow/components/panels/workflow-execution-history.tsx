@@ -604,6 +604,10 @@ export default function WorkflowExecutionHistory({
             zoomOnDoubleClick={false}
             showMiniMap={true}
             onNodeDoubleClick={(_event: React.MouseEvent, node: Node) => {
+              // Ignore double-clicks on Start and End nodes
+              if (node.type === "startEnd") {
+                return;
+              }
               setSelectedNodeId(node.id);
             }}
           >

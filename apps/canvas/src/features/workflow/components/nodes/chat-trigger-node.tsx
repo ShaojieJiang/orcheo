@@ -39,9 +39,6 @@ const ChatTriggerNode = ({ data, selected, id }: NodeProps) => {
 
   return (
     <div className="flex flex-col items-center">
-      {/* Node label component */}
-      <NodeLabel id={id} label={label} onLabelChange={onLabelChange} />
-
       <div
         className={cn(
           "relative group rounded-lg border p-3 shadow-sm bg-background w-[180px]",
@@ -99,6 +96,9 @@ const ChatTriggerNode = ({ data, selected, id }: NodeProps) => {
           </TooltipProvider>
         </div>
       </div>
+
+      {/* Node label component */}
+      <NodeLabel id={id} label={label} onLabelChange={onLabelChange} />
     </div>
   );
 };

@@ -127,7 +127,7 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       aria-selected={Boolean(selected)}
     >
       {/* Simple text label */}
-      <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap">
+      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap">
         <span
           className={cn(
             "px-2 py-0.5 rounded-full transition-colors",
@@ -177,15 +177,15 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       <div
         ref={controlsRef}
         className={cn(
-          "absolute -top-10 left-1/2 transform -translate-x-1/2 flex items-center gap-1 bg-background border border-border rounded-md shadow-md p-1 transition-opacity duration-200 z-20",
+          "absolute -top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5 bg-background border border-border rounded-md shadow-md p-0.5 transition-opacity duration-200 z-20",
           controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
       >
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="p-1.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1">
-                <Play className="h-4 w-4" />
+              <button className="p-0.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-1 focus:ring-primary focus:ring-offset-0.5">
+                <Play className="h-2 w-2" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -197,8 +197,8 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="p-1.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1">
-                <Settings className="h-4 w-4" />
+              <button className="p-0.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-1 focus:ring-primary focus:ring-offset-0.5">
+                <Settings className="h-2 w-2" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -210,8 +210,8 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="p-1.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1">
-                <ToggleLeft className="h-4 w-4" />
+              <button className="p-0.5 rounded-sm hover:bg-accent focus:outline-none focus:ring-1 focus:ring-primary focus:ring-offset-0.5">
+                <ToggleLeft className="h-2 w-2" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -224,14 +224,14 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="p-1.5 rounded-sm hover:bg-accent hover:text-destructive focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-1"
+                className="p-0.5 rounded-sm hover:bg-accent hover:text-destructive focus:outline-none focus:ring-1 focus:ring-destructive focus:ring-offset-0.5"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   nodeData.onDelete?.(id);
                 }}
               >
-                <Trash className="h-4 w-4" />
+                <Trash className="h-2 w-2" />
               </button>
             </TooltipTrigger>
             <TooltipContent>

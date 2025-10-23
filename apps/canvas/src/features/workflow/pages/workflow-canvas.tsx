@@ -2361,6 +2361,10 @@ export default function WorkflowCanvas({
   // Handle node double click for inspection
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: CanvasNode) => {
+      // Ignore double-clicks on Start and End nodes
+      if (node.type === "startEnd") {
+        return;
+      }
       setSelectedNodeId(node.id);
     },
     [],

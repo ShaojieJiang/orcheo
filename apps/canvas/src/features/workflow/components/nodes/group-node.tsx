@@ -67,11 +67,6 @@ const GroupNode = ({ data, selected, id }: NodeProps) => {
 
   return (
     <div className="flex flex-col items-center">
-      {/* Node label component - only show when collapsed */}
-      {!isExpanded && (
-        <NodeLabel id={id} label={label} onLabelChange={onLabelChange} />
-      )}
-
       <div
         className={cn(
           "group relative rounded-xl border-2 shadow-sm transition-all duration-200",
@@ -188,6 +183,11 @@ const GroupNode = ({ data, selected, id }: NodeProps) => {
           </div>
         )}
       </div>
+
+      {/* Node label component - only show when collapsed */}
+      {!isExpanded && (
+        <NodeLabel id={id} label={label} onLabelChange={onLabelChange} />
+      )}
     </div>
   );
 };
