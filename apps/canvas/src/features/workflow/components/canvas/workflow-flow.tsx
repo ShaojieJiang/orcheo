@@ -22,15 +22,18 @@ import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-no
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import { cn } from "@/lib/utils";
 
-export interface WorkflowFlowProps {
-  nodes: Node[];
-  edges: Edge[];
-  onNodesChange?: OnNodesChange;
-  onEdgesChange?: OnEdgesChange;
+export interface WorkflowFlowProps<
+  NodeType extends Node = Node,
+  EdgeType extends Edge = Edge,
+> {
+  nodes: NodeType[];
+  edges: EdgeType[];
+  onNodesChange?: OnNodesChange<NodeType>;
+  onEdgesChange?: OnEdgesChange<EdgeType>;
   onConnect?: OnConnect;
   onNodeClick?: OnNodeClick;
   onNodeDoubleClick?: OnNodeDoubleClick;
-  onInit?: (instance: ReactFlowInstance) => void;
+  onInit?: (instance: ReactFlowInstance<NodeType, EdgeType>) => void;
   fitView?: boolean;
   snapToGrid?: boolean;
   snapGrid?: [number, number];
@@ -90,7 +93,10 @@ const getMiniMapNodeColor = (node: Node) => {
  * - Optional MiniMap, Controls, and Background
  * - Configurable interaction modes (editable vs read-only)
  */
-export default function WorkflowFlow({
+export default function WorkflowFlow<
+  NodeType extends Node = Node,
+  EdgeType extends Edge = Edge,
+>({
   nodes,
   edges,
   onNodesChange,
@@ -113,7 +119,7 @@ export default function WorkflowFlow({
   nodesConnectable,
   nodesFocusable,
   elementsSelectable,
-}: WorkflowFlowProps) {
+}: WorkflowFlowProps<NodeType, EdgeType>) {
   // Default interaction props based on editable mode
   const defaultNodesDraggable = nodesDraggable ?? editable;
   const defaultNodesConnectable = nodesConnectable ?? editable;

@@ -16,16 +16,11 @@ import type {
   ReactFlowInstance,
 } from "@xyflow/react";
 import {
-  ReactFlow,
-  Background,
-  Controls,
   Panel,
   addEdge,
   useNodesState,
   useEdgesState,
   MarkerType,
-  ConnectionLineType,
-  MiniMap,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -40,12 +35,11 @@ import {
 
 import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
-import WorkflowNode from "@features/workflow/components/nodes/workflow-node";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
-import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import ChatInterface from "@features/shared/components/chat-interface";
+import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
 import WorkflowExecutionHistory, {
   type WorkflowExecution as HistoryWorkflowExecution,
 } from "@features/workflow/components/panels/workflow-execution-history";
@@ -63,7 +57,6 @@ import ConnectionValidator, {
 import WorkflowGovernancePanel, {
   type SubworkflowTemplate,
 } from "@features/workflow/components/panels/workflow-governance-panel";
-import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import {
   SAMPLE_WORKFLOWS,
   type WorkflowEdge as PersistedWorkflowEdge,
@@ -86,13 +79,6 @@ import {
   getNodeIcon,
   inferNodeIconKey,
 } from "@features/workflow/lib/node-icons";
-
-// Define custom node types
-const nodeTypes = {
-  default: WorkflowNode,
-  chatTrigger: ChatTriggerNode,
-  startEnd: StartEndNode,
-};
 
 // Add default style to remove ReactFlow node container
 const defaultNodeStyle = {
@@ -3378,7 +3364,7 @@ export default function WorkflowCanvas({
                 onDragOver={onDragOver}
                 onDrop={onDrop}
               >
-                <ReactFlow
+                <WorkflowFlow
                   nodes={decoratedNodes}
                   edges={edges}
                   onNodesChange={handleNodesChange}
@@ -3386,24 +3372,13 @@ export default function WorkflowCanvas({
                   onConnect={onConnect}
                   onNodeClick={onNodeClick}
                   onNodeDoubleClick={onNodeDoubleClick}
-                  onInit={(instance) => {
+                  onInit={(instance: ReactFlowInstance) => {
                     reactFlowInstance.current = instance;
                   }}
-                  nodeTypes={nodeTypes}
                   fitView
                   snapToGrid
                   snapGrid={[15, 15]}
-                  defaultEdgeOptions={{
-                    style: { stroke: "#99a1b3", strokeWidth: 2 },
-                    type: "smoothstep",
-                    markerEnd: {
-                      type: MarkerType.ArrowClosed,
-                    },
-                  }}
-                  connectionLineType={ConnectionLineType.SmoothStep}
-                  connectionLineStyle={{ stroke: "#99a1b3", strokeWidth: 2 }}
-                  proOptions={{ hideAttribution: true }}
-                  className="h-full"
+                  editable={true}
                 >
                   <WorkflowSearch
                     isOpen={isSearchOpen}
@@ -3414,33 +3389,6 @@ export default function WorkflowCanvas({
                     matchCount={searchMatches.length}
                     currentMatchIndex={currentSearchIndex}
                     className="backdrop-blur supports-[backdrop-filter]:bg-background/60"
-                  />
-                  <Background />
-
-                  <Controls />
-
-                  <MiniMap
-                    nodeStrokeWidth={3}
-                    zoomable
-                    pannable
-                    nodeColor={(node) => {
-                      switch (node.data?.type) {
-                        case "api":
-                          return "#93c5fd";
-                        case "function":
-                          return "#d8b4fe";
-                        case "trigger":
-                          return "#fcd34d";
-                        case "data":
-                          return "#86efac";
-                        case "ai":
-                          return "#a5b4fc";
-                        case "chatTrigger":
-                          return "#fdba74";
-                        default:
-                          return "#e2e8f0";
-                      }
-                    }}
                   />
 
                   <Panel position="top-left" className="m-4">
@@ -3467,7 +3415,7 @@ export default function WorkflowCanvas({
                     className="hidden"
                     onChange={handleWorkflowFileSelected}
                   />
-                </ReactFlow>
+                </WorkflowFlow>
                 <ConnectionValidator
                   errors={validationErrors}
                   onDismiss={handleDismissValidation}
