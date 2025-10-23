@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import type React from "react";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
