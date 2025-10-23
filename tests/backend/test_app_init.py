@@ -28,8 +28,10 @@ from orcheo_backend.app import (
     get_credential_service,
     get_workflow_credential_health,
     invoke_webhook_trigger,
+    list_workflow_execution_histories,
     validate_workflow_credentials,
 )
+from orcheo_backend.app.history import RunHistoryRecord
 from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.schemas import CredentialValidationRequest
 
@@ -383,3 +385,59 @@ def test_create_app_infers_credential_service(monkeypatch: pytest.MonkeyPatch) -
     app = create_app(Repository())
     resolver = app.dependency_overrides[get_credential_service]
     assert resolver() is Repository._credential_service
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_execution_histories_returns_records() -> None:
+    """The execution history endpoint returns a list of history responses."""
+    workflow_id = uuid4()
+    execution_id_1 = str(uuid4())
+    execution_id_2 = str(uuid4())
+
+    class HistoryStore:
+        async def list_histories(self, workflow_id: str, limit: int):
+            return [
+                RunHistoryRecord(
+                    workflow_id=workflow_id,
+                    execution_id=execution_id_1,
+                    inputs={"param": "value1"},
+                ),
+                RunHistoryRecord(
+                    workflow_id=workflow_id,
+                    execution_id=execution_id_2,
+                    inputs={"param": "value2"},
+                ),
+            ]
+
+    response = await list_workflow_execution_histories(
+        workflow_id=workflow_id,
+        history_store=HistoryStore(),
+        limit=50,
+    )
+
+    assert len(response) == 2
+    assert response[0].execution_id == execution_id_1
+    assert response[1].execution_id == execution_id_2
+    assert response[0].inputs == {"param": "value1"}
+    assert response[1].inputs == {"param": "value2"}
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_execution_histories_respects_limit() -> None:
+    """The execution history endpoint passes limit to the store."""
+    workflow_id = uuid4()
+    limit_value = None
+
+    class HistoryStore:
+        async def list_histories(self, workflow_id: str, limit: int):
+            nonlocal limit_value
+            limit_value = limit
+            return []
+
+    await list_workflow_execution_histories(
+        workflow_id=workflow_id,
+        history_store=HistoryStore(),
+        limit=100,
+    )
+
+    assert limit_value == 100
