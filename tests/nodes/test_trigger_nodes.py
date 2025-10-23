@@ -128,6 +128,8 @@ class DummyValidationModel(BaseModel):
 
 
 class FailingTriggerNode(TriggerNode):
+    """TriggerNode subclass used to reproduce validation error edge cases."""
+
     trigger_type: str = "dummy"
     include_ctx: bool = False
     ctx_error: object = "not-an-exception"
@@ -158,6 +160,7 @@ class FailingTriggerNode(TriggerNode):
 async def test_trigger_node_run_returns_original_validation_error(
     include_ctx: bool, ctx_error: object
 ) -> None:
+    """Assert that TriggerNode surfaces the original ValidationError instance."""
     node = FailingTriggerNode(
         name="failing", include_ctx=include_ctx, ctx_error=ctx_error
     )
