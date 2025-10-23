@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -9,6 +10,86 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class ManualDispatchValidationError(ValueError):
     """Raised when manual dispatch payloads fail validation."""
+
+
+class ManualTriggerValidationError(ValueError):
+    """Raised when manual trigger configuration is invalid."""
+
+
+class ManualTriggerConfig(BaseModel):
+    """Configuration describing how manual triggers behave."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(
+        default="manual",
+        description="Label used to identify manual trigger executions.",
+    )
+    allowed_actors: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional list of actors permitted to dispatch manual runs. Empty allows"
+            " any authenticated user."
+        ),
+    )
+    require_comment: bool = Field(
+        default=False,
+        description="Whether dispatchers must provide a comment when triggering runs.",
+    )
+    default_payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Default payload merged into manual dispatch requests.",
+    )
+    cooldown_seconds: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Minimum number of seconds between manual dispatches. Zero disables the"
+            " cooldown."
+        ),
+    )
+    last_dispatched_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Timestamp of the last manual dispatch. Managed by the runtime; should"
+            " not be set manually."
+        ),
+    )
+
+    @field_validator("label")
+    @classmethod
+    def _validate_label(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = "label must be a non-empty string"
+            raise ManualTriggerValidationError(msg)
+        return normalized
+
+    @field_validator("allowed_actors", mode="after")
+    @classmethod
+    def _normalize_actors(cls, value: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for actor in value:
+            normalized = actor.strip()
+            if not normalized:
+                continue
+            key = normalized.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(normalized)
+        return deduped
+
+    @model_validator(mode="after")
+    def _validate_cooldown(self) -> ManualTriggerConfig:
+        if self.cooldown_seconds and self.last_dispatched_at:
+            now = datetime.now(UTC)
+            elapsed = (now - self.last_dispatched_at).total_seconds()
+            if elapsed < 0:
+                msg = "last_dispatched_at cannot be in the future"
+                raise ManualTriggerValidationError(msg)
+        return self
 
 
 @dataclass(slots=True)
@@ -115,4 +196,6 @@ __all__ = [
     "ManualDispatchRequest",
     "ManualDispatchRun",
     "ManualDispatchValidationError",
+    "ManualTriggerConfig",
+    "ManualTriggerValidationError",
 ]

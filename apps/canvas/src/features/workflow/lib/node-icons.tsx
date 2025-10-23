@@ -6,6 +6,7 @@ import {
   Calendar,
   Clock,
   Code,
+  Hand,
   Database,
   Filter,
   FileText,
@@ -15,6 +16,7 @@ import {
   Mail,
   MessageSquare,
   PieChart,
+  RefreshCcw,
   Play,
   RotateCw,
   Settings,
@@ -33,6 +35,10 @@ const NODE_ICON_FACTORIES = {
   calendar: () => <Calendar className={`${ICON_CLASSES} text-amber-500`} />,
   chatTrigger: () => (
     <MessageSquare className={`${ICON_CLASSES} text-amber-500`} />
+  ),
+  manualTrigger: () => <Hand className={`${ICON_CLASSES} text-amber-500`} />,
+  httpPolling: () => (
+    <RefreshCcw className={`${ICON_CLASSES} text-amber-500`} />
   ),
   http: () => <Globe className={`${ICON_CLASSES} text-blue-500`} />,
   email: () => <Mail className={`${ICON_CLASSES} text-blue-500`} />,
@@ -100,6 +106,8 @@ const LABEL_ICON_MATCHERS: Array<[RegExp, NodeIconKey]> = [
   [/webhook/i, "webhook"],
   [/(schedule|cron)/i, "schedule"],
   [/calendar/i, "calendar"],
+  [/manual/i, "manualTrigger"],
+  [/poll/i, "httpPolling"],
   [/(chat trigger|chat)/i, "chatTrigger"],
   [/http|api/i, "http"],
   [/email/i, "email"],

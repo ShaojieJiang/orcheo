@@ -6,6 +6,12 @@ from orcheo.triggers.cron import (
     CronTriggerState,
     CronValidationError,
 )
+from orcheo.triggers.http_polling import (
+    HttpPollingDispatchPlan,
+    HttpPollingTriggerConfig,
+    HttpPollingTriggerState,
+    HttpPollingValidationError,
+)
 from orcheo.triggers.layer import (
     CronDispatchPlan,
     ManualDispatchPlan,
@@ -18,6 +24,8 @@ from orcheo.triggers.manual import (
     ManualDispatchRequest,
     ManualDispatchRun,
     ManualDispatchValidationError,
+    ManualTriggerConfig,
+    ManualTriggerValidationError,
 )
 from orcheo.triggers.retry import (
     RetryDecision,
@@ -41,11 +49,17 @@ __all__ = [
     "CronTriggerState",
     "CronValidationError",
     "CronOverlapError",
+    "HttpPollingTriggerConfig",
+    "HttpPollingTriggerState",
+    "HttpPollingDispatchPlan",
+    "HttpPollingValidationError",
     "CronDispatchPlan",
     "ManualDispatchItem",
     "ManualDispatchRequest",
     "ManualDispatchRun",
     "ManualDispatchValidationError",
+    "ManualTriggerConfig",
+    "ManualTriggerValidationError",
     "ManualDispatchPlan",
     "RetryPolicyConfig",
     "RetryPolicyState",
