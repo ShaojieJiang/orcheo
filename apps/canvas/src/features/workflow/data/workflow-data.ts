@@ -9,6 +9,7 @@ export interface WorkflowNode {
     description?: string;
     status?: "idle" | "running" | "success" | "error";
     isDisabled?: boolean;
+    backendType?: string;
     [key: string]: unknown;
   };
 }

@@ -55,6 +55,15 @@ export const buildGraphConfigFromCanvas = (
   const graphToCanvas: Record<string, string> = {};
   const usedNames = new Set<string>();
 
+  const getBackendType = (node: CanvasNode): string | undefined => {
+    const data = node.data ?? {};
+    const raw = data?.backendType;
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      return raw.trim();
+    }
+    return undefined;
+  };
+
   nodes.forEach((node, index) => {
     const label = String(node.data?.label ?? node.id ?? `node-${index + 1}`);
     const base = slugify(label, `node-${index + 1}`);
@@ -76,13 +85,59 @@ export const buildGraphConfigFromCanvas = (
           ? data.code
           : defaultCode;
 
-      return {
+      const backendType = getBackendType(node) ?? "PythonCode";
+
+      const nodeConfig: Record<string, unknown> = {
         name: canvasToGraph[node.id],
-        type: "PythonCode",
-        code,
+        type: backendType,
         display_name: node.data?.label ?? node.id ?? `Node ${index + 1}`,
         canvas_id: node.id,
       };
+
+      if (backendType === "PythonCode") {
+        nodeConfig.code = code;
+      }
+
+      if (backendType === "IfElseNode") {
+        nodeConfig.left = data?.left ?? null;
+        nodeConfig.right = data?.right ?? null;
+        nodeConfig.operator = data?.operator ?? "equals";
+        nodeConfig.case_sensitive = data?.caseSensitive ?? true;
+      }
+
+      if (backendType === "SwitchNode") {
+        nodeConfig.value = data?.value ?? null;
+        nodeConfig.case_sensitive = data?.caseSensitive ?? true;
+      }
+
+      if (backendType === "WhileNode") {
+        nodeConfig.left = data?.left ?? null;
+        nodeConfig.right = data?.right ?? null;
+        nodeConfig.operator = data?.operator ?? "less_than";
+        nodeConfig.case_sensitive = data?.caseSensitive ?? true;
+        if (typeof data?.maxIterations === "number") {
+          nodeConfig.max_iterations = data.maxIterations;
+        }
+      }
+
+      if (backendType === "SetVariableNode") {
+        nodeConfig.target_path = data?.targetPath ?? "context.value";
+        nodeConfig.value = data?.value ?? null;
+      }
+
+      if (backendType === "DelayNode") {
+        const delayValue = data?.durationSeconds;
+        const parsed =
+          typeof delayValue === "number" ? delayValue : Number(delayValue ?? 0);
+        nodeConfig.duration_seconds = Number.isFinite(parsed) ? parsed : 0;
+      }
+
+      if (backendType === "StickyNoteNode") {
+        nodeConfig.title = data?.title ?? nodeConfig.display_name;
+        nodeConfig.body = data?.content ?? "";
+      }
+
+      return nodeConfig;
     }),
     { name: "END", type: "END" },
   ];

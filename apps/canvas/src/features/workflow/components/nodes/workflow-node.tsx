@@ -26,6 +26,7 @@ export type WorkflowNodeData = {
   iconKey?: string;
   status?: NodeStatus;
   type?: string;
+  backendType?: string;
   isDisabled?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
