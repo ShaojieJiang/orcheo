@@ -51,7 +51,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Execute the [frontend experience plan](./frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the canvas rebuild.
 
 ### Milestone 5 – Node Ecosystem & Integrations
-- [ ] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
+- [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
 - [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
 - [ ] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, If/Else, Switch, Merge, Set Variable) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [ ] Add utility nodes (Python/JavaScript execution sandbox, Delay, Debug, Sub-workflow orchestration) with tests, docs, and templates.

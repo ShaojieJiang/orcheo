@@ -2,11 +2,14 @@
 
 from uuid import uuid4
 import pytest
+from datetime import UTC, datetime, timedelta
 from pydantic import ValidationError
 from orcheo.triggers.manual import (
     ManualDispatchItem,
     ManualDispatchRequest,
     ManualDispatchValidationError,
+    ManualTriggerConfig,
+    ManualTriggerValidationError,
 )
 
 
@@ -110,3 +113,33 @@ def test_manual_dispatch_validators_enforce_non_empty_values() -> None:
     )
     with pytest.raises(ManualDispatchValidationError):
         manual._enforce_run_limit()
+
+
+def test_manual_trigger_config_normalizes_values() -> None:
+    """Manual trigger config trims labels and deduplicates actors."""
+
+    config = ManualTriggerConfig(
+        label="  Launch  ",
+        allowed_actors=["Alice", "alice", "  Bob  "],
+        default_payload={"foo": "bar"},
+    )
+
+    assert config.label == "Launch"
+    assert config.allowed_actors == ["Alice", "Bob"]
+    assert config.default_payload == {"foo": "bar"}
+
+    config_with_timestamp = ManualTriggerConfig(
+        last_dispatched_at=datetime.now(UTC),
+        cooldown_seconds=0,
+    )
+    assert config_with_timestamp.last_dispatched_at is not None
+
+
+def test_manual_trigger_config_future_timestamp_rejected() -> None:
+    """Cooldown validation rejects future dispatch timestamps."""
+
+    future = datetime.now(UTC) + timedelta(seconds=5)
+    with pytest.raises(ValidationError) as exc:
+        ManualTriggerConfig(last_dispatched_at=future, cooldown_seconds=10)
+    error = exc.value.errors()[0]["ctx"]["error"]
+    assert isinstance(error, ManualTriggerValidationError)
