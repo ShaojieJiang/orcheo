@@ -53,6 +53,20 @@ const ensureUniqueName = (candidate: string, used: Set<string>): string => {
   return unique;
 };
 
+const shouldSerializeNode = (node: CanvasNode): boolean => {
+  const semanticTypeRaw =
+    typeof node.data?.type === "string"
+      ? node.data.type.toLowerCase()
+      : undefined;
+  const canvasType = typeof node.type === "string" ? node.type : undefined;
+
+  if (semanticTypeRaw === "annotation" || canvasType === "stickyNote") {
+    return false;
+  }
+
+  return true;
+};
+
 export const buildGraphConfigFromCanvas = (
   nodes: CanvasNode[],
   edges: CanvasEdge[],
@@ -63,6 +77,8 @@ export const buildGraphConfigFromCanvas = (
   const branchPathByCanvasId: Record<string, string> = {};
   const defaultBranchKeyByCanvasId: Record<string, string | undefined> = {};
 
+  const serializableNodes = nodes.filter(shouldSerializeNode);
+
   const getBackendType = (node: CanvasNode): string | undefined => {
     const data = node.data ?? {};
     const raw = data?.backendType;
@@ -72,7 +88,7 @@ export const buildGraphConfigFromCanvas = (
     return undefined;
   };
 
-  nodes.forEach((node, index) => {
+  serializableNodes.forEach((node, index) => {
     const label = String(node.data?.label ?? node.id ?? `node-${index + 1}`);
     const base = slugify(label, `node-${index + 1}`);
     const unique = ensureUniqueName(base, usedNames);
@@ -82,7 +98,7 @@ export const buildGraphConfigFromCanvas = (
 
   const graphNodes: Array<Record<string, unknown>> = [
     { name: "START", type: "START" },
-    ...nodes.map((node, index) => {
+    ...serializableNodes.map((node, index) => {
       const data = node.data ?? {};
       const semanticTypeRaw =
         typeof data?.type === "string" ? data.type.toLowerCase() : undefined;
@@ -325,7 +341,7 @@ export const buildGraphConfigFromCanvas = (
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
-  if (nodes.length === 0) {
+  if (serializableNodes.length === 0) {
     graphEdges.push({ source: "START", target: "END" });
   } else {
     const incoming = new Set(graphEdges.map((edge) => edge.target));
@@ -339,7 +355,7 @@ export const buildGraphConfigFromCanvas = (
       outgoing.add(entry.source);
     });
 
-    nodes.forEach((node) => {
+    serializableNodes.forEach((node) => {
       const graphName = canvasToGraph[node.id];
       if (!incoming.has(graphName)) {
         graphEdges.push({ source: "START", target: graphName });
