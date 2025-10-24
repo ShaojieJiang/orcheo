@@ -85,6 +85,15 @@ const pickFirstRecord = (
   return undefined;
 };
 
+/**
+ * Determines the configuration JSON schema for a workflow node.
+ *
+ * The backend may provide the schema in multiple locations for backwards
+ * compatibility. Prefer the top-level `configSchema` field when present, but
+ * fall back to legacy spellings (`config_schema`, `schema`) or a nested
+ * `config.schema` property. Each source is expected to contain a valid JSON
+ * schema object that RJSF can consume.
+ */
 const getConfigSchema = (
   targetNode: NodeInspectorProps["node"],
 ): RJSFSchema | undefined => {
@@ -240,10 +249,6 @@ export default function NodeInspector({
 
   const configSchema = useMemo(() => getConfigSchema(node), [node]);
   const configUiSchema = useMemo(() => getConfigUiSchema(node), [node]);
-  const configFormData = useMemo(
-    () => extractConfigFormData(draftData, configSchema),
-    [draftData, configSchema],
-  );
   const initialConfigFormData = useMemo(
     () =>
       node
@@ -254,6 +259,13 @@ export default function NodeInspector({
         : undefined,
     [configSchema, node],
   );
+  const [configFormData, setConfigFormData] = useState<
+    Record<string, unknown> | undefined
+  >(initialConfigFormData);
+
+  useEffect(() => {
+    setConfigFormData(initialConfigFormData);
+  }, [initialConfigFormData]);
 
   const formattedUpdatedAt: string | null = useMemo(() => {
     if (!runtime?.updatedAt) {
@@ -297,7 +309,8 @@ export default function NodeInspector({
   }, [node]);
 
   const handleConfigChange = useCallback(
-    (next: Record<string, unknown>) => {
+    (next: Record<string, unknown> | undefined) => {
+      setConfigFormData(next);
       setDraftData((current) =>
         mergeConfigIntoDraft(current, next, configSchema),
       );
@@ -489,16 +502,17 @@ export default function NodeInspector({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          disabled={!initialConfigFormData}
-                          onClick={() =>
+                          disabled={!initialConfigFormData && !configSchema}
+                          onClick={() => {
+                            setConfigFormData(initialConfigFormData);
                             setDraftData((current) =>
                               mergeConfigIntoDraft(
                                 current,
-                                initialConfigFormData ?? {},
+                                initialConfigFormData,
                                 configSchema,
                               ),
-                            )
-                          }
+                            );
+                          }}
                         >
                           <RefreshCw className="h-4 w-4" />
                         </Button>
