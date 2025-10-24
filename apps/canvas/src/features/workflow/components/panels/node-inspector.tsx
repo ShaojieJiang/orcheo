@@ -280,14 +280,21 @@ export default function NodeInspector({
   }, [hasRuntime]);
 
   useEffect(() => {
-    if (node) {
-      setDraftData(
-        node.data ? { ...(node.data as Record<string, unknown>) } : {},
-      );
-      setPythonCode(extractPythonCode(node));
-      setUseLiveData(Boolean(runtime));
+    if (!node) {
+      return;
     }
-  }, [node, runtime]);
+
+    setDraftData(
+      node.data ? { ...(node.data as Record<string, unknown>) } : {},
+    );
+    setPythonCode(extractPythonCode(node));
+
+    const runtimeCandidate = (node.data as Record<string, unknown>)?.[
+      "runtime"
+    ];
+    const nextHasRuntime = isRecord(runtimeCandidate);
+    setUseLiveData(nextHasRuntime);
+  }, [node]);
 
   const handleConfigChange = useCallback(
     (next: Record<string, unknown>) => {
