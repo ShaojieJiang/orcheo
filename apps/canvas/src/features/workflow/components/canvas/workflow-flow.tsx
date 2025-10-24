@@ -20,6 +20,7 @@ import "@xyflow/react/dist/style.css";
 import WorkflowNodeComponent from "@features/workflow/components/nodes/workflow-node";
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
+import StickyNoteNode from "@features/workflow/components/nodes/sticky-note-node";
 import { cn } from "@/lib/utils";
 
 export interface WorkflowFlowProps<
@@ -55,6 +56,7 @@ const nodeTypes = {
   default: WorkflowNodeComponent,
   chatTrigger: ChatTriggerNode,
   startEnd: StartEndNode,
+  stickyNote: StickyNoteNode,
 };
 
 const defaultEdgeOptions = {
@@ -85,6 +87,9 @@ const getMiniMapNodeColor = (node: Node) => {
       return "#86efac";
     case "end":
       return "#fca5a5";
+    case "annotation":
+    case "stickyNote":
+      return "#facc15";
     default:
       return "#e2e8f0";
   }
