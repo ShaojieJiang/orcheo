@@ -1,9 +1,7 @@
 import asyncio
 from typing import cast
-
 import pytest
 from langchain_core.runnables import RunnableConfig
-
 from orcheo.graph.state import State
 from orcheo.nodes.logic import (
     ComparisonOperator,
@@ -12,10 +10,10 @@ from orcheo.nodes.logic import (
     SetVariableNode,
     SwitchNode,
     WhileNode,
-    evaluate_condition,
     _build_nested,
     _coerce_branch_key,
     _combine_condition_results,
+    evaluate_condition,
 )
 
 
@@ -257,15 +255,45 @@ def test_while_node_previous_iteration_reads_state():
 
 
 @pytest.mark.asyncio
-async def test_set_variable_node_builds_nested_assignment():
+async def test_set_variable_node_stores_multiple_variables():
     state = State({"results": {}})
-    node = SetVariableNode(name="assign", target_path="user.name", value="Ada")
+    node = SetVariableNode(
+        name="assign",
+        variables={
+            "user_name": "Ada",
+            "user_age": 30,
+            "user_active": True,
+            "user_tags": ["admin", "developer"],
+        },
+    )
 
     result = await node(state, RunnableConfig())
     payload = result["results"]["assign"]
 
-    assert payload["value"] == "Ada"
-    assert payload["assigned"] == {"user": {"name": "Ada"}}
+    assert payload == {
+        "user_name": "Ada",
+        "user_age": 30,
+        "user_active": True,
+        "user_tags": ["admin", "developer"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_variable_node_handles_nested_dicts():
+    state = State({"results": {}})
+    node = SetVariableNode(
+        name="assign",
+        variables={
+            "user": {"name": "Ada", "role": "admin"},
+            "settings": {"theme": "dark", "notifications": True},
+        },
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["assign"]
+
+    assert payload["user"]["name"] == "Ada"
+    assert payload["settings"]["theme"] == "dark"
 
 
 def test_build_nested_validates_paths():

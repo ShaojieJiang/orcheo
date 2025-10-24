@@ -292,8 +292,57 @@ export const buildGraphConfigFromCanvas = (
       }
 
       if (backendType === "SetVariableNode") {
-        nodeConfig.target_path = data?.targetPath ?? "context.value";
-        nodeConfig.value = data?.value ?? null;
+        const variables = data?.variables ?? [];
+        const variablesDict: Record<string, unknown> = {};
+
+        // Convert array of variables to dictionary
+        for (const variable of variables) {
+          if (!variable?.name) continue;
+
+          const valueType = variable.valueType ?? "string";
+          let typedValue = variable.value ?? null;
+
+          // Ensure value matches the selected type
+          if (typedValue !== null && typedValue !== undefined) {
+            switch (valueType) {
+              case "number":
+                typedValue = Number(typedValue);
+                break;
+              case "boolean":
+                typedValue =
+                  typedValue === true ||
+                  typedValue === "true" ||
+                  typedValue === 1;
+                break;
+              case "object":
+                if (typeof typedValue === "string") {
+                  try {
+                    typedValue = JSON.parse(typedValue);
+                  } catch {
+                    typedValue = {};
+                  }
+                }
+                break;
+              case "array":
+                if (typeof typedValue === "string") {
+                  try {
+                    typedValue = JSON.parse(typedValue);
+                  } catch {
+                    typedValue = [];
+                  }
+                }
+                break;
+              case "string":
+              default:
+                typedValue = String(typedValue);
+                break;
+            }
+          }
+
+          variablesDict[variable.name] = typedValue;
+        }
+
+        nodeConfig.variables = variablesDict;
       }
 
       if (backendType === "DelayNode") {

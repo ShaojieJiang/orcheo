@@ -378,24 +378,21 @@ def _build_nested(path: str, value: Any) -> dict[str, Any]:
 @registry.register(
     NodeMetadata(
         name="SetVariableNode",
-        description="Store a value for downstream nodes",
+        description="Store variables for downstream nodes",
         category="utility",
     )
 )
 class SetVariableNode(TaskNode):
-    """Persist a value using dotted path semantics."""
+    """Persist multiple variables using a dictionary."""
 
-    target_path: str = Field(description="Path to store the provided value")
-    value: Any = Field(description="Value to persist")
+    variables: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Dictionary of variables to persist",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the assigned value along with a nested representation."""
-        nested = _build_nested(self.target_path, self.value)
-        return {
-            "path": self.target_path,
-            "value": self.value,
-            "assigned": nested,
-        }
+        """Return the assigned variables."""
+        return self.variables
 
 
 @registry.register(

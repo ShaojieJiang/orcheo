@@ -334,8 +334,13 @@ export default function SidebarPanel({
           type: "function",
           backendType: "SetVariableNode",
           data: {
-            targetPath: "context.value",
-            value: "sample",
+            variables: [
+              {
+                name: "my_variable",
+                valueType: "string",
+                value: "sample",
+              },
+            ],
             outputs: [{ id: "default", label: "Next" }],
           },
         }),

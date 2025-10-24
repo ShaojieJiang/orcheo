@@ -87,6 +87,69 @@ const conditionSchema: RJSFSchema = {
 };
 
 /**
+ * Schema for Variable model (used in SetVariableNode)
+ */
+const variableSchema: RJSFSchema = {
+  type: "object",
+  title: "Variable",
+  properties: {
+    name: {
+      type: "string",
+      title: "Variable Name",
+      description: "Name of the variable (e.g., user_name, count)",
+    },
+    valueType: {
+      type: "string",
+      title: "Type",
+      description: "The type of value to store",
+      enum: ["string", "number", "boolean", "object", "array"],
+      default: "string",
+    },
+    value: {
+      title: "Value",
+      description: "Value to persist",
+    },
+  },
+  required: ["name", "valueType", "value"],
+  dependencies: {
+    valueType: {
+      oneOf: [
+        {
+          properties: {
+            valueType: { const: "string" },
+            value: { type: "string" },
+          },
+        },
+        {
+          properties: {
+            valueType: { const: "number" },
+            value: { type: "number" },
+          },
+        },
+        {
+          properties: {
+            valueType: { const: "boolean" },
+            value: { type: "boolean" },
+          },
+        },
+        {
+          properties: {
+            valueType: { const: "object" },
+            value: { type: "object" },
+          },
+        },
+        {
+          properties: {
+            valueType: { const: "array" },
+            value: { type: "array", items: {} },
+          },
+        },
+      ],
+    },
+  },
+};
+
+/**
  * Schema for SwitchCase model
  */
 const switchCaseSchema: RJSFSchema = {
@@ -239,26 +302,22 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
     type: "object",
     properties: {
       ...baseNodeSchema.properties,
-      targetPath: {
-        type: "string",
-        title: "Target Path",
-        description:
-          "Path to store the provided value (e.g., context.user.name)",
-        default: "context.value",
-      },
-      value: {
-        title: "Value",
-        description: "Value to persist",
-        oneOf: [
-          { type: "string" },
-          { type: "number" },
-          { type: "boolean" },
-          { type: "object" },
-          { type: "array" },
+      variables: {
+        type: "array",
+        title: "Variables",
+        description: "Collection of variables to store",
+        items: variableSchema,
+        minItems: 1,
+        default: [
+          {
+            name: "my_variable",
+            valueType: "string",
+            value: "",
+          },
         ],
       },
     },
-    required: ["targetPath", "value"],
+    required: ["variables"],
   },
 
   // DelayNode schema
