@@ -154,12 +154,13 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
     const percent = ((index + 1) / (total + 1)) * 100;
     const style: React.CSSProperties = {};
 
-    if (position === Position.Left || position === Position.Right) {
-      style.top = `${percent}%`;
-      style.transform = "translateY(-50%)";
-    } else {
-      style.left = `${percent}%`;
-      style.transform = "translateX(-50%)";
+    // Only apply custom positioning if there are multiple handles
+    if (total > 1) {
+      if (position === Position.Left || position === Position.Right) {
+        style.top = `${percent}%`;
+      } else {
+        style.left = `${percent}%`;
+      }
     }
 
     return (
@@ -168,13 +169,18 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
           type={type}
           id={handle.id}
           position={position}
-          className="!h-3 !w-3 !bg-primary !border-2 !border-background"
+          className="!h-3 !w-3 !bg-primary !border-2 !border-background !z-10 !pointer-events-auto"
           style={style}
+          isConnectable={true}
         />
         {type === "source" && handle.label && (
           <span
-            className="absolute right-[-72px] text-[10px] uppercase tracking-wide text-muted-foreground"
-            style={{ top: `${percent}%`, transform: "translateY(-50%)" }}
+            className="absolute right-[-36px] text-[8px] uppercase tracking-wide text-muted-foreground pointer-events-none text-left"
+            style={
+              total > 1
+                ? { top: `${percent}%`, transform: "translateY(-50%)" }
+                : { top: "50%", transform: "translateY(-50%)" }
+            }
           >
             {handle.label}
           </span>
@@ -206,7 +212,7 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       aria-selected={Boolean(selected)}
     >
       {/* Simple text label */}
-      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap">
+      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap pointer-events-none">
         <span
           className={cn(
             "px-2 py-0.5 rounded-full transition-colors",
@@ -232,12 +238,14 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       )}
 
       {/* Node content */}
-      <div className="h-full w-full flex items-center justify-center relative">
+      <div className="h-full w-full flex items-center justify-center relative pointer-events-none">
         {/* Status indicator in corner */}
-        <div className="absolute top-1 right-1">{statusIcons[status]}</div>
+        <div className="absolute top-1 right-1 pointer-events-auto">
+          {statusIcons[status]}
+        </div>
 
         {/* Main icon */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center pointer-events-auto">
           {icon ? (
             <div className="scale-125">{icon}</div>
           ) : (
@@ -252,7 +260,7 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       <div
         ref={controlsRef}
         className={cn(
-          "absolute -top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5 bg-background border border-border rounded-md shadow-md p-0.5 transition-opacity duration-200 z-20",
+          "absolute -top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5 bg-background border border-border rounded-md shadow-md p-0.5 transition-opacity duration-200 z-20 pointer-events-auto",
           controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
       >
