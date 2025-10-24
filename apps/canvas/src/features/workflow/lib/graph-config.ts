@@ -33,6 +33,33 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
+const toStringRecord = (value: unknown): Record<string, string> => {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.entries(value).reduce<Record<string, string>>(
+    (acc, [key, rawValue]) => {
+      if (typeof key !== "string") {
+        return acc;
+      }
+
+      if (typeof rawValue === "string") {
+        acc[key] = rawValue;
+        return acc;
+      }
+
+      if (typeof rawValue === "number" || typeof rawValue === "boolean") {
+        acc[key] = String(rawValue);
+        return acc;
+      }
+
+      return acc;
+    },
+    {},
+  );
+};
+
 const slugify = (value: string, fallback: string): string => {
   const slug = value
     .trim()
@@ -276,6 +303,23 @@ export const buildGraphConfigFromCanvas = (
         nodeConfig.duration_seconds = Number.isFinite(parsed) ? parsed : 0;
       }
 
+      if (backendType === "MongoDBNode") {
+        if (typeof data?.database === "string" && data.database.length > 0) {
+          nodeConfig.database = data.database;
+        }
+        if (
+          typeof data?.collection === "string" &&
+          data.collection.length > 0
+        ) {
+          nodeConfig.collection = data.collection;
+        }
+        nodeConfig.operation =
+          typeof data?.operation === "string" && data.operation.length > 0
+            ? data.operation
+            : "find";
+        nodeConfig.query = isRecord(data?.query) ? data.query : {};
+      }
+
       if (backendType === "SlackNode") {
         if (typeof data?.tool_name === "string" && data.tool_name.length > 0) {
           nodeConfig.tool_name = data.tool_name;
@@ -378,6 +422,60 @@ export const buildGraphConfigFromCanvas = (
           data.deduplicate_on.length > 0
         ) {
           nodeConfig.deduplicate_on = data.deduplicate_on;
+        }
+      }
+
+      if (backendType === "WebhookTriggerNode") {
+        const allowedMethodsRaw = Array.isArray(data?.allowed_methods)
+          ? (data.allowed_methods as unknown[])
+          : [];
+        const allowedMethods = allowedMethodsRaw
+          .filter(
+            (method): method is string =>
+              typeof method === "string" && method.trim().length > 0,
+          )
+          .map((method) => method.trim().toUpperCase());
+
+        nodeConfig.allowed_methods =
+          allowedMethods.length > 0 ? allowedMethods : ["POST"];
+        nodeConfig.required_headers = toStringRecord(data?.required_headers);
+        nodeConfig.required_query_params = toStringRecord(
+          data?.required_query_params,
+        );
+
+        if (
+          typeof data?.shared_secret_header === "string" &&
+          data.shared_secret_header.length > 0
+        ) {
+          nodeConfig.shared_secret_header = data.shared_secret_header;
+        }
+
+        if (
+          typeof data?.shared_secret === "string" &&
+          data.shared_secret.length > 0
+        ) {
+          nodeConfig.shared_secret = data.shared_secret;
+        }
+
+        const rateLimitRaw = data?.rate_limit;
+        if (isRecord(rateLimitRaw)) {
+          const limitValue = rateLimitRaw.limit;
+          const intervalValue = rateLimitRaw.interval_seconds;
+          const parsedLimit =
+            typeof limitValue === "number"
+              ? limitValue
+              : Number(limitValue ?? NaN);
+          const parsedInterval =
+            typeof intervalValue === "number"
+              ? intervalValue
+              : Number(intervalValue ?? NaN);
+
+          if (Number.isFinite(parsedLimit) && Number.isFinite(parsedInterval)) {
+            nodeConfig.rate_limit = {
+              limit: Math.max(1, Math.trunc(parsedLimit)),
+              interval_seconds: Math.max(1, Math.trunc(parsedInterval)),
+            };
+          }
         }
       }
 
