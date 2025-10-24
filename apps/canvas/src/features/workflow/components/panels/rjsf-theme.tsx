@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 /**
  * Custom RJSF theme using shadcn/ui components
  * This ensures the JSON Schema forms match the existing design system

@@ -153,7 +153,6 @@ export default function NodeInspector({
       ? (node.data.backendType as string)
       : null;
 
-
   const renderLiveDataUnavailable = (label: string) => (
     <div className="flex items-center justify-center h-full">
       <div className="text-center">

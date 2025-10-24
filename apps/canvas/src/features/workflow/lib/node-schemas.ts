@@ -431,23 +431,31 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
     type: "object",
     properties: {
       ...baseNodeSchema.properties,
-      channel: {
+      tool_name: {
         type: "string",
-        title: "Channel",
-        description: "Slack channel ID or name",
+        title: "Slack Tool",
+        description: "Select the MCP Slack tool to invoke",
+        enum: [
+          "slack_list_channels",
+          "slack_post_message",
+          "slack_reply_to_thread",
+          "slack_add_reaction",
+          "slack_get_channel_history",
+          "slack_get_thread_replies",
+          "slack_get_users",
+          "slack_get_user_profile",
+        ],
       },
-      message: {
-        type: "string",
-        title: "Message",
-        description: "Message text to send",
-      },
-      threadTs: {
-        type: "string",
-        title: "Thread Timestamp",
-        description: "Thread timestamp for reply messages",
+      kwargs: {
+        type: "object",
+        title: "Tool Arguments",
+        description:
+          "Arguments passed to the selected Slack MCP tool (JSON object)",
+        additionalProperties: true,
+        default: {},
       },
     },
-    required: ["channel", "message"],
+    required: ["tool_name"],
   },
 
   // MessageTelegram (Telegram) Node schema
@@ -455,7 +463,12 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
     type: "object",
     properties: {
       ...baseNodeSchema.properties,
-      chatId: {
+      token: {
+        type: "string",
+        title: "Bot Token",
+        description: "Bot token used to authenticate with Telegram",
+      },
+      chat_id: {
         type: "string",
         title: "Chat ID",
         description: "Telegram chat ID",
@@ -465,14 +478,14 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
         title: "Message",
         description: "Message text to send",
       },
-      parseMode: {
+      parse_mode: {
         type: "string",
         title: "Parse Mode",
         description: "Message parsing mode",
         enum: ["Markdown", "HTML", "MarkdownV2"],
       },
     },
-    required: ["chatId", "message"],
+    required: ["token", "chat_id", "message"],
   },
 
   // Trigger nodes
@@ -507,11 +520,12 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
     type: "object",
     properties: {
       ...baseNodeSchema.properties,
-      schedule: {
+      expression: {
         type: "string",
-        title: "Cron Schedule",
+        title: "Cron Expression",
         description:
           "Cron expression (e.g., '0 0 * * *' for daily at midnight)",
+        default: "0 * * * *",
       },
       timezone: {
         type: "string",
@@ -519,19 +533,65 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
         description: "Timezone for the schedule (e.g., 'America/New_York')",
         default: "UTC",
       },
+      allow_overlapping: {
+        type: "boolean",
+        title: "Allow Overlapping Runs",
+        description: "Permit multiple runs to overlap in time",
+        default: false,
+      },
+      start_at: {
+        type: "string",
+        format: "date-time",
+        title: "Start At",
+        description: "Optional ISO timestamp for when the schedule begins",
+      },
+      end_at: {
+        type: "string",
+        format: "date-time",
+        title: "End At",
+        description: "Optional ISO timestamp for when the schedule ends",
+      },
     },
-    required: ["schedule"],
+    required: ["expression"],
   },
 
   ManualTriggerNode: {
     type: "object",
     properties: {
       ...baseNodeSchema.properties,
-      requireConfirmation: {
+      label: {
+        type: "string",
+        title: "Label",
+        description: "Label displayed for manual trigger actions",
+        default: "manual",
+      },
+      allowed_actors: {
+        type: "array",
+        title: "Allowed Actors",
+        description: "Users permitted to trigger this workflow",
+        items: {
+          type: "string",
+        },
+        default: [],
+      },
+      require_comment: {
         type: "boolean",
-        title: "Require Confirmation",
-        description: "Show confirmation dialog before triggering",
+        title: "Require Comment",
+        description: "Require users to supply a comment when triggering",
         default: false,
+      },
+      default_payload: {
+        type: "object",
+        title: "Default Payload",
+        description: "JSON payload provided to the workflow on trigger",
+        default: {},
+      },
+      cooldown_seconds: {
+        type: "integer",
+        title: "Cooldown (seconds)",
+        description: "Minimum seconds between manual trigger runs",
+        minimum: 0,
+        default: 0,
       },
     },
   },
@@ -546,27 +606,64 @@ export const nodeSchemas: Record<string, RJSFSchema> = {
         description: "URL to poll",
         format: "uri",
       },
-      interval: {
-        type: "integer",
-        title: "Poll Interval (seconds)",
-        description: "How often to poll the URL",
-        minimum: 1,
-        default: 60,
-      },
       method: {
         type: "string",
         title: "HTTP Method",
-        description: "HTTP method to use",
-        enum: ["GET", "POST"],
+        description: "HTTP method to use when polling",
+        enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
         default: "GET",
       },
       headers: {
         type: "object",
         title: "Headers",
-        description: "HTTP headers to send",
+        description: "HTTP headers to send with the request",
+        default: {},
+      },
+      query_params: {
+        type: "object",
+        title: "Query Parameters",
+        description: "Query parameters to include in the request",
+        default: {},
+      },
+      body: {
+        type: "object",
+        title: "Request Body",
+        description: "JSON body to send with the request",
+      },
+      interval_seconds: {
+        type: "integer",
+        title: "Poll Interval (seconds)",
+        description: "How often to poll the URL",
+        minimum: 1,
+        default: 300,
+      },
+      timeout_seconds: {
+        type: "integer",
+        title: "Timeout (seconds)",
+        description: "How long to wait for the request before timing out",
+        minimum: 1,
+        default: 30,
+      },
+      verify_tls: {
+        type: "boolean",
+        title: "Verify TLS",
+        description: "Verify TLS certificates for HTTPS requests",
+        default: true,
+      },
+      follow_redirects: {
+        type: "boolean",
+        title: "Follow Redirects",
+        description: "Follow HTTP redirects when polling",
+        default: false,
+      },
+      deduplicate_on: {
+        type: "string",
+        title: "Deduplicate On",
+        description:
+          "Optional key in the response used to deduplicate trigger events",
       },
     },
-    required: ["url", "interval"],
+    required: ["url", "interval_seconds"],
   },
 };
 
@@ -616,10 +713,13 @@ export const nodeUiSchemas: Record<string, Record<string, unknown>> = {
         rows: 5,
       },
     },
+    token: {
+      "ui:widget": "password",
+    },
   },
 
   SlackNode: {
-    message: {
+    kwargs: {
       "ui:widget": "textarea",
       "ui:options": {
         rows: 5,
