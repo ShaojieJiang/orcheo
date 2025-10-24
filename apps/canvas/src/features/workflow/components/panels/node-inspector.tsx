@@ -5,6 +5,10 @@ import React, {
   useRef,
   useState,
 } from "react";
+import Split from "react-split";
+import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { X, Save, RefreshCw, FileJson } from "lucide-react";
 import {
   Tabs,
   TabsContent,
@@ -14,40 +18,13 @@ import {
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
-import { Textarea } from "@/design-system/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/design-system/ui/select";
 import { Switch } from "@/design-system/ui/switch";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Badge } from "@/design-system/ui/badge";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/design-system/ui/accordion";
-import {
-  X,
-  Code,
-  Save,
-  FileJson,
-  Table,
-  FileDown,
-  RefreshCw,
-  History,
-  Plus,
-  GripVertical,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
-import Editor, { type OnMount } from "@monaco-editor/react";
-import type { editor as MonacoEditor } from "monaco-editor";
-import Split from "react-split";
 import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
+import SchemaDrivenForm from "../schema-driven-form";
+import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 
 interface NodeInspectorProps {
   node?: {
@@ -60,68 +37,175 @@ interface NodeInspectorProps {
   className?: string;
 }
 
-interface SchemaField {
-  name: string;
-  type: string;
-  path: string;
-  description?: string;
-}
-
-type ConditionForm = {
-  id: string;
-  left?: unknown;
-  operator?: string;
-  right?: unknown;
-  caseSensitive?: boolean;
-};
-
-type SwitchCaseForm = {
-  id: string;
-  label?: string;
-  match?: unknown;
-  branchKey?: string;
-  caseSensitive?: boolean;
-};
-
-type NodeRuntimeData = {
+interface NodeRuntimeData {
   inputs?: unknown;
   outputs?: unknown;
   messages?: unknown;
   raw?: unknown;
   updatedAt?: string;
-};
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
-const COMPARISON_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "equals", label: "Equals" },
-  { value: "not_equals", label: "Not equals" },
-  { value: "greater_than", label: "Greater than" },
-  { value: "greater_than_or_equal", label: "Greater than or equal" },
-  { value: "less_than", label: "Less than" },
-  { value: "less_than_or_equal", label: "Less than or equal" },
-  { value: "contains", label: "Contains" },
-  { value: "not_contains", label: "Does not contain" },
-  { value: "in", label: "In collection" },
-  { value: "not_in", label: "Not in collection" },
-  { value: "is_truthy", label: "Is truthy" },
-  { value: "is_falsy", label: "Is falsy" },
-];
+const getSemanticType = (
+  targetNode: NodeInspectorProps["node"],
+): string | null => {
+  if (!targetNode) {
+    return null;
+  }
+  const dataType = targetNode.data?.type;
+  if (typeof dataType === "string" && dataType.length > 0) {
+    return dataType.toLowerCase();
+  }
+  return typeof targetNode.type === "string" && targetNode.type.length > 0
+    ? targetNode.type.toLowerCase()
+    : null;
+};
 
-const createUniqueId = (prefix: string) => {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    "randomUUID" in globalThis.crypto &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+const extractPythonCode = (targetNode: NodeInspectorProps["node"]): string => {
+  if (!targetNode) {
+    return DEFAULT_PYTHON_CODE;
+  }
+  const candidate = targetNode.data?.code;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : DEFAULT_PYTHON_CODE;
+};
+
+const pickFirstRecord = (
+  candidates: Array<unknown>,
+): Record<string, unknown> | undefined => {
+  for (const candidate of candidates) {
+    if (isRecord(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+};
+
+const getConfigSchema = (
+  targetNode: NodeInspectorProps["node"],
+): RJSFSchema | undefined => {
+  if (!targetNode) {
+    return undefined;
+  }
+  const data = targetNode.data;
+  const configCandidate = isRecord(data.config)
+    ? (data.config as Record<string, unknown>)
+    : null;
+  return pickFirstRecord([
+    data.configSchema,
+    data.config_schema,
+    data.schema,
+    configCandidate?.schema,
+  ]) as RJSFSchema | undefined;
+};
+
+const getConfigUiSchema = (
+  targetNode: NodeInspectorProps["node"],
+): UiSchema | undefined => {
+  if (!targetNode) {
+    return undefined;
+  }
+  const data = targetNode.data;
+  const configCandidate = isRecord(data.config)
+    ? (data.config as Record<string, unknown>)
+    : null;
+  return pickFirstRecord([
+    data.configUiSchema,
+    data.config_ui_schema,
+    data.uiSchema,
+    configCandidate?.uiSchema,
+  ]) as UiSchema | undefined;
+};
+
+const extractConfigFormData = (
+  draft: Record<string, unknown>,
+  schema: RJSFSchema | undefined,
+): Record<string, unknown> | undefined => {
+  if (!schema) {
+    return undefined;
+  }
+  if (isRecord(draft.config)) {
+    return { ...(draft.config as Record<string, unknown>) };
+  }
+  if (schema.properties && isRecord(schema.properties)) {
+    const result: Record<string, unknown> = {};
+    for (const key of Object.keys(
+      schema.properties as Record<string, unknown>,
+    )) {
+      if (key in draft) {
+        result[key] = draft[key];
+      }
+    }
+    return result;
+  }
+  return undefined;
+};
+
+const mergeConfigIntoDraft = (
+  draft: Record<string, unknown>,
+  nextConfig: Record<string, unknown> | undefined,
+  schema: RJSFSchema | undefined,
+): Record<string, unknown> => {
+  const nextDraft: Record<string, unknown> = { ...draft };
+  if (!nextConfig) {
+    if (isRecord(nextDraft.config)) {
+      nextDraft.config = {};
+    }
+    if (schema?.properties && isRecord(schema.properties)) {
+      for (const key of Object.keys(
+        schema.properties as Record<string, unknown>,
+      )) {
+        delete nextDraft[key];
+      }
+    }
+    return nextDraft;
   }
 
-  const timestamp = Date.now().toString(36);
-  const randomSuffix = Math.random().toString(36).slice(2, 8);
-  return `${prefix}-${timestamp}-${randomSuffix}`;
+  if (isRecord(nextDraft.config)) {
+    const configDraft = { ...(nextDraft.config as Record<string, unknown>) };
+    for (const key of Object.keys(configDraft)) {
+      if (!(key in nextConfig) || nextConfig[key] === undefined) {
+        delete configDraft[key];
+      }
+    }
+    for (const [key, value] of Object.entries(nextConfig)) {
+      if (value === undefined) {
+        delete configDraft[key];
+      } else {
+        configDraft[key] = value;
+      }
+    }
+    nextDraft.config = configDraft;
+    return nextDraft;
+  }
+
+  if (schema?.properties && isRecord(schema.properties)) {
+    for (const key of Object.keys(
+      schema.properties as Record<string, unknown>,
+    )) {
+      const value = nextConfig[key];
+      if (value === undefined) {
+        delete nextDraft[key];
+      } else {
+        nextDraft[key] = value;
+      }
+    }
+    return nextDraft;
+  }
+
+  return { ...nextDraft, ...nextConfig };
+};
+
+const formatJson = (value: unknown): string => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 };
 
 export default function NodeInspector({
@@ -137,42 +221,14 @@ export default function NodeInspector({
     ? (runtimeCandidate as NodeRuntimeData)
     : null;
   const hasRuntime = Boolean(runtime);
+
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
   const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
     node?.data ? { ...(node.data as Record<string, unknown>) } : {},
   );
-  const extractPythonCode = (
-    targetNode: NodeInspectorProps["node"],
-  ): string => {
-    if (!targetNode) {
-      return DEFAULT_PYTHON_CODE;
-    }
-    const candidate = targetNode.data?.code;
-    return typeof candidate === "string" && candidate.length > 0
-      ? candidate
-      : DEFAULT_PYTHON_CODE;
-  };
-
-  const getSemanticType = (
-    targetNode: NodeInspectorProps["node"],
-  ): string | null => {
-    if (!targetNode) {
-      return null;
-    }
-    const dataType = targetNode.data?.type;
-    if (typeof dataType === "string" && dataType.length > 0) {
-      return dataType.toLowerCase();
-    }
-    return typeof targetNode.type === "string" && targetNode.type.length > 0
-      ? targetNode.type.toLowerCase()
-      : null;
-  };
-
   const [pythonCode, setPythonCode] = useState(() => extractPythonCode(node));
-  const [inputViewMode, setInputViewMode] = useState("input-json");
-  const [outputViewMode, setOutputViewMode] = useState("output-json");
-  const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
-  const configTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeRuntimeTab, setActiveRuntimeTab] = useState("inputs");
+
   const previouslyHadRuntimeRef = useRef(hasRuntime);
   const editorKeydownDisposableRef = useRef<MonacoEditor.IDisposable | null>(
     null,
@@ -181,6 +237,38 @@ export default function NodeInspector({
 
   const semanticType = getSemanticType(node);
   const isPythonNode = semanticType === "python";
+
+  const configSchema = useMemo(() => getConfigSchema(node), [node]);
+  const configUiSchema = useMemo(() => getConfigUiSchema(node), [node]);
+  const configFormData = useMemo(
+    () => extractConfigFormData(draftData, configSchema),
+    [draftData, configSchema],
+  );
+  const initialConfigFormData = useMemo(
+    () =>
+      node
+        ? extractConfigFormData(
+            node.data as Record<string, unknown>,
+            configSchema,
+          )
+        : undefined,
+    [configSchema, node],
+  );
+
+  const formattedUpdatedAt: string | null = useMemo(() => {
+    if (!runtime?.updatedAt) {
+      return null;
+    }
+    const parsed = new Date(runtime.updatedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return runtime.updatedAt;
+    }
+    return parsed.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }, [runtime?.updatedAt]);
 
   useEffect(() => {
     if (!hasRuntime) {
@@ -192,159 +280,28 @@ export default function NodeInspector({
   }, [hasRuntime]);
 
   useEffect(() => {
-    if (node && isPythonNode) {
+    if (node) {
+      setDraftData(
+        node.data ? { ...(node.data as Record<string, unknown>) } : {},
+      );
       setPythonCode(extractPythonCode(node));
+      setUseLiveData(Boolean(runtime));
     }
-    setDraftData(
-      node?.data ? { ...(node.data as Record<string, unknown>) } : {},
-    );
-  }, [isPythonNode, node]);
+  }, [node, runtime]);
 
-  const nodeLabelCandidate = node?.data?.label;
-  const nodeLabel =
-    typeof nodeLabelCandidate === "string" && nodeLabelCandidate.length > 0
-      ? nodeLabelCandidate
-      : (node?.type ?? "");
-  const formattedSemanticType = semanticType
-    ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
-    : null;
-  const backendType =
-    node && typeof node.data?.backendType === "string"
-      ? (node.data.backendType as string)
-      : null;
-
-  const conditionForms = useMemo<ConditionForm[]>(() => {
-    if (!Array.isArray(draftData.conditions)) {
-      return [];
-    }
-    return (draftData.conditions as ConditionForm[]).map(
-      (condition, index) => ({
-        id:
-          typeof condition?.id === "string"
-            ? condition.id
-            : `condition-${index + 1}`,
-        left: (condition as Record<string, unknown>).left,
-        operator:
-          typeof (condition as Record<string, unknown>).operator === "string"
-            ? ((condition as Record<string, unknown>).operator as string)
-            : "equals",
-        right: (condition as Record<string, unknown>).right,
-        caseSensitive:
-          typeof (condition as Record<string, unknown>).caseSensitive ===
-          "boolean"
-            ? ((condition as Record<string, unknown>).caseSensitive as boolean)
-            : undefined,
-      }),
-    );
-  }, [draftData.conditions]);
-
-  const switchCaseForms = useMemo<SwitchCaseForm[]>(() => {
-    if (!Array.isArray(draftData.cases)) {
-      return [];
-    }
-    return (draftData.cases as SwitchCaseForm[]).map((caseEntry, index) => ({
-      id:
-        typeof caseEntry?.id === "string" ? caseEntry.id : `case-${index + 1}`,
-      label:
-        typeof caseEntry?.label === "string"
-          ? (caseEntry.label as string)
-          : undefined,
-      match: (caseEntry as Record<string, unknown>).match,
-      branchKey:
-        typeof caseEntry?.branchKey === "string"
-          ? (caseEntry.branchKey as string)
-          : undefined,
-      caseSensitive:
-        typeof caseEntry?.caseSensitive === "boolean"
-          ? (caseEntry.caseSensitive as boolean)
-          : undefined,
-    }));
-  }, [draftData.cases]);
-
-  const renderLiveDataUnavailable = (label: string) => (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-center">
-        <Badge variant="outline" className="mb-2">
-          {label}
-        </Badge>
-        <p className="text-sm text-muted-foreground">
-          {runtime
-            ? "No live data captured for this node yet."
-            : "Run the workflow to capture live data."}
-        </p>
-      </div>
-    </div>
+  const handleConfigChange = useCallback(
+    (next: Record<string, unknown>) => {
+      setDraftData((current) =>
+        mergeConfigIntoDraft(current, next, configSchema),
+      );
+    },
+    [configSchema],
   );
-
-  const liveInputs = runtime?.inputs;
-  let outputDisplay: unknown = runtime?.raw;
-  if (runtime?.outputs !== undefined || runtime?.messages !== undefined) {
-    const merged: Record<string, unknown> = {};
-    if (runtime.outputs !== undefined) {
-      merged.outputs = runtime.outputs;
-    }
-    if (runtime.messages !== undefined) {
-      merged.messages = runtime.messages;
-    }
-    outputDisplay =
-      runtime.outputs !== undefined && runtime.messages === undefined
-        ? runtime.outputs
-        : merged;
-  }
-  const hasLiveInputs = liveInputs !== undefined;
-  const hasLiveOutputs =
-    runtime?.outputs !== undefined ||
-    runtime?.messages !== undefined ||
-    outputDisplay !== undefined;
-
-  let formattedUpdatedAt: string | null = null;
-  if (runtime?.updatedAt) {
-    const parsed = new Date(runtime.updatedAt);
-    formattedUpdatedAt = Number.isNaN(parsed.getTime())
-      ? runtime.updatedAt
-      : parsed.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-  }
-
-  const handleSave = useCallback(() => {
-    if (onSave && node) {
-      const updatedData = { ...draftData };
-      if (isPythonNode) {
-        updatedData.code =
-          pythonCode && pythonCode.length > 0
-            ? pythonCode
-            : DEFAULT_PYTHON_CODE;
-      }
-      onSave(node.id, updatedData);
-    }
-  }, [draftData, isPythonNode, node, onSave, pythonCode]);
-
-  useEffect(() => {
-    handleSaveRef.current = handleSave;
-  }, [handleSave]);
-
-  useEffect(() => {
-    return () => {
-      editorKeydownDisposableRef.current?.dispose();
-    };
-  }, []);
 
   const handleEditorMount = useCallback<OnMount>((editorInstance) => {
     editorKeydownDisposableRef.current?.dispose();
     editorKeydownDisposableRef.current = editorInstance.onKeyDown((event) => {
-      const { key, ctrlKey, metaKey, altKey } = event.browserEvent;
-
-      const isPlainSpace =
-        (key === " " || key === "Spacebar") && !ctrlKey && !metaKey && !altKey;
-
-      if (isPlainSpace) {
-        event.browserEvent.stopPropagation();
-        return;
-      }
-
+      const { key, ctrlKey, metaKey } = event.browserEvent;
       if ((ctrlKey || metaKey) && (key === "s" || key === "S")) {
         event.browserEvent.preventDefault();
         event.browserEvent.stopPropagation();
@@ -353,1240 +310,320 @@ export default function NodeInspector({
     });
   }, []);
 
-  if (!node) return null;
+  useEffect(() => {
+    return () => {
+      editorKeydownDisposableRef.current?.dispose();
+    };
+  }, []);
 
-  // Sample input data for demonstration
-  const sampleInput = {
-    query: {
-      filter: "status:active",
-      limit: 10,
-    },
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer {{auth.token}}",
-    },
-  };
-
-  // Sample schema fields for demonstration
-  const sampleSchemaFields: SchemaField[] = [
-    { name: "query", type: "object", path: "query" },
-    { name: "filter", type: "string", path: "query.filter" },
-    { name: "limit", type: "number", path: "query.limit" },
-    { name: "headers", type: "object", path: "headers" },
-    { name: "Content-Type", type: "string", path: "headers.Content-Type" },
-    { name: "Authorization", type: "string", path: "headers.Authorization" },
-  ];
-
-  const handleDragStart = (field: SchemaField) => {
-    setDraggingField(field);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingField(null);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (draggingField && configTextareaRef.current) {
-      const textarea = configTextareaRef.current;
-      const cursorPosition = textarea.selectionStart;
-      const textBefore = textarea.value.substring(0, cursorPosition);
-      const textAfter = textarea.value.substring(cursorPosition);
-
-      const variableReference = `{{${draggingField.path}}}`;
-
-      textarea.value = textBefore + variableReference + textAfter;
-
-      // Set cursor position after the inserted variable
-      const newCursorPosition = cursorPosition + variableReference.length;
-      textarea.selectionStart = newCursorPosition;
-      textarea.selectionEnd = newCursorPosition;
-      textarea.focus();
+  const handleSave = useCallback(() => {
+    if (!node || !onSave) {
+      return;
     }
-  };
-
-  const renderInputContent = () => (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border">
-        <Tabs defaultValue={inputViewMode} onValueChange={setInputViewMode}>
-          <TabsList className="w-full justify-start h-10 rounded-none bg-transparent p-0">
-            <TabsTrigger
-              value="input-json"
-              className="rounded-none data-[state=active]:bg-muted"
-            >
-              <FileJson className="h-4 w-4 mr-2" />
-              JSON
-            </TabsTrigger>
-            <TabsTrigger
-              value="input-table"
-              className="rounded-none data-[state=active]:bg-muted"
-            >
-              <Table className="h-4 w-4 mr-2" />
-              Table
-            </TabsTrigger>
-            <TabsTrigger
-              value="input-schema"
-              className="rounded-none data-[state=active]:bg-muted"
-            >
-              <Code className="h-4 w-4 mr-2" />
-              Schema
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="input-json" className="p-0 m-0">
-            <div className="flex-1 p-4 bg-muted/30">
-              {useLiveData ? (
-                hasLiveInputs ? (
-                  <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                    {JSON.stringify(liveInputs, null, 2)}
-                  </pre>
-                ) : (
-                  renderLiveDataUnavailable("Live Input")
-                )
-              ) : (
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                  {JSON.stringify(sampleInput, null, 2)}
-                </pre>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="input-table" className="p-0 m-0">
-            <div className="flex-1 p-4 bg-muted/30">
-              <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-                <p>Table view not implemented</p>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="input-schema" className="p-0 m-0">
-            <div className="flex-1 p-4 bg-muted/30">
-              <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-                <div className="space-y-2">
-                  {sampleSchemaFields.map((field) => (
-                    <div
-                      key={field.path}
-                      className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
-                      draggable
-                      onDragStart={() => handleDragStart(field)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
-
-                        <span className="font-medium">{field.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {field.type}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {field.path}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
-
-  const renderConfigContent = () => {
-    const configurationSections: {
-      id: string;
-      title: string;
-      content: React.ReactNode;
-      defaultOpen?: boolean;
-    }[] = [
-      {
-        id: "basic",
-        title: "Basic Settings",
-        defaultOpen: true,
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="node-name">Node Name</Label>
-              <Input
-                id="node-name"
-                value={
-                  typeof draftData.label === "string"
-                    ? draftData.label
-                    : node.data.label || ""
-                }
-                placeholder="Enter node name"
-                onChange={(event) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    label: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="node-description">Description</Label>
-              <Textarea
-                id="node-description"
-                value={
-                  typeof draftData.description === "string"
-                    ? draftData.description
-                    : node.data.description || ""
-                }
-                placeholder="Enter description"
-                rows={3}
-                ref={configTextareaRef}
-                onChange={(event) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          </div>
-        ),
-      },
-    ];
-
-    if (backendType === "SetVariableNode") {
-      configurationSections.push({
-        id: "set-variable",
-        title: "Variable Assignment",
-        defaultOpen: true,
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="set-variable-path">Target Path</Label>
-              <Input
-                id="set-variable-path"
-                value={
-                  typeof draftData.targetPath === "string"
-                    ? draftData.targetPath
-                    : "context.value"
-                }
-                placeholder="e.g. context.user.name"
-                onChange={(event) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    targetPath: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="set-variable-value">Value</Label>
-              <Textarea
-                id="set-variable-value"
-                value={
-                  typeof draftData.value === "string"
-                    ? draftData.value
-                    : draftData.value !== undefined
-                      ? String(draftData.value)
-                      : ""
-                }
-                placeholder="Enter value or expression"
-                rows={3}
-                onChange={(event) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    value: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          </div>
-        ),
-      });
-    }
-
-    if (backendType === "DelayNode") {
-      configurationSections.push({
-        id: "delay",
-        title: "Delay Settings",
-        content: (
-          <div className="grid gap-2">
-            <Label htmlFor="delay-duration">Duration (seconds)</Label>
-            <Input
-              id="delay-duration"
-              type="number"
-              min={0}
-              step={0.1}
-              value={
-                typeof draftData.durationSeconds === "number"
-                  ? draftData.durationSeconds
-                  : Number(draftData.durationSeconds ?? 0)
-              }
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                setDraftData((current) => ({
-                  ...current,
-                  durationSeconds: Number.isFinite(parsed) ? parsed : 0,
-                }));
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Configure how long the workflow should wait before continuing.
-            </p>
-          </div>
-        ),
-      });
-    }
-
-    if (backendType === "IfElseNode" || backendType === "WhileNode") {
-      const conditionLogic =
-        typeof draftData.conditionLogic === "string"
-          ? draftData.conditionLogic
-          : "and";
-
-      const handleConditionUpdate = (
-        index: number,
-        updates: Partial<ConditionForm>,
-      ) => {
-        const nextConditions = conditionForms.map((condition, idx) =>
-          idx === index ? { ...condition, ...updates } : condition,
-        );
-        setDraftData((current) => ({
-          ...current,
-          conditions: nextConditions,
-        }));
-      };
-
-      const handleRemoveCondition = (index: number) => {
-        if (conditionForms.length <= 1) {
-          return;
-        }
-        const nextConditions = conditionForms.filter((_, idx) => idx !== index);
-        setDraftData((current) => ({
-          ...current,
-          conditions: nextConditions,
-        }));
-      };
-
-      const handleAddCondition = () => {
-        const newCondition: ConditionForm = {
-          id: createUniqueId("condition"),
-          left: "",
-          operator: "equals",
-          right: "",
-          caseSensitive: true,
-        };
-        setDraftData((current) => ({
-          ...current,
-          conditions: [...conditionForms, newCondition],
-        }));
-      };
-
-      configurationSections.push({
-        id: backendType === "IfElseNode" ? "if-conditions" : "while-conditions",
-        title: backendType === "IfElseNode" ? "Conditions" : "Loop Conditions",
-        defaultOpen: true,
-        content: (
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="condition-logic">Combine using</Label>
-              <Select
-                value={conditionLogic}
-                onValueChange={(value) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    conditionLogic: value,
-                  }))
-                }
-              >
-                <SelectTrigger id="condition-logic">
-                  <SelectValue placeholder="Choose logic" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="and">
-                    All conditions must pass (AND)
-                  </SelectItem>
-                  <SelectItem value="or">
-                    Any condition may pass (OR)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {backendType === "WhileNode" && (
-              <div className="grid gap-2">
-                <Label htmlFor="while-max-iterations">Max iterations</Label>
-                <Input
-                  id="while-max-iterations"
-                  type="number"
-                  min={1}
-                  placeholder="Unlimited"
-                  value={
-                    typeof draftData.maxIterations === "number" &&
-                    Number.isFinite(draftData.maxIterations)
-                      ? draftData.maxIterations
-                      : ""
-                  }
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    setDraftData((current) => {
-                      const base = {
-                        ...(current as Record<string, unknown>),
-                      };
-                      if (raw === "") {
-                        delete base.maxIterations;
-                        return base;
-                      }
-                      const parsed = Number(raw);
-                      if (Number.isFinite(parsed) && parsed >= 1) {
-                        return { ...base, maxIterations: parsed };
-                      }
-                      return base;
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Leave blank to continue until the loop condition fails.
-                </p>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {conditionForms.map((condition, index) => {
-                const caseSensitive =
-                  condition.caseSensitive === undefined
-                    ? true
-                    : condition.caseSensitive;
-                return (
-                  <div
-                    key={condition.id}
-                    className="rounded-md border border-border bg-muted/30 p-3 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Condition {index + 1}
-                      </span>
-                      {conditionForms.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                          onClick={() => handleRemoveCondition(index)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Left operand</Label>
-                      <Input
-                        placeholder={
-                          backendType === "WhileNode"
-                            ? "Leave blank to use loop iteration"
-                            : "Value or expression"
-                        }
-                        value={
-                          typeof condition.left === "string"
-                            ? condition.left
-                            : condition.left !== undefined
-                              ? String(condition.left)
-                              : ""
-                        }
-                        onChange={(event) =>
-                          handleConditionUpdate(index, {
-                            left: event.target.value,
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Operator</Label>
-                      <Select
-                        value={condition.operator ?? "equals"}
-                        onValueChange={(value) =>
-                          handleConditionUpdate(index, { operator: value })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select operator" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COMPARISON_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Right operand</Label>
-                      <Input
-                        placeholder="Value to compare"
-                        value={
-                          typeof condition.right === "string"
-                            ? condition.right
-                            : condition.right !== undefined
-                              ? String(condition.right)
-                              : ""
-                        }
-                        onChange={(event) =>
-                          handleConditionUpdate(index, {
-                            right: event.target.value,
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label className="text-xs">Case sensitive</Label>
-                        <p className="text-[10px] text-muted-foreground">
-                          Disable for case-insensitive string comparisons.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={caseSensitive}
-                        onCheckedChange={(checked) =>
-                          handleConditionUpdate(index, {
-                            caseSensitive: checked,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <Button variant="outline" size="sm" onClick={handleAddCondition}>
-              <Plus className="h-3 w-3 mr-1" /> Add Condition
-            </Button>
-          </div>
-        ),
-      });
-    }
-
-    if (backendType === "SwitchNode") {
-      const normaliseBranchKey = (
-        value?: string | null,
-        fallback = "default",
-      ) => {
-        if (typeof value !== "string") {
-          return fallback;
-        }
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : fallback;
-      };
-
-      const defaultBranchKey = normaliseBranchKey(
-        typeof draftData.defaultBranchKey === "string"
-          ? (draftData.defaultBranchKey as string)
-          : undefined,
-      );
-
-      const globalCaseSensitive =
-        typeof draftData.caseSensitive === "boolean"
-          ? (draftData.caseSensitive as boolean)
-          : true;
-
-      const deriveCaseBranchKey = (
-        caseEntry: SwitchCaseForm,
-        index: number,
-      ) => {
-        if (
-          typeof caseEntry.branchKey === "string" &&
-          caseEntry.branchKey.trim().length > 0
-        ) {
-          return caseEntry.branchKey.trim();
-        }
-        if (
-          typeof caseEntry.id === "string" &&
-          caseEntry.id.trim().length > 0
-        ) {
-          return caseEntry.id.trim();
-        }
-        return `case_${index + 1}`;
-      };
-
-      const buildOutputs = (cases: SwitchCaseForm[], defaultKey: string) => [
-        ...cases.map((caseEntry, index) => ({
-          id: deriveCaseBranchKey(caseEntry, index),
-          label:
-            caseEntry.label && caseEntry.label.length > 0
-              ? caseEntry.label
-              : `Case ${index + 1}`,
-        })),
-        { id: defaultKey, label: "Default" },
-      ];
-
-      const applySwitchDraft = (
-        cases: SwitchCaseForm[],
-        nextDefaultKey: string,
-      ) => {
-        const outputs = buildOutputs(cases, nextDefaultKey);
-        setDraftData((current) => ({
-          ...current,
-          cases,
-          outputs,
-          defaultBranchKey: nextDefaultKey,
-        }));
-      };
-
-      const updateCases = (cases: SwitchCaseForm[]) => {
-        applySwitchDraft(cases, defaultBranchKey);
-      };
-
-      const handleUpdateCase = (
-        index: number,
-        updates: Partial<SwitchCaseForm>,
-      ) => {
-        const nextCases = switchCaseForms.map((caseEntry, idx) =>
-          idx === index ? { ...caseEntry, ...updates } : caseEntry,
-        );
-        updateCases(nextCases);
-      };
-
-      const handleRemoveCase = (index: number) => {
-        if (switchCaseForms.length <= 1) {
-          return;
-        }
-        const nextCases = switchCaseForms.filter((_, idx) => idx !== index);
-        updateCases(nextCases);
-      };
-
-      const handleAddCase = () => {
-        const newCaseId = createUniqueId("case");
-        const newCase: SwitchCaseForm = {
-          id: newCaseId,
-          label: `Case ${switchCaseForms.length + 1}`,
-          match: "",
-          branchKey: newCaseId,
-          caseSensitive: false,
-        };
-        updateCases([...switchCaseForms, newCase]);
-      };
-
-      const handleDefaultBranchKeyChange = (value: string) => {
-        const resolved = normaliseBranchKey(value);
-        applySwitchDraft(switchCaseForms, resolved);
-      };
-
-      configurationSections.push({
-        id: "switch-cases",
-        title: "Switch Cases",
-        defaultOpen: true,
-        content: (
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="switch-value">Value to evaluate</Label>
-              <Input
-                id="switch-value"
-                value={
-                  typeof draftData.value === "string"
-                    ? draftData.value
-                    : draftData.value !== undefined
-                      ? String(draftData.value)
-                      : ""
-                }
-                placeholder="Expression or context value"
-                onChange={(event) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    value: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs">Case sensitive comparisons</Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Disable to compare values using case-insensitive matching.
-                </p>
-              </div>
-              <Switch
-                checked={globalCaseSensitive}
-                onCheckedChange={(checked) =>
-                  setDraftData((current) => ({
-                    ...current,
-                    caseSensitive: checked,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="switch-default-branch">Default branch key</Label>
-              <Input
-                id="switch-default-branch"
-                value={
-                  typeof draftData.defaultBranchKey === "string"
-                    ? draftData.defaultBranchKey
-                    : defaultBranchKey
-                }
-                placeholder="default"
-                onChange={(event) =>
-                  handleDefaultBranchKeyChange(event.target.value)
-                }
-              />
-              <p className="text-[10px] text-muted-foreground">
-                Used when no cases match. Update connectors by changing this
-                key.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {switchCaseForms.map((caseEntry, index) => (
-                <div
-                  key={caseEntry.id}
-                  className="rounded-md border border-border bg-muted/30 p-3 space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Case {index + 1}
-                    </span>
-                    {switchCaseForms.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground"
-                        onClick={() => handleRemoveCase(index)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Label</Label>
-                    <Input
-                      value={caseEntry.label ?? ""}
-                      placeholder="Human readable label"
-                      onChange={(event) =>
-                        handleUpdateCase(index, { label: event.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Match value</Label>
-                    <Input
-                      value={
-                        typeof caseEntry.match === "string"
-                          ? caseEntry.match
-                          : caseEntry.match !== undefined
-                            ? String(caseEntry.match)
-                            : ""
-                      }
-                      placeholder="Value to compare"
-                      onChange={(event) =>
-                        handleUpdateCase(index, { match: event.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Branch key</Label>
-                    <Input
-                      value={caseEntry.branchKey ?? ""}
-                      placeholder={`case_${index + 1}`}
-                      onChange={(event) =>
-                        handleUpdateCase(index, {
-                          branchKey: event.target.value,
-                        })
-                      }
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      Determines the connector ID used for this branch.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-xs">Case sensitive</Label>
-                      <p className="text-[10px] text-muted-foreground">
-                        Enable when the match should respect casing.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={caseEntry.caseSensitive ?? false}
-                      onCheckedChange={(checked) =>
-                        handleUpdateCase(index, { caseSensitive: checked })
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <Button variant="outline" size="sm" onClick={handleAddCase}>
-              <Plus className="h-3 w-3 mr-1" /> Add Case
-            </Button>
-          </div>
-        ),
-      });
-    }
-
-    if (node.type === "HTTP Request") {
-      configurationSections.push({
-        id: "http",
-        title: "HTTP Settings",
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="request-method">Method</Label>
-              <Select defaultValue="GET">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GET">GET</SelectItem>
-                  <SelectItem value="POST">POST</SelectItem>
-                  <SelectItem value="PUT">PUT</SelectItem>
-                  <SelectItem value="DELETE">DELETE</SelectItem>
-                  <SelectItem value="PATCH">PATCH</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="request-url">URL</Label>
-              <Input
-                id="request-url"
-                defaultValue="https://api.example.com/data"
-                placeholder="Enter URL"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="request-headers">Headers</Label>
-                <Button variant="ghost" size="sm" className="h-8 px-2">
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add Header
-                </Button>
-              </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="Key" defaultValue="Content-Type" />
-
-                  <Input placeholder="Value" defaultValue="application/json" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="Key" defaultValue="Authorization" />
-
-                  <Input
-                    placeholder="Value"
-                    defaultValue="Bearer {{auth.token}}"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="request-body">Request Body</Label>
-              <div className="relative">
-                <Textarea
-                  id="request-body"
-                  defaultValue='{
-  "query": "example",
-  "limit": 10
-}'
-                  className="font-mono min-h-[150px]"
-                />
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                >
-                  <Code className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        ),
-      });
-    }
-
-    if (node.type === "Transform Data") {
-      configurationSections.push({
-        id: "transform",
-        title: "Transformation Settings",
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="transform-mode">Mode</Label>
-              <Select defaultValue="jmespath">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="jmespath">JMESPath</SelectItem>
-                  <SelectItem value="jsonata">JSONata</SelectItem>
-                  <SelectItem value="custom">Custom Code</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="transform-expression">Expression</Label>
-              <div className="relative">
-                <Textarea
-                  id="transform-expression"
-                  defaultValue="data.items[?value > `100`]"
-                  className="font-mono min-h-[150px]"
-                />
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                >
-                  <Code className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        ),
-      });
-    }
-
+    const payload: Record<string, unknown> = { ...draftData };
     if (isPythonNode) {
-      configurationSections.push({
-        id: "python",
-        title: "Python Code",
-        content: (
-          <div className="grid gap-2">
-            <Label htmlFor="python-code">Code</Label>
-            <div className="border rounded-md overflow-hidden h-[300px]">
-              {typeof window !== "undefined" && (
-                <Editor
-                  height="100%"
-                  defaultLanguage="python"
-                  value={pythonCode}
-                  onChange={(value) => setPythonCode(value || "")}
-                  onMount={handleEditorMount}
-                  options={{
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    fontSize: 14,
-                    lineNumbers: "on",
-                  }}
-                  theme="vs-dark"
-                />
-              )}
-            </div>
-          </div>
-        ),
-      });
+      payload.code =
+        pythonCode && pythonCode.length > 0 ? pythonCode : DEFAULT_PYTHON_CODE;
+    }
+    onSave(node.id, payload);
+  }, [draftData, isPythonNode, node, onSave, pythonCode]);
+
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
+
+  if (!node) {
+    return null;
+  }
+
+  const nodeLabelCandidate = node.data?.label;
+  const originalNodeLabel =
+    typeof nodeLabelCandidate === "string" && nodeLabelCandidate.length > 0
+      ? nodeLabelCandidate
+      : node.type;
+  const draftLabelValue =
+    typeof draftData.label === "string" ? (draftData.label as string) : "";
+  const currentLabel =
+    draftLabelValue && draftLabelValue.length > 0
+      ? draftLabelValue
+      : originalNodeLabel;
+  const formattedSemanticType = semanticType
+    ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
+    : null;
+
+  const liveInputs = runtime?.inputs;
+  const liveOutputs = runtime?.outputs;
+  const liveMessages = runtime?.messages;
+  const liveRaw = runtime?.raw ?? runtime;
+
+  const renderRuntimePanel = (label: string, value: unknown) => {
+    if (!hasRuntime) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground">
+          <Badge variant="outline" className="mb-2">
+            {label}
+          </Badge>
+          <p>Run the workflow to capture live data.</p>
+        </div>
+      );
     }
 
-    configurationSections.push({
-      id: "advanced",
-      title: "Advanced Options",
-      content: (
-        <div className="grid gap-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="retry-failed">Retry on failure</Label>
-            <Switch id="retry-failed" />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <Label htmlFor="continue-on-fail">Continue on failure</Label>
-            <Switch id="continue-on-fail" />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="timeout">Timeout (seconds)</Label>
-            <Input
-              id="timeout"
-              type="number"
-              defaultValue="30"
-              min="1"
-              max="300"
-            />
-          </div>
+    if (!useLiveData) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground">
+          <Badge variant="outline" className="mb-2">
+            {label}
+          </Badge>
+          <p>Live data disabled for this view.</p>
         </div>
-      ),
-    });
+      );
+    }
 
-    const defaultItems = configurationSections
-      .filter((section) => section.defaultOpen ?? true)
-      .map((section) => section.id);
+    if (value === undefined) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground">
+          <Badge variant="outline" className="mb-2">
+            {label}
+          </Badge>
+          <p>No data captured yet.</p>
+        </div>
+      );
+    }
 
     return (
-      <ScrollArea className="h-full">
-        <div
-          className="p-6"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-        >
-          <Accordion
-            type="multiple"
-            defaultValue={defaultItems}
-            className="space-y-3"
-          >
-            {configurationSections.map((section) => (
-              <AccordionItem
-                key={section.id}
-                value={section.id}
-                className="border border-border/50 rounded-lg bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40"
-              >
-                <AccordionTrigger className="px-4 py-2 text-left text-sm font-medium hover:no-underline">
-                  {section.title}
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-0">
-                  <div className="pt-2 space-y-4 text-sm text-foreground">
-                    {section.content}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
-      </ScrollArea>
+      <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4">
+        {formatJson(value)}
+      </pre>
     );
   };
-  const renderOutputContent = () => (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border">
-        <div className="flex items-center justify-between">
-          <Tabs defaultValue={outputViewMode} onValueChange={setOutputViewMode}>
-            <TabsList className="w-full justify-start h-10 rounded-none bg-transparent p-0">
-              <TabsTrigger
-                value="output-json"
-                className="rounded-none data-[state=active]:bg-muted"
-              >
-                <FileJson className="h-4 w-4 mr-2" />
-                JSON
-              </TabsTrigger>
-              <TabsTrigger
-                value="output-table"
-                className="rounded-none data-[state=active]:bg-muted"
-              >
-                <Table className="h-4 w-4 mr-2" />
-                Table
-              </TabsTrigger>
-              <TabsTrigger
-                value="output-schema"
-                className="rounded-none data-[state=active]:bg-muted"
-              >
-                <Code className="h-4 w-4 mr-2" />
-                Schema
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="flex items-center gap-2 pr-2">
-              <div className="flex items-center space-x-2 mr-2">
-                <Switch
-                  id="live-data"
-                  checked={useLiveData}
-                  onCheckedChange={setUseLiveData}
-                  disabled={!runtime}
-                />
-
-                <Label htmlFor="live-data" className="text-xs">
-                  Live data
-                </Label>
-              </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              {formattedUpdatedAt && runtime && (
-                <span className="text-[10px] text-muted-foreground">
-                  Updated {formattedUpdatedAt}
-                </span>
-              )}
-            </div>
-          </Tabs>
-        </div>
-      </div>
-
-      <Tabs defaultValue={outputViewMode}>
-        <TabsContent value="output-json" className="p-0 m-0 h-full">
-          <div className="flex-1 p-4 bg-muted/30 relative h-full">
-            {useLiveData ? (
-              hasLiveOutputs && outputDisplay !== undefined ? (
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                  {JSON.stringify(outputDisplay, null, 2)}
-                </pre>
-              ) : (
-                renderLiveDataUnavailable("Live Output")
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <Badge variant="outline" className="mb-2">
-                    Sample Data
-                  </Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Using cached sample data
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="output-table" className="p-0 m-0 h-full">
-          <div className="flex-1 p-4 bg-muted/30 relative h-full">
-            <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-              <p>Table view not implemented</p>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="output-schema" className="p-0 m-0 h-full">
-          <div className="flex-1 p-4 bg-muted/30 relative h-full">
-            <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-              <p>Schema view not implemented</p>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
 
   return (
     <>
       <div
-        className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50"
+        className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40"
         onClick={onClose}
       />
       <div
         className={cn(
-          "flex flex-col border border-border rounded-lg bg-background shadow-lg",
-          "fixed top-[5vh] left-[5vw] w-[90vw] h-[90vh] z-50",
+          "fixed top-[5vh] left-[5vw] h-[90vh] w-[90vw] z-50",
+          "flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-lg",
           className,
         )}
-        tabIndex={0}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col">
-              <h3 className="font-medium">{nodeLabel}</h3>
-              <p className="text-xs text-muted-foreground">ID: {node.id}</p>
-              {formattedSemanticType && (
-                <p className="text-xs text-muted-foreground">
-                  Node type: {formattedSemanticType}
-                </p>
-              )}
-            </div>
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <div className="space-y-1">
+            <h3 className="text-base font-medium">{currentLabel}</h3>
+            <p className="text-xs text-muted-foreground">ID: {node.id}</p>
+            {formattedSemanticType ? (
+              <p className="text-xs text-muted-foreground">
+                Node type: {formattedSemanticType}
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
+            {formattedUpdatedAt ? (
+              <Badge variant="outline" className="text-xs font-normal">
+                Live data updated {formattedUpdatedAt}
+              </Badge>
+            ) : null}
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        {/* Split Pane Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <Split
-              sizes={[33, 67]}
-              minSize={150}
-              expandToMin={false}
-              gutterSize={10}
-              gutterAlign="center"
-              snapOffset={30}
-              dragInterval={1}
-              direction="horizontal"
-              cursor="col-resize"
-              className="flex h-full"
-              gutterStyle={() => ({
-                backgroundColor: "hsl(var(--border))",
-                width: "4px",
-                margin: "0 2px",
-                cursor: "col-resize",
-                "&:hover": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-                "&:active": {
-                  backgroundColor: "hsl(var(--primary))",
-                },
-              })}
-            >
-              <div className="h-full overflow-hidden flex flex-col">
-                <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                  <h3 className="text-sm font-medium">Input</h3>
+        <div className="flex-1 overflow-hidden">
+          <Split
+            sizes={[45, 55]}
+            minSize={280}
+            gutterSize={8}
+            direction="horizontal"
+            className="flex h-full"
+            gutterStyle={() => ({
+              backgroundColor: "hsl(var(--border))",
+              width: "4px",
+              margin: "0 2px",
+            })}
+          >
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="border-b border-border p-4">
+                <h4 className="text-sm font-semibold">Configuration</h4>
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="space-y-6 p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="node-label">Node label</Label>
+                    <Input
+                      id="node-label"
+                      value={draftLabelValue}
+                      onChange={(event) =>
+                        setDraftData((current) => ({
+                          ...current,
+                          label: event.target.value,
+                        }))
+                      }
+                      placeholder={originalNodeLabel}
+                    />
+                  </div>
+
+                  {configSchema ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="text-sm font-semibold">
+                            Schema-driven configuration
+                          </h5>
+                          <p className="text-xs text-muted-foreground">
+                            Generated from the backend JSON schema for this
+                            node.
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={!initialConfigFormData}
+                          onClick={() =>
+                            setDraftData((current) =>
+                              mergeConfigIntoDraft(
+                                current,
+                                initialConfigFormData ?? {},
+                                configSchema,
+                              ),
+                            )
+                          }
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <SchemaDrivenForm
+                        schema={configSchema}
+                        uiSchema={configUiSchema}
+                        formData={configFormData}
+                        onChange={handleConfigChange}
+                        onSubmit={() => handleSaveRef.current?.()}
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                      <p>No JSON schema provided for this node.</p>
+                      <p className="text-xs">
+                        Define a Pydantic config on the node to enable automatic
+                        forms.
+                      </p>
+                    </div>
+                  )}
+
+                  {isPythonNode ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Python code</Label>
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal"
+                        >
+                          Press Ctrl+S / Cmd+S to save
+                        </Badge>
+                      </div>
+                      <div className="rounded-md border border-border">
+                        <Editor
+                          height="240px"
+                          defaultLanguage="python"
+                          theme="vs-dark"
+                          value={pythonCode}
+                          onChange={(value) =>
+                            setPythonCode(value ?? DEFAULT_PYTHON_CODE)
+                          }
+                          onMount={handleEditorMount}
+                          options={{
+                            minimap: { enabled: false },
+                            fontSize: 14,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="flex-1 overflow-auto">
-                  {renderInputContent()}
+              </ScrollArea>
+            </div>
+
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border p-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Runtime data</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Inspect the inputs and outputs captured from workflow runs.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="use-live-data"
+                    checked={useLiveData && hasRuntime}
+                    disabled={!hasRuntime}
+                    onCheckedChange={(checked) =>
+                      setUseLiveData(Boolean(checked))
+                    }
+                  />
+                  <Label
+                    htmlFor="use-live-data"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Use live data
+                  </Label>
                 </div>
               </div>
-
-              <Split
-                sizes={[50, 50]}
-                minSize={150}
-                expandToMin={false}
-                gutterSize={10}
-                gutterAlign="center"
-                snapOffset={30}
-                dragInterval={1}
-                direction="horizontal"
-                cursor="col-resize"
-                className="flex h-full"
-                gutterStyle={() => ({
-                  backgroundColor: "hsl(var(--border))",
-                  width: "4px",
-                  margin: "0 2px",
-                  cursor: "col-resize",
-                  "&:hover": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                  "&:active": {
-                    backgroundColor: "hsl(var(--primary))",
-                  },
-                })}
+              <Tabs
+                value={activeRuntimeTab}
+                onValueChange={setActiveRuntimeTab}
+                className="flex h-full flex-col"
               >
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Configuration</h3>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderConfigContent()}
-                  </div>
-                </div>
-
-                <div className="h-full overflow-hidden flex flex-col">
-                  <div className="p-2 bg-muted/20 border-b border-border flex-shrink-0">
-                    <h3 className="text-sm font-medium">Output</h3>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                    {renderOutputContent()}
-                  </div>
-                </div>
-              </Split>
-            </Split>
-          </div>
+                <TabsList className="flex h-10 items-center gap-2 border-b border-border bg-muted/40 px-4">
+                  <TabsTrigger value="inputs" className="gap-2 text-xs">
+                    <FileJson className="h-3 w-3" /> Inputs
+                  </TabsTrigger>
+                  <TabsTrigger value="outputs" className="gap-2 text-xs">
+                    <FileJson className="h-3 w-3" /> Outputs
+                  </TabsTrigger>
+                  <TabsTrigger value="messages" className="gap-2 text-xs">
+                    <FileJson className="h-3 w-3" /> Messages
+                  </TabsTrigger>
+                  <TabsTrigger value="raw" className="gap-2 text-xs">
+                    <FileJson className="h-3 w-3" /> Raw payload
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent
+                  value="inputs"
+                  className="flex-1 overflow-hidden p-4"
+                >
+                  {renderRuntimePanel("Inputs", liveInputs)}
+                </TabsContent>
+                <TabsContent
+                  value="outputs"
+                  className="flex-1 overflow-hidden p-4"
+                >
+                  {renderRuntimePanel("Outputs", liveOutputs)}
+                </TabsContent>
+                <TabsContent
+                  value="messages"
+                  className="flex-1 overflow-hidden p-4"
+                >
+                  {renderRuntimePanel("Messages", liveMessages)}
+                </TabsContent>
+                <TabsContent value="raw" className="flex-1 overflow-hidden p-4">
+                  {renderRuntimePanel("Raw", liveRaw)}
+                </TabsContent>
+              </Tabs>
+            </div>
+          </Split>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-border">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <History className="h-4 w-4 mr-2" />
-              History
-            </Button>
-            <Button variant="outline" size="sm">
-              <FileDown className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleSave}>
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2 border-t border-border p-4">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave}>
+            <Save className="mr-2 h-4 w-4" /> Save
+          </Button>
         </div>
       </div>
     </>
