@@ -1,4 +1,5 @@
 import asyncio
+from collections import OrderedDict
 from typing import cast
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -294,6 +295,48 @@ async def test_set_variable_node_handles_nested_dicts():
 
     assert payload["user"]["name"] == "Ada"
     assert payload["settings"]["theme"] == "dark"
+
+
+@pytest.mark.asyncio
+async def test_set_variable_node_supports_dotted_paths():
+    state = State({"results": {}})
+    node = SetVariableNode(
+        name="assign",
+        variables={
+            "profile": {"role": "builder"},
+            "profile.name": "Ada",
+            "profile.stats.score": 42,
+            "flags.is_active": True,
+        },
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["assign"]
+
+    assert payload["profile"]["role"] == "builder"
+    assert payload["profile"]["name"] == "Ada"
+    assert payload["profile"]["stats"]["score"] == 42
+    assert payload["flags"]["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_variable_node_merges_existing_dicts():
+    state = State({"results": {}})
+    node = SetVariableNode(
+        name="assign",
+        variables=OrderedDict(
+            [
+                ("profile.name", "Ada"),
+                ("profile", {"role": "builder"}),
+            ]
+        ),
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["assign"]
+
+    assert payload["profile"]["name"] == "Ada"
+    assert payload["profile"]["role"] == "builder"
 
 
 def test_build_nested_validates_paths():

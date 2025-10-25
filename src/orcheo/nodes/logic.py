@@ -57,7 +57,28 @@ def evaluate_condition(
     operator: ComparisonOperator,
     case_sensitive: bool = True,
 ) -> bool:
-    """Evaluate the supplied operands using the configured comparison."""
+    """Evaluate the supplied operands using the configured comparison.
+
+    Examples:
+        Evaluate an equality check without case sensitivity.
+
+        >>> evaluate_condition(
+        ...     left="Hello",
+        ...     right="hello",
+        ...     operator="equals",
+        ...     case_sensitive=False,
+        ... )
+        True
+
+        Check membership within a sequence.
+
+        >>> evaluate_condition(
+        ...     left=["alpha", "beta"],
+        ...     right="beta",
+        ...     operator="contains",
+        ... )
+        True
+    """
     left_value = _normalise_case(left, case_sensitive=case_sensitive)
     right_value = _normalise_case(right, case_sensitive=case_sensitive)
 
@@ -143,7 +164,26 @@ def _combine_condition_results(
     combinator: Literal["and", "or"],
     default_left: Any | None = None,
 ) -> tuple[bool, list[dict[str, Any]]]:
-    """Evaluate the supplied conditions returning the aggregate and detail payload."""
+    """Evaluate the supplied conditions returning the aggregate and detail payload.
+
+    Examples:
+        Combine multiple conditions into a single outcome.
+
+        >>> summary, evaluations = _combine_condition_results(
+        ...     conditions=[
+        ...         Condition(left=2, operator="greater_than", right=5),
+        ...         Condition(
+        ...             left="Ada",
+        ...             operator="equals",
+        ...             right="ada",
+        ...             case_sensitive=False,
+        ...         ),
+        ...     ],
+        ...     combinator="or",
+        ... )
+        >>> summary
+        True
+    """
     if not conditions:
         return False, []
 
@@ -392,7 +432,33 @@ class SetVariableNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return the assigned variables."""
-        return self.variables
+        payload: dict[str, Any] = {}
+
+        def merge(base: dict[str, Any], incoming: Mapping[str, Any]) -> None:
+            for key, value in incoming.items():
+                if isinstance(value, Mapping):
+                    existing = base.get(key)
+                    if isinstance(existing, dict):
+                        merge(existing, value)
+                    else:
+                        base[key] = dict(value)
+                else:
+                    base[key] = value
+
+        for name, value in self.variables.items():
+            if "." in name:
+                nested = _build_nested(name, value)
+                merge(payload, nested)
+            else:
+                existing = payload.get(name)
+                if isinstance(existing, dict) and isinstance(value, Mapping):
+                    merge(existing, value)
+                elif isinstance(value, Mapping):
+                    payload[name] = dict(value)
+                else:
+                    payload[name] = value
+
+        return payload
 
 
 @registry.register(
