@@ -21,7 +21,6 @@ import {
   Table,
   FileDown,
   RefreshCw,
-  History,
   GripVertical,
   Play,
   Loader2,
@@ -693,10 +692,6 @@ export default function NodeInspector({
             validator={validator}
             widgets={customWidgets}
             templates={customTemplates}
-            onSubmit={(data) => {
-              // Handle submit if needed
-              console.log("Form submitted:", data);
-            }}
           >
             {/* Hide the default submit button */}
             <div className="hidden" />
@@ -808,6 +803,7 @@ export default function NodeInspector({
         <TabsContent value="output-table" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
             <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
+              {/* TODO: Implement structured table visualization for node outputs. */}
               <p>Table view not implemented</p>
             </div>
           </div>
@@ -816,6 +812,7 @@ export default function NodeInspector({
         <TabsContent value="output-schema" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
             <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
+              {/* TODO: Render schema information derived from node outputs. */}
               <p>Schema view not implemented</p>
             </div>
           </div>
@@ -963,10 +960,6 @@ export default function NodeInspector({
                   Test Node
                 </>
               )}
-            </Button>
-            <Button variant="outline" size="sm">
-              <History className="h-4 w-4 mr-2" />
-              History
             </Button>
             <Button variant="outline" size="sm">
               <FileDown className="h-4 w-4 mr-2" />
