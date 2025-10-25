@@ -110,9 +110,20 @@ from orcheo_backend.app.schemas import (
 
 
 # Configure logging for the backend module once on import.
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+_log_level_int = getattr(logging, _log_level, logging.INFO)
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.WARNING
 )
+
+# Set FastAPI and Orcheo loggers to the configured level
+logging.getLogger("uvicorn").setLevel(_log_level_int)
+logging.getLogger("uvicorn.access").setLevel(_log_level_int)
+logging.getLogger("uvicorn.error").setLevel(_log_level_int)
+logging.getLogger("fastapi").setLevel(_log_level_int)
+logging.getLogger("orcheo").setLevel(_log_level_int)
+logging.getLogger("orcheo_backend").setLevel(_log_level_int)
+
 logger = logging.getLogger(__name__)
 
 load_dotenv()
