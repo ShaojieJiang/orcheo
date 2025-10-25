@@ -341,7 +341,7 @@ export default function SidebarPanel({
                 value: "sample",
               },
             ],
-            outputs: [{ id: "default", label: "Next" }],
+            outputs: [{ id: "default" }],
           },
         }),
       ],
