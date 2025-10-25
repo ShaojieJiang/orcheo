@@ -91,7 +91,12 @@ const shouldSerializeNode = (node: CanvasNode): boolean => {
       : undefined;
   const canvasType = typeof node.type === "string" ? node.type : undefined;
 
-  if (semanticTypeRaw === "annotation" || canvasType === "stickyNote") {
+  if (
+    semanticTypeRaw === "annotation" ||
+    semanticTypeRaw === "start" ||
+    semanticTypeRaw === "end" ||
+    canvasType === "stickyNote"
+  ) {
     return false;
   }
 

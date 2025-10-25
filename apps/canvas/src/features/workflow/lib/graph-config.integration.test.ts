@@ -151,4 +151,88 @@ describe("buildGraphConfigFromCanvas integration", () => {
       target: delayName,
     });
   });
+
+  it("filters out canvas start and end nodes from serialization", () => {
+    const nodes: Node[] = [
+      {
+        id: "start-node",
+        type: "start",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Workflow Start",
+          type: "start",
+        },
+      } as Node,
+      {
+        id: "set-var",
+        type: "function",
+        position: { x: 100, y: 0 },
+        data: {
+          label: "Set Variable",
+          backendType: "SetVariableNode",
+          variables: [
+            { name: "my_variable", valueType: "string", value: "sample" },
+            { name: "num", valueType: "number", value: 2 },
+          ],
+        },
+      } as Node,
+      {
+        id: "end-node",
+        type: "end",
+        position: { x: 200, y: 0 },
+        data: {
+          label: "Workflow End",
+          type: "end",
+        },
+      } as Node,
+    ];
+
+    const edges: Edge[] = [
+      {
+        id: "start-to-set",
+        source: "start-node",
+        target: "set-var",
+      } as Edge,
+      {
+        id: "set-to-end",
+        source: "set-var",
+        target: "end-node",
+      } as Edge,
+    ];
+
+    const { config, canvasToGraph } = buildGraphConfigFromCanvas(nodes, edges);
+
+    // Canvas start/end nodes should NOT be in the mapping
+    expect(canvasToGraph["start-node"]).toBeUndefined();
+    expect(canvasToGraph["end-node"]).toBeUndefined();
+
+    // Only the SetVariable node should be serialized
+    expect(canvasToGraph["set-var"]).toBeDefined();
+    const setVarName = canvasToGraph["set-var"];
+
+    // Graph should have: START (hardcoded), set-variable, END (hardcoded)
+    expect(config.nodes).toHaveLength(3);
+    expect(config.nodes[0]).toMatchObject({
+      name: "START",
+      type: "START",
+    });
+    expect(config.nodes[1]).toMatchObject({
+      name: setVarName,
+      type: "SetVariableNode",
+    });
+    expect(config.nodes[2]).toMatchObject({
+      name: "END",
+      type: "END",
+    });
+
+    // Edges should connect START -> set-variable -> END
+    expect(config.edges).toContainEqual({
+      source: "START",
+      target: setVarName,
+    });
+    expect(config.edges).toContainEqual({
+      source: setVarName,
+      target: "END",
+    });
+  });
 });

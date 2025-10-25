@@ -473,7 +473,7 @@ async def execute_workflow(
 ) -> None:
     """Execute a workflow and stream results over the provided websocket."""
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
-    logger.info("Initial inputs: %s", inputs)
+    logger.debug("Initial inputs: %s", inputs)
 
     settings = get_settings()
     history_store = get_history_store()
@@ -500,7 +500,7 @@ async def execute_workflow(
                 "results": {},
                 "inputs": inputs,
             }
-        logger.info("Initial state: %s", state)
+        logger.debug("Initial state: %s", state)
 
         # Run graph with streaming
         config = {"configurable": {"thread_id": execution_id}}
@@ -510,6 +510,13 @@ async def execute_workflow(
                 config=config,  # type: ignore[arg-type]
                 stream_mode="updates",
             ):  # pragma: no cover
+                # Log node execution details
+                for node_name, node_output in step.items():
+                    logger.debug("=" * 80)
+                    logger.debug("Node executed: %s", node_name)
+                    logger.debug("Node output: %s", node_output)
+                    logger.debug("=" * 80)
+
                 await history_store.append_step(execution_id, step)
                 try:
                     await websocket.send_json(step)
