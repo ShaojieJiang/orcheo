@@ -329,13 +329,13 @@ export default function WorkflowExecutionHistory({
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: "smoothstep",
+      type: "default",
       animated: selectedExecution.status === "running",
       style: { stroke: "#99a1b3", strokeWidth: 2 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        width: 20,
-        height: 20,
+        width: 12,
+        height: 12,
       },
     }));
   };

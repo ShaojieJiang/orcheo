@@ -37,6 +37,7 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
+import { EdgeHoverContext } from "@features/workflow/components/canvas/edge-hover-context";
 import type {
   StickyNoteColor,
   StickyNoteNodeData,
@@ -601,12 +602,12 @@ const toCanvasEdge = (edge: PersistedWorkflowEdge): CanvasEdge => ({
   sourceHandle: edge.sourceHandle,
   targetHandle: edge.targetHandle,
   label: edge.label,
-  type: edge.type ?? "smoothstep",
+  type: edge.type ?? "default",
   animated: edge.animated ?? false,
   markerEnd: {
     type: MarkerType.ArrowClosed,
-    width: 20,
-    height: 20,
+    width: 12,
+    height: 12,
   },
   style: edge.style ?? { stroke: "#99a1b3", strokeWidth: 2 },
 });
@@ -894,6 +895,7 @@ export default function WorkflowCanvas({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) {
       return null;
@@ -921,6 +923,19 @@ export default function WorkflowCanvas({
       avatar: "https://avatar.vercel.sh/orcheo-canvas",
     }),
     [],
+  );
+  const setHoveredEdgeIdValue = useCallback(
+    (edgeId: string | null) => {
+      setHoveredEdgeId(edgeId);
+    },
+    [setHoveredEdgeId],
+  );
+  const edgeHoverContextValue = useMemo(
+    () => ({
+      hoveredEdgeId,
+      setHoveredEdgeId: setHoveredEdgeIdValue,
+    }),
+    [hoveredEdgeId, setHoveredEdgeIdValue],
   );
 
   useEffect(() => {
@@ -1238,6 +1253,11 @@ export default function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+  useEffect(() => {
+    if (hoveredEdgeId && !edges.some((edge) => edge.id === hoveredEdgeId)) {
+      setHoveredEdgeId(null);
+    }
+  }, [edges, hoveredEdgeId, setHoveredEdgeId]);
 
   const setNodes = useCallback(
     (updater: React.SetStateAction<CanvasNode[]>) => {
@@ -1410,6 +1430,26 @@ export default function WorkflowCanvas({
       onEdgesChangeState(changes);
     },
     [onEdgesChangeState, recordSnapshot],
+  );
+  const handleEdgeMouseEnter = useCallback(
+    (_event: React.MouseEvent<Element>, edge: CanvasEdge) => {
+      setHoveredEdgeId(edge.id);
+    },
+    [setHoveredEdgeId],
+  );
+  const handleEdgeMouseLeave = useCallback(
+    (event: React.MouseEvent<Element>, edge: CanvasEdge) => {
+      const relatedTarget = event.relatedTarget as HTMLElement | null;
+      if (
+        relatedTarget &&
+        typeof relatedTarget.closest === "function" &&
+        relatedTarget.closest(`[data-edge-id="${edge.id}"]`)
+      ) {
+        return;
+      }
+      setHoveredEdgeId((current) => (current === edge.id ? null : current));
+    },
+    [setHoveredEdgeId],
   );
 
   const resolveNodeLabel = useCallback((canvasNodeId: string): string => {
@@ -2473,11 +2513,11 @@ export default function WorkflowCanvas({
               ...params,
               id: edgeId,
               animated: false,
-              type: "smoothstep",
+              type: "default",
               markerEnd: {
                 type: MarkerType.ArrowClosed,
-                width: 20,
-                height: 20,
+                width: 12,
+                height: 12,
               },
               style: { stroke: "#99a1b3", strokeWidth: 2 },
             },
@@ -3583,58 +3623,62 @@ export default function WorkflowCanvas({
                 onDragOver={onDragOver}
                 onDrop={onDrop}
               >
-                <WorkflowFlow
-                  nodes={decoratedNodes}
-                  edges={edges}
-                  onNodesChange={handleNodesChange}
-                  onEdgesChange={handleEdgesChange}
-                  onConnect={onConnect}
-                  onNodeClick={onNodeClick}
-                  onNodeDoubleClick={onNodeDoubleClick}
-                  onInit={(instance: ReactFlowInstance) => {
-                    reactFlowInstance.current = instance;
-                  }}
-                  fitView
-                  snapToGrid
-                  snapGrid={[15, 15]}
-                  editable={true}
-                >
-                  <WorkflowSearch
-                    isOpen={isSearchOpen}
-                    onSearch={handleSearchNodes}
-                    onHighlightNext={handleHighlightNext}
-                    onHighlightPrevious={handleHighlightPrevious}
-                    onClose={handleCloseSearch}
-                    matchCount={searchMatches.length}
-                    currentMatchIndex={currentSearchIndex}
-                    className="backdrop-blur supports-[backdrop-filter]:bg-background/60"
-                  />
-
-                  <Panel position="top-left" className="m-4">
-                    <WorkflowControls
-                      isRunning={isRunning}
-                      onRun={handleRunWorkflow}
-                      onPause={handlePauseWorkflow}
-                      onSave={handleSaveWorkflow}
-                      onUndo={handleUndo}
-                      onRedo={handleRedo}
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      onDuplicate={handleDuplicateSelectedNodes}
-                      onExport={handleExportWorkflow}
-                      onImport={handleImportWorkflow}
-                      onToggleSearch={handleToggleSearch}
-                      isSearchOpen={isSearchOpen}
+                <EdgeHoverContext.Provider value={edgeHoverContextValue}>
+                  <WorkflowFlow
+                    nodes={decoratedNodes}
+                    edges={edges}
+                    onNodesChange={handleNodesChange}
+                    onEdgesChange={handleEdgesChange}
+                    onConnect={onConnect}
+                    onNodeClick={onNodeClick}
+                    onNodeDoubleClick={onNodeDoubleClick}
+                    onEdgeMouseEnter={handleEdgeMouseEnter}
+                    onEdgeMouseLeave={handleEdgeMouseLeave}
+                    onInit={(instance: ReactFlowInstance) => {
+                      reactFlowInstance.current = instance;
+                    }}
+                    fitView
+                    snapToGrid
+                    snapGrid={[15, 15]}
+                    editable={true}
+                  >
+                    <WorkflowSearch
+                      isOpen={isSearchOpen}
+                      onSearch={handleSearchNodes}
+                      onHighlightNext={handleHighlightNext}
+                      onHighlightPrevious={handleHighlightPrevious}
+                      onClose={handleCloseSearch}
+                      matchCount={searchMatches.length}
+                      currentMatchIndex={currentSearchIndex}
+                      className="backdrop-blur supports-[backdrop-filter]:bg-background/60"
                     />
-                  </Panel>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json"
-                    className="hidden"
-                    onChange={handleWorkflowFileSelected}
-                  />
-                </WorkflowFlow>
+
+                    <Panel position="top-left" className="m-4">
+                      <WorkflowControls
+                        isRunning={isRunning}
+                        onRun={handleRunWorkflow}
+                        onPause={handlePauseWorkflow}
+                        onSave={handleSaveWorkflow}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        canUndo={canUndo}
+                        canRedo={canRedo}
+                        onDuplicate={handleDuplicateSelectedNodes}
+                        onExport={handleExportWorkflow}
+                        onImport={handleImportWorkflow}
+                        onToggleSearch={handleToggleSearch}
+                        isSearchOpen={isSearchOpen}
+                      />
+                    </Panel>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={handleWorkflowFileSelected}
+                    />
+                  </WorkflowFlow>
+                </EdgeHoverContext.Provider>
                 <ConnectionValidator
                   errors={validationErrors}
                   onDismiss={handleDismissValidation}
