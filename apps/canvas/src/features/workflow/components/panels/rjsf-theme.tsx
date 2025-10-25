@@ -47,6 +47,11 @@ import {
   type ConditionOperatorGroup,
   type ConditionOperatorOption,
 } from "@features/workflow/lib/node-schemas";
+import {
+  hasSchemaFieldData,
+  insertSchemaFieldReference,
+  readSchemaFieldDragData,
+} from "./schema-dnd";
 
 /**
  * Custom Text Input Widget
@@ -54,6 +59,54 @@ import {
 function TextWidget(props: WidgetProps) {
   const { id, value, onChange, required, disabled, readonly, placeholder } =
     props;
+
+  const handleDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLInputElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+      if (hasSchemaFieldData(event.dataTransfer)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [disabled, readonly],
+  );
+
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent<HTMLInputElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+
+      const payload = readSchemaFieldDragData(event.dataTransfer);
+      if (!payload?.path) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const target = event.target as HTMLInputElement;
+      const { value: nextValue, selectionStart } = insertSchemaFieldReference(
+        target,
+        payload.path,
+      );
+
+      target.value = nextValue;
+      target.focus();
+      const restoreSelection = () =>
+        target.setSelectionRange(selectionStart, selectionStart);
+      if (typeof window !== "undefined" && window.requestAnimationFrame) {
+        window.requestAnimationFrame(restoreSelection);
+      } else {
+        restoreSelection();
+      }
+
+      onChange(nextValue);
+    },
+    [disabled, onChange, readonly],
+  );
 
   return (
     <Input
@@ -65,6 +118,8 @@ function TextWidget(props: WidgetProps) {
       disabled={disabled}
       readOnly={readonly}
       placeholder={placeholder}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     />
   );
 }
@@ -78,6 +133,54 @@ function TextareaWidget(props: WidgetProps) {
   const uiOptions = getUiOptions(props.uiSchema || {});
   const rows = (uiOptions.rows as number) || 3;
 
+  const handleDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLTextAreaElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+      if (hasSchemaFieldData(event.dataTransfer)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [disabled, readonly],
+  );
+
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent<HTMLTextAreaElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+
+      const payload = readSchemaFieldDragData(event.dataTransfer);
+      if (!payload?.path) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const target = event.target as HTMLTextAreaElement;
+      const { value: nextValue, selectionStart } = insertSchemaFieldReference(
+        target,
+        payload.path,
+      );
+
+      target.value = nextValue;
+      target.focus();
+      const restoreSelection = () =>
+        target.setSelectionRange(selectionStart, selectionStart);
+      if (typeof window !== "undefined" && window.requestAnimationFrame) {
+        window.requestAnimationFrame(restoreSelection);
+      } else {
+        restoreSelection();
+      }
+
+      onChange(nextValue);
+    },
+    [disabled, onChange, readonly],
+  );
+
   return (
     <Textarea
       id={id}
@@ -88,6 +191,8 @@ function TextareaWidget(props: WidgetProps) {
       readOnly={readonly}
       placeholder={placeholder}
       rows={rows}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     />
   );
 }
@@ -228,6 +333,55 @@ function ConditionOperandWidget(props: WidgetProps) {
   } = props;
   const displayValue = formatOperandValue(value);
 
+  const handleDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLInputElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+      if (hasSchemaFieldData(event.dataTransfer)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [disabled, readonly],
+  );
+
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent<HTMLInputElement>) => {
+      if (disabled || readonly) {
+        return;
+      }
+
+      const payload = readSchemaFieldDragData(event.dataTransfer);
+      if (!payload?.path) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const target = event.target as HTMLInputElement;
+      const { value: nextValue, selectionStart } = insertSchemaFieldReference(
+        target,
+        payload.path,
+      );
+
+      target.value = nextValue;
+      target.focus();
+      const restoreSelection = () =>
+        target.setSelectionRange(selectionStart, selectionStart);
+      if (typeof window !== "undefined" && window.requestAnimationFrame) {
+        window.requestAnimationFrame(restoreSelection);
+      } else {
+        restoreSelection();
+      }
+
+      const parsedValue = parseOperandValue(nextValue);
+      onChange(parsedValue);
+    },
+    [disabled, onChange, readonly],
+  );
+
   return (
     <Input
       id={id}
@@ -237,6 +391,8 @@ function ConditionOperandWidget(props: WidgetProps) {
       onFocus={(event) => onFocus?.(id, parseOperandValue(event.target.value))}
       disabled={disabled || readonly}
       placeholder={placeholder}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     />
   );
 }

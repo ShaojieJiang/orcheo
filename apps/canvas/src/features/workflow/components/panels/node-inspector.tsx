@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import {
   Tabs,
@@ -43,6 +44,7 @@ import {
   hasIncomingConnections,
   collectUpstreamOutputs,
 } from "@features/workflow/lib/graph-utils";
+import { writeSchemaFieldDragData } from "./schema-dnd";
 
 interface NodeInspectorProps {
   node?: {
@@ -444,8 +446,12 @@ export default function NodeInspector({
 
   if (!node) return null;
 
-  const handleDragStart = (field: SchemaField) => {
+  const handleDragStart = (
+    event: ReactDragEvent<HTMLDivElement>,
+    field: SchemaField,
+  ) => {
     setDraggingField(field);
+    writeSchemaFieldDragData(event.dataTransfer, field);
   };
 
   const handleDragEnd = () => {
@@ -545,7 +551,7 @@ export default function NodeInspector({
                           key={field.path}
                           className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
                           draggable
-                          onDragStart={() => handleDragStart(field)}
+                          onDragStart={(event) => handleDragStart(event, field)}
                           onDragEnd={handleDragEnd}
                         >
                           <div className="flex items-center gap-2">
