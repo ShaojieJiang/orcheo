@@ -304,3 +304,25 @@ class AlertAcknowledgeRequest(BaseModel):
     """Request payload for acknowledging a governance alert."""
 
     actor: str = Field(default="system")
+
+
+class NodeExecutionRequest(BaseModel):
+    """Request payload for executing a single node in isolation."""
+
+    node_config: dict[str, Any]
+    """Node configuration including type and parameters."""
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    """Input data to pass to the node."""
+    workflow_id: UUID | None = None
+    """Optional workflow ID for credential context."""
+
+
+class NodeExecutionResponse(BaseModel):
+    """Response payload for single-node execution."""
+
+    status: str
+    """Execution status: 'success' or 'error'."""
+    result: Any | None = None
+    """Result from the node execution (if successful)."""
+    error: str | None = None
+    """Error message (if failed)."""

@@ -22,6 +22,8 @@ import {
   RefreshCw,
   History,
   GripVertical,
+  Play,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Editor, { type OnMount } from "@monaco-editor/react";
@@ -34,6 +36,8 @@ import {
   getNodeUiSchema,
 } from "@features/workflow/lib/node-schemas";
 import { customWidgets, customTemplates, validator } from "./rjsf-theme";
+import { executeNode } from "@/lib/api";
+import { toast } from "sonner";
 
 interface NodeInspectorProps {
   node?: {
@@ -113,6 +117,9 @@ export default function NodeInspector({
   const [inputViewMode, setInputViewMode] = useState("input-json");
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [, setDraggingField] = useState<SchemaField | null>(null);
+  const [isTestingNode, setIsTestingNode] = useState(false);
+  const [testResult, setTestResult] = useState<unknown>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const previouslyHadRuntimeRef = useRef(hasRuntime);
   const editorKeydownDisposableRef = useRef<MonacoEditor.IDisposable | null>(
     null,
@@ -213,6 +220,126 @@ export default function NodeInspector({
       onSave(node.id, updatedData);
     }
   }, [draftData, isPythonNode, node, onSave, pythonCode]);
+
+  const handleTestNode = useCallback(async () => {
+    if (!node) {
+      toast.error("Cannot test node: node not found");
+      return;
+    }
+
+    // Get backend type from draftData (which contains the current state including backendType)
+    const nodeBackendType =
+      typeof draftData?.backendType === "string"
+        ? (draftData.backendType as string)
+        : backendType;
+
+    if (!nodeBackendType) {
+      toast.error(
+        "Cannot test node: missing backend type information. This node may not support testing yet.",
+      );
+      return;
+    }
+
+    setIsTestingNode(true);
+    setTestError(null);
+    setTestResult(null);
+
+    try {
+      // Build node configuration from current draft data
+      const nodeConfig: Record<string, unknown> = {
+        name: node.id,
+        ...draftData,
+      };
+
+      // Remove UI-only fields from config
+      delete nodeConfig.runtime;
+      delete nodeConfig.label;
+      delete nodeConfig.description;
+      delete nodeConfig.iconKey;
+      delete nodeConfig.backendType; // Remove backendType as it's already in 'type'
+      delete nodeConfig.type; // Remove UI type field from data
+
+      // Set the backend type AFTER removing UI fields to ensure it's not overwritten
+      nodeConfig.type = nodeBackendType;
+
+      // Transform SetVariableNode's variables array to dictionary format
+      if (
+        nodeBackendType === "SetVariableNode" &&
+        Array.isArray(nodeConfig.variables)
+      ) {
+        const variablesArray = nodeConfig.variables as Array<
+          Record<string, unknown>
+        >;
+        const variablesDict: Record<string, unknown> = {};
+
+        for (const variable of variablesArray) {
+          if (!variable?.name) continue;
+
+          const variableName = String(variable.name);
+          const valueType =
+            typeof variable.valueType === "string"
+              ? variable.valueType
+              : "string";
+          let typedValue = variable.value ?? null;
+
+          if (typedValue !== null && typedValue !== undefined) {
+            switch (valueType) {
+              case "number":
+                typedValue = Number(typedValue);
+                break;
+              case "boolean":
+                typedValue =
+                  typedValue === true ||
+                  typedValue === "true" ||
+                  typedValue === 1;
+                break;
+              case "object":
+                if (typeof typedValue === "string") {
+                  try {
+                    typedValue = JSON.parse(typedValue);
+                  } catch {
+                    console.warn(
+                      `Failed to parse object value for ${variableName}, using empty object`,
+                    );
+                    typedValue = {};
+                  }
+                }
+                break;
+              default:
+                typedValue = String(typedValue);
+            }
+          }
+
+          variablesDict[variableName] = typedValue;
+        }
+
+        nodeConfig.variables = variablesDict;
+      }
+
+      // Get test inputs (use sample for now, could be made editable)
+      const inputs = {};
+
+      const response = await executeNode({
+        node_config: nodeConfig,
+        inputs,
+      });
+
+      if (response.status === "success") {
+        setTestResult(response.result);
+        toast.success("Node executed successfully");
+      } else {
+        setTestError(response.error || "Unknown error");
+        toast.error("Node execution failed");
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to execute node";
+      setTestError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsTestingNode(false);
+    }
+  }, [node, backendType, draftData]);
 
   useEffect(() => {
     handleSaveRef.current = handleSave;
@@ -530,7 +657,25 @@ export default function NodeInspector({
       <Tabs defaultValue={outputViewMode}>
         <TabsContent value="output-json" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
-            {useLiveData ? (
+            {testResult !== null ? (
+              <div className="h-full">
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge variant="secondary">Test Result</Badge>
+                </div>
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4">
+                  {JSON.stringify(testResult, null, 2)}
+                </pre>
+              </div>
+            ) : testError !== null ? (
+              <div className="h-full">
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge variant="destructive">Test Error</Badge>
+                </div>
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-destructive/10 p-4 text-destructive">
+                  {testError}
+                </pre>
+              </div>
+            ) : useLiveData ? (
               hasLiveOutputs && outputDisplay !== undefined ? (
                 <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
                   {JSON.stringify(outputDisplay, null, 2)}
@@ -545,7 +690,7 @@ export default function NodeInspector({
                     Sample Data
                   </Badge>
                   <p className="text-sm text-muted-foreground">
-                    Using cached sample data
+                    Click "Test Node" to execute this node in isolation
                   </p>
                 </div>
               </div>
@@ -691,6 +836,27 @@ export default function NodeInspector({
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestNode}
+              disabled={
+                isTestingNode ||
+                (!backendType && typeof draftData?.backendType !== "string")
+              }
+            >
+              {isTestingNode ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Test Node
+                </>
+              )}
+            </Button>
             <Button variant="outline" size="sm">
               <History className="h-4 w-4 mr-2" />
               History
