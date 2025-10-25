@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import type { Node, Edge } from "@xyflow/react";
 import {
   Tabs,
   TabsContent,
@@ -38,6 +39,11 @@ import {
 import { customWidgets, customTemplates, validator } from "./rjsf-theme";
 import { executeNode } from "@/lib/api";
 import { toast } from "sonner";
+import {
+  findUpstreamNodes,
+  hasIncomingConnections,
+  collectUpstreamOutputs,
+} from "@features/workflow/lib/graph-utils";
 
 interface NodeInspectorProps {
   node?: {
@@ -45,6 +51,8 @@ interface NodeInspectorProps {
     type: string;
     data: Record<string, unknown>;
   };
+  nodes?: Node[];
+  edges?: Edge[];
   onClose?: () => void;
   onSave?: (nodeId: string, data: Record<string, unknown>) => void;
   className?: string;
@@ -71,6 +79,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 export default function NodeInspector({
   node,
+  nodes = [],
+  edges = [],
   onClose,
   onSave,
   className,
@@ -86,6 +96,21 @@ export default function NodeInspector({
   const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
     node?.data ? { ...(node.data as Record<string, unknown>) } : {},
   );
+
+  // Compute upstream nodes and their outputs
+  const upstreamNodes = useMemo(() => {
+    if (!node) return [];
+    return findUpstreamNodes(node.id, nodes, edges);
+  }, [node, nodes, edges]);
+
+  const upstreamOutputs = useMemo(() => {
+    return collectUpstreamOutputs(upstreamNodes);
+  }, [upstreamNodes]);
+
+  const hasUpstreamConnections = useMemo(() => {
+    if (!node) return false;
+    return hasIncomingConnections(node.id, edges);
+  }, [node, edges]);
   const extractPythonCode = (
     targetNode: NodeInspectorProps["node"],
   ): string => {
@@ -372,29 +397,45 @@ export default function NodeInspector({
     });
   }, []);
 
+  // Determine what input data to show
+  const inputDataToShow = hasUpstreamConnections ? upstreamOutputs : {};
+
+  // Generate schema fields from upstream outputs
+  const schemaFields: SchemaField[] = useMemo(() => {
+    const fields: SchemaField[] = [];
+
+    const processValue = (value: unknown, name: string, path: string): void => {
+      const valueType = Array.isArray(value)
+        ? "array"
+        : value === null
+          ? "null"
+          : typeof value;
+
+      fields.push({
+        name,
+        type: valueType,
+        path,
+      });
+
+      // Recursively process objects
+      if (valueType === "object" && value !== null) {
+        for (const [key, childValue] of Object.entries(
+          value as Record<string, unknown>,
+        )) {
+          processValue(childValue, key, `${path}.${key}`);
+        }
+      }
+    };
+
+    // Process each upstream node's output
+    for (const [nodeId, output] of Object.entries(upstreamOutputs)) {
+      processValue(output, nodeId, nodeId);
+    }
+
+    return fields;
+  }, [upstreamOutputs]);
+
   if (!node) return null;
-
-  // Sample input data for demonstration
-  const sampleInput = {
-    query: {
-      filter: "status:active",
-      limit: 10,
-    },
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer {{auth.token}}",
-    },
-  };
-
-  // Sample schema fields for demonstration
-  const sampleSchemaFields: SchemaField[] = [
-    { name: "query", type: "object", path: "query" },
-    { name: "filter", type: "string", path: "query.filter" },
-    { name: "limit", type: "number", path: "query.limit" },
-    { name: "headers", type: "object", path: "headers" },
-    { name: "Content-Type", type: "string", path: "headers.Content-Type" },
-    { name: "Authorization", type: "string", path: "headers.Authorization" },
-  ];
 
   const handleDragStart = (field: SchemaField) => {
     setDraggingField(field);
@@ -442,10 +483,38 @@ export default function NodeInspector({
                 ) : (
                   renderLiveDataUnavailable("Live Input")
                 )
+              ) : hasUpstreamConnections ? (
+                Object.keys(inputDataToShow).length > 0 ? (
+                  <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                    {JSON.stringify(inputDataToShow, null, 2)}
+                  </pre>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Badge variant="outline" className="mb-2">
+                        No Outputs
+                      </Badge>
+                      <p className="text-sm text-muted-foreground">
+                        Connected nodes have not produced outputs yet.
+                        <br />
+                        Run the workflow to see input data.
+                      </p>
+                    </div>
+                  </div>
+                )
               ) : (
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                  {JSON.stringify(sampleInput, null, 2)}
-                </pre>
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <Badge variant="outline" className="mb-2">
+                      No Connections
+                    </Badge>
+                    <p className="text-sm text-muted-foreground">
+                      This node has no incoming connections.
+                      <br />
+                      Connect nodes to see their outputs here.
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
           </TabsContent>
@@ -461,29 +530,59 @@ export default function NodeInspector({
           <TabsContent value="input-schema" className="p-0 m-0">
             <div className="flex-1 p-4 bg-muted/30">
               <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-                <div className="space-y-2">
-                  {sampleSchemaFields.map((field) => (
-                    <div
-                      key={field.path}
-                      className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
-                      draggable
-                      onDragStart={() => handleDragStart(field)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
+                {hasUpstreamConnections ? (
+                  schemaFields.length > 0 ? (
+                    <div className="space-y-2">
+                      {schemaFields.map((field) => (
+                        <div
+                          key={field.path}
+                          className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
+                          draggable
+                          onDragStart={() => handleDragStart(field)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <div className="flex items-center gap-2">
+                            <GripVertical className="h-4 w-4 text-muted-foreground" />
 
-                        <span className="font-medium">{field.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {field.type}
+                            <span className="font-medium">{field.name}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {field.type}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {field.path}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <Badge variant="outline" className="mb-2">
+                          No Schema
                         </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {field.path}
+                        <p className="text-sm text-muted-foreground">
+                          Connected nodes have not produced outputs yet.
+                          <br />
+                          Run the workflow to see the schema.
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Badge variant="outline" className="mb-2">
+                        No Connections
+                      </Badge>
+                      <p className="text-sm text-muted-foreground">
+                        This node has no incoming connections.
+                        <br />
+                        Connect nodes to see their output schema here.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </TabsContent>

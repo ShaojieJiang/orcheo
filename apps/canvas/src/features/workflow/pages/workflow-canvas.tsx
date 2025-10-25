@@ -430,6 +430,98 @@ const PERSISTED_NODE_FIELDS = new Set([
   "isDisabled",
 ]);
 
+const DEFAULT_NODE_LABEL = "New Node";
+
+const normaliseLabelInput = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+};
+
+const sanitizeLabel = (
+  value: unknown,
+  fallback = DEFAULT_NODE_LABEL,
+): string => {
+  const normalised = normaliseLabelInput(value);
+  return normalised.length > 0 ? normalised : fallback;
+};
+
+const slugifyLabel = (label: string): string => {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
+const buildExistingNameSet = (
+  nodes: CanvasNode[],
+  excludeId?: string,
+): Set<string> => {
+  const names = new Set<string>();
+  for (const node of nodes) {
+    if (excludeId && node.id === excludeId) {
+      continue;
+    }
+    const label = sanitizeLabel(
+      (node.data?.label as string) ?? node.id ?? DEFAULT_NODE_LABEL,
+    );
+    names.add(label.toLowerCase());
+  }
+  return names;
+};
+
+const buildExistingIdSet = (
+  nodes: CanvasNode[],
+  excludeId?: string,
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const node of nodes) {
+    if (excludeId && node.id === excludeId) {
+      continue;
+    }
+    ids.add(node.id);
+  }
+  return ids;
+};
+
+const assignUniqueIdentity = (
+  desiredLabel: string,
+  nameSet: Set<string>,
+  idSet: Set<string>,
+) => {
+  const baseLabel = sanitizeLabel(desiredLabel);
+  let candidateLabel = baseLabel;
+  let attempt = 2;
+  while (nameSet.has(candidateLabel.toLowerCase())) {
+    candidateLabel = `${baseLabel} (${attempt})`;
+    attempt += 1;
+  }
+  nameSet.add(candidateLabel.toLowerCase());
+
+  const baseSlug = slugifyLabel(candidateLabel) || "node";
+  let candidateId = baseSlug;
+  attempt = 2;
+  while (idSet.has(candidateId)) {
+    candidateId = `${baseSlug}-${attempt}`;
+    attempt += 1;
+  }
+  idSet.add(candidateId);
+
+  return { id: candidateId, label: candidateLabel };
+};
+
+const createIdentityAllocator = (
+  nodes: CanvasNode[],
+  options: { excludeId?: string } = {},
+) => {
+  const nameSet = buildExistingNameSet(nodes, options.excludeId);
+  const idSet = buildExistingIdSet(nodes, options.excludeId);
+  return (desiredLabel: string) =>
+    assignUniqueIdentity(desiredLabel, nameSet, idSet);
+};
+
 const sanitizeNodeDataForPersist = (
   data?: NodeData,
 ): PersistedWorkflowNode["data"] => {
@@ -1413,9 +1505,16 @@ export default function WorkflowCanvas({
       const insertionY = existingNodes.length > 0 ? existingMinY : 200;
 
       const idMap = new Map<string, string>();
+      const allocateIdentity = createIdentityAllocator(nodesRef.current);
 
       const remappedNodes = libraryEntry.nodes.map((node) => {
-        const newId = generateNodeId();
+        const baseLabel =
+          typeof node.data?.label === "string" && node.data.label.length > 0
+            ? node.data.label
+            : typeof node.data?.type === "string" && node.data.type.length > 0
+              ? `${node.data.type} Node`
+              : DEFAULT_NODE_LABEL;
+        const { id: newId, label } = allocateIdentity(baseLabel);
         idMap.set(node.id, newId);
 
         return {
@@ -1429,6 +1528,7 @@ export default function WorkflowCanvas({
             ...node.data,
             type: node.data?.type ?? node.type ?? "default",
             status: "idle",
+            label,
           },
         };
       });
@@ -2286,14 +2386,23 @@ export default function WorkflowCanvas({
     }
 
     const idMap = new Map<string, string>();
+    const allocateIdentity = createIdentityAllocator(nodesRef.current);
     const duplicatedNodes = selectedNodes.map((node) => {
-      const newId = generateNodeId();
-      idMap.set(node.id, newId);
       const clonedNode = cloneNode(node);
       const baseLabel =
-        typeof clonedNode.data?.label === "string"
-          ? clonedNode.data.label
-          : clonedNode.id;
+        typeof clonedNode.data?.label === "string" &&
+        clonedNode.data.label.trim().length > 0
+          ? `${clonedNode.data.label} Copy`
+          : `${clonedNode.id} Copy`;
+      const { id: newId, label } = allocateIdentity(baseLabel);
+      idMap.set(node.id, newId);
+      const duplicatedData: NodeData = {
+        ...(clonedNode.data as NodeData),
+        label,
+      };
+      if (clonedNode.type === "chatTrigger") {
+        duplicatedData.onOpenChat = () => handleOpenChat(newId);
+      }
       return {
         ...clonedNode,
         id: newId,
@@ -2302,10 +2411,7 @@ export default function WorkflowCanvas({
           y: (clonedNode.position?.y ?? 0) + 40,
         },
         selected: false,
-        data: {
-          ...clonedNode.data,
-          label: `${baseLabel} Copy`,
-        },
+        data: duplicatedData,
       } as CanvasNode;
     });
 
@@ -2350,7 +2456,14 @@ export default function WorkflowCanvas({
         duplicatedNodes.length === 1 ? "" : "s"
       } copied with their connections.`,
     });
-  }, [edges, nodes, recordSnapshot, setEdgesState, setNodesState]);
+  }, [
+    edges,
+    handleOpenChat,
+    nodes,
+    recordSnapshot,
+    setEdgesState,
+    setNodesState,
+  ]);
 
   const copyNodesToClipboard = useCallback(
     async (
@@ -2509,9 +2622,15 @@ export default function WorkflowCanvas({
     );
 
     const idMap = new Map<string, string>();
+    const allocateIdentity = createIdentityAllocator(nodesRef.current);
 
     const remappedNodes = payload.nodes.map((node) => {
-      const newId = generateNodeId();
+      const baseLabel =
+        typeof node.data?.label === "string" &&
+        node.data.label.trim().length > 0
+          ? node.data.label
+          : sanitizeLabel(node.id);
+      const { id: newId, label } = allocateIdentity(baseLabel);
       idMap.set(node.id, newId);
       const position = node.position ?? { x: 0, y: 0 };
       return {
@@ -2520,6 +2639,10 @@ export default function WorkflowCanvas({
         position: {
           x: position.x + offset,
           y: position.y + offset,
+        },
+        data: {
+          ...node.data,
+          label,
         },
       };
     });
@@ -2921,13 +3044,15 @@ export default function WorkflowCanvas({
                   baseDataRest.type.length > 0
                 ? baseDataRest.type
                 : "default";
-        const label =
+        const baseLabel =
           typeof node.name === "string" && node.name.length > 0
             ? node.name
             : typeof baseDataRest.label === "string" &&
                 baseDataRest.label.length > 0
               ? baseDataRest.label
-              : "New Node";
+              : DEFAULT_NODE_LABEL;
+        const allocateIdentity = createIdentityAllocator(nodesRef.current);
+        const { id: nodeId, label } = allocateIdentity(baseLabel);
         const description =
           typeof node.description === "string" && node.description.length > 0
             ? node.description
@@ -2935,7 +3060,6 @@ export default function WorkflowCanvas({
               ? baseDataRest.description
               : "";
         if (nodeType === "stickyNote") {
-          const nodeId = generateNodeId();
           const stickyNode: CanvasNode = {
             id: nodeId,
             type: "stickyNote",
@@ -2985,9 +3109,6 @@ export default function WorkflowCanvas({
           }) ?? rawIconKey;
         const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
 
-        // Create a new node
-        const nodeId = generateNodeId();
-
         const newNode: CanvasNode = {
           id: nodeId,
           type: nodeType,
@@ -3036,8 +3157,6 @@ export default function WorkflowCanvas({
         y: Math.random() * 300 + 100,
       };
 
-      // Create a new node with explicit NodeData type
-      const nodeId = generateNodeId();
       const semanticType =
         nodeType === "startEnd"
           ? node.id === "start-node"
@@ -3049,13 +3168,15 @@ export default function WorkflowCanvas({
                 baseDataRest.type.length > 0
               ? baseDataRest.type
               : "default";
-      const label =
+      const baseLabel =
         typeof node.name === "string" && node.name.length > 0
           ? node.name
           : typeof baseDataRest.label === "string" &&
               baseDataRest.label.length > 0
             ? baseDataRest.label
-            : "New Node";
+            : DEFAULT_NODE_LABEL;
+      const allocateIdentity = createIdentityAllocator(nodesRef.current);
+      const { id: nodeId, label: uniqueLabel } = allocateIdentity(baseLabel);
       const description =
         typeof node.description === "string" && node.description.length > 0
           ? node.description
@@ -3071,7 +3192,7 @@ export default function WorkflowCanvas({
           data: {
             ...baseDataRest,
             type: semanticType,
-            label,
+            label: uniqueLabel,
             description,
             status: "idle" as NodeStatus,
             color: isStickyNoteColor(baseDataRest.color)
@@ -3107,7 +3228,7 @@ export default function WorkflowCanvas({
       const finalIconKey =
         inferNodeIconKey({
           iconKey: rawIconKey,
-          label,
+          label: uniqueLabel,
           type: semanticType,
         }) ?? rawIconKey;
       const iconNode = getNodeIcon(finalIconKey) ?? node.icon;
@@ -3120,7 +3241,7 @@ export default function WorkflowCanvas({
         data: {
           ...baseDataRest,
           type: semanticType,
-          label,
+          label: uniqueLabel,
           description,
           status: "idle" as NodeStatus,
           iconKey: finalIconKey,
@@ -3633,26 +3754,125 @@ export default function WorkflowCanvas({
   // Handle node update from inspector
   const handleNodeUpdate = useCallback(
     (nodeId: string, data: Partial<NodeData>) => {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id === nodeId) {
-            const node = n as Node<NodeData>;
-            return {
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+
+      const targetNode = currentNodes.find((node) => node.id === nodeId);
+      if (!targetNode) {
+        return;
+      }
+
+      const desiredLabelInput =
+        data.label !== undefined
+          ? data.label
+          : (targetNode.data?.label as string | undefined);
+      const desiredLabel = sanitizeLabel(desiredLabelInput);
+      const allocateIdentity = createIdentityAllocator(currentNodes, {
+        excludeId: nodeId,
+      });
+      const { id: newId, label: uniqueLabel } = allocateIdentity(desiredLabel);
+
+      const nextStatus =
+        (data.status as NodeStatus | undefined) ||
+        (targetNode.data?.status as NodeStatus | undefined) ||
+        ("idle" as NodeStatus);
+
+      const nextData: NodeData = {
+        ...(targetNode.data as NodeData),
+        ...data,
+        label: uniqueLabel,
+        status: nextStatus,
+      };
+
+      if (targetNode.type === "chatTrigger") {
+        nextData.onOpenChat = () => handleOpenChat(newId);
+      }
+
+      const updatedNodes = currentNodes.map((node) =>
+        node.id === nodeId
+          ? ({
               ...node,
-              data: {
-                ...node.data,
-                ...data,
-                status:
-                  data.status || node.data.status || ("idle" as NodeStatus),
-              },
-            };
+              id: newId,
+              data: nextData,
+            } as CanvasNode)
+          : node,
+      );
+
+      const updatedEdges = currentEdges.map((edge) => {
+        let modified = false;
+        const nextEdge = { ...edge };
+        if (edge.source === nodeId) {
+          nextEdge.source = newId;
+          modified = true;
+        }
+        if (edge.target === nodeId) {
+          nextEdge.target = newId;
+          modified = true;
+        }
+        return modified ? nextEdge : edge;
+      });
+
+      isRestoringRef.current = true;
+      recordSnapshot({ force: true });
+      try {
+        setNodesState(updatedNodes);
+        setEdgesState(updatedEdges);
+      } catch (error) {
+        isRestoringRef.current = false;
+        throw error;
+      }
+
+      setValidationErrors((errors) =>
+        errors.map((error) => {
+          let modified = false;
+          const nextError = { ...error };
+          if (error.nodeId === nodeId) {
+            nextError.nodeId = newId;
+            modified = true;
           }
-          return n;
+          if (error.sourceId === nodeId) {
+            nextError.sourceId = newId;
+            modified = true;
+          }
+          if (error.targetId === nodeId) {
+            nextError.targetId = newId;
+            modified = true;
+          }
+          return modified ? nextError : error;
         }),
       );
+
+      setSearchMatches((matches) =>
+        matches.map((match) => (match === nodeId ? newId : match)),
+      );
+
+      setActiveChatNodeId((current) => (current === nodeId ? newId : current));
+
+      setChatTitle((title) =>
+        activeChatNodeId === nodeId ? uniqueLabel : title,
+      );
+
+      if (desiredLabel !== uniqueLabel) {
+        toast({
+          title: "Adjusted node name",
+          description: `Renamed to "${uniqueLabel}" to keep names unique.`,
+        });
+      }
+
       setSelectedNodeId(null);
     },
-    [setNodes, setSelectedNodeId],
+    [
+      activeChatNodeId,
+      handleOpenChat,
+      recordSnapshot,
+      setActiveChatNodeId,
+      setChatTitle,
+      setEdgesState,
+      setSelectedNodeId,
+      setValidationErrors,
+      setNodesState,
+      setSearchMatches,
+    ],
   );
 
   // Handle execution selection
@@ -4243,6 +4463,8 @@ export default function WorkflowCanvas({
             type: selectedNode.type || "default",
             data: selectedNode.data,
           }}
+          nodes={nodes}
+          edges={edges}
           onClose={handleCloseNodeInspector}
           onSave={handleNodeUpdate}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
