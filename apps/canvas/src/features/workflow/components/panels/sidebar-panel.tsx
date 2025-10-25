@@ -43,11 +43,13 @@ interface NodeCategory {
     iconKey: NodeIconKey;
     icon?: React.ReactNode;
     type: string;
+    backendType?: string;
     data: {
       label: string;
       type: string;
       description: string;
       iconKey: NodeIconKey;
+      backendType?: string;
       [key: string]: unknown;
     };
   }[];
@@ -61,6 +63,7 @@ const buildSidebarNode = ({
   description,
   iconKey,
   type,
+  backendType,
   data,
 }: {
   id: string;
@@ -68,6 +71,7 @@ const buildSidebarNode = ({
   description: string;
   iconKey: NodeIconKey;
   type: string;
+  backendType?: string;
   data?: Record<string, unknown>;
 }): SidebarNode => {
   const mergedData: NodeCategory["nodes"][number]["data"] = {
@@ -76,6 +80,7 @@ const buildSidebarNode = ({
     description,
     ...(data ?? {}),
     iconKey,
+    ...(backendType ? { backendType } : {}),
   };
 
   return {
@@ -85,6 +90,7 @@ const buildSidebarNode = ({
     iconKey,
     icon: getNodeIcon(iconKey),
     type,
+    backendType,
     data: mergedData,
   };
 };
@@ -134,6 +140,17 @@ export default function SidebarPanel({
           iconKey: "group",
           type: "group",
         }),
+        buildSidebarNode({
+          id: "sticky-note",
+          name: "Sticky Note",
+          description: "Add workflow annotations",
+          iconKey: "stickyNote",
+          type: "annotation",
+          data: {
+            color: "yellow",
+            content: "Document why this branch exists.",
+          },
+        }),
       ],
     },
     {
@@ -148,6 +165,7 @@ export default function SidebarPanel({
           description: "Trigger workflow via HTTP request",
           iconKey: "webhook",
           type: "trigger",
+          backendType: "WebhookTriggerNode",
         }),
         buildSidebarNode({
           id: "manual-trigger",
@@ -155,6 +173,7 @@ export default function SidebarPanel({
           description: "Dispatch runs from the dashboard",
           iconKey: "manualTrigger",
           type: "trigger",
+          backendType: "ManualTriggerNode",
         }),
         buildSidebarNode({
           id: "http-polling-trigger",
@@ -162,6 +181,7 @@ export default function SidebarPanel({
           description: "Poll an API on a schedule",
           iconKey: "httpPolling",
           type: "trigger",
+          backendType: "HttpPollingTriggerNode",
         }),
         buildSidebarNode({
           id: "schedule-trigger",
@@ -169,6 +189,7 @@ export default function SidebarPanel({
           description: "Run workflow on a schedule",
           iconKey: "schedule",
           type: "trigger",
+          backendType: "CronTriggerNode",
         }),
       ],
     },
@@ -198,6 +219,7 @@ export default function SidebarPanel({
           description: "Interact with Slack channels",
           iconKey: "slack",
           type: "api",
+          backendType: "SlackNode",
         }),
       ],
     },
@@ -209,17 +231,50 @@ export default function SidebarPanel({
       nodes: [
         buildSidebarNode({
           id: "condition",
-          name: "Condition",
-          description: "Branch based on condition",
+          name: "If / Else",
+          description: "Branch based on a comparison",
           iconKey: "condition",
           type: "function",
+          backendType: "IfElseNode",
+          data: {
+            conditionLogic: "and",
+            conditions: [
+              {
+                id: "condition-1",
+                left: "{{previous.result}}",
+                operator: "equals",
+                right: "expected",
+                caseSensitive: false,
+              },
+            ],
+            outputs: [
+              { id: "true", label: "True" },
+              { id: "false", label: "False" },
+            ],
+          },
         }),
         buildSidebarNode({
           id: "loop",
-          name: "Loop",
-          description: "Iterate over items",
+          name: "While Loop",
+          description: "Iterate while a condition remains true",
           iconKey: "loop",
           type: "function",
+          backendType: "WhileNode",
+          data: {
+            conditionLogic: "and",
+            conditions: [
+              {
+                id: "condition-1",
+                operator: "less_than",
+                right: 3,
+              },
+            ],
+            maxIterations: 10,
+            outputs: [
+              { id: "continue", label: "Continue" },
+              { id: "exit", label: "Exit" },
+            ],
+          },
         }),
         buildSidebarNode({
           id: "switch",
@@ -227,6 +282,31 @@ export default function SidebarPanel({
           description: "Multiple conditional branches",
           iconKey: "switch",
           type: "function",
+          backendType: "SwitchNode",
+          data: {
+            value: "{{previous.status}}",
+            caseSensitive: false,
+            defaultBranchKey: "default",
+            cases: [
+              {
+                id: "case-1",
+                match: "approved",
+                label: "Approved",
+                branchKey: "approved",
+              },
+              {
+                id: "case-2",
+                match: "rejected",
+                label: "Rejected",
+                branchKey: "rejected",
+              },
+            ],
+            outputs: [
+              { id: "approved", label: "Approved" },
+              { id: "rejected", label: "Rejected" },
+              { id: "default", label: "Default" },
+            ],
+          },
         }),
         buildSidebarNode({
           id: "delay",
@@ -234,6 +314,10 @@ export default function SidebarPanel({
           description: "Pause workflow execution",
           iconKey: "delay",
           type: "function",
+          backendType: "DelayNode",
+          data: {
+            durationSeconds: 5,
+          },
         }),
         buildSidebarNode({
           id: "error-handler",
@@ -241,6 +325,24 @@ export default function SidebarPanel({
           description: "Handle errors in workflow",
           iconKey: "errorHandler",
           type: "function",
+        }),
+        buildSidebarNode({
+          id: "set-variable",
+          name: "Set Variable",
+          description: "Store a value for downstream steps",
+          iconKey: "setVariable",
+          type: "function",
+          backendType: "SetVariableNode",
+          data: {
+            variables: [
+              {
+                name: "my_variable",
+                valueType: "string",
+                value: "sample",
+              },
+            ],
+            outputs: [{ id: "default", label: "Next" }],
+          },
         }),
       ],
     },
@@ -272,6 +374,7 @@ export default function SidebarPanel({
           type: "python",
           data: {
             code: DEFAULT_PYTHON_CODE,
+            backendType: "PythonCode",
           },
         }),
         buildSidebarNode({

@@ -175,8 +175,8 @@ export default function WorkflowNodeGallery() {
         <WorkflowNode
           id="condition"
           data={{
-            label: "Condition",
-            description: "Branch based on condition",
+            label: "If / Else",
+            description: "Branch based on a comparison",
             iconKey: "condition",
             icon: getNodeIcon("condition"),
             type: "function",
@@ -191,8 +191,8 @@ export default function WorkflowNodeGallery() {
         <WorkflowNode
           id="loop"
           data={{
-            label: "Loop",
-            description: "Iterate over items",
+            label: "While Loop",
+            description: "Iterate while a condition is true",
             iconKey: "loop",
             icon: getNodeIcon("loop"),
             type: "function",

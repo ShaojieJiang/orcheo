@@ -37,6 +37,10 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import SidebarPanel from "@features/workflow/components/panels/sidebar-panel";
 import WorkflowControls from "@features/workflow/components/canvas/workflow-controls";
 import WorkflowSearch from "@features/workflow/components/canvas/workflow-search";
+import type {
+  StickyNoteColor,
+  StickyNoteNodeData,
+} from "@features/workflow/components/nodes/sticky-note-node";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import ChatInterface from "@features/shared/components/chat-interface";
 import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
@@ -85,6 +89,49 @@ const defaultNodeStyle = {
   borderRadius: 0,
   width: "auto",
   boxShadow: "none",
+};
+
+const STICKY_NOTE_COLORS: StickyNoteColor[] = [
+  "yellow",
+  "pink",
+  "blue",
+  "green",
+  "purple",
+];
+const DEFAULT_STICKY_NOTE_COLOR: StickyNoteColor = "yellow";
+const DEFAULT_STICKY_NOTE_CONTENT = "Leave a note for collaborators";
+const STICKY_NOTE_MIN_WIDTH = 180;
+const STICKY_NOTE_MIN_HEIGHT = 150;
+const DEFAULT_STICKY_NOTE_WIDTH = 240;
+const DEFAULT_STICKY_NOTE_HEIGHT = 200;
+
+const isStickyNoteColor = (value: unknown): value is StickyNoteColor => {
+  return (
+    typeof value === "string" &&
+    (STICKY_NOTE_COLORS as readonly string[]).includes(value)
+  );
+};
+
+const clampStickyDimension = (value: number, minimum: number) => {
+  if (Number.isNaN(value) || !Number.isFinite(value)) {
+    return minimum;
+  }
+  return Math.max(minimum, Math.round(value));
+};
+
+const sanitizeStickyNoteDimension = (
+  value: unknown,
+  fallback: number,
+  minimum: number,
+) => {
+  if (typeof value === "number") {
+    return clampStickyDimension(value, minimum);
+  }
+  return clampStickyDimension(fallback, minimum);
+};
+
+const sanitizeStickyNoteContent = (value: unknown) => {
+  return typeof value === "string" ? value : DEFAULT_STICKY_NOTE_CONTENT;
 };
 
 const generateRandomId = (prefix: string) => {
@@ -476,13 +523,17 @@ const toPersistedEdge = (edge: CanvasEdge): PersistedWorkflowEdge => ({
 
 const resolveReactFlowType = (
   persistedType?: string,
-): "default" | "chatTrigger" | "startEnd" => {
+): "default" | "chatTrigger" | "startEnd" | "stickyNote" => {
   if (!persistedType) {
     return "default";
   }
 
   if (persistedType === "chatTrigger") {
     return "chatTrigger";
+  }
+
+  if (persistedType === "stickyNote" || persistedType === "annotation") {
+    return "stickyNote";
   }
 
   if (
@@ -692,6 +743,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const determineNodeType = (nodeId?: string) => {
   if (nodeId?.includes("chat-trigger")) {
     return "chatTrigger" as const;
+  }
+  if (nodeId === "sticky-note") {
+    return "stickyNote" as const;
   }
   if (nodeId === "start-node" || nodeId === "end-node") {
     return "startEnd" as const;
@@ -1453,6 +1507,62 @@ export default function WorkflowCanvas({
     [deleteNodes],
   );
 
+  const handleUpdateStickyNoteNode = useCallback(
+    (
+      nodeId: string,
+      updates: Partial<
+        Pick<StickyNoteNodeData, "color" | "content" | "width" | "height">
+      >,
+    ) => {
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+
+          const sanitizedUpdates: Record<string, unknown> = {};
+
+          if ("color" in updates) {
+            sanitizedUpdates.color = isStickyNoteColor(updates.color)
+              ? updates.color
+              : DEFAULT_STICKY_NOTE_COLOR;
+          }
+
+          if ("content" in updates && typeof updates.content === "string") {
+            sanitizedUpdates.content = updates.content;
+          }
+
+          if ("width" in updates && typeof updates.width === "number") {
+            sanitizedUpdates.width = clampStickyDimension(
+              updates.width,
+              STICKY_NOTE_MIN_WIDTH,
+            );
+          }
+
+          if ("height" in updates && typeof updates.height === "number") {
+            sanitizedUpdates.height = clampStickyDimension(
+              updates.height,
+              STICKY_NOTE_MIN_HEIGHT,
+            );
+          }
+
+          if (Object.keys(sanitizedUpdates).length === 0) {
+            return node;
+          }
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              ...sanitizedUpdates,
+            },
+          };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
   const decoratedNodes = useMemo(() => {
     return nodes.map((node) => {
       const isMatch = searchMatchSet.has(node.id);
@@ -1460,35 +1570,63 @@ export default function WorkflowCanvas({
         isMatch &&
         isSearchOpen &&
         searchMatches[currentSearchIndex] === node.id;
+      const isStickyNoteNode = node.type === "stickyNote";
 
       const baseData = {
         ...node.data,
         onDelete: handleDeleteNode,
-      };
+        ...(isStickyNoteNode
+          ? { onUpdateStickyNote: handleUpdateStickyNoteNode }
+          : {}),
+      } as NodeData & Record<string, unknown>;
 
-      if (!isSearchOpen) {
-        return {
-          ...node,
-          data: {
+      const augmentedData = isStickyNoteNode
+        ? ({
             ...baseData,
+            label:
+              typeof baseData.label === "string" && baseData.label.length > 0
+                ? baseData.label
+                : "Sticky Note",
+            color: isStickyNoteColor(baseData.color)
+              ? (baseData.color as StickyNoteColor)
+              : DEFAULT_STICKY_NOTE_COLOR,
+            content: sanitizeStickyNoteContent(baseData.content),
+            width: sanitizeStickyNoteDimension(
+              baseData.width,
+              DEFAULT_STICKY_NOTE_WIDTH,
+              STICKY_NOTE_MIN_WIDTH,
+            ),
+            height: sanitizeStickyNoteDimension(
+              baseData.height,
+              DEFAULT_STICKY_NOTE_HEIGHT,
+              STICKY_NOTE_MIN_HEIGHT,
+            ),
+            onUpdateStickyNote: handleUpdateStickyNoteNode,
+          } as NodeData)
+        : baseData;
+
+      const decoratedData = !isSearchOpen
+        ? {
+            ...augmentedData,
             isSearchMatch: false,
             isSearchActive: false,
-          },
-        };
-      }
+          }
+        : {
+            ...augmentedData,
+            isSearchMatch: isMatch,
+            isSearchActive: isActive,
+          };
 
       return {
         ...node,
-        data: {
-          ...baseData,
-          isSearchMatch: isMatch,
-          isSearchActive: isActive,
-        },
+        data: decoratedData,
+        ...(isStickyNoteNode ? { connectable: false } : {}),
       };
     });
   }, [
     currentSearchIndex,
     handleDeleteNode,
+    handleUpdateStickyNoteNode,
     isSearchOpen,
     nodes,
     searchMatchSet,
@@ -2428,6 +2566,43 @@ export default function WorkflowCanvas({
             : typeof baseDataRest.description === "string"
               ? baseDataRest.description
               : "";
+        if (nodeType === "stickyNote") {
+          const nodeId = generateNodeId();
+          const stickyNode: CanvasNode = {
+            id: nodeId,
+            type: "stickyNote",
+            position,
+            style: defaultNodeStyle,
+            data: {
+              ...baseDataRest,
+              label,
+              description,
+              type: semanticType,
+              status: "idle" as NodeStatus,
+              color: isStickyNoteColor(baseDataRest.color)
+                ? (baseDataRest.color as StickyNoteColor)
+                : DEFAULT_STICKY_NOTE_COLOR,
+              content: sanitizeStickyNoteContent(baseDataRest.content),
+              width: sanitizeStickyNoteDimension(
+                baseDataRest.width,
+                DEFAULT_STICKY_NOTE_WIDTH,
+                STICKY_NOTE_MIN_WIDTH,
+              ),
+              height: sanitizeStickyNoteDimension(
+                baseDataRest.height,
+                DEFAULT_STICKY_NOTE_HEIGHT,
+                STICKY_NOTE_MIN_HEIGHT,
+              ),
+              onUpdateStickyNote: handleUpdateStickyNoteNode,
+            },
+            draggable: true,
+            connectable: false,
+          };
+
+          setNodes((nds) => nds.concat(stickyNode));
+          return;
+        }
+
         const rawIconKey =
           typeof node.iconKey === "string"
             ? node.iconKey
@@ -2472,7 +2647,7 @@ export default function WorkflowCanvas({
         console.error("Error adding new node:", error);
       }
     },
-    [handleOpenChat, setNodes],
+    [handleOpenChat, handleUpdateStickyNoteNode, setNodes],
   );
 
   // Handle adding a node by clicking
@@ -2519,6 +2694,42 @@ export default function WorkflowCanvas({
           : typeof baseDataRest.description === "string"
             ? baseDataRest.description
             : "";
+      if (nodeType === "stickyNote") {
+        const stickyNode: CanvasNode = {
+          id: nodeId,
+          type: "stickyNote",
+          position,
+          style: defaultNodeStyle,
+          data: {
+            ...baseDataRest,
+            type: semanticType,
+            label,
+            description,
+            status: "idle" as NodeStatus,
+            color: isStickyNoteColor(baseDataRest.color)
+              ? (baseDataRest.color as StickyNoteColor)
+              : DEFAULT_STICKY_NOTE_COLOR,
+            content: sanitizeStickyNoteContent(baseDataRest.content),
+            width: sanitizeStickyNoteDimension(
+              baseDataRest.width,
+              DEFAULT_STICKY_NOTE_WIDTH,
+              STICKY_NOTE_MIN_WIDTH,
+            ),
+            height: sanitizeStickyNoteDimension(
+              baseDataRest.height,
+              DEFAULT_STICKY_NOTE_HEIGHT,
+              STICKY_NOTE_MIN_HEIGHT,
+            ),
+            onUpdateStickyNote: handleUpdateStickyNoteNode,
+          },
+          draggable: true,
+          connectable: false,
+        };
+
+        setNodes((nds) => [...nds, stickyNode]);
+        return;
+      }
+
       const rawIconKey =
         typeof node.iconKey === "string"
           ? node.iconKey
@@ -2557,7 +2768,7 @@ export default function WorkflowCanvas({
       // Add the new node to the canvas
       setNodes((nds) => [...nds, newNode]);
     },
-    [handleOpenChat, setNodes],
+    [handleOpenChat, handleUpdateStickyNoteNode, setNodes],
   );
 
   // Handle chat message sending

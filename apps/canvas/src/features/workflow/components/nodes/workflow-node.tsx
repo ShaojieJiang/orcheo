@@ -26,13 +26,41 @@ export type WorkflowNodeData = {
   iconKey?: string;
   status?: NodeStatus;
   type?: string;
+  backendType?: string;
   isDisabled?: boolean;
   onLabelChange?: (id: string, newLabel: string) => void;
   onNodeInspect?: (id: string) => void;
   onDelete?: (id: string) => void;
   isSearchMatch?: boolean;
   isSearchActive?: boolean;
+  inputs?: NodeHandleConfig[];
+  outputs?: NodeHandleConfig[];
+  hideInputHandle?: boolean;
   [key: string]: unknown;
+};
+
+type NodeHandleConfig = {
+  id?: string;
+  label?: string;
+  position?: "left" | "right" | "top" | "bottom";
+};
+
+const toHandlePosition = (
+  value: NodeHandleConfig["position"],
+  fallback: Position,
+) => {
+  switch (value) {
+    case "left":
+      return Position.Left;
+    case "right":
+      return Position.Right;
+    case "top":
+      return Position.Top;
+    case "bottom":
+      return Position.Bottom;
+    default:
+      return fallback;
+  }
 };
 
 const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
@@ -104,6 +132,63 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
     setControlsVisible(false);
   };
 
+  const inputHandles = nodeData.hideInputHandle
+    ? []
+    : nodeData.inputs && nodeData.inputs.length > 0
+      ? nodeData.inputs
+      : [{ id: undefined }];
+
+  const outputHandles =
+    nodeData.outputs && nodeData.outputs.length > 0
+      ? nodeData.outputs
+      : [{ id: undefined }];
+
+  const renderHandle = (
+    handle: NodeHandleConfig,
+    index: number,
+    total: number,
+    type: "source" | "target",
+  ) => {
+    const fallbackPosition = type === "target" ? Position.Left : Position.Right;
+    const position = toHandlePosition(handle.position, fallbackPosition);
+    const percent = ((index + 1) / (total + 1)) * 100;
+    const style: React.CSSProperties = {};
+
+    // Only apply custom positioning if there are multiple handles
+    if (total > 1) {
+      if (position === Position.Left || position === Position.Right) {
+        style.top = `${percent}%`;
+      } else {
+        style.left = `${percent}%`;
+      }
+    }
+
+    return (
+      <React.Fragment key={`${type}-${handle.id ?? index}`}>
+        <Handle
+          type={type}
+          id={handle.id}
+          position={position}
+          className="!h-3 !w-3 !bg-primary !border-2 !border-background !z-10 !pointer-events-auto"
+          style={style}
+          isConnectable={true}
+        />
+        {type === "source" && handle.label && (
+          <span
+            className="absolute right-[-36px] text-[8px] uppercase tracking-wide text-muted-foreground pointer-events-none text-left"
+            style={
+              total > 1
+                ? { top: `${percent}%`, transform: "translateY(-50%)" }
+                : { top: "50%", transform: "translateY(-50%)" }
+            }
+          >
+            {handle.label}
+          </span>
+        )}
+      </React.Fragment>
+    );
+  };
+
   return (
     <div
       ref={nodeRef}
@@ -127,7 +212,7 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       aria-selected={Boolean(selected)}
     >
       {/* Simple text label */}
-      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap">
+      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs text-center whitespace-nowrap pointer-events-none">
         <span
           className={cn(
             "px-2 py-0.5 rounded-full transition-colors",
@@ -143,26 +228,24 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       </div>
 
       {/* Input handle */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!h-3 !w-3 !bg-primary !border-2 !border-background"
-      />
+      {inputHandles.map((handle, index) =>
+        renderHandle(handle, index, inputHandles.length, "target"),
+      )}
 
       {/* Output handle */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!h-3 !w-3 !bg-primary !border-2 !border-background"
-      />
+      {outputHandles.map((handle, index) =>
+        renderHandle(handle, index, outputHandles.length, "source"),
+      )}
 
       {/* Node content */}
-      <div className="h-full w-full flex items-center justify-center relative">
+      <div className="h-full w-full flex items-center justify-center relative pointer-events-none">
         {/* Status indicator in corner */}
-        <div className="absolute top-1 right-1">{statusIcons[status]}</div>
+        <div className="absolute top-1 right-1 pointer-events-auto">
+          {statusIcons[status]}
+        </div>
 
         {/* Main icon */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center pointer-events-auto">
           {icon ? (
             <div className="scale-125">{icon}</div>
           ) : (
@@ -177,7 +260,7 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       <div
         ref={controlsRef}
         className={cn(
-          "absolute -top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5 bg-background border border-border rounded-md shadow-md p-0.5 transition-opacity duration-200 z-20",
+          "absolute -top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5 bg-background border border-border rounded-md shadow-md p-0.5 transition-opacity duration-200 z-20 pointer-events-auto",
           controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
       >

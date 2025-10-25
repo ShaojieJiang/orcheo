@@ -23,6 +23,8 @@ import {
   Sparkles,
   Square,
   Zap,
+  StickyNote,
+  Variable,
 } from "lucide-react";
 
 type IconFactory = () => React.ReactNode;
@@ -50,6 +52,8 @@ const NODE_ICON_FACTORIES = {
   errorHandler: () => (
     <AlertCircle className={`${ICON_CLASSES} text-purple-500`} />
   ),
+  setVariable: () => <Variable className={`${ICON_CLASSES} text-purple-500`} />,
+  stickyNote: () => <StickyNote className={`${ICON_CLASSES} text-amber-500`} />,
   database: () => <Database className={`${ICON_CLASSES} text-green-500`} />,
   transform: () => <Code className={`${ICON_CLASSES} text-green-500`} />,
   filterData: () => <Filter className={`${ICON_CLASSES} text-green-500`} />,
@@ -116,6 +120,8 @@ const LABEL_ICON_MATCHERS: Array<[RegExp, NodeIconKey]> = [
   [/(loop|iterate)/i, "loop"],
   [/switch/i, "switch"],
   [/(delay|wait)/i, "delay"],
+  [/(set variable|assign)/i, "setVariable"],
+  [/(sticky note|note)/i, "stickyNote"],
   [/error/i, "errorHandler"],
   [/database|sql/i, "database"],
   [/transform/i, "transform"],

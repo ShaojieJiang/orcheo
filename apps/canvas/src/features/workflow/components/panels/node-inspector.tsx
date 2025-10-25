@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Tabs,
   TabsContent,
@@ -9,22 +9,9 @@ import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Textarea } from "@/design-system/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/design-system/ui/select";
 import { Switch } from "@/design-system/ui/switch";
 import { ScrollArea } from "@/design-system/ui/scroll-area";
 import { Badge } from "@/design-system/ui/badge";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/design-system/ui/accordion";
 import {
   X,
   Code,
@@ -34,7 +21,6 @@ import {
   FileDown,
   RefreshCw,
   History,
-  Plus,
   GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -42,6 +28,12 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import Split from "react-split";
 import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
+import Form from "@rjsf/core";
+import {
+  getNodeSchema,
+  getNodeUiSchema,
+} from "@features/workflow/lib/node-schemas";
+import { customWidgets, customTemplates, validator } from "./rjsf-theme";
 
 interface NodeInspectorProps {
   node?: {
@@ -87,6 +79,9 @@ export default function NodeInspector({
     : null;
   const hasRuntime = Boolean(runtime);
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
+  const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
+    node?.data ? { ...(node.data as Record<string, unknown>) } : {},
+  );
   const extractPythonCode = (
     targetNode: NodeInspectorProps["node"],
   ): string => {
@@ -117,8 +112,7 @@ export default function NodeInspector({
   const [pythonCode, setPythonCode] = useState(() => extractPythonCode(node));
   const [inputViewMode, setInputViewMode] = useState("input-json");
   const [outputViewMode, setOutputViewMode] = useState("output-json");
-  const [draggingField, setDraggingField] = useState<SchemaField | null>(null);
-  const configTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [, setDraggingField] = useState<SchemaField | null>(null);
   const previouslyHadRuntimeRef = useRef(hasRuntime);
   const editorKeydownDisposableRef = useRef<MonacoEditor.IDisposable | null>(
     null,
@@ -141,6 +135,9 @@ export default function NodeInspector({
     if (node && isPythonNode) {
       setPythonCode(extractPythonCode(node));
     }
+    setDraftData(
+      node?.data ? { ...(node.data as Record<string, unknown>) } : {},
+    );
   }, [isPythonNode, node]);
 
   const nodeLabelCandidate = node?.data?.label;
@@ -151,6 +148,10 @@ export default function NodeInspector({
   const formattedSemanticType = semanticType
     ? `${semanticType.charAt(0).toUpperCase()}${semanticType.slice(1)}`
     : null;
+  const backendType =
+    node && typeof node.data?.backendType === "string"
+      ? (node.data.backendType as string)
+      : null;
 
   const renderLiveDataUnavailable = (label: string) => (
     <div className="flex items-center justify-center h-full">
@@ -202,7 +203,7 @@ export default function NodeInspector({
 
   const handleSave = useCallback(() => {
     if (onSave && node) {
-      const updatedData = { ...(node.data as Record<string, unknown>) };
+      const updatedData = { ...draftData };
       if (isPythonNode) {
         updatedData.code =
           pythonCode && pythonCode.length > 0
@@ -211,7 +212,7 @@ export default function NodeInspector({
       }
       onSave(node.id, updatedData);
     }
-  }, [isPythonNode, node, onSave, pythonCode]);
+  }, [draftData, isPythonNode, node, onSave, pythonCode]);
 
   useEffect(() => {
     handleSaveRef.current = handleSave;
@@ -274,26 +275,6 @@ export default function NodeInspector({
 
   const handleDragEnd = () => {
     setDraggingField(null);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (draggingField && configTextareaRef.current) {
-      const textarea = configTextareaRef.current;
-      const cursorPosition = textarea.selectionStart;
-      const textBefore = textarea.value.substring(0, cursorPosition);
-      const textAfter = textarea.value.substring(cursorPosition);
-
-      const variableReference = `{{${draggingField.path}}}`;
-
-      textarea.value = textBefore + variableReference + textAfter;
-
-      // Set cursor position after the inserted variable
-      const newCursorPosition = cursorPosition + variableReference.length;
-      textarea.selectionStart = newCursorPosition;
-      textarea.selectionEnd = newCursorPosition;
-      textarea.focus();
-    }
   };
 
   const renderInputContent = () => (
@@ -385,24 +366,38 @@ export default function NodeInspector({
   );
 
   const renderConfigContent = () => {
-    const configurationSections: {
-      id: string;
-      title: string;
-      content: React.ReactNode;
-      defaultOpen?: boolean;
-    }[] = [
-      {
-        id: "basic",
-        title: "Basic Settings",
-        defaultOpen: true,
-        content: (
-          <div className="grid gap-4">
+    // Get the JSON Schema for this node type
+    const schema = getNodeSchema(backendType);
+    const uiSchema = getNodeUiSchema(backendType);
+
+    // Handle form data change
+    const handleFormChange = (data: { formData?: Record<string, unknown> }) => {
+      if (data.formData) {
+        setDraftData(data.formData);
+      }
+    };
+
+    // For Python nodes, use Monaco editor instead of RJSF
+    if (isPythonNode) {
+      return (
+        <ScrollArea className="h-full">
+          <div className="p-6 space-y-4">
             <div className="grid gap-2">
               <Label htmlFor="node-name">Node Name</Label>
               <Input
                 id="node-name"
-                defaultValue={node.data.label || ""}
+                value={
+                  typeof draftData.label === "string"
+                    ? draftData.label
+                    : (node.data.label as string) || ""
+                }
                 placeholder="Enter node name"
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    label: event.target.value,
+                  }))
+                }
               />
             </div>
 
@@ -410,238 +405,73 @@ export default function NodeInspector({
               <Label htmlFor="node-description">Description</Label>
               <Textarea
                 id="node-description"
-                defaultValue={node.data.description || ""}
+                value={
+                  typeof draftData.description === "string"
+                    ? draftData.description
+                    : (node.data.description as string) || ""
+                }
                 placeholder="Enter description"
                 rows={3}
-                ref={configTextareaRef}
-              />
-            </div>
-          </div>
-        ),
-      },
-    ];
-
-    if (node.type === "HTTP Request") {
-      configurationSections.push({
-        id: "http",
-        title: "HTTP Settings",
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="request-method">Method</Label>
-              <Select defaultValue="GET">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GET">GET</SelectItem>
-                  <SelectItem value="POST">POST</SelectItem>
-                  <SelectItem value="PUT">PUT</SelectItem>
-                  <SelectItem value="DELETE">DELETE</SelectItem>
-                  <SelectItem value="PATCH">PATCH</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="request-url">URL</Label>
-              <Input
-                id="request-url"
-                defaultValue="https://api.example.com/data"
-                placeholder="Enter URL"
+                onChange={(event) =>
+                  setDraftData((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
               />
             </div>
 
             <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="request-headers">Headers</Label>
-                <Button variant="ghost" size="sm" className="h-8 px-2">
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add Header
-                </Button>
-              </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="Key" defaultValue="Content-Type" />
-
-                  <Input placeholder="Value" defaultValue="application/json" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="Key" defaultValue="Authorization" />
-
-                  <Input
-                    placeholder="Value"
-                    defaultValue="Bearer {{auth.token}}"
+              <Label htmlFor="python-code">Python Code</Label>
+              <div className="border rounded-md overflow-hidden h-[400px]">
+                {typeof window !== "undefined" && (
+                  <Editor
+                    height="100%"
+                    defaultLanguage="python"
+                    value={pythonCode}
+                    onChange={(value) => setPythonCode(value || "")}
+                    onMount={handleEditorMount}
+                    options={{
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      lineNumbers: "on",
+                    }}
+                    theme="vs-dark"
                   />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="request-body">Request Body</Label>
-              <div className="relative">
-                <Textarea
-                  id="request-body"
-                  defaultValue='{
-  "query": "example",
-  "limit": 10
-}'
-                  className="font-mono min-h-[150px]"
-                />
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                >
-                  <Code className="h-3 w-3" />
-                </Button>
+                )}
               </div>
             </div>
           </div>
-        ),
-      });
+        </ScrollArea>
+      );
     }
 
-    if (node.type === "Transform Data") {
-      configurationSections.push({
-        id: "transform",
-        title: "Transformation Settings",
-        content: (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="transform-mode">Mode</Label>
-              <Select defaultValue="jmespath">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="jmespath">JMESPath</SelectItem>
-                  <SelectItem value="jsonata">JSONata</SelectItem>
-                  <SelectItem value="custom">Custom Code</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="transform-expression">Expression</Label>
-              <div className="relative">
-                <Textarea
-                  id="transform-expression"
-                  defaultValue="data.items[?value > `100`]"
-                  className="font-mono min-h-[150px]"
-                />
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 h-6 w-6 bg-background/80"
-                >
-                  <Code className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        ),
-      });
-    }
-
-    if (isPythonNode) {
-      configurationSections.push({
-        id: "python",
-        title: "Python Code",
-        content: (
-          <div className="grid gap-2">
-            <Label htmlFor="python-code">Code</Label>
-            <div className="border rounded-md overflow-hidden h-[300px]">
-              {typeof window !== "undefined" && (
-                <Editor
-                  height="100%"
-                  defaultLanguage="python"
-                  value={pythonCode}
-                  onChange={(value) => setPythonCode(value || "")}
-                  onMount={handleEditorMount}
-                  options={{
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    fontSize: 14,
-                    lineNumbers: "on",
-                  }}
-                  theme="vs-dark"
-                />
-              )}
-            </div>
-          </div>
-        ),
-      });
-    }
-
-    configurationSections.push({
-      id: "advanced",
-      title: "Advanced Options",
-      content: (
-        <div className="grid gap-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="retry-failed">Retry on failure</Label>
-            <Switch id="retry-failed" />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <Label htmlFor="continue-on-fail">Continue on failure</Label>
-            <Switch id="continue-on-fail" />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="timeout">Timeout (seconds)</Label>
-            <Input
-              id="timeout"
-              type="number"
-              defaultValue="30"
-              min="1"
-              max="300"
-            />
-          </div>
-        </div>
-      ),
-    });
-
-    const defaultItems = configurationSections
-      .filter((section) => section.defaultOpen ?? true)
-      .map((section) => section.id);
-
+    // For all other nodes, use RJSF
     return (
       <ScrollArea className="h-full">
-        <div
-          className="p-6"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-        >
-          <Accordion
-            type="multiple"
-            defaultValue={defaultItems}
-            className="space-y-3"
+        <div className="p-6">
+          <Form
+            schema={schema}
+            uiSchema={uiSchema}
+            formData={draftData}
+            onChange={handleFormChange}
+            validator={validator}
+            widgets={customWidgets}
+            templates={customTemplates}
+            onSubmit={(data) => {
+              // Handle submit if needed
+              console.log("Form submitted:", data);
+            }}
           >
-            {configurationSections.map((section) => (
-              <AccordionItem
-                key={section.id}
-                value={section.id}
-                className="border border-border/50 rounded-lg bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40"
-              >
-                <AccordionTrigger className="px-4 py-2 text-left text-sm font-medium hover:no-underline">
-                  {section.title}
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-0">
-                  <div className="pt-2 space-y-4 text-sm text-foreground">
-                    {section.content}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+            {/* Hide the default submit button */}
+            <div className="hidden" />
+          </Form>
         </div>
       </ScrollArea>
     );
   };
+
   const renderOutputContent = () => (
     <div className="flex h-full flex-col">
       <div className="border-b border-border">
