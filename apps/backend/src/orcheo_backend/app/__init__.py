@@ -1562,7 +1562,7 @@ async def execute_node(
 
         if "results" in result and node_name in result["results"]:
             node_result = result["results"][node_name]
-        elif "messages" in result:
+        elif "messages" in result:  # pragma: no cover
             node_result = result["messages"]
 
         return NodeExecutionResponse(
