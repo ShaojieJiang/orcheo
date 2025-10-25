@@ -40,7 +40,7 @@ const StartEndNode = ({ data, selected }: NodeProps) => {
         <Handle
           type="target"
           position={Position.Left}
-          className="!h-3 !w-3 !bg-primary !border-2 !border-background"
+          className="!h-2 !w-2 !bg-primary !border-2 !border-background"
         />
       )}
 
@@ -49,7 +49,7 @@ const StartEndNode = ({ data, selected }: NodeProps) => {
         <Handle
           type="source"
           position={Position.Right}
-          className="!h-3 !w-3 !bg-primary !border-2 !border-background"
+          className="!h-2 !w-2 !bg-primary !border-2 !border-background"
         />
       )}
 

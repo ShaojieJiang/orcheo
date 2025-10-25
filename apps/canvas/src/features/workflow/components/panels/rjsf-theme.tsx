@@ -26,7 +26,13 @@ import {
   SelectValue,
 } from "@/design-system/ui/select";
 import { Button } from "@/design-system/ui/button";
-import { Plus, X } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
+import { Plus, X, HelpCircle } from "lucide-react";
 
 /**
  * Custom Text Input Widget
@@ -179,13 +185,29 @@ function FieldTemplate(props: FieldTemplateProps) {
   return (
     <div className="grid gap-2 mb-4">
       {displayLabel && label && (
-        <Label htmlFor={id}>
-          {label}
-          {required && <span className="text-destructive ml-1">*</span>}
-        </Label>
-      )}
-      {description && (
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>
+            {label}
+            {required && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          {description && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-full h-4 w-4 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[300px]">
+                  <p className="text-xs">{description}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       )}
       {children}
       {errors && <div className="text-xs text-destructive">{errors}</div>}

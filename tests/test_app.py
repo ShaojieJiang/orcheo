@@ -49,8 +49,12 @@ async def test_execute_workflow():
         for step in steps:
             yield step
 
+    async def mock_aget_state(*args, **kwargs):
+        return MagicMock(values={"messages": [], "results": {}, "inputs": inputs})
+
     mock_compiled_graph = MagicMock()
     mock_compiled_graph.astream = mock_astream
+    mock_compiled_graph.aget_state = mock_aget_state
     mock_graph.compile.return_value = mock_compiled_graph
 
     mock_checkpointer = object()
@@ -100,8 +104,12 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
         for step in steps:
             yield step
 
+    async def mock_aget_state(*args: Any, **kwargs: Any):
+        return MagicMock(values=inputs)
+
     mock_compiled_graph = MagicMock()
     mock_compiled_graph.astream = mock_astream
+    mock_compiled_graph.aget_state = mock_aget_state
     mock_graph.compile.return_value = mock_compiled_graph
 
     @asynccontextmanager

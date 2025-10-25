@@ -21,6 +21,7 @@ import WorkflowNodeComponent from "@features/workflow/components/nodes/workflow-
 import ChatTriggerNode from "@features/workflow/components/nodes/chat-trigger-node";
 import StartEndNode from "@features/workflow/components/nodes/start-end-node";
 import StickyNoteNode from "@features/workflow/components/nodes/sticky-note-node";
+import CustomEdge from "@features/workflow/components/canvas/custom-edge";
 import { cn } from "@/lib/utils";
 
 export interface WorkflowFlowProps<
@@ -34,6 +35,9 @@ export interface WorkflowFlowProps<
   onConnect?: OnConnect;
   onNodeClick?: OnNodeClick;
   onNodeDoubleClick?: OnNodeDoubleClick;
+  onEdgeMouseEnter?: EdgeMouseEventHandler<EdgeType>;
+  onEdgeMouseMove?: EdgeMouseEventHandler<EdgeType>;
+  onEdgeMouseLeave?: EdgeMouseEventHandler<EdgeType>;
   onInit?: (instance: ReactFlowInstance<NodeType, EdgeType>) => void;
   fitView?: boolean;
   snapToGrid?: boolean;
@@ -48,9 +52,15 @@ export interface WorkflowFlowProps<
   nodesDraggable?: boolean;
   nodesConnectable?: boolean;
   nodesFocusable?: boolean;
+  edgesFocusable?: boolean;
   elementsSelectable?: boolean;
   zoomOnDoubleClick?: boolean;
 }
+
+type EdgeMouseEventHandler<EdgeType extends Edge = Edge> = (
+  event: React.MouseEvent<Element, MouseEvent>,
+  edge: EdgeType,
+) => void;
 
 const nodeTypes = {
   default: WorkflowNodeComponent,
@@ -59,11 +69,17 @@ const nodeTypes = {
   stickyNote: StickyNoteNode,
 };
 
+const edgeTypes = {
+  default: CustomEdge,
+};
+
 const defaultEdgeOptions = {
   style: { stroke: "#99a1b3", strokeWidth: 2 },
-  type: "smoothstep" as const,
+  type: "default" as const,
   markerEnd: {
     type: MarkerType.ArrowClosed,
+    width: 12,
+    height: 12,
   },
 };
 
@@ -116,6 +132,9 @@ export default function WorkflowFlow<
   onConnect,
   onNodeClick,
   onNodeDoubleClick,
+  onEdgeMouseEnter,
+  onEdgeMouseMove,
+  onEdgeMouseLeave,
   onInit,
   fitView = true,
   snapToGrid = false,
@@ -130,6 +149,7 @@ export default function WorkflowFlow<
   nodesDraggable,
   nodesConnectable,
   nodesFocusable,
+  edgesFocusable,
   elementsSelectable,
   zoomOnDoubleClick = true,
 }: WorkflowFlowProps<NodeType, EdgeType>) {
@@ -137,6 +157,7 @@ export default function WorkflowFlow<
   const defaultNodesDraggable = nodesDraggable ?? editable;
   const defaultNodesConnectable = nodesConnectable ?? editable;
   const defaultNodesFocusable = nodesFocusable ?? true;
+  const defaultEdgesFocusable = edgesFocusable ?? editable;
   const defaultElementsSelectable = elementsSelectable ?? editable;
 
   return (
@@ -148,18 +169,23 @@ export default function WorkflowFlow<
       onConnect={onConnect}
       onNodeClick={onNodeClick}
       onNodeDoubleClick={onNodeDoubleClick}
+      onEdgeMouseEnter={onEdgeMouseEnter}
+      onEdgeMouseMove={onEdgeMouseMove}
+      onEdgeMouseLeave={onEdgeMouseLeave}
       onInit={onInit}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       fitView={fitView}
       snapToGrid={snapToGrid}
       snapGrid={snapGrid}
       defaultEdgeOptions={defaultEdgeOptions}
-      connectionLineType={ConnectionLineType.SmoothStep}
+      connectionLineType={ConnectionLineType.Bezier}
       connectionLineStyle={{ stroke: "#99a1b3", strokeWidth: 2 }}
       proOptions={{ hideAttribution: true }}
       nodesDraggable={defaultNodesDraggable}
       nodesConnectable={defaultNodesConnectable}
       nodesFocusable={defaultNodesFocusable}
+      edgesFocusable={defaultEdgesFocusable}
       elementsSelectable={defaultElementsSelectable}
       zoomOnDoubleClick={zoomOnDoubleClick}
       className={cn("h-full", className)}
