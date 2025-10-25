@@ -341,8 +341,16 @@ export default function NodeInspector({
         nodeConfig.variables = variablesDict;
       }
 
-      // Get test inputs (use sample for now, could be made editable)
-      const inputs = {};
+      // Determine inputs for test execution. Prefer live workflow inputs when
+      // available, otherwise fall back to collected upstream outputs so the
+      // node executes with realistic context.
+      let inputs: Record<string, unknown> = {};
+
+      if (useLiveData && isRecord(liveInputs)) {
+        inputs = { ...liveInputs };
+      } else if (Object.keys(upstreamOutputs).length > 0) {
+        inputs = { ...upstreamOutputs };
+      }
 
       const response = await executeNode({
         node_config: nodeConfig,
@@ -364,7 +372,7 @@ export default function NodeInspector({
     } finally {
       setIsTestingNode(false);
     }
-  }, [node, backendType, draftData]);
+  }, [node, backendType, draftData, liveInputs, upstreamOutputs, useLiveData]);
 
   useEffect(() => {
     handleSaveRef.current = handleSave;
