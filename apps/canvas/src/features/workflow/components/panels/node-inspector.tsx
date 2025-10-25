@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import type { Node, Edge } from "@xyflow/react";
 import {
   Tabs,
   TabsContent,
@@ -20,8 +21,9 @@ import {
   Table,
   FileDown,
   RefreshCw,
-  History,
   GripVertical,
+  Play,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Editor, { type OnMount } from "@monaco-editor/react";
@@ -34,6 +36,13 @@ import {
   getNodeUiSchema,
 } from "@features/workflow/lib/node-schemas";
 import { customWidgets, customTemplates, validator } from "./rjsf-theme";
+import { executeNode } from "@/lib/api";
+import { toast } from "sonner";
+import {
+  findUpstreamNodes,
+  hasIncomingConnections,
+  collectUpstreamOutputs,
+} from "@features/workflow/lib/graph-utils";
 
 interface NodeInspectorProps {
   node?: {
@@ -41,6 +50,8 @@ interface NodeInspectorProps {
     type: string;
     data: Record<string, unknown>;
   };
+  nodes?: Node[];
+  edges?: Edge[];
   onClose?: () => void;
   onSave?: (nodeId: string, data: Record<string, unknown>) => void;
   className?: string;
@@ -67,6 +78,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 export default function NodeInspector({
   node,
+  nodes = [],
+  edges = [],
   onClose,
   onSave,
   className,
@@ -82,6 +95,21 @@ export default function NodeInspector({
   const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
     node?.data ? { ...(node.data as Record<string, unknown>) } : {},
   );
+
+  // Compute upstream nodes and their outputs
+  const upstreamNodes = useMemo(() => {
+    if (!node) return [];
+    return findUpstreamNodes(node.id, nodes, edges);
+  }, [node, nodes, edges]);
+
+  const upstreamOutputs = useMemo(() => {
+    return collectUpstreamOutputs(upstreamNodes);
+  }, [upstreamNodes]);
+
+  const hasUpstreamConnections = useMemo(() => {
+    if (!node) return false;
+    return hasIncomingConnections(node.id, edges);
+  }, [node, edges]);
   const extractPythonCode = (
     targetNode: NodeInspectorProps["node"],
   ): string => {
@@ -113,6 +141,9 @@ export default function NodeInspector({
   const [inputViewMode, setInputViewMode] = useState("input-json");
   const [outputViewMode, setOutputViewMode] = useState("output-json");
   const [, setDraggingField] = useState<SchemaField | null>(null);
+  const [isTestingNode, setIsTestingNode] = useState(false);
+  const [testResult, setTestResult] = useState<unknown>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const previouslyHadRuntimeRef = useRef(hasRuntime);
   const editorKeydownDisposableRef = useRef<MonacoEditor.IDisposable | null>(
     null,
@@ -214,6 +245,134 @@ export default function NodeInspector({
     }
   }, [draftData, isPythonNode, node, onSave, pythonCode]);
 
+  const handleTestNode = useCallback(async () => {
+    if (!node) {
+      toast.error("Cannot test node: node not found");
+      return;
+    }
+
+    // Get backend type from draftData (which contains the current state including backendType)
+    const nodeBackendType =
+      typeof draftData?.backendType === "string"
+        ? (draftData.backendType as string)
+        : backendType;
+
+    if (!nodeBackendType) {
+      toast.error(
+        "Cannot test node: missing backend type information. This node may not support testing yet.",
+      );
+      return;
+    }
+
+    setIsTestingNode(true);
+    setTestError(null);
+    setTestResult(null);
+
+    try {
+      // Build node configuration from current draft data
+      const nodeConfig: Record<string, unknown> = {
+        name: node.id,
+        ...draftData,
+      };
+
+      // Remove UI-only fields from config
+      delete nodeConfig.runtime;
+      delete nodeConfig.label;
+      delete nodeConfig.description;
+      delete nodeConfig.iconKey;
+      delete nodeConfig.backendType; // Remove backendType as it's already in 'type'
+      delete nodeConfig.type; // Remove UI type field from data
+
+      // Set the backend type AFTER removing UI fields to ensure it's not overwritten
+      nodeConfig.type = nodeBackendType;
+
+      // Transform SetVariableNode's variables array to dictionary format
+      if (
+        nodeBackendType === "SetVariableNode" &&
+        Array.isArray(nodeConfig.variables)
+      ) {
+        const variablesArray = nodeConfig.variables as Array<
+          Record<string, unknown>
+        >;
+        const variablesDict: Record<string, unknown> = {};
+
+        for (const variable of variablesArray) {
+          if (!variable?.name) continue;
+
+          const variableName = String(variable.name);
+          const valueType =
+            typeof variable.valueType === "string"
+              ? variable.valueType
+              : "string";
+          let typedValue = variable.value ?? null;
+
+          if (typedValue !== null && typedValue !== undefined) {
+            switch (valueType) {
+              case "number":
+                typedValue = Number(typedValue);
+                break;
+              case "boolean":
+                typedValue =
+                  typedValue === true ||
+                  typedValue === "true" ||
+                  typedValue === 1;
+                break;
+              case "object":
+                if (typeof typedValue === "string") {
+                  try {
+                    typedValue = JSON.parse(typedValue);
+                  } catch {
+                    console.warn(
+                      `Failed to parse object value for ${variableName}, using empty object`,
+                    );
+                    typedValue = {};
+                  }
+                }
+                break;
+              default:
+                typedValue = String(typedValue);
+            }
+          }
+
+          variablesDict[variableName] = typedValue;
+        }
+
+        nodeConfig.variables = variablesDict;
+      }
+
+      // Determine inputs for test execution. Prefer live workflow inputs when
+      // available, otherwise fall back to collected upstream outputs so the
+      // node executes with realistic context.
+      let inputs: Record<string, unknown> = {};
+
+      if (useLiveData && isRecord(liveInputs)) {
+        inputs = { ...liveInputs };
+      } else if (Object.keys(upstreamOutputs).length > 0) {
+        inputs = { ...upstreamOutputs };
+      }
+
+      const response = await executeNode({
+        node_config: nodeConfig,
+        inputs,
+      });
+
+      if (response.status === "success") {
+        setTestResult(response.result);
+        toast.success("Node executed successfully");
+      } else {
+        setTestError(response.error || "Unknown error");
+        toast.error("Node execution failed");
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to execute node";
+      setTestError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsTestingNode(false);
+    }
+  }, [node, backendType, draftData, liveInputs, upstreamOutputs, useLiveData]);
+
   useEffect(() => {
     handleSaveRef.current = handleSave;
   }, [handleSave]);
@@ -245,29 +404,45 @@ export default function NodeInspector({
     });
   }, []);
 
+  // Determine what input data to show
+  const inputDataToShow = hasUpstreamConnections ? upstreamOutputs : {};
+
+  // Generate schema fields from upstream outputs
+  const schemaFields: SchemaField[] = useMemo(() => {
+    const fields: SchemaField[] = [];
+
+    const processValue = (value: unknown, name: string, path: string): void => {
+      const valueType = Array.isArray(value)
+        ? "array"
+        : value === null
+          ? "null"
+          : typeof value;
+
+      fields.push({
+        name,
+        type: valueType,
+        path,
+      });
+
+      // Recursively process objects
+      if (valueType === "object" && value !== null) {
+        for (const [key, childValue] of Object.entries(
+          value as Record<string, unknown>,
+        )) {
+          processValue(childValue, key, `${path}.${key}`);
+        }
+      }
+    };
+
+    // Process each upstream node's output
+    for (const [nodeId, output] of Object.entries(upstreamOutputs)) {
+      processValue(output, nodeId, nodeId);
+    }
+
+    return fields;
+  }, [upstreamOutputs]);
+
   if (!node) return null;
-
-  // Sample input data for demonstration
-  const sampleInput = {
-    query: {
-      filter: "status:active",
-      limit: 10,
-    },
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer {{auth.token}}",
-    },
-  };
-
-  // Sample schema fields for demonstration
-  const sampleSchemaFields: SchemaField[] = [
-    { name: "query", type: "object", path: "query" },
-    { name: "filter", type: "string", path: "query.filter" },
-    { name: "limit", type: "number", path: "query.limit" },
-    { name: "headers", type: "object", path: "headers" },
-    { name: "Content-Type", type: "string", path: "headers.Content-Type" },
-    { name: "Authorization", type: "string", path: "headers.Authorization" },
-  ];
 
   const handleDragStart = (field: SchemaField) => {
     setDraggingField(field);
@@ -315,10 +490,38 @@ export default function NodeInspector({
                 ) : (
                   renderLiveDataUnavailable("Live Input")
                 )
+              ) : hasUpstreamConnections ? (
+                Object.keys(inputDataToShow).length > 0 ? (
+                  <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                    {JSON.stringify(inputDataToShow, null, 2)}
+                  </pre>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Badge variant="outline" className="mb-2">
+                        No Outputs
+                      </Badge>
+                      <p className="text-sm text-muted-foreground">
+                        Connected nodes have not produced outputs yet.
+                        <br />
+                        Run the workflow to see input data.
+                      </p>
+                    </div>
+                  </div>
+                )
               ) : (
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
-                  {JSON.stringify(sampleInput, null, 2)}
-                </pre>
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <Badge variant="outline" className="mb-2">
+                      No Connections
+                    </Badge>
+                    <p className="text-sm text-muted-foreground">
+                      This node has no incoming connections.
+                      <br />
+                      Connect nodes to see their outputs here.
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
           </TabsContent>
@@ -334,29 +537,59 @@ export default function NodeInspector({
           <TabsContent value="input-schema" className="p-0 m-0">
             <div className="flex-1 p-4 bg-muted/30">
               <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
-                <div className="space-y-2">
-                  {sampleSchemaFields.map((field) => (
-                    <div
-                      key={field.path}
-                      className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
-                      draggable
-                      onDragStart={() => handleDragStart(field)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
+                {hasUpstreamConnections ? (
+                  schemaFields.length > 0 ? (
+                    <div className="space-y-2">
+                      {schemaFields.map((field) => (
+                        <div
+                          key={field.path}
+                          className="flex items-center justify-between p-2 bg-background rounded border border-border hover:border-primary/50 cursor-grab"
+                          draggable
+                          onDragStart={() => handleDragStart(field)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <div className="flex items-center gap-2">
+                            <GripVertical className="h-4 w-4 text-muted-foreground" />
 
-                        <span className="font-medium">{field.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {field.type}
+                            <span className="font-medium">{field.name}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {field.type}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {field.path}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <Badge variant="outline" className="mb-2">
+                          No Schema
                         </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {field.path}
+                        <p className="text-sm text-muted-foreground">
+                          Connected nodes have not produced outputs yet.
+                          <br />
+                          Run the workflow to see the schema.
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Badge variant="outline" className="mb-2">
+                        No Connections
+                      </Badge>
+                      <p className="text-sm text-muted-foreground">
+                        This node has no incoming connections.
+                        <br />
+                        Connect nodes to see their output schema here.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </TabsContent>
@@ -459,10 +692,6 @@ export default function NodeInspector({
             validator={validator}
             widgets={customWidgets}
             templates={customTemplates}
-            onSubmit={(data) => {
-              // Handle submit if needed
-              console.log("Form submitted:", data);
-            }}
           >
             {/* Hide the default submit button */}
             <div className="hidden" />
@@ -530,7 +759,25 @@ export default function NodeInspector({
       <Tabs defaultValue={outputViewMode}>
         <TabsContent value="output-json" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
-            {useLiveData ? (
+            {testResult !== null ? (
+              <div className="h-full">
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge variant="secondary">Test Result</Badge>
+                </div>
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4">
+                  {JSON.stringify(testResult, null, 2)}
+                </pre>
+              </div>
+            ) : testError !== null ? (
+              <div className="h-full">
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge variant="destructive">Test Error</Badge>
+                </div>
+                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-destructive/10 p-4 text-destructive">
+                  {testError}
+                </pre>
+              </div>
+            ) : useLiveData ? (
               hasLiveOutputs && outputDisplay !== undefined ? (
                 <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
                   {JSON.stringify(outputDisplay, null, 2)}
@@ -545,7 +792,7 @@ export default function NodeInspector({
                     Sample Data
                   </Badge>
                   <p className="text-sm text-muted-foreground">
-                    Using cached sample data
+                    Click "Test Node" to execute this node in isolation
                   </p>
                 </div>
               </div>
@@ -556,6 +803,7 @@ export default function NodeInspector({
         <TabsContent value="output-table" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
             <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
+              {/* TODO: Implement structured table visualization for node outputs. */}
               <p>Table view not implemented</p>
             </div>
           </div>
@@ -564,6 +812,7 @@ export default function NodeInspector({
         <TabsContent value="output-schema" className="p-0 m-0 h-full">
           <div className="flex-1 p-4 bg-muted/30 relative h-full">
             <div className="font-mono text-sm overflow-auto rounded-md bg-muted p-4 h-full">
+              {/* TODO: Render schema information derived from node outputs. */}
               <p>Schema view not implemented</p>
             </div>
           </div>
@@ -691,9 +940,26 @@ export default function NodeInspector({
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <History className="h-4 w-4 mr-2" />
-              History
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestNode}
+              disabled={
+                isTestingNode ||
+                (!backendType && typeof draftData?.backendType !== "string")
+              }
+            >
+              {isTestingNode ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Test Node
+                </>
+              )}
             </Button>
             <Button variant="outline" size="sm">
               <FileDown className="h-4 w-4 mr-2" />

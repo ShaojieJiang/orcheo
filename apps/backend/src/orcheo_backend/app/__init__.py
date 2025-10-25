@@ -33,6 +33,7 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
+from orcheo.graph.state import State
 from orcheo.models import (
     AesGcmCredentialCipher,
     CredentialAccessContext,
@@ -94,6 +95,8 @@ from orcheo_backend.app.schemas import (
     CredentialValidationRequest,
     CronDispatchRequest,
     GovernanceAlertResponse,
+    NodeExecutionRequest,
+    NodeExecutionResponse,
     OAuthTokenRequest,
     RunActionRequest,
     RunCancelRequest,
@@ -1485,6 +1488,94 @@ async def dispatch_manual_runs(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.post(
+    "/nodes/execute",
+    response_model=NodeExecutionResponse,
+)
+async def execute_node(
+    request: NodeExecutionRequest,
+) -> NodeExecutionResponse:
+    """Execute a single node in isolation for testing/preview purposes.
+
+    This endpoint allows executing individual nodes without creating a full workflow,
+    useful for testing node configurations in the Node Inspector UI.
+
+    Args:
+        request: Node execution request containing node_config, inputs, and optional
+                workflow_id for credential context
+
+    Returns:
+        NodeExecutionResponse with status, result, and optional error message
+
+    Raises:
+        HTTPException: 400 if node type is missing or unknown
+        HTTPException: 500 if node execution fails
+    """
+    from orcheo.nodes.registry import registry
+
+    node_config = request.node_config
+    inputs = request.inputs
+    # workflow_id = request.workflow_id  # Reserved for future credential context
+
+    # Validate node configuration
+    node_type = node_config.get("type")
+    if not node_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Node configuration must include a 'type' field",
+        )
+
+    # Get node class from registry
+    node_class = registry.get_node(str(node_type))
+    if node_class is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown node type: {node_type}",
+        )
+
+    try:
+        # Extract node parameters (everything except 'type')
+        node_params = {k: v for k, v in node_config.items() if k != "type"}
+
+        # Instantiate the node
+        node_instance = node_class(**node_params)
+
+        # Create minimal state for execution
+        state: State = {
+            "messages": [],
+            "results": {},
+            "inputs": inputs,
+        }
+
+        # Create config with optional workflow context for credentials
+        config: RunnableConfig = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
+        # Execute the node
+        result = await node_instance(state, config)
+
+        # Extract the actual result based on node type
+        # AINode wraps in messages, TaskNode wraps in results
+        node_name = node_params.get("name", "node")
+        node_result = None
+
+        if "results" in result and node_name in result["results"]:
+            node_result = result["results"][node_name]
+        elif "messages" in result:  # pragma: no cover
+            node_result = result["messages"]
+
+        return NodeExecutionResponse(
+            status="success",
+            result=node_result,
+        )
+
+    except Exception as exc:
+        logger.exception("Node execution failed: %s", exc)
+        return NodeExecutionResponse(
+            status="error",
+            error=str(exc),
+        )
 
 
 def create_app(
