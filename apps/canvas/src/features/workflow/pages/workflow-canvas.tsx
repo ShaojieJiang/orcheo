@@ -627,6 +627,94 @@ interface WorkflowCanvasProps {
 
 const HISTORY_LIMIT = 50;
 
+const WORKFLOW_CLIPBOARD_HEADER = "ORCHEO_WORKFLOW_CLIPBOARD_V1:";
+const PASTE_BASE_OFFSET = 40;
+const PASTE_OFFSET_INCREMENT = 24;
+const PASTE_OFFSET_MAX_STEPS = 5;
+
+type WorkflowClipboardPayload = {
+  version: 1;
+  type: "workflow-selection";
+  nodes: PersistedWorkflowNode[];
+  edges: PersistedWorkflowEdge[];
+  copiedAt?: number;
+};
+
+type CopyClipboardOptions = {
+  skipSuccessToast?: boolean;
+};
+
+type CopyClipboardResult = {
+  success: boolean;
+  nodeCount: number;
+  edgeCount: number;
+  usedFallback: boolean;
+};
+
+const encodeClipboardPayload = (payload: WorkflowClipboardPayload) =>
+  `${WORKFLOW_CLIPBOARD_HEADER}${JSON.stringify(payload)}`;
+
+const decodeClipboardPayloadString = (
+  serialized: string,
+): WorkflowClipboardPayload | null => {
+  if (typeof serialized !== "string") {
+    return null;
+  }
+  const trimmed = serialized.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const payloadString = trimmed.startsWith(WORKFLOW_CLIPBOARD_HEADER)
+    ? trimmed.slice(WORKFLOW_CLIPBOARD_HEADER.length)
+    : trimmed;
+
+  try {
+    const parsed = JSON.parse(
+      payloadString,
+    ) as Partial<WorkflowClipboardPayload>;
+    if (
+      parsed &&
+      parsed.version === 1 &&
+      parsed.type === "workflow-selection" &&
+      Array.isArray(parsed.nodes) &&
+      Array.isArray(parsed.edges)
+    ) {
+      return {
+        version: 1,
+        type: "workflow-selection",
+        nodes: parsed.nodes as PersistedWorkflowNode[],
+        edges: parsed.edges as PersistedWorkflowEdge[],
+        copiedAt:
+          typeof parsed.copiedAt === "number" ? parsed.copiedAt : undefined,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const buildClipboardPayload = (
+  nodesToPersist: PersistedWorkflowNode[],
+  edgesToPersist: PersistedWorkflowEdge[],
+): WorkflowClipboardPayload => ({
+  version: 1,
+  type: "workflow-selection",
+  nodes: nodesToPersist,
+  edges: edgesToPersist,
+  copiedAt: Date.now(),
+});
+
+const signatureFromClipboardPayload = (payload: WorkflowClipboardPayload) =>
+  typeof payload.copiedAt === "number"
+    ? `ts:${payload.copiedAt}`
+    : `ids:${payload.nodes
+        .map((node) => node.id)
+        .sort()
+        .join("|")}`;
+
 const cloneNode = (node: CanvasNode): CanvasNode => ({
   ...node,
   position: node.position ? { ...node.position } : node.position,
@@ -955,6 +1043,9 @@ export default function WorkflowCanvas({
   const isRestoringRef = useRef(false);
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const edgesRef = useRef<CanvasEdge[]>(edges);
+  const clipboardRef = useRef<WorkflowClipboardPayload | null>(null);
+  const pasteOffsetStepRef = useRef(0);
+  const lastClipboardSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     latestNodesRef.current = nodes;
@@ -1464,7 +1555,7 @@ export default function WorkflowCanvas({
   }, []);
 
   const deleteNodes = useCallback(
-    (nodeIds: string[]) => {
+    (nodeIds: string[], options?: { suppressToast?: boolean }) => {
       const uniqueIds = Array.from(new Set(nodeIds)).filter(Boolean);
       if (uniqueIds.length === 0) {
         return;
@@ -1518,13 +1609,15 @@ export default function WorkflowCanvas({
         setIsChatOpen(false);
       }
 
-      toast({
-        title: uniqueIds.length === 1 ? "Node deleted" : "Nodes deleted",
-        description:
-          uniqueIds.length === 1
-            ? `Removed ${labels[0]}.`
-            : `Removed ${uniqueIds.length} nodes.`,
-      });
+      if (!options?.suppressToast) {
+        toast({
+          title: uniqueIds.length === 1 ? "Node deleted" : "Nodes deleted",
+          description:
+            uniqueIds.length === 1
+              ? `Removed ${labels[0]}.`
+              : `Removed ${uniqueIds.length} nodes.`,
+        });
+      }
     },
     [
       activeChatNodeId,
@@ -2258,6 +2351,241 @@ export default function WorkflowCanvas({
       } copied with their connections.`,
     });
   }, [edges, nodes, recordSnapshot, setEdgesState, setNodesState]);
+
+  const copyNodesToClipboard = useCallback(
+    async (
+      nodesToCopy: CanvasNode[],
+      options: CopyClipboardOptions = {},
+    ): Promise<CopyClipboardResult> => {
+      if (nodesToCopy.length === 0) {
+        toast({
+          title: "No nodes selected",
+          description: "Select at least one node to copy.",
+          variant: "destructive",
+        });
+        return {
+          success: false,
+          nodeCount: 0,
+          edgeCount: 0,
+          usedFallback: false,
+        };
+      }
+
+      const selectedIds = new Set(nodesToCopy.map((node) => node.id));
+      const persistedNodes = nodesToCopy.map(toPersistedNode);
+      const persistedEdges = edgesRef.current
+        .filter(
+          (edge) =>
+            selectedIds.has(edge.source) && selectedIds.has(edge.target),
+        )
+        .map(toPersistedEdge);
+
+      const payload = buildClipboardPayload(persistedNodes, persistedEdges);
+      clipboardRef.current = payload;
+      pasteOffsetStepRef.current = 0;
+      lastClipboardSignatureRef.current =
+        signatureFromClipboardPayload(payload);
+
+      let systemClipboardCopied = false;
+
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+      ) {
+        try {
+          await navigator.clipboard.writeText(encodeClipboardPayload(payload));
+          systemClipboardCopied = true;
+        } catch (error) {
+          console.warn(
+            "Failed to write workflow selection to clipboard",
+            error,
+          );
+        }
+      }
+
+      if (!options.skipSuccessToast) {
+        toast({
+          title: nodesToCopy.length === 1 ? "Node copied" : "Nodes copied",
+          description: `${nodesToCopy.length} node${
+            nodesToCopy.length === 1 ? "" : "s"
+          } copied${
+            systemClipboardCopied ? "" : " (available for in-app paste)"
+          }.`,
+        });
+      } else if (!systemClipboardCopied) {
+        toast({
+          title: "Nodes copied (in-app clipboard)",
+          description:
+            "System clipboard unavailable. Paste with Ctrl/Cmd+V in this tab.",
+        });
+      }
+
+      return {
+        success: true,
+        nodeCount: nodesToCopy.length,
+        edgeCount: persistedEdges.length,
+        usedFallback: !systemClipboardCopied,
+      };
+    },
+    [clipboardRef, edgesRef, lastClipboardSignatureRef, pasteOffsetStepRef],
+  );
+
+  const copySelectedNodes = useCallback(async () => {
+    const selectedNodes = nodesRef.current.filter((node) => node.selected);
+    return copyNodesToClipboard(selectedNodes);
+  }, [copyNodesToClipboard]);
+
+  const cutSelectedNodes = useCallback(async () => {
+    const selectedNodes = nodesRef.current.filter((node) => node.selected);
+    const nodeIds = selectedNodes.map((node) => node.id);
+    const result = await copyNodesToClipboard(selectedNodes, {
+      skipSuccessToast: true,
+    });
+
+    if (!result.success) {
+      return;
+    }
+
+    deleteNodes(nodeIds, { suppressToast: true });
+
+    const fallbackNote = result.usedFallback
+      ? "System clipboard unavailable. Paste with Ctrl/Cmd+V in this tab."
+      : "Paste with Ctrl/Cmd+V.";
+
+    toast({
+      title: nodeIds.length === 1 ? "Node cut" : "Nodes cut",
+      description: `${nodeIds.length} node${
+        nodeIds.length === 1 ? "" : "s"
+      } ready to paste. ${fallbackNote}`,
+    });
+  }, [copyNodesToClipboard, deleteNodes]);
+
+  const pasteNodes = useCallback(async () => {
+    let payload: WorkflowClipboardPayload | null = null;
+
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.readText === "function"
+    ) {
+      try {
+        const clipboardText = await navigator.clipboard.readText();
+        const parsed = decodeClipboardPayloadString(clipboardText);
+        if (parsed) {
+          payload = parsed;
+        }
+      } catch (error) {
+        console.warn("Failed to read workflow selection from clipboard", error);
+      }
+    }
+
+    if (!payload) {
+      payload = clipboardRef.current;
+    }
+
+    if (!payload || payload.nodes.length === 0) {
+      toast({
+        title: "Nothing to paste",
+        description: "Copy nodes before pasting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const signature = signatureFromClipboardPayload(payload);
+    if (signature !== lastClipboardSignatureRef.current) {
+      pasteOffsetStepRef.current = 0;
+      lastClipboardSignatureRef.current = signature;
+    }
+
+    clipboardRef.current = payload;
+
+    const step = pasteOffsetStepRef.current;
+    const offset = PASTE_BASE_OFFSET + step * PASTE_OFFSET_INCREMENT;
+    pasteOffsetStepRef.current = Math.min(
+      pasteOffsetStepRef.current + 1,
+      PASTE_OFFSET_MAX_STEPS,
+    );
+
+    const idMap = new Map<string, string>();
+
+    const remappedNodes = payload.nodes.map((node) => {
+      const newId = generateNodeId();
+      idMap.set(node.id, newId);
+      const position = node.position ?? { x: 0, y: 0 };
+      return {
+        ...node,
+        id: newId,
+        position: {
+          x: position.x + offset,
+          y: position.y + offset,
+        },
+      };
+    });
+
+    const remappedEdges = payload.edges
+      .map((edge) => {
+        const sourceId = idMap.get(edge.source);
+        const targetId = idMap.get(edge.target);
+        if (!sourceId || !targetId) {
+          return null;
+        }
+        return {
+          ...edge,
+          id: generateRandomId("edge"),
+          source: sourceId,
+          target: targetId,
+        };
+      })
+      .filter(Boolean) as PersistedWorkflowEdge[];
+
+    const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
+    const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);
+
+    if (canvasNodes.length === 0) {
+      toast({
+        title: "Nothing to paste",
+        description: "Copied selection has no nodes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    isRestoringRef.current = true;
+    recordSnapshot({ force: true });
+    try {
+      setNodesState((current) => [...current, ...canvasNodes]);
+      if (canvasEdges.length > 0) {
+        setEdgesState((current) => [...current, ...canvasEdges]);
+      }
+    } catch (error) {
+      isRestoringRef.current = false;
+      throw error;
+    }
+
+    const connectionsNote =
+      canvasEdges.length > 0
+        ? ` with ${canvasEdges.length} connection${
+            canvasEdges.length === 1 ? "" : "s"
+          }`
+        : "";
+
+    toast({
+      title: canvasNodes.length === 1 ? "Node pasted" : "Nodes pasted",
+      description: `Added ${canvasNodes.length} node${
+        canvasNodes.length === 1 ? "" : "s"
+      }${connectionsNote}.`,
+    });
+  }, [
+    clipboardRef,
+    convertPersistedNodesToCanvas,
+    lastClipboardSignatureRef,
+    pasteOffsetStepRef,
+    recordSnapshot,
+    setEdgesState,
+    setNodesState,
+  ]);
 
   const handleExportWorkflow = useCallback(() => {
     try {
@@ -3227,6 +3555,28 @@ export default function WorkflowCanvas({
 
       const key = event.key.toLowerCase();
 
+      if ((key === "c" || key === "x" || key === "v") && isEditable) {
+        return;
+      }
+
+      if (key === "c") {
+        event.preventDefault();
+        void copySelectedNodes();
+        return;
+      }
+
+      if (key === "x") {
+        event.preventDefault();
+        void cutSelectedNodes();
+        return;
+      }
+
+      if (key === "v") {
+        event.preventDefault();
+        void pasteNodes();
+        return;
+      }
+
       if (key === "f") {
         event.preventDefault();
         setIsSearchOpen(true);
@@ -3257,6 +3607,9 @@ export default function WorkflowCanvas({
     deleteNodes,
     handleRedo,
     handleUndo,
+    copySelectedNodes,
+    cutSelectedNodes,
+    pasteNodes,
     setCurrentSearchIndex,
     setIsSearchOpen,
     setSearchMatches,
