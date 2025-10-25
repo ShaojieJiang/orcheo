@@ -3236,7 +3236,7 @@ export default function WorkflowCanvas({
   );
 
   // Handle workflow execution
-  const handleRunWorkflow = useCallback(() => {
+  const handleRunWorkflow = useCallback(async () => {
     if (nodes.length === 0) {
       toast({
         title: "Add nodes before running",
@@ -3246,7 +3246,17 @@ export default function WorkflowCanvas({
       return;
     }
 
-    const { config, graphToCanvas } = buildGraphConfigFromCanvas(nodes, edges);
+    const { config, graphToCanvas, warnings } =
+      await buildGraphConfigFromCanvas(nodes, edges);
+
+    if (warnings.length > 0) {
+      warnings.forEach((message) => {
+        toast({
+          title: "Workflow configuration warning",
+          description: message,
+        });
+      });
+    }
     const executionId = generateRandomId("run");
     const startTime = new Date();
 

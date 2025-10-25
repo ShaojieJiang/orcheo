@@ -430,10 +430,12 @@ const persistVersion = async (
 ) => {
   const canvasNodes = toCanvasNodes(snapshot.nodes);
   const canvasEdges = toCanvasEdges(snapshot.edges);
-  const { config, canvasToGraph, graphToCanvas } = buildGraphConfigFromCanvas(
-    canvasNodes,
-    canvasEdges,
-  );
+  const { config, canvasToGraph, graphToCanvas, warnings } =
+    await buildGraphConfigFromCanvas(canvasNodes, canvasEdges);
+
+  if (warnings.length > 0) {
+    warnings.forEach((warning) => console.warn(warning));
+  }
 
   await request<ApiWorkflowVersion>(`${API_BASE}/${workflowId}/versions`, {
     method: "POST",

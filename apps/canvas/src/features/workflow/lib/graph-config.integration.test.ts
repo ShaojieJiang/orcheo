@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { buildGraphConfigFromCanvas } from "./graph-config";
 
 describe("buildGraphConfigFromCanvas integration", () => {
-  it("serializes logic and utility nodes for backend consumption", () => {
+  it("serializes logic and utility nodes for backend consumption", async () => {
     const nodes: Node[] = [
       {
         id: "if-1",
@@ -88,10 +88,10 @@ describe("buildGraphConfigFromCanvas integration", () => {
       } as Edge,
     ];
 
-    const { config, canvasToGraph, graphToCanvas } = buildGraphConfigFromCanvas(
-      nodes,
-      edges,
-    );
+    const { config, canvasToGraph, graphToCanvas, warnings } =
+      await buildGraphConfigFromCanvas(nodes, edges);
+
+    expect(warnings).toHaveLength(0);
 
     const ifElseName = canvasToGraph["if-1"];
     const setVariableName = canvasToGraph["set-1"];
@@ -152,7 +152,7 @@ describe("buildGraphConfigFromCanvas integration", () => {
     });
   });
 
-  it("filters out canvas start and end nodes from serialization", () => {
+  it("filters out canvas start and end nodes from serialization", async () => {
     const nodes: Node[] = [
       {
         id: "start-node",
@@ -200,7 +200,10 @@ describe("buildGraphConfigFromCanvas integration", () => {
       } as Edge,
     ];
 
-    const { config, canvasToGraph } = buildGraphConfigFromCanvas(nodes, edges);
+    const { config, canvasToGraph, warnings } =
+      await buildGraphConfigFromCanvas(nodes, edges);
+
+    expect(warnings).toHaveLength(0);
 
     // Canvas start/end nodes should NOT be in the mapping
     expect(canvasToGraph["start-node"]).toBeUndefined();

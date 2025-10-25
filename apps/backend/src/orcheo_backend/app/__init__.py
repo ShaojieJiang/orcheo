@@ -7,6 +7,7 @@ import logging
 import os
 import secrets
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, TypeVar, cast
 from uuid import UUID
@@ -126,6 +127,44 @@ logging.getLogger("orcheo").setLevel(_log_level_int)
 logging.getLogger("orcheo_backend").setLevel(_log_level_int)
 
 logger = logging.getLogger(__name__)
+
+_DEV_LOGGING_ENV_VALUES = {"development", "dev", "local"}
+_current_env = (
+    os.getenv("ORCHEO_ENV")
+    or os.getenv("ENVIRONMENT")
+    or os.getenv(
+        "NODE_ENV",
+        "production",
+    )
+)
+_sensitive_env_enabled = (_current_env or "").lower() in _DEV_LOGGING_ENV_VALUES
+_should_log_sensitive_debug = (
+    _sensitive_env_enabled or os.getenv("LOG_SENSITIVE_DEBUG") == "1"
+)
+
+
+def _log_sensitive_debug(message: str, *args: Any) -> None:
+    if _should_log_sensitive_debug:
+        logger.debug(message, *args)
+
+
+def _log_step_debug(step: Mapping[str, Any]) -> None:
+    if not _should_log_sensitive_debug:
+        return
+    for node_name, node_output in step.items():
+        logger.debug("=" * 80)
+        logger.debug("Node executed: %s", node_name)
+        logger.debug("Node output: %s", node_output)
+        logger.debug("=" * 80)
+
+
+def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
+    if not _should_log_sensitive_debug:
+        return
+    logger.debug("=" * 80)
+    logger.debug("Final state values: %s", state_values)
+    logger.debug("=" * 80)
+
 
 load_dotenv()
 
@@ -485,7 +524,7 @@ async def execute_workflow(
 ) -> None:
     """Execute a workflow and stream results over the provided websocket."""
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
-    logger.debug("Initial inputs: %s", inputs)
+    _log_sensitive_debug("Initial inputs: %s", inputs)
 
     settings = get_settings()
     history_store = get_history_store()
@@ -512,7 +551,7 @@ async def execute_workflow(
                 "results": {},
                 "inputs": inputs,
             }
-        logger.debug("Initial state: %s", state)
+        _log_sensitive_debug("Initial state: %s", state)
 
         # Run graph with streaming
         config = {"configurable": {"thread_id": execution_id}}
@@ -523,11 +562,7 @@ async def execute_workflow(
                 stream_mode="updates",
             ):  # pragma: no cover
                 # Log node execution details
-                for node_name, node_output in step.items():
-                    logger.debug("=" * 80)
-                    logger.debug("Node executed: %s", node_name)
-                    logger.debug("Node output: %s", node_output)
-                    logger.debug("=" * 80)
+                _log_step_debug(step)
 
                 await history_store.append_step(execution_id, step)
                 try:
@@ -538,9 +573,7 @@ async def execute_workflow(
 
             # Get and log final state after successful stream completion
             final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
-            logger.debug("=" * 80)
-            logger.debug("Final state values: %s", final_state.values)
-            logger.debug("=" * 80)
+            _log_final_state_debug(final_state.values)
         except asyncio.CancelledError as exc:
             reason = str(exc) or "Workflow execution cancelled"
             cancellation_payload = {"status": "cancelled", "reason": reason}

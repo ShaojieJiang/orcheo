@@ -8,6 +8,7 @@ import {
 } from "@xyflow/react";
 import { Trash2 } from "lucide-react";
 import { useEdgeHoverContext } from "@features/workflow/components/canvas/edge-hover-context";
+import { toast } from "@/hooks/use-toast";
 
 export default function CustomEdge({
   id,
@@ -56,8 +57,43 @@ export default function CustomEdge({
 
   const handleDelete = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setEdges((edges) => edges.filter((edge) => edge.id !== id));
-    showHover(false);
+
+    try {
+      let wasRemoved = false;
+      setEdges((edges) => {
+        let removedInUpdate = false;
+        const nextEdges = edges.filter((edge) => {
+          const keep = edge.id !== id;
+          if (!keep) {
+            removedInUpdate = true;
+          }
+          return keep;
+        });
+        wasRemoved = removedInUpdate;
+        return nextEdges;
+      });
+
+      if (!wasRemoved) {
+        toast({
+          title: "Edge not found",
+          description: "The selected connection could not be located.",
+          variant: "destructive",
+        });
+      }
+
+      showHover(false);
+    } catch (error) {
+      console.error("Failed to delete edge", error);
+      const description =
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred while removing the connection.";
+      toast({
+        title: "Failed to delete edge",
+        description,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
