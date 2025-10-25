@@ -24,6 +24,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -534,6 +535,12 @@ async def execute_workflow(
                 except Exception as exc:  # pragma: no cover
                     logger.error("Error processing messages: %s", exc)
                     raise
+
+            # Get and log final state after successful stream completion
+            final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
+            logger.debug("=" * 80)
+            logger.debug("Final state values: %s", final_state.values)
+            logger.debug("=" * 80)
         except asyncio.CancelledError as exc:
             reason = str(exc) or "Workflow execution cancelled"
             cancellation_payload = {"status": "cancelled", "reason": reason}
