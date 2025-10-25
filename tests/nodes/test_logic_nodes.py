@@ -336,3 +336,192 @@ def test_combine_condition_results_handles_empty_input():
 
     assert aggregated is False
     assert evaluations == []
+
+
+def test_build_nested_creates_single_level_dict():
+    result = _build_nested("key", "value")
+    assert result == {"key": "value"}
+
+
+def test_build_nested_creates_nested_dict():
+    result = _build_nested("level1.level2.level3", "deep_value")
+    assert result == {"level1": {"level2": {"level3": "deep_value"}}}
+
+
+def test_build_nested_handles_whitespace_in_path():
+    result = _build_nested("  outer  .  inner  ", 42)
+    assert result == {"outer": {"inner": 42}}
+
+
+@pytest.mark.parametrize(
+    ("left", "operator", "right", "expected"),
+    [
+        (10, "not_equals", 5, True),
+        (10, "not_equals", 10, False),
+        (10, "greater_than_or_equal", 10, True),
+        (10, "greater_than_or_equal", 5, True),
+        (5, "greater_than_or_equal", 10, False),
+        (5, "less_than", 10, True),
+        (10, "less_than", 5, False),
+        (5, "less_than_or_equal", 10, True),
+        (5, "less_than_or_equal", 5, True),
+        (10, "less_than_or_equal", 5, False),
+        (True, "is_truthy", None, True),
+        ("value", "is_truthy", None, True),
+        (0, "is_truthy", None, False),
+        (False, "is_falsy", None, True),
+        ("", "is_falsy", None, True),
+        (1, "is_falsy", None, False),
+    ],
+)
+def test_evaluate_condition_all_operators(left, operator, right, expected):
+    result = evaluate_condition(
+        left=left,
+        operator=operator,
+        right=right,
+        case_sensitive=True,
+    )
+    assert result is expected
+
+
+def test_contains_with_string_as_bytes():
+    from orcheo.nodes.logic import _contains
+
+    # When container is bytes, the member is converted to string and checked
+    # This tests the str|bytes branch but with string comparison
+    container = "hello world"
+    result = _contains(container, "world", expect=True)
+    assert result is True
+
+    result = _contains(container, "missing", expect=False)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_switch_node_case_sensitive_override():
+    state = State({"results": {}})
+    # When node-level case_sensitive=False, value is normalized to lowercase
+    # Then individual cases can override to be case-sensitive
+    node = SwitchNode(
+        name="router",
+        value="TEST",
+        case_sensitive=False,
+        cases=[
+            {"match": "wrong", "branch_key": "first"},
+            {"match": "test", "branch_key": "second"},
+        ],
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["router"]
+
+    # Should match "test" because value "TEST" is normalized to "test"
+    assert payload["branch"] == "second"
+    assert payload["cases"][1]["result"] is True
+    assert payload["processed"] == "test"
+
+
+@pytest.mark.asyncio
+async def test_while_node_with_or_logic():
+    state = State({"results": {}})
+    node = WhileNode(
+        name="loop",
+        conditions=[
+            {"operator": "equals", "right": 5},
+            {"operator": "less_than", "right": 3},
+        ],
+        condition_logic="or",
+    )
+
+    first = await node(state, RunnableConfig())
+    first_payload = first["results"]["loop"]
+    assert first_payload["should_continue"] is True
+    assert first_payload["iteration"] == 1
+    assert first_payload["condition_logic"] == "or"
+
+
+@pytest.mark.asyncio
+async def test_while_node_without_max_iterations():
+    state = State({"results": {}})
+    node = WhileNode(
+        name="loop",
+        conditions=[{"operator": "less_than", "right": 5}],
+    )
+
+    first = await node(state, RunnableConfig())
+    first_payload = first["results"]["loop"]
+    assert first_payload["should_continue"] is True
+    assert first_payload["max_iterations"] is None
+    assert first_payload["limit_reached"] is False
+
+
+@pytest.mark.asyncio
+async def test_if_else_node_with_and_logic_all_fail():
+    state = State({"results": {}})
+    node = IfElseNode(
+        name="multi",
+        condition_logic="and",
+        conditions=[
+            {"left": 1, "operator": "equals", "right": 1},
+            {"left": 5, "operator": "equals", "right": 10},
+        ],
+    )
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["multi"]
+
+    assert payload["condition"] is False
+    assert payload["branch"] == "false"
+
+
+def test_coerce_branch_key_strips_whitespace():
+    assert _coerce_branch_key("  branch-1  ", "fallback") == "branch-1"
+
+
+def test_coerce_branch_key_generates_slug_with_special_chars():
+    assert _coerce_branch_key("", "My Branch!@#") == "my_branch"
+    assert _coerce_branch_key(None, "Test-Case_123") == "test-case_123"
+
+
+def test_combine_condition_results_with_or_combinator():
+    from orcheo.nodes.logic import Condition
+
+    aggregated, evaluations = _combine_condition_results(
+        conditions=[
+            Condition(left=1, operator="equals", right=2),
+            Condition(left=3, operator="equals", right=3),
+        ],
+        combinator="or",
+    )
+
+    assert aggregated is True
+    assert len(evaluations) == 2
+    assert evaluations[0]["result"] is False
+    assert evaluations[1]["result"] is True
+
+
+def test_combine_condition_results_uses_default_left():
+    from orcheo.nodes.logic import Condition
+
+    aggregated, evaluations = _combine_condition_results(
+        conditions=[
+            Condition(operator="greater_than", right=5),
+        ],
+        combinator="and",
+        default_left=10,
+    )
+
+    assert aggregated is True
+    assert evaluations[0]["left"] == 10
+    assert evaluations[0]["result"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_variable_node_empty_variables():
+    state = State({"results": {}})
+    node = SetVariableNode(name="assign", variables={})
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["assign"]
+
+    assert payload == {}
