@@ -169,13 +169,13 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
           type={type}
           id={handle.id}
           position={position}
-          className="!h-3 !w-3 !bg-primary !border-2 !border-background !z-10 !pointer-events-auto"
+          className="!h-2 !w-2 !bg-primary !border-2 !border-background !z-10 !pointer-events-auto"
           style={style}
           isConnectable={true}
         />
         {type === "source" && handle.label && (
           <span
-            className="absolute right-[-36px] text-[8px] uppercase tracking-wide text-muted-foreground pointer-events-none text-left"
+            className="absolute left-[calc(100%+8px)] text-[6px] uppercase tracking-wide text-muted-foreground pointer-events-none whitespace-nowrap"
             style={
               total > 1
                 ? { top: `${percent}%`, transform: "translateY(-50%)" }

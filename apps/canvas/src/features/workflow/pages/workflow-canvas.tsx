@@ -3543,7 +3543,7 @@ export default function WorkflowCanvas({
         reactFlowInstance.current.fitView({ padding: 0.2 });
       }
     }, 100);
-  }, [nodes]);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
