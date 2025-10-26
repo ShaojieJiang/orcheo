@@ -1,10 +1,14 @@
 """Tests for the graph builder utilities."""
 
 from __future__ import annotations
+import asyncio
 from collections.abc import Mapping
 from typing import Any
+
 import pytest
 from langgraph.graph import END, START
+from langgraph.types import Send
+
 from orcheo.graph import builder
 
 
@@ -20,6 +24,16 @@ class _DummyGraph:
 
     def add_conditional_edges(self, *args: Any, **kwargs: Any) -> None:
         self.conditional_calls.append({"args": args, "kwargs": kwargs})
+
+
+class _StubDecision:
+    """Simple async decision node that yields predetermined outcomes."""
+
+    def __init__(self, outcomes: list[Any]) -> None:
+        self._outcomes = list(outcomes)
+
+    async def __call__(self, state: Any, config: Any) -> Any:
+        return self._outcomes.pop(0)
 
 
 def test_build_edge_nodes_missing_name() -> None:
@@ -167,10 +181,10 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
 
 
 def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
-    """Edge node conditional edges forward the default target to the graph."""
+    """Edge node conditional edges apply default routing when unmatched."""
 
     graph = _DummyGraph()
-    edge_node = object()
+    edge_node = _StubDecision(["true", "unknown"])
 
     builder._add_conditional_edges(
         graph,
@@ -184,19 +198,18 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
     )
 
     call = graph.conditional_calls[0]
-    args = call["args"]
-    assert args[0] is START
-    assert args[1] is edge_node
-    assert args[2] == {"true": END}
-    assert args[3] == "fallback"
+    source, router = call["args"]
+    assert source is START
+    assert asyncio.run(router({}, {})) is END
+    assert asyncio.run(router({}, {})) == "fallback"
     assert call["kwargs"] == {}
 
 
 def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
-    """Edge node defaults referencing sentinels are normalised for the graph."""
+    """Edge node defaults referencing sentinels are normalised before routing."""
 
     graph = _DummyGraph()
-    edge_node = object()
+    edge_node = _StubDecision(["maybe"])
 
     builder._add_conditional_edges(
         graph,
@@ -209,9 +222,51 @@ def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
         {"decision": edge_node},
     )
 
-    call = graph.conditional_calls[0]
-    args = call["args"]
-    assert args[3] is END
+    router = graph.conditional_calls[0]["args"][1]
+    assert asyncio.run(router({}, {})) is END
+
+
+def test_add_conditional_edges_edge_node_without_default_routes_to_end() -> None:
+    """Edge nodes without defaults fall back to END when unmatched."""
+
+    graph = _DummyGraph()
+    edge_node = _StubDecision(["unknown"])
+
+    builder._add_conditional_edges(
+        graph,
+        {
+            "source": "START",
+            "path": "decision",
+            "mapping": {"true": "next"},
+        },
+        {"decision": edge_node},
+    )
+
+    router = graph.conditional_calls[0]["args"][1]
+    assert asyncio.run(router({}, {})) is END
+
+
+def test_add_conditional_edges_edge_node_handles_sequence_results() -> None:
+    """Edge node routers normalise sequence outputs including Send packets."""
+
+    graph = _DummyGraph()
+    send_packet = Send("custom", {})
+    edge_node = _StubDecision([["true", send_packet]])
+
+    builder._add_conditional_edges(
+        graph,
+        {
+            "source": "START",
+            "path": "decision",
+            "mapping": {"true": "node_a"},
+        },
+        {"decision": edge_node},
+    )
+
+    router = graph.conditional_calls[0]["args"][1]
+    destinations = asyncio.run(router({}, {}))
+    assert destinations[0] == "node_a"
+    assert destinations[1] is send_packet
 
 
 @pytest.mark.parametrize(

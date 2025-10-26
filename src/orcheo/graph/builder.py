@@ -1,9 +1,11 @@
 """Graph builder module for Orcheo."""
 
 from __future__ import annotations
-from collections.abc import Callable, Hashable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.state import State
 from orcheo.nodes.registry import registry
@@ -100,6 +102,51 @@ def _normalise_vertex(name: str) -> Any:
     return name
 
 
+def _coerce_edge_node_destination(
+    value: Any,
+    mapping: Mapping[str, Any],
+    default_target: Any | None,
+) -> Any:
+    """Return a normalised destination for an edge node result."""
+    if isinstance(value, Send):
+        return value
+    normalised = mapping.get(str(value))
+    if normalised is not None:
+        return normalised
+    if default_target is not None:
+        return default_target
+    return END
+
+
+def _build_edge_node_router(
+    edge_node: Callable[[State, RunnableConfig], Awaitable[Any]],
+    mapping: Mapping[str, Any],
+    default_target: Any | None,
+) -> Callable[[State, RunnableConfig], Awaitable[Any]]:
+    """Return an async router that normalises decision node outputs."""
+    normalised_mapping_for_edge: dict[str, Any] = {
+        str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
+    }
+    resolved_default = None
+    if isinstance(default_target, str) and default_target:
+        resolved_default = _normalise_vertex(default_target)
+
+    async def _route_edge_node(state: State, config: RunnableConfig) -> Any:
+        result = await edge_node(state, config)
+        if isinstance(result, Sequence) and not isinstance(result, str | bytes):
+            return [
+                _coerce_edge_node_destination(
+                    item, normalised_mapping_for_edge, resolved_default
+                )
+                for item in result
+            ]
+        return _coerce_edge_node_destination(
+            result, normalised_mapping_for_edge, resolved_default
+        )
+
+    return _route_edge_node
+
+
 def _add_conditional_edges(
     graph: StateGraph,
     config: Mapping[str, Any],
@@ -123,20 +170,11 @@ def _add_conditional_edges(
 
     # Check if path refers to an edge node (decision node)
     if path in edge_node_instances:
-        # Use the edge node instance directly as the routing function
         edge_node = edge_node_instances[path]
-        normalised_mapping_for_edge: dict[Hashable, Any] = {
-            str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
-        }
-        resolved_default = None
-        if isinstance(default_target, str) and default_target:
-            resolved_default = _normalise_vertex(default_target)
-
+        router = _build_edge_node_router(edge_node, mapping, default_target)
         graph.add_conditional_edges(
             _normalise_vertex(source),
-            edge_node,
-            normalised_mapping_for_edge,
-            resolved_default,
+            router,
         )
     else:
         # Use the path as a state path for traditional conditional routing
