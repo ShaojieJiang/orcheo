@@ -43,6 +43,7 @@ import {
   findUpstreamNodes,
   hasIncomingConnections,
   collectUpstreamOutputs,
+  mergeRuntimeSummaries,
 } from "@features/workflow/lib/graph-utils";
 import { writeSchemaFieldDragData } from "./schema-dnd";
 
@@ -95,15 +96,9 @@ export default function NodeInspector({
     : undefined;
   const runtimeFromNode = isRecord(runtimeCandidate)
     ? (runtimeCandidate as NodeRuntimeCacheEntry)
-    : null;
+    : undefined;
   const cachedRuntime = node ? runtimeCache?.[node.id] : undefined;
-  const runtime =
-    runtimeFromNode || cachedRuntime
-      ? {
-          ...(runtimeFromNode ?? {}),
-          ...(cachedRuntime ?? {}),
-        }
-      : null;
+  const runtime = mergeRuntimeSummaries(runtimeFromNode, cachedRuntime) ?? null;
   const hasRuntime = Boolean(runtime);
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
   const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>

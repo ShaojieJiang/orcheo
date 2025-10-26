@@ -60,12 +60,12 @@ export function hasIncomingConnections(nodeId: string, edges: Edge[]): boolean {
  * @param upstreamNodes - Array of upstream nodes
  * @returns Object with outputs keyed by node ID
  */
-type RuntimeSummary = {
+export type RuntimeSummary = {
   outputs?: unknown;
   messages?: unknown;
   raw?: unknown;
   updatedAt?: string;
-};
+} & Record<string, unknown>;
 
 function parseUpdatedAt(timestamp?: string): number | null {
   if (!timestamp) {
@@ -76,7 +76,7 @@ function parseUpdatedAt(timestamp?: string): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function mergeRuntimeSummaries(
+export function mergeRuntimeSummaries(
   runtimeFromNode?: RuntimeSummary,
   cachedRuntime?: RuntimeSummary,
 ): RuntimeSummary | undefined {

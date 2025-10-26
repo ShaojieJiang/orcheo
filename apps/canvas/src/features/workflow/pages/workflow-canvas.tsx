@@ -204,7 +204,15 @@ const persistRuntimeCacheToSession = (
     return;
   }
 
-  window.sessionStorage.setItem(key, JSON.stringify(cache));
+  try {
+    const serialized = JSON.stringify(cache);
+    window.sessionStorage.setItem(key, serialized);
+  } catch (error) {
+    console.warn(
+      "Failed to persist node runtime cache to sessionStorage",
+      error,
+    );
+  }
 };
 
 const clearRuntimeCacheFromSession = (key: string) => {
@@ -1227,7 +1235,17 @@ export default function WorkflowCanvas({
   }, [runtimeCacheKey]);
 
   useEffect(() => {
-    persistRuntimeCacheToSession(runtimeCacheKey, nodeRuntimeCache);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      persistRuntimeCacheToSession(runtimeCacheKey, nodeRuntimeCache);
+    }, 200);
+
+    return () => {
+      window.clearTimeout(handle);
+    };
   }, [nodeRuntimeCache, runtimeCacheKey]);
 
   useEffect(() => {
