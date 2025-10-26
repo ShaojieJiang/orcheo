@@ -492,7 +492,6 @@ type CanvasEdge = Edge<Record<string, unknown>>;
 const PERSISTED_NODE_FIELDS = new Set([
   "label",
   "description",
-  "status",
   "type",
   "isDisabled",
 ]);
@@ -605,13 +604,6 @@ const sanitizeNodeDataForPersist = (
     sanitized.description = data.description;
   }
 
-  if (
-    data?.status &&
-    ["idle", "running", "success", "error", "warning"].includes(data.status)
-  ) {
-    sanitized.status = data.status as PersistedWorkflowNode["data"]["status"];
-  }
-
   if (typeof data?.type === "string") {
     sanitized.type = data.type;
   }
@@ -624,7 +616,9 @@ const sanitizeNodeDataForPersist = (
     if (
       PERSISTED_NODE_FIELDS.has(key) ||
       key === "onOpenChat" ||
-      key === "icon"
+      key === "icon" ||
+      key === "runtime" ||
+      key === "status"
     ) {
       return;
     }

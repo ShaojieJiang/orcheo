@@ -196,4 +196,114 @@ describe("workflow-storage API integration", () => {
     expect(workflows[0]?.versions[0]?.summary.modified).toBe(0);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+
+  it("saves nodes without runtime data or status when pre-sanitized", async () => {
+    const timestamp = new Date().toISOString();
+    // This test verifies that saveWorkflow preserves node data as-is.
+    // In the real flow, workflow-canvas.tsx sanitizes nodes via toPersistedNode()
+    // before calling saveWorkflow(), which excludes the runtime and status fields.
+    const sanitizedNodes = [
+      {
+        id: "node-1",
+        type: "default",
+        position: { x: 100, y: 100 },
+        data: {
+          type: "ai",
+          label: "AI Node",
+          description: "An AI node",
+          prompt: "Hello world",
+          // Runtime data and status have already been stripped by toPersistedNode()
+        },
+      },
+    ];
+
+    const snapshot = {
+      name: "Test Workflow",
+      description: "Test workflow with sanitized data",
+      nodes: sanitizedNodes,
+      edges: [],
+    };
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-456",
+        name: snapshot.name,
+        slug: "workflow-456",
+        description: snapshot.description,
+        tags: [],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "version-1",
+        workflow_id: "workflow-456",
+        version: 1,
+        graph: { nodes: [], edges: [] },
+        metadata: {},
+        notes: "Test save",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-456",
+        name: snapshot.name,
+        slug: "workflow-456",
+        description: snapshot.description,
+        tags: [],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "version-1",
+          workflow_id: "workflow-456",
+          version: 1,
+          graph: { nodes: [], edges: [] },
+          metadata: {
+            canvas: {
+              snapshot,
+              summary: { added: 0, removed: 0, modified: 0 },
+              message: "Test save",
+            },
+          },
+          notes: "Test save",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await saveWorkflow(
+      {
+        name: snapshot.name,
+        description: snapshot.description,
+        tags: [],
+        nodes: sanitizedNodes,
+        edges: snapshot.edges,
+      },
+      { versionMessage: "Test save" },
+    );
+
+    // Get the version creation payload
+    const versionPayload = JSON.parse(
+      (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
+    );
+
+    const savedNode = versionPayload.metadata.canvas.snapshot.nodes[0];
+
+    // Verify runtime data and status are not present
+    expect(savedNode).toBeDefined();
+    expect(savedNode.data.runtime).toBeUndefined();
+    expect(savedNode.data.status).toBeUndefined();
+
+    // Verify expected data was preserved
+    expect(savedNode.data.label).toBe("AI Node");
+    expect(savedNode.data.description).toBe("An AI node");
+    expect(savedNode.data.prompt).toBe("Hello world");
+    expect(savedNode.data.type).toBe("ai");
+  });
 });
