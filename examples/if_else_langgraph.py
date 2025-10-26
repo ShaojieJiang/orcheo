@@ -34,7 +34,7 @@ class HighValueNode(TaskNode):
         start_result = results.get("start", {})
         value = start_result.get("value", 0)
         return {
-            "result": f"High value path: {value} is greater than 10",
+            "result": f"High value path: {value} is > 10",
             "path_taken": "high",
         }
 
@@ -48,7 +48,7 @@ class LowValueNode(TaskNode):
         start_result = results.get("start", {})
         value = start_result.get("value", 0)
         return {
-            "result": f"Low value path: {value} is less than or equal to 10",
+            "result": f"Low value path: {value} is <= 10",
             "path_taken": "low",
         }
 

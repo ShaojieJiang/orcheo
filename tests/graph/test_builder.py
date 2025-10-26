@@ -81,7 +81,7 @@ def test_add_conditional_edges_validation(
     graph = _DummyGraph()
 
     with pytest.raises(ValueError, match=expected_message):
-        builder._add_conditional_edges(graph, config)
+        builder._add_conditional_edges(graph, config, {})
 
 
 def test_add_conditional_edges_maps_vertices() -> None:
@@ -97,6 +97,7 @@ def test_add_conditional_edges_maps_vertices() -> None:
             "mapping": {"true": "node_a", 0: "node_b"},
             "default": "END",
         },
+        {},
     )
 
     assert graph.conditional_calls, "conditional edges should be registered"
@@ -119,6 +120,7 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
             "path": "payload.flag",
             "mapping": {"true": "node_a"},
         },
+        {},
     )
 
     _, condition = graph.conditional_calls[0]

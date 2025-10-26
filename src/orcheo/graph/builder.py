@@ -1,12 +1,30 @@
 """Graph builder module for Orcheo."""
 
 from __future__ import annotations
-from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from collections.abc import Callable, Hashable, Iterable, Mapping
+from typing import Any, cast
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.state import State
 from orcheo.nodes.registry import registry
+
+
+def _build_edge_nodes(edge_nodes: Iterable[Any]) -> dict[str, Any]:
+    """Build edge node instances from configuration."""
+    edge_node_instances: dict[str, Any] = {}
+    for edge_node in edge_nodes:
+        node_type = edge_node.get("type")
+        node_name = edge_node.get("name")
+        if not node_name:
+            msg = "Edge node must have a name"
+            raise ValueError(msg)
+        node_class = registry.get_node(str(node_type))
+        if node_class is None:
+            msg = f"Unknown edge node type: {node_type}"
+            raise ValueError(msg)
+        node_params = {k: v for k, v in edge_node.items() if k != "type"}
+        edge_node_instances[str(node_name)] = node_class(**node_params)
+    return edge_node_instances
 
 
 def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
@@ -25,6 +43,9 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
     graph = StateGraph(State)
     nodes = list(graph_json.get("nodes", []))
     edges = list(graph_json.get("edges", []))
+    edge_nodes = list(graph_json.get("edge_nodes", []))
+
+    edge_node_instances = _build_edge_nodes(edge_nodes)
 
     for node in nodes:
         node_type = node.get("type")
@@ -42,7 +63,7 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
         graph.add_edge(_normalise_vertex(source), _normalise_vertex(target))
 
     for branch in graph_json.get("conditional_edges", []):
-        _add_conditional_edges(graph, branch)
+        _add_conditional_edges(graph, branch, edge_node_instances)
 
     for parallel in graph_json.get("parallel_branches", []):
         _add_parallel_branches(graph, parallel)
@@ -79,7 +100,11 @@ def _normalise_vertex(name: str) -> Any:
     return name
 
 
-def _add_conditional_edges(graph: StateGraph, config: Mapping[str, Any]) -> None:
+def _add_conditional_edges(
+    graph: StateGraph,
+    config: Mapping[str, Any],
+    edge_node_instances: Mapping[str, Any],
+) -> None:
     """Add conditional edges enabling branching and loops."""
     source = config.get("source")
     path = config.get("path")
@@ -96,19 +121,36 @@ def _add_conditional_edges(graph: StateGraph, config: Mapping[str, Any]) -> None
         msg = f"Conditional edge requires a non-empty mapping: {config!r}"
         raise ValueError(msg)
 
-    normalised_mapping = {
-        str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
-    }
-    resolved_default = None
-    if isinstance(default_target, str) and default_target:
-        resolved_default = _normalise_vertex(default_target)
+    # Check if path refers to an edge node (decision node)
+    if path in edge_node_instances:
+        # Use the edge node instance directly as the routing function
+        edge_node = edge_node_instances[path]
+        normalised_mapping_for_edge: dict[Hashable, str] = {
+            str(key): cast(str, _normalise_vertex(str(target)))
+            for key, target in mapping.items()
+        }
+        graph.add_conditional_edges(
+            _normalise_vertex(source),
+            edge_node,
+            normalised_mapping_for_edge,
+        )
+    else:
+        # Use the path as a state path for traditional conditional routing
+        normalised_mapping_for_condition = {
+            str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
+        }
+        resolved_default = None
+        if isinstance(default_target, str) and default_target:
+            resolved_default = _normalise_vertex(default_target)
 
-    condition = _make_condition(path, normalised_mapping, resolved_default)
+        condition = _make_condition(
+            path, normalised_mapping_for_condition, resolved_default
+        )
 
-    graph.add_conditional_edges(
-        _normalise_vertex(source),
-        condition,
-    )
+        graph.add_conditional_edges(
+            _normalise_vertex(source),
+            condition,
+        )
 
 
 def _add_parallel_branches(graph: StateGraph, config: Mapping[str, Any]) -> None:
