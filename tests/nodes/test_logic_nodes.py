@@ -32,10 +32,7 @@ async def test_if_else_contains_and_membership_operations():
         ],
     )
     contains_result = await contains_node(state, RunnableConfig())
-    assert contains_result["results"]["contains_list"]["condition"] is True
-    assert (
-        contains_result["results"]["contains_list"]["conditions"][0]["result"] is True
-    )
+    assert contains_result == "true"
 
     not_contains_node = IfElseNode(
         name="no_match",
@@ -49,7 +46,7 @@ async def test_if_else_contains_and_membership_operations():
         ],
     )
     not_contains_result = await not_contains_node(state, RunnableConfig())
-    assert not_contains_result["results"]["no_match"]["condition"] is True
+    assert not_contains_result == "true"
 
     in_node = IfElseNode(
         name="key_lookup",
@@ -62,7 +59,7 @@ async def test_if_else_contains_and_membership_operations():
         ],
     )
     in_result = await in_node(state, RunnableConfig())
-    assert in_result["results"]["key_lookup"]["condition"] is True
+    assert in_result == "true"
 
     not_in_node = IfElseNode(
         name="missing_key",
@@ -75,7 +72,7 @@ async def test_if_else_contains_and_membership_operations():
         ],
     )
     not_in_result = await not_in_node(state, RunnableConfig())
-    assert not_in_result["results"]["missing_key"]["condition"] is True
+    assert not_in_result == "true"
 
     invalid_node = IfElseNode(
         name="bad_container",
@@ -115,10 +112,8 @@ async def test_if_else_node(left, operator, right, case_sensitive, expected):
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["condition"]
 
-    assert payload["condition"] is expected
-    assert payload["branch"] == ("true" if expected else "false")
+    assert result == ("true" if expected else "false")
 
 
 @pytest.mark.asyncio
@@ -142,11 +137,8 @@ async def test_if_else_node_combines_multiple_conditions():
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["multi"]
 
-    assert payload["condition"] is True
-    assert payload["branch"] == "true"
-    assert [entry["result"] for entry in payload["conditions"]] == [False, True]
+    assert result == "true"
 
 
 @pytest.mark.asyncio
@@ -511,10 +503,8 @@ async def test_if_else_node_with_and_logic_all_fail():
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["multi"]
 
-    assert payload["condition"] is False
-    assert payload["branch"] == "false"
+    assert result == "false"
 
 
 def test_coerce_branch_key_strips_whitespace():

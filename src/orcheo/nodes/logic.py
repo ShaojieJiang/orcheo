@@ -7,7 +7,7 @@ from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import TaskNode
+from orcheo.nodes.base import DecisionNode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -220,7 +220,7 @@ def _combine_condition_results(
         category="logic",
     )
 )
-class IfElseNode(TaskNode):
+class IfElseNode(DecisionNode):
     """Evaluate a boolean expression and emit the chosen branch."""
 
     conditions: list[Condition] = Field(
@@ -233,19 +233,14 @@ class IfElseNode(TaskNode):
         description="Combine conditions using logical AND/OR semantics",
     )
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the evaluated operands and the resulting branch key."""
+    async def run(self, state: State, config: RunnableConfig) -> str:
+        """Return the evaluated branch key."""
         outcome, evaluations = _combine_condition_results(
             conditions=self.conditions,
             combinator=self.condition_logic,
         )
         branch = "true" if outcome else "false"
-        return {
-            "condition": outcome,
-            "branch": branch,
-            "condition_logic": self.condition_logic,
-            "conditions": evaluations,
-        }
+        return branch
 
 
 @registry.register(

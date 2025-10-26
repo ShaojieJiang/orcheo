@@ -3,6 +3,7 @@
 from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import Send
 from pydantic import BaseModel
 from orcheo.graph.state import State
 
@@ -62,5 +63,24 @@ class TaskNode(BaseNode):
     async def run(
         self, state: State, config: RunnableConfig
     ) -> dict[str, Any] | list[Any]:
+        """Run the node."""
+        pass  # pragma: no cover
+
+
+class DecisionNode(BaseNode):
+    """Base class for all decision nodes in the flow.
+
+    Decision nodes should be used as a conditional edge in the graph, instead
+    of a regular node.
+    """
+
+    async def __call__(self, state: State, config: RunnableConfig) -> str | list[Send]:
+        """Execute the node and return the path to the next node."""
+        self.decode_variables(state)
+        path = await self.run(state, config)
+        return path
+
+    @abstractmethod
+    async def run(self, state: State, config: RunnableConfig) -> str | list[Send]:
         """Run the node."""
         pass  # pragma: no cover
