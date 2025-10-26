@@ -16,6 +16,7 @@ export interface GraphBuildResult {
   config: {
     nodes: Array<Record<string, unknown>>;
     edges: Array<{ source: string; target: string }>;
+    edge_nodes?: Array<Record<string, unknown>>;
     conditional_edges?: Array<{
       source: string;
       path: string;
@@ -97,6 +98,12 @@ const ensureUniqueName = (candidate: string, used: Set<string>): string => {
   return unique;
 };
 
+const DECISION_NODE_TYPES = new Set(["IfElseNode"]);
+
+const isTemplateExpression = (value: unknown): value is string => {
+  return typeof value === "string" && value.includes("{{");
+};
+
 const shouldSerializeNode = (node: CanvasNode): boolean => {
   const semanticTypeRaw =
     typeof node.data?.type === "string"
@@ -125,6 +132,13 @@ export const buildGraphConfigFromCanvas = async (
   const usedNames = new Set<string>();
   const branchPathByCanvasId: Record<string, string> = {};
   const defaultBranchKeyByCanvasId: Record<string, string | undefined> = {};
+  const decisionNodeNameByCanvasId: Record<string, string> = {};
+  const decisionNodeTypeByCanvasId: Record<string, string> = {};
+  const decisionSourcesByCanvasId: Record<string, Set<string>> = {};
+  const decisionOutgoingByCanvasId: Record<
+    string,
+    { mapping: Record<string, string>; defaultTarget?: string }
+  > = {};
   const warnings: string[] = [];
 
   const serializableNodes = nodes.filter(shouldSerializeNode);
@@ -171,6 +185,8 @@ export const buildGraphConfigFromCanvas = async (
   const graphNodes: Array<Record<string, unknown>> = [
     { name: "START", type: "START" },
   ];
+  const graphEdgeNodes: Array<Record<string, unknown>> = [];
+  const executableNodes: CanvasNode[] = [];
 
   for (let index = 0; index < serializableNodes.length; index += 1) {
     const node = serializableNodes[index];
@@ -185,56 +201,73 @@ export const buildGraphConfigFromCanvas = async (
         : defaultCode;
 
     const backendType = getBackendType(node) ?? "PythonCode";
+    const nodeName = canvasToGraph[node.id];
 
-    const nodeConfig: Record<string, unknown> = {
-      name: canvasToGraph[node.id],
+    const baseConfig: Record<string, unknown> = {
+      name: nodeName,
       type: backendType,
       display_name: node.data?.label ?? node.id ?? `Node ${index + 1}`,
       canvas_id: node.id,
     };
 
-    if (backendType === "PythonCode") {
-      nodeConfig.code = code;
+    if (DECISION_NODE_TYPES.has(backendType)) {
+      decisionNodeNameByCanvasId[node.id] = nodeName;
+      decisionNodeTypeByCanvasId[node.id] = backendType;
+      if (!decisionSourcesByCanvasId[node.id]) {
+        decisionSourcesByCanvasId[node.id] = new Set<string>();
+      }
+
+      const edgeNodeConfig: Record<string, unknown> = { ...baseConfig };
+
+      if (backendType === "IfElseNode") {
+        const conditionsRaw = Array.isArray(data?.conditions)
+          ? (data.conditions as Array<Record<string, unknown>>)
+          : [];
+        const normalisedConditions =
+          conditionsRaw.length > 0
+            ? conditionsRaw
+            : [
+                {
+                  left: null,
+                  operator: "equals",
+                  right: null,
+                  caseSensitive: true,
+                },
+              ];
+
+        edgeNodeConfig.conditions = normalisedConditions.map(
+          (condition, conditionIndex) => ({
+            left: condition?.left ?? null,
+            operator:
+              typeof condition?.operator === "string"
+                ? (condition.operator as string)
+                : "equals",
+            right: condition?.right ?? null,
+            case_sensitive:
+              typeof condition?.caseSensitive === "boolean"
+                ? (condition.caseSensitive as boolean)
+                : true,
+            id:
+              typeof condition?.id === "string"
+                ? condition.id
+                : `condition-${conditionIndex + 1}`,
+          }),
+        );
+        edgeNodeConfig.condition_logic =
+          typeof data?.conditionLogic === "string"
+            ? data.conditionLogic
+            : "and";
+      }
+
+      graphEdgeNodes.push(edgeNodeConfig);
+      await maybeYield();
+      continue;
     }
 
-    if (backendType === "IfElseNode") {
-      const conditionsRaw = Array.isArray(data?.conditions)
-        ? (data.conditions as Array<Record<string, unknown>>)
-        : [];
-      const normalisedConditions =
-        conditionsRaw.length > 0
-          ? conditionsRaw
-          : [
-              {
-                left: null,
-                operator: "equals",
-                right: null,
-                caseSensitive: true,
-              },
-            ];
+    const nodeConfig: Record<string, unknown> = { ...baseConfig };
 
-      nodeConfig.conditions = normalisedConditions.map(
-        (condition, conditionIndex) => ({
-          left: condition?.left ?? null,
-          operator:
-            typeof condition?.operator === "string"
-              ? (condition.operator as string)
-              : "equals",
-          right: condition?.right ?? null,
-          case_sensitive:
-            typeof condition?.caseSensitive === "boolean"
-              ? (condition.caseSensitive as boolean)
-              : true,
-          id:
-            typeof condition?.id === "string"
-              ? condition.id
-              : `condition-${conditionIndex + 1}`,
-        }),
-      );
-      nodeConfig.condition_logic =
-        typeof data?.conditionLogic === "string" ? data.conditionLogic : "and";
-      branchPathByCanvasId[node.id] =
-        `results.${canvasToGraph[node.id]}.branch`;
+    if (backendType === "PythonCode") {
+      nodeConfig.code = code;
     }
 
     if (backendType === "SwitchNode") {
@@ -349,19 +382,46 @@ export const buildGraphConfigFromCanvas = async (
             ? variable.valueType
             : "string";
         let typedValue = variable.value ?? null;
+        const isTemplate = isTemplateExpression(typedValue);
 
         if (typedValue !== null && typedValue !== undefined) {
           switch (valueType) {
             case "number":
-              typedValue = Number(typedValue);
+              if (typeof typedValue === "number") {
+                break;
+              }
+              if (isTemplate) {
+                break;
+              }
+              {
+                const parsedNumber = Number(typedValue);
+                if (Number.isFinite(parsedNumber)) {
+                  typedValue = parsedNumber;
+                } else {
+                  const message = `Variable "${variableName}" must be numeric. Keeping original value "${typedValue}".`;
+                  warnings.push(message);
+                  console.warn(message);
+                }
+              }
               break;
             case "boolean":
-              typedValue =
-                typedValue === true ||
-                typedValue === "true" ||
-                typedValue === 1;
+              if (typeof typedValue === "boolean") {
+                break;
+              }
+              if (isTemplate) {
+                break;
+              }
+              if (typeof typedValue === "string") {
+                const normalised = typedValue.trim().toLowerCase();
+                typedValue = normalised === "true";
+              } else {
+                typedValue = typedValue === 1;
+              }
               break;
             case "object":
+              if (isTemplate) {
+                break;
+              }
               if (typeof typedValue === "string") {
                 try {
                   const parsed = JSON.parse(typedValue);
@@ -387,6 +447,9 @@ export const buildGraphConfigFromCanvas = async (
               }
               break;
             case "array":
+              if (isTemplate) {
+                break;
+              }
               if (typeof typedValue === "string") {
                 try {
                   const parsed = JSON.parse(typedValue);
@@ -603,6 +666,7 @@ export const buildGraphConfigFromCanvas = async (
     }
 
     graphNodes.push(nodeConfig);
+    executableNodes.push(node);
     await maybeYield();
   }
 
@@ -615,19 +679,52 @@ export const buildGraphConfigFromCanvas = async (
   > = {};
 
   for (const edge of edges) {
-    const source = canvasToGraph[edge.source];
-    const target = canvasToGraph[edge.target];
+    const sourceId = edge.source;
+    const targetId = edge.target;
+    const source = canvasToGraph[sourceId];
+    const target = canvasToGraph[targetId];
     if (!source || !target) {
       await maybeYield();
       continue;
     }
 
-    const branchPath = branchPathByCanvasId[edge.source];
-    const defaultBranchKey = defaultBranchKeyByCanvasId[edge.source];
+    if (decisionNodeNameByCanvasId[targetId]) {
+      const sources = decisionSourcesByCanvasId[targetId] ?? new Set<string>();
+      sources.add(source);
+      decisionSourcesByCanvasId[targetId] = sources;
+      await maybeYield();
+      continue;
+    }
+
     const rawHandle =
       typeof edge.sourceHandle === "string" && edge.sourceHandle.length > 0
         ? edge.sourceHandle.trim()
         : undefined;
+
+    if (decisionNodeNameByCanvasId[sourceId]) {
+      const entry = decisionOutgoingByCanvasId[sourceId] ?? {
+        mapping: {},
+        defaultTarget: undefined,
+      };
+      const decisionType = decisionNodeTypeByCanvasId[sourceId];
+      const normalisedHandle =
+        rawHandle && decisionType === "IfElseNode"
+          ? rawHandle.toLowerCase()
+          : rawHandle;
+
+      if (normalisedHandle) {
+        entry.mapping[normalisedHandle] = target;
+      } else if (!entry.defaultTarget) {
+        entry.defaultTarget = target;
+      }
+
+      decisionOutgoingByCanvasId[sourceId] = entry;
+      await maybeYield();
+      continue;
+    }
+
+    const branchPath = branchPathByCanvasId[sourceId];
+    const defaultBranchKey = defaultBranchKeyByCanvasId[sourceId];
 
     if (branchPath) {
       const entry = conditionalEdgesMap[source] ?? {
@@ -682,7 +779,40 @@ export const buildGraphConfigFromCanvas = async (
     await maybeYield();
   }
 
-  if (serializableNodes.length === 0) {
+  for (const [decisionId, sources] of Object.entries(
+    decisionSourcesByCanvasId,
+  )) {
+    const decisionName = decisionNodeNameByCanvasId[decisionId];
+    const outgoing = decisionOutgoingByCanvasId[decisionId];
+    if (!decisionName || !outgoing) {
+      await maybeYield();
+      continue;
+    }
+    if (Object.keys(outgoing.mapping).length === 0 && !outgoing.defaultTarget) {
+      await maybeYield();
+      continue;
+    }
+    const sourceList = sources.size > 0 ? Array.from(sources) : [decisionName];
+    for (const source of sourceList) {
+      const payload: {
+        source: string;
+        path: string;
+        mapping: Record<string, string>;
+        default?: string;
+      } = {
+        source,
+        path: decisionName,
+        mapping: { ...outgoing.mapping },
+      };
+      if (outgoing.defaultTarget) {
+        payload.default = outgoing.defaultTarget;
+      }
+      conditionalEdges.push(payload);
+      await maybeYield();
+    }
+  }
+
+  if (executableNodes.length === 0) {
     graphEdges.push({ source: "START", target: "END" });
   } else {
     const incoming = new Set(graphEdges.map((edge) => edge.target));
@@ -697,7 +827,7 @@ export const buildGraphConfigFromCanvas = async (
       await maybeYield();
     }
 
-    for (const node of serializableNodes) {
+    for (const node of executableNodes) {
       const graphName = canvasToGraph[node.id];
       if (!incoming.has(graphName)) {
         graphEdges.push({ source: "START", target: graphName });
@@ -713,6 +843,10 @@ export const buildGraphConfigFromCanvas = async (
     nodes: graphNodes,
     edges: graphEdges,
   };
+
+  if (graphEdgeNodes.length > 0) {
+    config.edge_nodes = graphEdgeNodes;
+  }
 
   if (conditionalEdges.length > 0) {
     config.conditional_edges = conditionalEdges;

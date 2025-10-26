@@ -7,6 +7,18 @@ describe("buildGraphConfigFromCanvas integration", () => {
   it("serializes logic and utility nodes for backend consumption", async () => {
     const nodes: Node[] = [
       {
+        id: "prep-1",
+        type: "utility",
+        position: { x: -1, y: 0 },
+        data: {
+          label: "Prepare score",
+          backendType: "SetVariableNode",
+          variables: [
+            { name: "state.user.score", valueType: "number", value: "8" },
+          ],
+        },
+      } as Node,
+      {
         id: "if-1",
         type: "logic",
         position: { x: 0, y: 0 },
@@ -70,6 +82,11 @@ describe("buildGraphConfigFromCanvas integration", () => {
 
     const edges: Edge[] = [
       {
+        id: "prep-to-if",
+        source: "prep-1",
+        target: "if-1",
+      } as Edge,
+      {
         id: "if-to-set",
         source: "if-1",
         target: "set-1",
@@ -93,14 +110,23 @@ describe("buildGraphConfigFromCanvas integration", () => {
 
     expect(warnings).toHaveLength(0);
 
+    const prepName = canvasToGraph["prep-1"];
     const ifElseName = canvasToGraph["if-1"];
     const setVariableName = canvasToGraph["set-1"];
     const delayName = canvasToGraph["delay-1"];
 
+    expect(prepName).toBeDefined();
     expect(ifElseName).toBeDefined();
     expect(graphToCanvas[ifElseName]).toBe("if-1");
 
-    const ifElseNode = config.nodes.find((node) => node.name === ifElseName);
+    expect(config.nodes.some((node) => node.name === ifElseName)).toBe(false);
+
+    expect(config.edge_nodes).toBeDefined();
+
+    const ifElseNode = config.edge_nodes?.find(
+      (node) => node.name === ifElseName,
+    );
+    expect(ifElseNode).toBeDefined();
     expect(ifElseNode).toMatchObject({
       type: "IfElseNode",
       condition_logic: "and",
@@ -138,8 +164,8 @@ describe("buildGraphConfigFromCanvas integration", () => {
     });
 
     expect(config.conditional_edges).toContainEqual({
-      source: ifElseName,
-      path: `results.${ifElseName}.branch`,
+      source: prepName,
+      path: ifElseName,
       mapping: {
         true: setVariableName,
         false: delayName,
@@ -149,6 +175,67 @@ describe("buildGraphConfigFromCanvas integration", () => {
     expect(config.edges).toContainEqual({
       source: setVariableName,
       target: delayName,
+    });
+  });
+
+  it("preserves template expressions for typed variables", async () => {
+    const nodes: Node[] = [
+      {
+        id: "producer",
+        type: "function",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Producer",
+          backendType: "SetVariableNode",
+          variables: [{ name: "value", valueType: "number", value: 10 }],
+        },
+      } as Node,
+      {
+        id: "consumer",
+        type: "function",
+        position: { x: 1, y: 0 },
+        data: {
+          label: "Consumer",
+          backendType: "SetVariableNode",
+          variables: [
+            {
+              name: "from_template",
+              valueType: "number",
+              value: "{{ results.producer.value }}",
+            },
+          ],
+        },
+      } as Node,
+    ];
+
+    const edges: Edge[] = [
+      {
+        id: "producer-to-consumer",
+        source: "producer",
+        target: "consumer",
+      } as Edge,
+    ];
+
+    const { config, canvasToGraph } = await buildGraphConfigFromCanvas(
+      nodes,
+      edges,
+    );
+
+    const consumerName = canvasToGraph["consumer"];
+    expect(consumerName).toBeDefined();
+
+    const consumerNode = config.nodes.find(
+      (node) => node.name === consumerName,
+    );
+
+    expect(consumerNode).toBeDefined();
+    const consumerVariables = (consumerNode?.variables ?? {}) as Record<
+      string,
+      unknown
+    >;
+
+    expect(consumerVariables).toMatchObject({
+      from_template: "{{ results.producer.value }}",
     });
   });
 
