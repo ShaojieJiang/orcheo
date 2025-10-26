@@ -42,7 +42,9 @@ import type {
   StickyNoteColor,
   StickyNoteNodeData,
 } from "@features/workflow/components/nodes/sticky-note-node";
-import NodeInspector from "@features/workflow/components/panels/node-inspector";
+import NodeInspector, {
+  type NodeRuntimeCacheEntry,
+} from "@features/workflow/components/panels/node-inspector";
 import ChatInterface from "@features/shared/components/chat-interface";
 import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
 import WorkflowExecutionHistory, {
@@ -154,6 +156,63 @@ const generateNodeId = () => generateRandomId("node");
 type SubworkflowStructure = {
   nodes: PersistedWorkflowNode[];
   edges: PersistedWorkflowEdge[];
+};
+
+const NODE_RUNTIME_CACHE_PREFIX = "orcheo:workflow-runtime-cache:";
+
+const getRuntimeCacheStorageKey = (workflowId?: string | null) => {
+  return `${NODE_RUNTIME_CACHE_PREFIX}${workflowId ?? "unsaved"}`;
+};
+
+const readRuntimeCacheFromSession = (
+  key: string,
+): Record<string, NodeRuntimeCacheEntry> => {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return {};
+  }
+
+  const raw = window.sessionStorage.getItem(key);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, NodeRuntimeCacheEntry>;
+    }
+  } catch (error) {
+    console.warn(
+      "Failed to parse node runtime cache from sessionStorage",
+      error,
+    );
+  }
+
+  return {};
+};
+
+const persistRuntimeCacheToSession = (
+  key: string,
+  cache: Record<string, NodeRuntimeCacheEntry>,
+) => {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return;
+  }
+
+  if (Object.keys(cache).length === 0) {
+    window.sessionStorage.removeItem(key);
+    return;
+  }
+
+  window.sessionStorage.setItem(key, JSON.stringify(cache));
+};
+
+const clearRuntimeCacheFromSession = (key: string) => {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return;
+  }
+
+  window.sessionStorage.removeItem(key);
 };
 
 const SUBWORKFLOW_LIBRARY: Record<string, SubworkflowStructure> = {
@@ -1064,6 +1123,11 @@ export default function WorkflowCanvas({
   const websocketRef = useRef<WebSocket | null>(null);
   const isMountedRef = useRef(true);
   const latestNodesRef = useRef(nodes);
+  const runtimeCacheKey = getRuntimeCacheStorageKey(workflowId ?? null);
+  const [nodeRuntimeCache, setNodeRuntimeCache] = useState<
+    Record<string, NodeRuntimeCacheEntry>
+  >(() => readRuntimeCacheFromSession(runtimeCacheKey));
+  const previousRuntimeCacheKeyRef = useRef(runtimeCacheKey);
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1153,6 +1217,24 @@ export default function WorkflowCanvas({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (previousRuntimeCacheKeyRef.current !== runtimeCacheKey) {
+      clearRuntimeCacheFromSession(previousRuntimeCacheKeyRef.current);
+      previousRuntimeCacheKeyRef.current = runtimeCacheKey;
+      setNodeRuntimeCache(readRuntimeCacheFromSession(runtimeCacheKey));
+    }
+  }, [runtimeCacheKey]);
+
+  useEffect(() => {
+    persistRuntimeCacheToSession(runtimeCacheKey, nodeRuntimeCache);
+  }, [nodeRuntimeCache, runtimeCacheKey]);
+
+  useEffect(() => {
+    return () => {
+      clearRuntimeCacheFromSession(runtimeCacheKey);
+    };
+  }, [runtimeCacheKey]);
 
   const handleAddCredential = useCallback((credential: CredentialInput) => {
     const timestamp = new Date().toISOString();
@@ -1663,6 +1745,23 @@ export default function WorkflowCanvas({
 
       const labels = uniqueIds.map((id) => resolveNodeLabel(id));
 
+      setNodeRuntimeCache((current) => {
+        if (Object.keys(current).length === 0) {
+          return current;
+        }
+
+        let modified = false;
+        const next = { ...current };
+        for (const id of uniqueIds) {
+          if (id in next) {
+            delete next[id];
+            modified = true;
+          }
+        }
+
+        return modified ? next : current;
+      });
+
       isRestoringRef.current = true;
       recordSnapshot({ force: true });
       try {
@@ -1723,6 +1822,7 @@ export default function WorkflowCanvas({
       activeChatNodeId,
       recordSnapshot,
       resolveNodeLabel,
+      setNodeRuntimeCache,
       setActiveChatNodeId,
       setEdgesState,
       setIsChatOpen,
@@ -3751,6 +3851,13 @@ export default function WorkflowCanvas({
     setSelectedNodeId(null);
   }, []);
 
+  const handleCacheNodeRuntime = useCallback(
+    (nodeId: string, runtime: NodeRuntimeCacheEntry) => {
+      setNodeRuntimeCache((current) => ({ ...current, [nodeId]: runtime }));
+    },
+    [],
+  );
+
   // Handle node update from inspector
   const handleNodeUpdate = useCallback(
     (nodeId: string, data: Partial<NodeData>) => {
@@ -4467,6 +4574,8 @@ export default function WorkflowCanvas({
           edges={edges}
           onClose={handleCloseNodeInspector}
           onSave={handleNodeUpdate}
+          runtimeCache={nodeRuntimeCache}
+          onCacheRuntime={handleCacheNodeRuntime}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
         />
       )}

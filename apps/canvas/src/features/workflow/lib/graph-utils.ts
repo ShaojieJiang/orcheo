@@ -60,24 +60,35 @@ export function hasIncomingConnections(nodeId: string, edges: Edge[]): boolean {
  * @param upstreamNodes - Array of upstream nodes
  * @returns Object with outputs keyed by node ID
  */
+type RuntimeSummary = {
+  outputs?: unknown;
+  messages?: unknown;
+  raw?: unknown;
+};
+
 export function collectUpstreamOutputs(
   upstreamNodes: Node[],
+  runtimeCache?: Record<string, RuntimeSummary>,
 ): Record<string, unknown> {
   const outputs: Record<string, unknown> = {};
 
   for (const node of upstreamNodes) {
     // Extract runtime outputs from node data
-    const runtime = node.data?.runtime as
-      | {
-          outputs?: unknown;
-          messages?: unknown;
-          raw?: unknown;
-        }
-      | undefined;
+    const runtimeFromNode = node.data?.runtime as RuntimeSummary | undefined;
+    const cachedRuntime = runtimeCache?.[node.id];
 
-    if (runtime) {
+    const mergedRuntime =
+      runtimeFromNode || cachedRuntime
+        ? {
+            ...(runtimeFromNode ?? {}),
+            ...(cachedRuntime ?? {}),
+          }
+        : undefined;
+
+    if (mergedRuntime) {
       // Prioritize outputs, then messages, then raw
-      const nodeOutput = runtime.outputs ?? runtime.messages ?? runtime.raw;
+      const nodeOutput =
+        mergedRuntime.outputs ?? mergedRuntime.messages ?? mergedRuntime.raw;
 
       if (nodeOutput !== undefined) {
         outputs[node.id] = nodeOutput;

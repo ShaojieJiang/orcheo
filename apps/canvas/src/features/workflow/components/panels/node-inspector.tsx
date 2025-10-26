@@ -46,6 +46,14 @@ import {
 } from "@features/workflow/lib/graph-utils";
 import { writeSchemaFieldDragData } from "./schema-dnd";
 
+export type NodeRuntimeCacheEntry = {
+  inputs?: unknown;
+  outputs?: unknown;
+  messages?: unknown;
+  raw?: unknown;
+  updatedAt?: string;
+};
+
 interface NodeInspectorProps {
   node?: {
     id: string;
@@ -56,6 +64,8 @@ interface NodeInspectorProps {
   edges?: Edge[];
   onClose?: () => void;
   onSave?: (nodeId: string, data: Record<string, unknown>) => void;
+  runtimeCache?: Record<string, NodeRuntimeCacheEntry>;
+  onCacheRuntime?: (nodeId: string, runtime: NodeRuntimeCacheEntry) => void;
   className?: string;
 }
 
@@ -65,14 +75,6 @@ interface SchemaField {
   path: string;
   description?: string;
 }
-
-type NodeRuntimeData = {
-  inputs?: unknown;
-  outputs?: unknown;
-  messages?: unknown;
-  raw?: unknown;
-  updatedAt?: string;
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
@@ -84,14 +86,24 @@ export default function NodeInspector({
   edges = [],
   onClose,
   onSave,
+  runtimeCache,
+  onCacheRuntime,
   className,
 }: NodeInspectorProps) {
   const runtimeCandidate = node
     ? (node.data as Record<string, unknown>)["runtime"]
     : undefined;
-  const runtime = isRecord(runtimeCandidate)
-    ? (runtimeCandidate as NodeRuntimeData)
+  const runtimeFromNode = isRecord(runtimeCandidate)
+    ? (runtimeCandidate as NodeRuntimeCacheEntry)
     : null;
+  const cachedRuntime = node ? runtimeCache?.[node.id] : undefined;
+  const runtime =
+    runtimeFromNode || cachedRuntime
+      ? {
+          ...(runtimeFromNode ?? {}),
+          ...(cachedRuntime ?? {}),
+        }
+      : null;
   const hasRuntime = Boolean(runtime);
   const [useLiveData, setUseLiveData] = useState(hasRuntime);
   const [draftData, setDraftData] = useState<Record<string, unknown>>(() =>
@@ -105,8 +117,8 @@ export default function NodeInspector({
   }, [node, nodes, edges]);
 
   const upstreamOutputs = useMemo(() => {
-    return collectUpstreamOutputs(upstreamNodes);
-  }, [upstreamNodes]);
+    return collectUpstreamOutputs(upstreamNodes, runtimeCache);
+  }, [runtimeCache, upstreamNodes]);
 
   const hasUpstreamConnections = useMemo(() => {
     if (!node) return false;
@@ -360,6 +372,33 @@ export default function NodeInspector({
 
       if (response.status === "success") {
         setTestResult(response.result);
+        const timestamp = new Date().toISOString();
+        const cachedInputs = { ...inputs };
+        const runtimeUpdate: NodeRuntimeCacheEntry = {
+          ...(Object.keys(cachedInputs).length > 0
+            ? { inputs: cachedInputs }
+            : {}),
+          raw: response.result,
+          updatedAt: timestamp,
+        };
+
+        if (response.result !== undefined) {
+          if (isRecord(response.result)) {
+            const resultRecord = response.result as Record<string, unknown>;
+            if (resultRecord.outputs !== undefined) {
+              runtimeUpdate.outputs = resultRecord.outputs;
+            } else if (runtimeUpdate.outputs === undefined) {
+              runtimeUpdate.outputs = response.result;
+            }
+            if (resultRecord.messages !== undefined) {
+              runtimeUpdate.messages = resultRecord.messages;
+            }
+          } else {
+            runtimeUpdate.outputs = response.result;
+          }
+        }
+
+        onCacheRuntime?.(node.id, runtimeUpdate);
         toast.success("Node executed successfully");
       } else {
         setTestError(response.error || "Unknown error");
@@ -373,7 +412,15 @@ export default function NodeInspector({
     } finally {
       setIsTestingNode(false);
     }
-  }, [node, backendType, draftData, liveInputs, upstreamOutputs, useLiveData]);
+  }, [
+    node,
+    backendType,
+    draftData,
+    liveInputs,
+    upstreamOutputs,
+    useLiveData,
+    onCacheRuntime,
+  ]);
 
   useEffect(() => {
     handleSaveRef.current = handleSave;
