@@ -13,13 +13,13 @@ class _DummyGraph:
 
     def __init__(self) -> None:
         self.edges: list[tuple[Any, Any]] = []
-        self.conditional_calls: list[tuple[Any, Any]] = []
+        self.conditional_calls: list[dict[str, Any]] = []
 
     def add_edge(self, source: Any, target: Any) -> None:
         self.edges.append((source, target))
 
-    def add_conditional_edges(self, source: Any, condition: Any) -> None:
-        self.conditional_calls.append((source, condition))
+    def add_conditional_edges(self, *args: Any, **kwargs: Any) -> None:
+        self.conditional_calls.append({"args": args, "kwargs": kwargs})
 
 
 def test_build_graph_unknown_node_type() -> None:
@@ -101,7 +101,9 @@ def test_add_conditional_edges_maps_vertices() -> None:
     )
 
     assert graph.conditional_calls, "conditional edges should be registered"
-    source, condition = graph.conditional_calls[0]
+    call = graph.conditional_calls[0]
+    source, condition = call["args"][:2]
+    assert call["kwargs"] == {}
     assert source is START
     assert condition({"payload": {"flag": True}}) == "node_a"
     assert condition({"payload": {"flag": 0}}) == "node_b"
@@ -123,8 +125,35 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
         {},
     )
 
-    _, condition = graph.conditional_calls[0]
+    call = graph.conditional_calls[0]
+    condition = call["args"][1]
     assert condition({"payload": {"flag": "unknown"}}) is END
+
+
+def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
+    """Edge node conditional edges forward the default target to the graph."""
+
+    graph = _DummyGraph()
+    edge_node = object()
+
+    builder._add_conditional_edges(
+        graph,
+        {
+            "source": "START",
+            "path": "decision",
+            "mapping": {"true": "END"},
+            "default": "fallback",
+        },
+        {"decision": edge_node},
+    )
+
+    call = graph.conditional_calls[0]
+    args = call["args"]
+    assert args[0] is START
+    assert args[1] is edge_node
+    assert args[2] == {"true": END}
+    assert args[3] == "fallback"
+    assert call["kwargs"] == {}
 
 
 @pytest.mark.parametrize(

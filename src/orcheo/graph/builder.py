@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable, Hashable, Iterable, Mapping
-from typing import Any, cast
+from typing import Any
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.state import State
@@ -125,14 +125,18 @@ def _add_conditional_edges(
     if path in edge_node_instances:
         # Use the edge node instance directly as the routing function
         edge_node = edge_node_instances[path]
-        normalised_mapping_for_edge: dict[Hashable, str] = {
-            str(key): cast(str, _normalise_vertex(str(target)))
-            for key, target in mapping.items()
+        normalised_mapping_for_edge: dict[Hashable, Any] = {
+            str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
         }
+        resolved_default = None
+        if isinstance(default_target, str) and default_target:
+            resolved_default = _normalise_vertex(default_target)
+
         graph.add_conditional_edges(
             _normalise_vertex(source),
             edge_node,
             normalised_mapping_for_edge,
+            resolved_default,
         )
     else:
         # Use the path as a state path for traditional conditional routing
