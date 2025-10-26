@@ -96,16 +96,21 @@ def test_decode_variables_with_results_prefix():
     assert node.input_var == "test_from_results"
 
 
-def test_decode_variables_non_dict_traversal():
+def test_decode_variables_non_dict_traversal(caplog: pytest.LogCaptureFixture):
     """Test that traversal stops when encountering non-dict values."""
     state = State({"results": {"node1": "simple_string"}})
 
     # Try to traverse into a string (which should fail and return original)
     node = MockTaskNode(name="test", input_var="{{node1.nested.value}}")
-    node.decode_variables(state)
+    with caplog.at_level("WARNING"):
+        node.decode_variables(state)
 
     # Should return the original template string since traversal failed
     assert node.input_var == "{{node1.nested.value}}"
+    assert any(
+        "could not resolve template" in message.lower()
+        for _, _, message in caplog.record_tuples
+    )
 
 
 def test_decode_variables_nested_dict():

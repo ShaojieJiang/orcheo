@@ -1,11 +1,15 @@
 """Base node implementation for Orcheo."""
 
+import logging
 from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 from pydantic import BaseModel
 from orcheo.graph.state import State
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseNode(BaseModel):
@@ -32,6 +36,13 @@ class BaseNode(BaseModel):
                 if isinstance(result, dict):
                     result = result.get(part)
                 else:
+                    logger.warning(
+                        "Node %s could not resolve template '%s' at segment '%s'; "
+                        "leaving value unchanged.",
+                        self.name,
+                        value,
+                        part,
+                    )
                     return value  # Can't traverse, return original
             return result
         if isinstance(value, BaseModel):

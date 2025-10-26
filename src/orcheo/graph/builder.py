@@ -129,7 +129,7 @@ def _add_conditional_edges(
             str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
         }
         resolved_default = None
-        if isinstance(default_target, str) and default_target:  # pragma: no cover
+        if isinstance(default_target, str) and default_target:
             resolved_default = _normalise_vertex(default_target)
 
         graph.add_conditional_edges(

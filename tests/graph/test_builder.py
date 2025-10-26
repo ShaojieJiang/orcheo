@@ -192,6 +192,28 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
     assert call["kwargs"] == {}
 
 
+def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
+    """Edge node defaults referencing sentinels are normalised for the graph."""
+
+    graph = _DummyGraph()
+    edge_node = object()
+
+    builder._add_conditional_edges(
+        graph,
+        {
+            "source": "START",
+            "path": "decision",
+            "mapping": {"true": "END"},
+            "default": "END",
+        },
+        {"decision": edge_node},
+    )
+
+    call = graph.conditional_calls[0]
+    args = call["args"]
+    assert args[3] is END
+
+
 @pytest.mark.parametrize(
     ("config", "expected_message"),
     [
