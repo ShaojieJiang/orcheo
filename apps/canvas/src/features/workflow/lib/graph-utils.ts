@@ -64,7 +64,48 @@ type RuntimeSummary = {
   outputs?: unknown;
   messages?: unknown;
   raw?: unknown;
+  updatedAt?: string;
 };
+
+function parseUpdatedAt(timestamp?: string): number | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  const parsed = new Date(timestamp).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function mergeRuntimeSummaries(
+  runtimeFromNode?: RuntimeSummary,
+  cachedRuntime?: RuntimeSummary,
+): RuntimeSummary | undefined {
+  if (!runtimeFromNode && !cachedRuntime) {
+    return undefined;
+  }
+
+  if (!runtimeFromNode) {
+    return cachedRuntime;
+  }
+
+  if (!cachedRuntime) {
+    return runtimeFromNode;
+  }
+
+  const nodeTimestamp = parseUpdatedAt(runtimeFromNode.updatedAt);
+  const cacheTimestamp = parseUpdatedAt(cachedRuntime.updatedAt);
+
+  if (nodeTimestamp !== null && cacheTimestamp !== null) {
+    if (nodeTimestamp >= cacheTimestamp) {
+      return { ...cachedRuntime, ...runtimeFromNode };
+    }
+
+    return { ...runtimeFromNode, ...cachedRuntime };
+  }
+
+  // Fall back to preferring the live runtime when timestamps are missing or invalid.
+  return { ...cachedRuntime, ...runtimeFromNode };
+}
 
 export function collectUpstreamOutputs(
   upstreamNodes: Node[],
@@ -77,13 +118,7 @@ export function collectUpstreamOutputs(
     const runtimeFromNode = node.data?.runtime as RuntimeSummary | undefined;
     const cachedRuntime = runtimeCache?.[node.id];
 
-    const mergedRuntime =
-      runtimeFromNode || cachedRuntime
-        ? {
-            ...(runtimeFromNode ?? {}),
-            ...(cachedRuntime ?? {}),
-          }
-        : undefined;
+    const mergedRuntime = mergeRuntimeSummaries(runtimeFromNode, cachedRuntime);
 
     if (mergedRuntime) {
       // Prioritize outputs, then messages, then raw
