@@ -31,33 +31,29 @@ def build_if_else_graph(value: int = 15) -> dict[str, Any]:
             {"name": "START", "type": "START"},
             {
                 "name": "start",
-                "type": "PythonCode",
-                "code": (
-                    f"return {{'value': {value}, "
-                    f"'message': f'Starting with value: {value}'}}"
-                ),
+                "type": "SetVariableNode",
+                "variables": {
+                    "value": value,
+                    "message": f"Starting with value: {value}",
+                },
             },
             {
                 "name": "high_value",
-                "type": "PythonCode",
-                "code": (
-                    "value = state['results']['start']['value']\n"
-                    "return {\n"
-                    "    'result': f'High value path: {value} is > 10',\n"
-                    "    'path_taken': 'high',\n"
-                    "}"
-                ),
+                "type": "SetVariableNode",
+                "variables": {
+                    "value": "{{results.start.value}}",
+                    "result": "High value path: value is > 10",
+                    "path_taken": "high",
+                },
             },
             {
                 "name": "low_value",
-                "type": "PythonCode",
-                "code": (
-                    "value = state['results']['start']['value']\n"
-                    "return {\n"
-                    "    'result': f'Low value path: {value} is <= 10',\n"
-                    "    'path_taken': 'low',\n"
-                    "}"
-                ),
+                "type": "SetVariableNode",
+                "variables": {
+                    "value": "{{results.start.value}}",
+                    "result": "Low value path: value is <= 10",
+                    "path_taken": "low",
+                },
             },
             {"name": "END", "type": "END"},
         ],
@@ -131,7 +127,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     # Example 2: Low value (<= 10)
@@ -141,7 +138,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     # Example 3: Edge case (exactly 10)
@@ -151,7 +149,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     print("\n" + "=" * 60)

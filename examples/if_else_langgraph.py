@@ -7,50 +7,9 @@ The graph will check if a number is greater than 10 and route to different nodes
 from __future__ import annotations
 import asyncio
 from typing import Any
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
-from pydantic import Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import TaskNode
-from orcheo.nodes.logic import Condition, IfElseNode
-
-
-class StartNode(TaskNode):
-    """Simple node that provides an initial value."""
-
-    value: int = Field(default=15, description="The value to check")
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the initial value."""
-        return {"value": self.value, "message": f"Starting with value: {self.value}"}
-
-
-class HighValueNode(TaskNode):
-    """Node executed when value is high (> 10)."""
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Process high value."""
-        results = state.get("results", {})
-        start_result = results.get("start", {})
-        value = start_result.get("value", 0)
-        return {
-            "result": f"High value path: {value} is > 10",
-            "path_taken": "high",
-        }
-
-
-class LowValueNode(TaskNode):
-    """Node executed when value is low (<= 10)."""
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Process low value."""
-        results = state.get("results", {})
-        start_result = results.get("start", {})
-        value = start_result.get("value", 0)
-        return {
-            "result": f"Low value path: {value} is <= 10",
-            "path_taken": "low",
-        }
+from orcheo.nodes.logic import Condition, IfElseNode, SetVariableNode
 
 
 async def run_example(value: int = 15) -> dict[str, Any]:
@@ -63,7 +22,10 @@ async def run_example(value: int = 15) -> dict[str, Any]:
         The final state of the workflow
     """
     # Initialize nodes
-    start = StartNode(name="start", value=value)
+    start = SetVariableNode(
+        name="start",
+        variables={"value": value, "message": f"Starting with value: {value}"},
+    )
 
     # Create IfElseNode that checks if value > 10
     # Note: We use the value directly here for simplicity in this example
@@ -81,8 +43,22 @@ async def run_example(value: int = 15) -> dict[str, Any]:
         condition_logic="and",
     )
 
-    high_value = HighValueNode(name="high_value")
-    low_value = LowValueNode(name="low_value")
+    high_value = SetVariableNode(
+        name="high_value",
+        variables={
+            "value": "{{results.start.value}}",
+            "result": "High value path: value is > 10",
+            "path_taken": "high",
+        },
+    )
+    low_value = SetVariableNode(
+        name="low_value",
+        variables={
+            "value": "{{results.start.value}}",
+            "result": "Low value path: value is <= 10",
+            "path_taken": "low",
+        },
+    )
 
     # Build the graph
     graph = StateGraph(State)
@@ -117,7 +93,7 @@ async def run_example(value: int = 15) -> dict[str, Any]:
     workflow = graph.compile()
 
     # Initialize state
-    initial_state: State = {"results": {}}
+    initial_state: State = {"inputs": {}, "messages": [], "results": {}}
 
     # Execute the workflow
     final_state = await workflow.ainvoke(initial_state)
@@ -138,7 +114,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     # Example 2: Low value (<= 10)
@@ -148,7 +125,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     # Example 3: Edge case (exactly 10)
@@ -158,7 +136,8 @@ async def main() -> None:
         "low_value"
     )
 
-    print(f"Final result: {final_result['result']}")
+    print(f"Value: {final_result['value']}")
+    print(f"Result: {final_result['result']}")
     print(f"Path taken: {final_result['path_taken']}")
 
     print("\n" + "=" * 60)
