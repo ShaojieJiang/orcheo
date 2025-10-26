@@ -1,9 +1,11 @@
 """Graph builder module for Orcheo."""
 
 from __future__ import annotations
-from collections.abc import Callable, Hashable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.state import State
 from orcheo.nodes.registry import registry
@@ -125,18 +127,27 @@ def _add_conditional_edges(
     if path in edge_node_instances:
         # Use the edge node instance directly as the routing function
         edge_node = edge_node_instances[path]
-        normalised_mapping_for_edge: dict[Hashable, Any] = {
+        normalised_mapping_for_edge: dict[str, str] = {
             str(key): _normalise_vertex(str(target)) for key, target in mapping.items()
         }
         resolved_default = None
         if isinstance(default_target, str) and default_target:
             resolved_default = _normalise_vertex(default_target)
 
+        async def decision_router(
+            state: State,
+            config: RunnableConfig,
+            *,
+            _edge_node: Callable[[State, RunnableConfig], Any] = edge_node,
+            _mapping: Mapping[str, str] = normalised_mapping_for_edge,
+            _default: str | None = resolved_default,
+        ) -> Any:
+            result = await _edge_node(state, config)
+            return _resolve_decision_destinations(result, _mapping, _default)
+
         graph.add_conditional_edges(
             _normalise_vertex(source),
-            edge_node,
-            normalised_mapping_for_edge,
-            resolved_default,
+            decision_router,
         )
     else:
         # Use the path as a state path for traditional conditional routing
@@ -189,6 +200,33 @@ def _add_parallel_branches(graph: StateGraph, config: Mapping[str, Any]) -> None
         join_vertex = _normalise_vertex(join)
         for target in normalised_targets:
             graph.add_edge(target, join_vertex)
+
+
+def _resolve_decision_destinations(
+    result: Any,
+    mapping: Mapping[str, str],
+    default_target: str | None,
+) -> Any:
+    """Normalise decision node outputs to graph destinations."""
+
+    def convert(candidate: Any) -> Any:
+        if isinstance(candidate, Send):
+            return candidate
+        key = str(candidate)
+        destination = mapping.get(key)
+        if destination is not None:
+            return destination
+        if default_target is not None:
+            return default_target
+        msg = (
+            "Decision node returned an unmapped branch and no default was provided: "
+            f"{candidate!r}"
+        )
+        raise ValueError(msg)
+
+    if isinstance(result, Sequence) and not isinstance(result, str | bytes | Send):
+        return [convert(item) for item in result]
+    return convert(result)
 
 
 def _make_condition(

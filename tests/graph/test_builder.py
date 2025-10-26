@@ -1,6 +1,7 @@
 """Tests for the graph builder utilities."""
 
 from __future__ import annotations
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 import pytest
@@ -167,10 +168,12 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
 
 
 def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
-    """Edge node conditional edges forward the default target to the graph."""
+    """Edge node conditional edges fall back to the default target."""
+
+    async def edge_node(state: Any, config: Any) -> str:
+        return "other"
 
     graph = _DummyGraph()
-    edge_node = object()
 
     builder._add_conditional_edges(
         graph,
@@ -184,19 +187,21 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
     )
 
     call = graph.conditional_calls[0]
-    args = call["args"]
-    assert args[0] is START
-    assert args[1] is edge_node
-    assert args[2] == {"true": END}
-    assert args[3] == "fallback"
+    source, router = call["args"]
+    assert source is START
+    assert callable(router)
+    result = asyncio.run(router({}, {}))
+    assert result == "fallback"
     assert call["kwargs"] == {}
 
 
 def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
     """Edge node defaults referencing sentinels are normalised for the graph."""
 
+    async def edge_node(state: Any, config: Any) -> str:
+        return "other"
+
     graph = _DummyGraph()
-    edge_node = object()
 
     builder._add_conditional_edges(
         graph,
@@ -210,8 +215,9 @@ def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
     )
 
     call = graph.conditional_calls[0]
-    args = call["args"]
-    assert args[3] is END
+    _, router = call["args"]
+    result = asyncio.run(router({}, {}))
+    assert result is END
 
 
 @pytest.mark.parametrize(
