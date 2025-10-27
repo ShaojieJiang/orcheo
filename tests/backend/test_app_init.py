@@ -8,9 +8,20 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, Request, status
 from starlette.types import Message
-from orcheo.models import CredentialHealthStatus
+from orcheo.models import (
+    CredentialHealthStatus,
+    CredentialKind,
+    CredentialMetadata,
+    CredentialScope,
+)
+from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
-from orcheo.vault import FileCredentialVault, InMemoryCredentialVault
+from orcheo.triggers.webhook import WebhookValidationError
+from orcheo.vault import (
+    FileCredentialVault,
+    InMemoryCredentialVault,
+    WorkflowScopeError,
+)
 from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,
@@ -20,20 +31,39 @@ from orcheo_backend.app import (
     _create_vault,
     _credential_service_ref,
     _ensure_credential_service,
+    _raise_conflict,
+    _raise_not_found,
+    _raise_scope_error,
+    _raise_webhook_error,
     _settings_value,
     _vault_ref,
+    archive_workflow,
     create_app,
+    create_chatkit_session_endpoint,
+    create_workflow,
     dispatch_cron_triggers,
     dispatch_manual_runs,
     get_credential_service,
+    get_workflow,
     get_workflow_credential_health,
     invoke_webhook_trigger,
     list_workflow_execution_histories,
+    list_workflows,
+    trigger_chatkit_workflow,
+    update_workflow,
     validate_workflow_credentials,
 )
 from orcheo_backend.app.history import RunHistoryRecord
-from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas import CredentialValidationRequest
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+)
+from orcheo_backend.app.schemas import (
+    ChatKitSessionRequest,
+    ChatKitWorkflowTriggerRequest,
+    CredentialValidationRequest,
+    WorkflowCreateRequest,
+    WorkflowUpdateRequest,
+)
 
 
 def test_settings_value_returns_default_when_attribute_missing() -> None:
@@ -441,3 +471,528 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
     )
 
     assert limit_value == 100
+
+
+# Test helper functions for error raising
+
+
+def test_raise_not_found_raises_404() -> None:
+    """The _raise_not_found helper raises a 404 HTTPException."""
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_not_found("Test not found", ValueError("test"))
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Test not found"
+
+
+def test_raise_conflict_raises_409() -> None:
+    """The _raise_conflict helper raises a 409 HTTPException."""
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_conflict("Test conflict", ValueError("test"))
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Test conflict"
+
+
+def test_raise_webhook_error_raises_with_status_code() -> None:
+    """_raise_webhook_error raises HTTPException with webhook error status."""
+    webhook_error = WebhookValidationError("Invalid signature", status_code=401)
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_webhook_error(webhook_error)
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid signature"
+
+
+def test_raise_scope_error_raises_403() -> None:
+    """The _raise_scope_error helper raises a 403 HTTPException."""
+    scope_error = WorkflowScopeError("Access denied")
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_scope_error(scope_error)
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Access denied"
+
+
+# Test ChatKit endpoints
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_returns_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit session endpoint returns client secret from environment."""
+    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "test-secret-123")
+
+    request = ChatKitSessionRequest(workflow_id=None)
+    response = await create_chatkit_session_endpoint(request)
+
+    assert response.client_secret == "test-secret-123"
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_workflow_specific(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit session endpoint prefers workflow-specific secret."""
+    workflow_id = uuid4()
+    workflow_key = str(workflow_id).replace("-", "").upper()
+    monkeypatch.setenv(f"CHATKIT_CLIENT_SECRET_{workflow_key}", "workflow-secret")
+    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "generic-secret")
+
+    request = ChatKitSessionRequest(workflow_id=workflow_id)
+    response = await create_chatkit_session_endpoint(request)
+
+    assert response.client_secret == "workflow-secret"
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_missing_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit session endpoint raises 503 when secret is not configured."""
+    monkeypatch.delenv("CHATKIT_CLIENT_SECRET", raising=False)
+
+    request = ChatKitSessionRequest(workflow_id=None)
+    with pytest.raises(HTTPException) as exc_info:
+        await create_chatkit_session_endpoint(request)
+
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_creates_run() -> None:
+    """ChatKit trigger creates a workflow run."""
+    workflow_id = uuid4()
+    run_id = uuid4()
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            return WorkflowVersion(
+                id=uuid4(),
+                workflow_id=wf_id,
+                version=1,
+                graph={},
+                created_by="system",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=input_payload,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = ChatKitWorkflowTriggerRequest(
+        message="Hello",
+        client_thread_id="thread-123",
+        actor="user@example.com",
+    )
+
+    result = await trigger_chatkit_workflow(workflow_id, request, Repository())
+
+    assert result.id == run_id
+    assert result.triggered_by == "user@example.com"
+
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_missing_workflow() -> None:
+    """ChatKit trigger raises 404 for missing workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            raise WorkflowNotFoundError("not found")
+
+    request = ChatKitWorkflowTriggerRequest(
+        message="Hello",
+        client_thread_id="thread-123",
+        actor="user@example.com",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_chatkit_workflow(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_credential_health_error() -> None:
+    """ChatKit trigger handles credential health errors."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            return WorkflowVersion(
+                id=uuid4(),
+                workflow_id=wf_id,
+                version=1,
+                graph={},
+                created_by="system",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise _health_error(wf_id)
+
+    request = ChatKitWorkflowTriggerRequest(
+        message="Hello",
+        client_thread_id="thread-123",
+        actor="user@example.com",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_chatkit_workflow(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 422
+
+
+# Test workflow CRUD endpoints
+
+
+@pytest.mark.asyncio()
+async def test_list_workflows_returns_all() -> None:
+    """List workflows endpoint returns all workflows."""
+    workflow1 = Workflow(
+        id=uuid4(),
+        name="Workflow 1",
+        slug="workflow-1",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+    workflow2 = Workflow(
+        id=uuid4(),
+        name="Workflow 2",
+        slug="workflow-2",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    class Repository:
+        async def list_workflows(self):
+            return [workflow1, workflow2]
+
+    result = await list_workflows(Repository())
+
+    assert len(result) == 2
+    assert result[0].id == workflow1.id
+    assert result[1].id == workflow2.id
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_returns_new_workflow() -> None:
+    """Create workflow endpoint creates and returns new workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def create_workflow(self, name, slug, description, tags, actor):
+            return Workflow(
+                id=workflow_id,
+                name=name,
+                slug=slug,
+                description=description,
+                tags=tags,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowCreateRequest(
+        name="Test Workflow",
+        slug="test-workflow",
+        description="A test workflow",
+        tags=["test"],
+        actor="admin",
+    )
+
+    result = await create_workflow(request, Repository())
+
+    assert result.id == workflow_id
+    assert result.name == "Test Workflow"
+    assert result.slug == "test-workflow"
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_returns_workflow() -> None:
+    """Get workflow endpoint returns the requested workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_workflow(self, wf_id):
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = await get_workflow(workflow_id, Repository())
+
+    assert result.id == workflow_id
+    assert result.name == "Test Workflow"
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_not_found() -> None:
+    """Get workflow endpoint raises 404 for missing workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_workflow(self, wf_id):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow(workflow_id, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_returns_updated() -> None:
+    """Update workflow endpoint returns the updated workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def update_workflow(
+            self, wf_id, name, description, tags, is_archived, actor
+        ):
+            return Workflow(
+                id=wf_id,
+                name=name or "Test Workflow",
+                slug="test-workflow",
+                description=description,
+                tags=tags or [],
+                is_archived=is_archived,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowUpdateRequest(
+        name="Updated Workflow",
+        description="Updated description",
+        tags=["updated"],
+        is_archived=False,
+        actor="admin",
+    )
+
+    result = await update_workflow(workflow_id, request, Repository())
+
+    assert result.id == workflow_id
+    assert result.name == "Updated Workflow"
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_not_found() -> None:
+    """Update workflow endpoint raises 404 for missing workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def update_workflow(
+            self, wf_id, name, description, tags, is_archived, actor
+        ):
+            raise WorkflowNotFoundError("not found")
+
+    request = WorkflowUpdateRequest(
+        name="Updated Workflow",
+        actor="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_workflow(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_archive_workflow_returns_archived() -> None:
+    """Archive workflow endpoint returns the archived workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def archive_workflow(self, wf_id, actor):
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                is_archived=True,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = await archive_workflow(workflow_id, Repository(), actor="admin")
+
+    assert result.id == workflow_id
+    assert result.is_archived is True
+
+
+@pytest.mark.asyncio()
+async def test_archive_workflow_not_found() -> None:
+    """Archive workflow endpoint raises 404 for missing workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def archive_workflow(self, wf_id, actor):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await archive_workflow(workflow_id, Repository(), actor="admin")
+
+    assert exc_info.value.status_code == 404
+
+
+# Test credential scope inference helper
+
+
+def test_infer_credential_access_public() -> None:
+    """Credential access inference returns 'public' for unrestricted scopes."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope()
+    label = _infer_credential_access(scope)
+
+    assert label == "public"
+
+
+def test_infer_credential_access_private_single_workflow() -> None:
+    """Credential access inference returns 'private' for single workflow restriction."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope(workflow_ids=[uuid4()])
+    label = _infer_credential_access(scope)
+
+    assert label == "private"
+
+
+def test_infer_credential_access_private_single_workspace() -> None:
+    """Credential access returns 'private' for single workspace restriction."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope(workspace_ids=[uuid4()])
+    label = _infer_credential_access(scope)
+
+    assert label == "private"
+
+
+def test_infer_credential_access_private_single_role() -> None:
+    """Credential access inference returns 'private' for single role restriction."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope(roles=["admin"])
+    label = _infer_credential_access(scope)
+
+    assert label == "private"
+
+
+def test_infer_credential_access_shared_multiple_workflows() -> None:
+    """Credential access returns 'shared' for multiple workflow restrictions."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope(workflow_ids=[uuid4(), uuid4()])
+    label = _infer_credential_access(scope)
+
+    assert label == "shared"
+
+
+def test_infer_credential_access_shared_mixed_restrictions() -> None:
+    """Credential access inference returns 'shared' for mixed restrictions."""
+    from orcheo_backend.app import _infer_credential_access
+
+    scope = CredentialScope(workflow_ids=[uuid4()], roles=["admin"])
+    label = _infer_credential_access(scope)
+
+    assert label == "shared"
+
+
+# Test credential to response helper
+
+
+def test_credential_to_response_oauth() -> None:
+    """Credential to response converts OAuth metadata correctly."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import _credential_to_response
+
+    cred_id = uuid4()
+    metadata = CredentialMetadata(
+        id=cred_id,
+        name="Test OAuth Credential",
+        provider="slack",
+        kind=CredentialKind.OAUTH,
+        scope=CredentialScope(),
+        encryption=EncryptionEnvelope(
+            algorithm="aes-256-gcm",
+            key_id="test-key",
+            ciphertext="encrypted-data",
+        ),
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    response = _credential_to_response(metadata)
+
+    assert response.id == str(cred_id)
+    assert response.name == "Test OAuth Credential"
+    assert response.provider == "slack"
+    assert response.kind == "oauth"
+    assert response.secret_preview == "oauth-token"
+    assert response.access == "public"
+
+
+def test_credential_to_response_secret() -> None:
+    """Credential to response converts secret metadata correctly."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import _credential_to_response
+
+    cred_id = uuid4()
+    metadata = CredentialMetadata(
+        id=cred_id,
+        name="Test Secret",
+        provider="custom",
+        kind=CredentialKind.SECRET,
+        scope=CredentialScope(workflow_ids=[uuid4()]),
+        encryption=EncryptionEnvelope(
+            algorithm="aes-256-gcm",
+            key_id="test-key",
+            ciphertext="encrypted-data",
+        ),
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    response = _credential_to_response(metadata)
+
+    assert response.id == str(cred_id)
+    assert response.kind == "secret"
+    assert response.secret_preview == "••••••••"
+    assert response.access == "private"
+
+
+def test_credential_to_response_without_owner() -> None:
+    """Credential to response handles empty audit log."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import _credential_to_response
+
+    cred_id = uuid4()
+    metadata = CredentialMetadata(
+        id=cred_id,
+        name="Test Credential",
+        provider="slack",
+        kind=CredentialKind.OAUTH,
+        scope=CredentialScope(),
+        encryption=EncryptionEnvelope(
+            algorithm="aes-256-gcm",
+            key_id="test-key",
+            ciphertext="encrypted-data",
+        ),
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    response = _credential_to_response(metadata)
+
+    assert response.owner is None
