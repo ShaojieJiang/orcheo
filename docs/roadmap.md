@@ -64,6 +64,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
 - [ ] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
+- [ ] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
 
 ## Post v1.0 Outlook
 - [ ] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.
