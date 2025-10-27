@@ -52,12 +52,13 @@ import {
 export interface Credential {
   id: string;
   name: string;
-  type: string;
+  type?: string;
   createdAt: string;
   updatedAt: string;
-  owner: string;
+  owner?: string | null;
   access: "private" | "shared" | "public";
-  secrets: Record<string, string>;
+  secrets?: Record<string, string>;
+  status?: string;
 }
 
 export type CredentialInput = Omit<
@@ -96,11 +97,13 @@ export default function CredentialsVault({
   });
 
   // Filter credentials based on search query
-  const filteredCredentials = credentials.filter(
-    (credential) =>
-      credential.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      credential.type.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredCredentials = credentials.filter((credential) => {
+    const search = searchQuery.toLowerCase();
+    const type = credential.type?.toLowerCase() ?? "";
+    return (
+      credential.name.toLowerCase().includes(search) || type.includes(search)
+    );
+  });
 
   const toggleShowSecret = (credentialId: string) => {
     setShowSecrets((prev) => ({
@@ -334,21 +337,26 @@ export default function CredentialsVault({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{credential.type}</Badge>
+                    <Badge variant="outline">
+                      {credential.type ?? "unknown"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{getAccessBadge(credential.access)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="font-mono text-xs bg-muted px-2 py-1 rounded">
-                        {showSecrets[credential.id]
-                          ? Object.values(credential.secrets)[0]
-                          : "••••••••••••••••"}
+                        {credential.secrets
+                          ? showSecrets[credential.id]
+                            ? Object.values(credential.secrets)[0]
+                            : "••••••••••••••••"
+                          : "Not available"}
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
                         onClick={() => toggleShowSecret(credential.id)}
+                        disabled={!credential.secrets}
                       >
                         {showSecrets[credential.id] ? (
                           <EyeOff className="h-3 w-3" />
@@ -361,10 +369,14 @@ export default function CredentialsVault({
                         size="icon"
                         className="h-6 w-6"
                         onClick={() => {
+                          if (!credential.secrets) {
+                            return;
+                          }
                           navigator.clipboard.writeText(
                             Object.values(credential.secrets)[0],
                           );
                         }}
+                        disabled={!credential.secrets}
                       >
                         <Copy className="h-3 w-3" />
                       </Button>

@@ -447,6 +447,49 @@ def test_credential_template_crud_and_issuance(api_client: TestClient) -> None:
     assert get_response.status_code == 404
 
 
+def test_list_credentials_endpoint_returns_vault_entries(
+    api_client: TestClient,
+) -> None:
+    create_response = api_client.post(
+        "/api/credentials/templates",
+        json={
+            "name": "Stripe Secret",
+            "provider": "stripe",
+            "scopes": ["payments:read"],
+            "kind": "secret",
+            "actor": "tester",
+        },
+    )
+    assert create_response.status_code == 201
+    template_id = create_response.json()["id"]
+
+    issue_response = api_client.post(
+        f"/api/credentials/templates/{template_id}/issue",
+        json={
+            "template_id": template_id,
+            "secret": "sk_test_orcheo",
+            "actor": "tester",
+            "name": "Stripe Production",
+        },
+    )
+    assert issue_response.status_code == 201
+    issued = issue_response.json()
+
+    list_response = api_client.get("/api/credentials")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert isinstance(payload, list)
+    assert payload
+
+    credential = next(item for item in payload if item["id"] == issued["credential_id"])
+    assert credential["name"] == issued["name"]
+    assert credential["provider"] == issued["provider"]
+    assert credential["status"] == CredentialHealthStatus.UNKNOWN.value
+    assert credential["access"] in {"private", "shared", "public"}
+    assert credential["owner"] == "tester"
+    assert credential["secret_preview"]
+
+
 def test_credential_template_get_scope_violation_returns_403(
     api_client: TestClient,
 ) -> None:

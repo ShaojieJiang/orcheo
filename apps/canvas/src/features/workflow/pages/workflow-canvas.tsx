@@ -84,6 +84,20 @@ import {
   inferNodeIconKey,
 } from "@features/workflow/lib/node-icons";
 
+type CredentialVaultEntryResponse = {
+  id: string;
+  name: string;
+  provider: string;
+  kind: "secret" | "oauth";
+  created_at: string;
+  updated_at: string;
+  last_rotated_at: string | null;
+  owner: string | null;
+  access: "private" | "shared" | "public";
+  status: string;
+  secret_preview?: string | null;
+};
+
 // Add default style to remove ReactFlow node container
 const defaultNodeStyle = {
   background: "none",
@@ -1054,28 +1068,7 @@ export default function WorkflowCanvas({
     StoredWorkflow["versions"]
   >([]);
   const [workflowTags, setWorkflowTags] = useState<string[]>(["draft"]);
-  const [credentials, setCredentials] = useState<Credential[]>([
-    {
-      id: "cred-openai-prod",
-      name: "OpenAI Production",
-      type: "api",
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      owner: "Avery Chen",
-      access: "shared",
-      secrets: { apiKey: "sk-orcheo-prod-***" },
-    },
-    {
-      id: "cred-slack-staging",
-      name: "Slack Staging Bot",
-      type: "api",
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-      owner: "Jordan Patel",
-      access: "private",
-      secrets: { apiKey: "xoxb-staging-***" },
-    },
-  ]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [subworkflows, setSubworkflows] = useState<SubworkflowTemplate[]>([
     {
       id: "subflow-customer-onboarding",
@@ -1130,6 +1123,78 @@ export default function WorkflowCanvas({
     Record<string, NodeRuntimeCacheEntry>
   >(() => readRuntimeCacheFromSession(runtimeCacheKey));
   const previousRuntimeCacheKeyRef = useRef(runtimeCacheKey);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let isActive = true;
+
+    const fetchCredentials = async () => {
+      try {
+        const url = new URL(buildBackendHttpUrl("/api/credentials"));
+        if (workflowId) {
+          url.searchParams.set("workflow_id", workflowId);
+        }
+
+        const response = await fetch(url.toString(), {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load credentials (status ${response.status})`,
+          );
+        }
+
+        const payload =
+          (await response.json()) as CredentialVaultEntryResponse[];
+
+        if (!isActive) {
+          return;
+        }
+
+        const mapped = payload.map<Credential>((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          type: entry.provider ?? entry.kind,
+          createdAt: entry.created_at,
+          updatedAt: entry.updated_at,
+          owner: entry.owner ?? null,
+          access: entry.access,
+          secrets: entry.secret_preview
+            ? { secret: entry.secret_preview }
+            : undefined,
+          status: entry.status,
+        }));
+
+        setCredentials((previous) => {
+          const remoteIds = new Set(mapped.map((item) => item.id));
+          const localOnly = previous.filter((item) => !remoteIds.has(item.id));
+          return [...mapped, ...localOnly];
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.error("Failed to load credential vault", error);
+        toast({
+          title: "Unable to load credentials",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An unexpected error occurred while loading credentials.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchCredentials();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [workflowId]);
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1250,11 +1315,12 @@ export default function WorkflowCanvas({
 
   const handleAddCredential = useCallback((credential: CredentialInput) => {
     const timestamp = new Date().toISOString();
-    const owner = credential.owner ?? "Avery Chen";
+    const owner = credential.owner ?? "system";
 
     const credentialRecord: Credential = {
       ...credential,
       owner,
+      status: credential.status ?? "unknown",
       id: generateRandomId("cred"),
       createdAt: timestamp,
       updatedAt: timestamp,

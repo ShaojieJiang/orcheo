@@ -9,7 +9,7 @@ import secrets
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, NoReturn, TypeVar, cast
+from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
@@ -40,6 +40,7 @@ from orcheo.models import (
     CredentialHealthStatus,
     CredentialIssuancePolicy,
     CredentialKind,
+    CredentialMetadata,
     CredentialScope,
     CredentialTemplate,
     OAuthTokenSecrets,
@@ -93,6 +94,7 @@ from orcheo_backend.app.schemas import (
     CredentialTemplateResponse,
     CredentialTemplateUpdateRequest,
     CredentialValidationRequest,
+    CredentialVaultEntryResponse,
     CronDispatchRequest,
     GovernanceAlertResponse,
     NodeExecutionRequest,
@@ -456,6 +458,49 @@ def _template_to_response(template: CredentialTemplate) -> CredentialTemplateRes
         issuance_policy=_policy_to_payload(template.issuance_policy),
         created_at=template.created_at,
         updated_at=template.updated_at,
+    )
+
+
+def _infer_credential_access(
+    scope: CredentialScope,
+) -> Literal["private", "shared", "public"]:
+    """Return a simplified access label derived from the scope."""
+    if scope.is_unrestricted():
+        return "public"
+
+    restriction_count = (
+        len(scope.workflow_ids) + len(scope.workspace_ids) + len(scope.roles)
+    )
+
+    if restriction_count <= 1:
+        return "private"
+
+    return "shared"
+
+
+def _credential_to_response(
+    metadata: CredentialMetadata,
+) -> CredentialVaultEntryResponse:
+    """Convert stored credential metadata into an API response payload."""
+    owner = metadata.audit_log[0].actor if metadata.audit_log else None
+    secret_preview: str | None
+    if metadata.kind is CredentialKind.OAUTH:
+        secret_preview = "oauth-token"
+    else:
+        secret_preview = "••••••••"
+
+    return CredentialVaultEntryResponse(
+        id=str(metadata.id),
+        name=metadata.name,
+        provider=metadata.provider,
+        kind=metadata.kind,
+        created_at=metadata.created_at,
+        updated_at=metadata.updated_at,
+        last_rotated_at=metadata.last_rotated_at,
+        owner=owner,
+        access=_infer_credential_access(metadata.scope),
+        status=metadata.health.status,
+        secret_preview=secret_preview,
     )
 
 
@@ -921,6 +966,20 @@ async def create_workflow_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.get(
+    "/credentials",
+    response_model=list[CredentialVaultEntryResponse],
+)
+def list_credentials(
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> list[CredentialVaultEntryResponse]:
+    """Return credential metadata visible to the caller."""
+    context = _context_from_workflow(workflow_id)
+    credentials = vault.list_credentials(context=context)
+    return [_credential_to_response(metadata) for metadata in credentials]
 
 
 @_http_router.get(
