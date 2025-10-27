@@ -21,10 +21,6 @@ import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 
-import CredentialsVault, {
-  type Credential,
-  type CredentialInput,
-} from "../dialogs/credentials-vault";
 import type { ValidationError } from "../canvas/connection-validator";
 
 export interface SubworkflowTemplate {
@@ -39,9 +35,6 @@ export interface SubworkflowTemplate {
 }
 
 export interface WorkflowGovernancePanelProps {
-  credentials: Credential[];
-  onAddCredential: (credential: CredentialInput) => void;
-  onDeleteCredential: (id: string) => void;
   subworkflows: SubworkflowTemplate[];
   onCreateSubworkflow: () => void;
   onInsertSubworkflow: (subworkflow: SubworkflowTemplate) => void;
@@ -62,9 +55,6 @@ const STATUS_LABEL: Record<SubworkflowTemplate["status"], string> = {
 };
 
 export default function WorkflowGovernancePanel({
-  credentials,
-  onAddCredential,
-  onDeleteCredential,
   subworkflows,
   onCreateSubworkflow,
   onInsertSubworkflow,
@@ -98,12 +88,6 @@ export default function WorkflowGovernancePanel({
 
   return (
     <div className={cn("space-y-6", className)}>
-      <CredentialsVault
-        credentials={credentials}
-        onAddCredential={onAddCredential}
-        onDeleteCredential={onDeleteCredential}
-      />
-
       <Card>
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>

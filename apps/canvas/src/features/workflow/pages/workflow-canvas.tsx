@@ -4294,6 +4294,9 @@ export default function WorkflowCanvas({
           name: workflowName,
           path: ["Projects", "Workflows", workflowName],
         }}
+        credentials={credentials}
+        onAddCredential={handleAddCredential}
+        onDeleteCredential={handleDeleteCredential}
       />
 
       <WorkflowTabs
@@ -4407,9 +4410,6 @@ export default function WorkflowCanvas({
           <TabsContent value="readiness" className="m-0 p-4 overflow-auto">
             <div className="mx-auto max-w-5xl pb-12">
               <WorkflowGovernancePanel
-                credentials={credentials}
-                onAddCredential={handleAddCredential}
-                onDeleteCredential={handleDeleteCredential}
                 subworkflows={subworkflows}
                 onCreateSubworkflow={handleCreateSubworkflow}
                 onInsertSubworkflow={handleInsertSubworkflow}
