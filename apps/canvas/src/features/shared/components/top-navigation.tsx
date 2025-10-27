@@ -348,9 +348,10 @@ export default function TopNavigation({
               }}
               className="cursor-pointer"
             >
-              <Key className="mr-2 h-4 w-4" />
-
-              <span>Credential Vault</span>
+              <div className="flex items-center w-full">
+                <Key className="mr-2 h-4 w-4" />
+                <span>Credential Vault</span>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuItem>
               <Link to="/help-support" className="flex items-center w-full">
