@@ -78,25 +78,12 @@ import type {
   Credential,
   CredentialInput,
 } from "@features/workflow/components/dialogs/credentials-vault";
+import type { CredentialVaultEntryResponse } from "@features/workflow/types/credential-vault";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
 import {
   getNodeIcon,
   inferNodeIconKey,
 } from "@features/workflow/lib/node-icons";
-
-type CredentialVaultEntryResponse = {
-  id: string;
-  name: string;
-  provider: string;
-  kind: "secret" | "oauth";
-  created_at: string;
-  updated_at: string;
-  last_rotated_at: string | null;
-  owner: string | null;
-  access: "private" | "shared" | "public";
-  status: string;
-  secret_preview?: string | null;
-};
 
 // Add default style to remove ReactFlow node container
 const defaultNodeStyle = {
@@ -1069,6 +1056,7 @@ export default function WorkflowCanvas({
   >([]);
   const [workflowTags, setWorkflowTags] = useState<string[]>(["draft"]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [isCredentialsLoading, setIsCredentialsLoading] = useState(true);
   const [subworkflows, setSubworkflows] = useState<SubworkflowTemplate[]>([
     {
       id: "subflow-customer-onboarding",
@@ -1129,6 +1117,11 @@ export default function WorkflowCanvas({
     let isActive = true;
 
     const fetchCredentials = async () => {
+      if (!isActive) {
+        return;
+      }
+
+      setIsCredentialsLoading(true);
       try {
         const url = new URL(buildBackendHttpUrl("/api/credentials"));
         if (workflowId) {
@@ -1185,6 +1178,10 @@ export default function WorkflowCanvas({
               : "An unexpected error occurred while loading credentials.",
           variant: "destructive",
         });
+      } finally {
+        if (isActive) {
+          setIsCredentialsLoading(false);
+        }
       }
     };
 
@@ -4361,6 +4358,7 @@ export default function WorkflowCanvas({
           path: ["Projects", "Workflows", workflowName],
         }}
         credentials={credentials}
+        isCredentialsLoading={isCredentialsLoading}
         onAddCredential={handleAddCredential}
         onDeleteCredential={handleDeleteCredential}
       />

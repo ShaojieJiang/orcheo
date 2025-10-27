@@ -47,7 +47,12 @@ import {
   Lock,
   Users,
   Shield,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  Circle,
 } from "lucide-react";
+import type { CredentialVaultHealthStatus } from "@features/workflow/types/credential-vault";
 
 export interface Credential {
   id: string;
@@ -58,7 +63,7 @@ export interface Credential {
   owner?: string | null;
   access: "private" | "shared" | "public";
   secrets?: Record<string, string>;
-  status?: string;
+  status?: CredentialVaultHealthStatus;
 }
 
 export type CredentialInput = Omit<
@@ -70,6 +75,7 @@ export type CredentialInput = Omit<
 
 interface CredentialsVaultProps {
   credentials?: Credential[];
+  isLoading?: boolean;
   onAddCredential?: (credential: CredentialInput) => void;
   onDeleteCredential?: (id: string) => void;
   className?: string;
@@ -77,6 +83,7 @@ interface CredentialsVaultProps {
 
 export default function CredentialsVault({
   credentials = [],
+  isLoading = false,
   onAddCredential,
   onDeleteCredential,
   className,
@@ -162,6 +169,44 @@ export default function CredentialsVault({
 
       default:
         return null;
+    }
+  };
+
+  const getStatusBadge = (status: CredentialVaultHealthStatus | undefined) => {
+    const normalized = status ?? "unknown";
+
+    switch (normalized) {
+      case "healthy":
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800"
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Healthy
+          </Badge>
+        );
+      case "unhealthy":
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Unhealthy
+          </Badge>
+        );
+      case "unknown":
+      default:
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-muted text-muted-foreground border-border"
+          >
+            <Circle className="h-3 w-3" />
+            Unknown
+          </Badge>
+        );
     }
   };
 
@@ -309,15 +354,26 @@ export default function CredentialsVault({
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Access</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Secret</TableHead>
               <TableHead>Last Updated</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredCredentials.length === 0 ? (
+            {isLoading && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="py-6 text-center">
+                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading credentials...
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+            {!isLoading && filteredCredentials.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
                   <div className="text-muted-foreground">
                     No credentials found
                     {searchQuery && (
@@ -342,6 +398,7 @@ export default function CredentialsVault({
                     </Badge>
                   </TableCell>
                   <TableCell>{getAccessBadge(credential.access)}</TableCell>
+                  <TableCell>{getStatusBadge(credential.status)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="font-mono text-xs bg-muted px-2 py-1 rounded">

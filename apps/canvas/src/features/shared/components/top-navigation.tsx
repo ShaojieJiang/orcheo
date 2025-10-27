@@ -47,6 +47,7 @@ interface TopNavigationProps {
   };
   className?: string;
   credentials?: Credential[];
+  isCredentialsLoading?: boolean;
   onAddCredential?: (credential: CredentialInput) => void;
   onDeleteCredential?: (id: string) => void;
 }
@@ -55,6 +56,7 @@ export default function TopNavigation({
   currentWorkflow,
   className,
   credentials = [],
+  isCredentialsLoading = false,
   onAddCredential,
   onDeleteCredential,
 }: TopNavigationProps) {
@@ -372,6 +374,7 @@ export default function TopNavigation({
           <DialogContent className="max-w-4xl">
             <CredentialsVault
               credentials={credentials}
+              isLoading={isCredentialsLoading}
               onAddCredential={onAddCredential}
               onDeleteCredential={onDeleteCredential}
             />
