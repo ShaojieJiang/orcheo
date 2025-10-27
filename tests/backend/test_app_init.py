@@ -996,3 +996,1793 @@ def test_credential_to_response_without_owner() -> None:
     response = _credential_to_response(metadata)
 
     assert response.owner is None
+
+
+# Test workflow version endpoints
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_version_success() -> None:
+    """Create workflow version endpoint creates and returns new version."""
+    from orcheo_backend.app import create_workflow_version
+    from orcheo_backend.app.schemas import WorkflowVersionCreateRequest
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=1,
+                graph=graph,
+                created_by=created_by,
+                notes=notes,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowVersionCreateRequest(
+        graph={"nodes": []},
+        metadata={"test": "data"},
+        notes="Test version",
+        created_by="admin",
+    )
+
+    result = await create_workflow_version(workflow_id, request, Repository())
+
+    assert result.id == version_id
+    assert result.workflow_id == workflow_id
+    assert result.version == 1
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_version_not_found() -> None:
+    """Create workflow version raises 404 for missing workflow."""
+    from orcheo_backend.app import create_workflow_version
+    from orcheo_backend.app.schemas import WorkflowVersionCreateRequest
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+            raise WorkflowNotFoundError("not found")
+
+    request = WorkflowVersionCreateRequest(
+        graph={"nodes": []},
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_version(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_success() -> None:
+    """Ingest workflow version creates version from script."""
+    from orcheo_backend.app import ingest_workflow_version
+    from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=1,
+                graph=graph,
+                created_by=created_by,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    script_code = (
+        "from langgraph.graph import StateGraph\n"
+        "graph = StateGraph(dict)\n"
+        "graph.add_node('test', lambda x: x)"
+    )
+    request = WorkflowVersionIngestRequest(
+        script=script_code,
+        entrypoint="graph",
+        created_by="admin",
+    )
+
+    result = await ingest_workflow_version(workflow_id, request, Repository())
+
+    assert result.id == version_id
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_script_error() -> None:
+    """Ingest workflow version handles script ingestion errors."""
+    from orcheo_backend.app import ingest_workflow_version
+    from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+            pass
+
+    request = WorkflowVersionIngestRequest(
+        script="invalid python code {",
+        entrypoint="graph",
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_not_found() -> None:
+    """Ingest workflow version raises 404 for missing workflow."""
+    from orcheo_backend.app import ingest_workflow_version
+    from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+            raise WorkflowNotFoundError("not found")
+
+    script_code = (
+        "from langgraph.graph import StateGraph\n"
+        "graph = StateGraph(dict)\n"
+        "graph.add_node('test', lambda x: x)"
+    )
+    request = WorkflowVersionIngestRequest(
+        script=script_code,
+        entrypoint="graph",
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_versions_success() -> None:
+    """List workflow versions endpoint returns versions."""
+    from orcheo_backend.app import list_workflow_versions
+
+    workflow_id = uuid4()
+    version1_id = uuid4()
+    version2_id = uuid4()
+
+    class Repository:
+        async def list_versions(self, wf_id):
+            return [
+                WorkflowVersion(
+                    id=version1_id,
+                    workflow_id=wf_id,
+                    version=1,
+                    graph={},
+                    created_by="admin",
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                WorkflowVersion(
+                    id=version2_id,
+                    workflow_id=wf_id,
+                    version=2,
+                    graph={},
+                    created_by="admin",
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    result = await list_workflow_versions(workflow_id, Repository())
+
+    assert len(result) == 2
+    assert result[0].id == version1_id
+    assert result[1].id == version2_id
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_versions_not_found() -> None:
+    """List workflow versions raises 404 for missing workflow."""
+    from orcheo_backend.app import list_workflow_versions
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def list_versions(self, wf_id):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await list_workflow_versions(workflow_id, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_success() -> None:
+    """Get workflow version endpoint returns specific version."""
+    from orcheo_backend.app import get_workflow_version
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=version_number,
+                graph={},
+                created_by="admin",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = await get_workflow_version(workflow_id, 1, Repository())
+
+    assert result.id == version_id
+    assert result.version == 1
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_workflow_not_found() -> None:
+    """Get workflow version raises 404 for missing workflow."""
+    from orcheo_backend.app import get_workflow_version
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version(workflow_id, 1, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_version_not_found() -> None:
+    """Get workflow version raises 404 for missing version."""
+    from orcheo_backend.app import get_workflow_version
+    from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowVersionNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version(workflow_id, 1, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_success() -> None:
+    """Diff workflow versions endpoint returns diff."""
+    from orcheo_backend.app import diff_workflow_versions
+
+    workflow_id = uuid4()
+
+    class Diff:
+        base_version = 1
+        target_version = 2
+        diff = ["+ node1", "- node2"]
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            return Diff()
+
+    result = await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert result.base_version == 1
+    assert result.target_version == 2
+    assert result.diff == ["+ node1", "- node2"]
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_workflow_not_found() -> None:
+    """Diff workflow versions raises 404 for missing workflow."""
+    from orcheo_backend.app import diff_workflow_versions
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_version_not_found() -> None:
+    """Diff workflow versions raises 404 for missing version."""
+    from orcheo_backend.app import diff_workflow_versions
+    from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            raise WorkflowVersionNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+# Test workflow run endpoints
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_success() -> None:
+    """Create workflow run endpoint creates and returns new run."""
+    from orcheo_backend.app import create_workflow_run
+    from orcheo_backend.app.schemas import WorkflowRunCreateRequest
+
+    workflow_id = uuid4()
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=input_payload,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={"key": "value"},
+    )
+
+    result = await create_workflow_run(workflow_id, request, Repository(), None)
+
+    assert result.id == run_id
+    assert result.triggered_by == "user@example.com"
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_workflow_not_found() -> None:
+    """Create workflow run raises 404 for missing workflow."""
+    from orcheo_backend.app import create_workflow_run
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+    from orcheo_backend.app.schemas import WorkflowRunCreateRequest
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise WorkflowNotFoundError("not found")
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_run(workflow_id, request, Repository(), None)
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_version_not_found() -> None:
+    """Create workflow run raises 404 for missing version."""
+    from orcheo_backend.app import create_workflow_run
+    from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+    from orcheo_backend.app.schemas import WorkflowRunCreateRequest
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise WorkflowVersionNotFoundError("not found")
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_run(workflow_id, request, Repository(), None)
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_credential_health_error() -> None:
+    """Create workflow run handles credential health errors."""
+    from orcheo_backend.app import create_workflow_run
+    from orcheo_backend.app.schemas import WorkflowRunCreateRequest
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise _health_error(wf_id)
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_run(workflow_id, request, Repository(), None)
+
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_runs_success() -> None:
+    """List workflow runs endpoint returns runs."""
+    from orcheo_backend.app import list_workflow_runs
+
+    workflow_id = uuid4()
+    run1_id = uuid4()
+    run2_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def list_runs_for_workflow(self, wf_id):
+            return [
+                WorkflowRun(
+                    id=run1_id,
+                    workflow_version_id=version_id,
+                    triggered_by="user1",
+                    input_payload={},
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                WorkflowRun(
+                    id=run2_id,
+                    workflow_version_id=version_id,
+                    triggered_by="user2",
+                    input_payload={},
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    result = await list_workflow_runs(workflow_id, Repository())
+
+    assert len(result) == 2
+    assert result[0].id == run1_id
+    assert result[1].id == run2_id
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_runs_not_found() -> None:
+    """List workflow runs raises 404 for missing workflow."""
+    from orcheo_backend.app import list_workflow_runs
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def list_runs_for_workflow(self, wf_id):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await list_workflow_runs(workflow_id, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_run_success() -> None:
+    """Get workflow run endpoint returns specific run."""
+    from orcheo_backend.app import get_workflow_run
+
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def get_run(self, run_id):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=version_id,
+                triggered_by="user",
+                input_payload={},
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = await get_workflow_run(run_id, Repository())
+
+    assert result.id == run_id
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_run_not_found() -> None:
+    """Get workflow run raises 404 for missing run."""
+    from orcheo_backend.app import get_workflow_run
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+
+    run_id = uuid4()
+
+    class Repository:
+        async def get_run(self, run_id):
+            raise WorkflowRunNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_run(run_id, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+# Test execution history endpoints
+
+
+@pytest.mark.asyncio()
+async def test_get_execution_history_success() -> None:
+    """Get execution history endpoint returns history."""
+    from orcheo_backend.app import get_execution_history
+
+    execution_id = "test-exec-123"
+
+    class HistoryStore:
+        async def get_history(self, exec_id):
+            return RunHistoryRecord(
+                workflow_id=str(uuid4()),
+                execution_id=exec_id,
+                inputs={"test": "data"},
+            )
+
+    result = await get_execution_history(execution_id, HistoryStore())
+
+    assert result.execution_id == execution_id
+
+
+@pytest.mark.asyncio()
+async def test_get_execution_history_not_found() -> None:
+    """Get execution history raises 404 for missing execution."""
+    from orcheo_backend.app import get_execution_history
+    from orcheo_backend.app.history import RunHistoryNotFoundError
+
+    execution_id = "missing-exec"
+
+    class HistoryStore:
+        async def get_history(self, exec_id):
+            raise RunHistoryNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_execution_history(execution_id, HistoryStore())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_replay_execution_success() -> None:
+    """Replay execution endpoint returns sliced history."""
+    from orcheo_backend.app import replay_execution
+    from orcheo_backend.app.history import RunHistoryStep
+    from orcheo_backend.app.schemas import RunReplayRequest
+
+    execution_id = "test-exec-123"
+
+    class HistoryStore:
+        async def get_history(self, exec_id):
+            record = RunHistoryRecord(
+                workflow_id=str(uuid4()),
+                execution_id=exec_id,
+                inputs={"test": "data"},
+            )
+            record.steps = [
+                RunHistoryStep(index=0, payload={"step": 1}),
+                RunHistoryStep(index=1, payload={"step": 2}),
+                RunHistoryStep(index=2, payload={"step": 3}),
+            ]
+            return record
+
+    request = RunReplayRequest(from_step=1)
+    result = await replay_execution(execution_id, request, HistoryStore())
+
+    assert result.execution_id == execution_id
+    assert len(result.steps) == 2
+    assert result.steps[0].index == 1
+
+
+@pytest.mark.asyncio()
+async def test_replay_execution_not_found() -> None:
+    """Replay execution raises 404 for missing execution."""
+    from orcheo_backend.app import replay_execution
+    from orcheo_backend.app.history import RunHistoryNotFoundError
+    from orcheo_backend.app.schemas import RunReplayRequest
+
+    execution_id = "missing-exec"
+
+    class HistoryStore:
+        async def get_history(self, exec_id):
+            raise RunHistoryNotFoundError("not found")
+
+    request = RunReplayRequest(from_step=0)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await replay_execution(execution_id, request, HistoryStore())
+
+    assert exc_info.value.status_code == 404
+
+
+# Test credential endpoints
+
+
+def test_list_credentials_success() -> None:
+    """List credentials endpoint returns credentials."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import list_credentials
+
+    cred1_id = uuid4()
+    cred2_id = uuid4()
+
+    class Vault:
+        def list_credentials(self, context=None):
+            return [
+                CredentialMetadata(
+                    id=cred1_id,
+                    name="Cred 1",
+                    provider="slack",
+                    kind=CredentialKind.OAUTH,
+                    scope=CredentialScope(),
+                    encryption=EncryptionEnvelope(
+                        algorithm="aes-256-gcm",
+                        key_id="test-key",
+                        ciphertext="encrypted",
+                    ),
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                CredentialMetadata(
+                    id=cred2_id,
+                    name="Cred 2",
+                    provider="github",
+                    kind=CredentialKind.SECRET,
+                    scope=CredentialScope(),
+                    encryption=EncryptionEnvelope(
+                        algorithm="aes-256-gcm",
+                        key_id="test-key",
+                        ciphertext="encrypted",
+                    ),
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    result = list_credentials(Vault())
+
+    assert len(result) == 2
+    assert result[0].id == str(cred1_id)
+    assert result[1].id == str(cred2_id)
+
+
+def test_list_credentials_with_workflow_context() -> None:
+    """List credentials uses workflow context for filtering."""
+    from orcheo_backend.app import list_credentials
+
+    workflow_id = uuid4()
+    context_received = None
+
+    class Vault:
+        def list_credentials(self, context=None):
+            nonlocal context_received
+            context_received = context
+            return []
+
+    list_credentials(Vault(), workflow_id=workflow_id)
+
+    assert context_received is not None
+    assert context_received.workflow_id == workflow_id
+
+
+def test_create_credential_success() -> None:
+    """Create credential endpoint creates and returns credential."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import create_credential
+    from orcheo_backend.app.schemas import CredentialCreateRequest
+
+    cred_id = uuid4()
+
+    class Vault:
+        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+            return CredentialMetadata(
+                id=cred_id,
+                name=name,
+                provider=provider,
+                kind=kind,
+                scope=scope or CredentialScope(),
+                encryption=EncryptionEnvelope(
+                    algorithm="aes-256-gcm",
+                    key_id="test-key",
+                    ciphertext="encrypted",
+                ),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialCreateRequest(
+        name="Test Cred",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="test-secret",
+        actor="user",
+        access="public",
+        kind=CredentialKind.SECRET,
+    )
+
+    result = create_credential(request, Vault())
+
+    assert result.id == str(cred_id)
+    assert result.name == "Test Cred"
+
+
+def test_create_credential_validation_error() -> None:
+    """Create credential handles validation errors."""
+    from orcheo_backend.app import create_credential
+    from orcheo_backend.app.schemas import CredentialCreateRequest
+
+    class Vault:
+        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+            raise ValueError("Invalid credential")
+
+    request = CredentialCreateRequest(
+        name="Test Cred",
+        provider="slack",
+        scopes=[],
+        secret="test-secret",
+        actor="user",
+        access="public",
+        kind=CredentialKind.SECRET,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_credential(request, Vault())
+
+    assert exc_info.value.status_code == 422
+
+
+def test_create_credential_access_override() -> None:
+    """Create credential overrides access when request differs from inferred."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import create_credential
+    from orcheo_backend.app.schemas import CredentialCreateRequest
+
+    cred_id = uuid4()
+    workflow_id = uuid4()
+
+    class Vault:
+        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+            # Return credential with workflow scope (would be "private")
+            return CredentialMetadata(
+                id=cred_id,
+                name=name,
+                provider=provider,
+                kind=kind,
+                scope=CredentialScope(workflow_ids=[workflow_id]),
+                encryption=EncryptionEnvelope(
+                    algorithm="aes-256-gcm",
+                    key_id="test-key",
+                    ciphertext="encrypted",
+                ),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    # Request with "shared" access but vault will create "private"
+    request = CredentialCreateRequest(
+        name="Test Cred",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="test-secret",
+        actor="user",
+        access="shared",
+        kind=CredentialKind.SECRET,
+    )
+
+    result = create_credential(request, Vault())
+
+    # Response should use the requested access, not the inferred one
+    assert result.access == "shared"
+
+
+def test_delete_credential_success() -> None:
+    """Delete credential endpoint deletes credential."""
+    from orcheo_backend.app import delete_credential
+
+    cred_id = uuid4()
+    deleted_id = None
+
+    class Vault:
+        def delete_credential(self, credential_id, context=None):
+            nonlocal deleted_id
+            deleted_id = credential_id
+
+    response = delete_credential(cred_id, Vault())
+
+    assert response.status_code == 204
+    assert deleted_id == cred_id
+
+
+def test_delete_credential_not_found() -> None:
+    """Delete credential raises 404 for missing credential."""
+    from orcheo.vault import CredentialNotFoundError
+    from orcheo_backend.app import delete_credential
+
+    cred_id = uuid4()
+
+    class Vault:
+        def delete_credential(self, credential_id, context=None):
+            raise CredentialNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_credential(cred_id, Vault())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_delete_credential_scope_error() -> None:
+    """Delete credential raises 403 for scope violations."""
+    from orcheo_backend.app import delete_credential
+
+    cred_id = uuid4()
+
+    class Vault:
+        def delete_credential(self, credential_id, context=None):
+            raise WorkflowScopeError("Access denied")
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_credential(cred_id, Vault())
+
+    assert exc_info.value.status_code == 403
+
+
+# Test helper functions
+
+
+def test_scope_from_access_private() -> None:
+    """_scope_from_access returns workflow scope for private access."""
+    from orcheo_backend.app import _scope_from_access
+
+    workflow_id = uuid4()
+    scope = _scope_from_access("private", workflow_id)
+
+    assert scope is not None
+    assert workflow_id in scope.workflow_ids
+
+
+def test_scope_from_access_shared_with_workflow() -> None:
+    """_scope_from_access returns workflow scope for shared with workflow."""
+    from orcheo_backend.app import _scope_from_access
+
+    workflow_id = uuid4()
+    scope = _scope_from_access("shared", workflow_id)
+
+    assert scope is not None
+    assert workflow_id in scope.workflow_ids
+
+
+def test_scope_from_access_shared_without_workflow() -> None:
+    """_scope_from_access returns unrestricted for shared without workflow."""
+    from orcheo_backend.app import _scope_from_access
+
+    scope = _scope_from_access("shared", None)
+
+    assert scope is not None
+    assert scope.is_unrestricted()
+
+
+def test_scope_from_access_public() -> None:
+    """_scope_from_access returns unrestricted scope for public access."""
+    from orcheo_backend.app import _scope_from_access
+
+    scope = _scope_from_access("public", None)
+
+    assert scope is not None
+    assert scope.is_unrestricted()
+
+
+def test_context_from_workflow_with_id() -> None:
+    """_context_from_workflow creates context with workflow ID."""
+    from orcheo_backend.app import _context_from_workflow
+
+    workflow_id = uuid4()
+    context = _context_from_workflow(workflow_id)
+
+    assert context is not None
+    assert context.workflow_id == workflow_id
+
+
+def test_context_from_workflow_without_id() -> None:
+    """_context_from_workflow returns None without workflow ID."""
+    from orcheo_backend.app import _context_from_workflow
+
+    context = _context_from_workflow(None)
+
+    assert context is None
+
+
+def test_history_to_response_with_steps() -> None:
+    """_history_to_response converts record with steps to response."""
+    from orcheo_backend.app import _history_to_response
+    from orcheo_backend.app.history import RunHistoryStep
+
+    record = RunHistoryRecord(
+        workflow_id=str(uuid4()),
+        execution_id="test-exec",
+        inputs={"key": "value"},
+    )
+    record.steps = [
+        RunHistoryStep(index=0, payload={"step": 1}),
+        RunHistoryStep(index=1, payload={"step": 2}),
+    ]
+
+    response = _history_to_response(record)
+
+    assert response.execution_id == "test-exec"
+    assert len(response.steps) == 2
+
+
+def test_history_to_response_with_from_step() -> None:
+    """_history_to_response slices steps from given index."""
+    from orcheo_backend.app import _history_to_response
+    from orcheo_backend.app.history import RunHistoryStep
+
+    record = RunHistoryRecord(
+        workflow_id=str(uuid4()),
+        execution_id="test-exec",
+        inputs={},
+    )
+    record.steps = [
+        RunHistoryStep(index=0, payload={"step": 1}),
+        RunHistoryStep(index=1, payload={"step": 2}),
+        RunHistoryStep(index=2, payload={"step": 3}),
+    ]
+
+    response = _history_to_response(record, from_step=1)
+
+    assert len(response.steps) == 2
+    assert response.steps[0].index == 1
+
+
+def test_health_report_to_response() -> None:
+    """_health_report_to_response converts report to response."""
+    from orcheo_backend.app import _health_report_to_response
+
+    workflow_id = uuid4()
+    cred_id = uuid4()
+
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[
+            CredentialHealthResult(
+                credential_id=cred_id,
+                name="Test Cred",
+                provider="slack",
+                status=CredentialHealthStatus.HEALTHY,
+                last_checked_at=datetime.now(tz=UTC),
+                failure_reason=None,
+            )
+        ],
+        checked_at=datetime.now(tz=UTC),
+    )
+
+    response = _health_report_to_response(report)
+
+    assert response.workflow_id == str(workflow_id)
+    assert response.status == CredentialHealthStatus.HEALTHY
+    assert len(response.credentials) == 1
+
+
+def test_health_report_to_response_unhealthy() -> None:
+    """_health_report_to_response marks unhealthy reports."""
+    from orcheo_backend.app import _health_report_to_response
+
+    workflow_id = uuid4()
+    cred_id = uuid4()
+
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[
+            CredentialHealthResult(
+                credential_id=cred_id,
+                name="Test Cred",
+                provider="slack",
+                status=CredentialHealthStatus.UNHEALTHY,
+                last_checked_at=datetime.now(tz=UTC),
+                failure_reason="Token expired",
+            )
+        ],
+        checked_at=datetime.now(tz=UTC),
+    )
+
+    response = _health_report_to_response(report)
+
+    assert response.status == CredentialHealthStatus.UNHEALTHY
+    assert response.credentials[0].failure_reason == "Token expired"
+
+
+# Test workflow run state transitions
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_started_success() -> None:
+    """Mark run started endpoint transitions run to running state."""
+    from orcheo_backend.app import mark_run_started
+    from orcheo_backend.app.schemas import RunActionRequest
+
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def mark_run_started(self, run_id, actor):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=version_id,
+                triggered_by="user",
+                input_payload={},
+                status="running",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = RunActionRequest(actor="system")
+    result = await mark_run_started(run_id, request, Repository())
+
+    assert result.id == run_id
+    assert result.status == "running"
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_started_not_found() -> None:
+    """Mark run started raises 404 for missing run."""
+    from orcheo_backend.app import mark_run_started
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo_backend.app.schemas import RunActionRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_started(self, run_id, actor):
+            raise WorkflowRunNotFoundError("not found")
+
+    request = RunActionRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_started(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_started_conflict() -> None:
+    """Mark run started raises 409 for invalid state transition."""
+    from orcheo_backend.app import mark_run_started
+    from orcheo_backend.app.schemas import RunActionRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_started(self, run_id, actor):
+            raise ValueError("Invalid state transition")
+
+    request = RunActionRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_started(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_succeeded_success() -> None:
+    """Mark run succeeded endpoint marks run as successful."""
+    from orcheo_backend.app import mark_run_succeeded
+    from orcheo_backend.app.schemas import RunSucceedRequest
+
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, actor, output):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=version_id,
+                triggered_by="user",
+                input_payload={},
+                output_payload=output,
+                status="succeeded",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = RunSucceedRequest(actor="system", output={"result": "ok"})
+    result = await mark_run_succeeded(run_id, request, Repository())
+
+    assert result.id == run_id
+    assert result.status == "succeeded"
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_succeeded_not_found() -> None:
+    """Mark run succeeded raises 404 for missing run."""
+    from orcheo_backend.app import mark_run_succeeded
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo_backend.app.schemas import RunSucceedRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, actor, output):
+            raise WorkflowRunNotFoundError("not found")
+
+    request = RunSucceedRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_succeeded(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_succeeded_conflict() -> None:
+    """Mark run succeeded raises 409 for invalid state transition."""
+    from orcheo_backend.app import mark_run_succeeded
+    from orcheo_backend.app.schemas import RunSucceedRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, actor, output):
+            raise ValueError("Invalid state transition")
+
+    request = RunSucceedRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_succeeded(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_failed_success() -> None:
+    """Mark run failed endpoint marks run as failed."""
+    from orcheo_backend.app import mark_run_failed
+    from orcheo_backend.app.schemas import RunFailRequest
+
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def mark_run_failed(self, run_id, actor, error):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=version_id,
+                triggered_by="user",
+                input_payload={},
+                error=error,
+                status="failed",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = RunFailRequest(actor="system", error="Test error")
+    result = await mark_run_failed(run_id, request, Repository())
+
+    assert result.id == run_id
+    assert result.status == "failed"
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_failed_not_found() -> None:
+    """Mark run failed raises 404 for missing run."""
+    from orcheo_backend.app import mark_run_failed
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo_backend.app.schemas import RunFailRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_failed(self, run_id, actor, error):
+            raise WorkflowRunNotFoundError("not found")
+
+    request = RunFailRequest(actor="system", error="Test error")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_failed(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_failed_conflict() -> None:
+    """Mark run failed raises 409 for invalid state transition."""
+    from orcheo_backend.app import mark_run_failed
+    from orcheo_backend.app.schemas import RunFailRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_failed(self, run_id, actor, error):
+            raise ValueError("Invalid state transition")
+
+    request = RunFailRequest(actor="system", error="Test error")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_failed(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_cancelled_success() -> None:
+    """Mark run cancelled endpoint cancels run."""
+    from orcheo_backend.app import mark_run_cancelled
+    from orcheo_backend.app.schemas import RunCancelRequest
+
+    run_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def mark_run_cancelled(self, run_id, actor, reason):
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=version_id,
+                triggered_by="user",
+                input_payload={},
+                status="cancelled",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = RunCancelRequest(actor="system", reason="User requested")
+    result = await mark_run_cancelled(run_id, request, Repository())
+
+    assert result.id == run_id
+    assert result.status == "cancelled"
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_cancelled_not_found() -> None:
+    """Mark run cancelled raises 404 for missing run."""
+    from orcheo_backend.app import mark_run_cancelled
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo_backend.app.schemas import RunCancelRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_cancelled(self, run_id, actor, reason):
+            raise WorkflowRunNotFoundError("not found")
+
+    request = RunCancelRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_cancelled(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_mark_run_cancelled_conflict() -> None:
+    """Mark run cancelled raises 409 for invalid state transition."""
+    from orcheo_backend.app import mark_run_cancelled
+    from orcheo_backend.app.schemas import RunCancelRequest
+
+    run_id = uuid4()
+
+    class Repository:
+        async def mark_run_cancelled(self, run_id, actor, reason):
+            raise ValueError("Invalid state transition")
+
+    request = RunCancelRequest(actor="system")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mark_run_cancelled(run_id, request, Repository())
+
+    assert exc_info.value.status_code == 409
+
+
+# Test credential template endpoints
+
+
+def test_list_credential_templates_success() -> None:
+    """List credential templates endpoint returns templates."""
+    from orcheo.models import CredentialIssuancePolicy, CredentialTemplate
+    from orcheo_backend.app import list_credential_templates
+
+    template1_id = uuid4()
+    template2_id = uuid4()
+
+    class Vault:
+        def list_templates(self, context=None):
+            return [
+                CredentialTemplate(
+                    id=template1_id,
+                    name="Template 1",
+                    provider="slack",
+                    scopes=["chat:write"],
+                    kind=CredentialKind.OAUTH,
+                    scope=CredentialScope(),
+                    issuance_policy=CredentialIssuancePolicy(),
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                CredentialTemplate(
+                    id=template2_id,
+                    name="Template 2",
+                    provider="github",
+                    scopes=["repo"],
+                    kind=CredentialKind.OAUTH,
+                    scope=CredentialScope(),
+                    issuance_policy=CredentialIssuancePolicy(),
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    result = list_credential_templates(Vault())
+
+    assert len(result) == 2
+    assert result[0].id == str(template1_id)
+    assert result[1].id == str(template2_id)
+
+
+def test_create_credential_template_success() -> None:
+    """Create credential template endpoint creates template."""
+    from orcheo.models import CredentialIssuancePolicy, CredentialTemplate
+    from orcheo_backend.app import create_credential_template
+    from orcheo_backend.app.schemas import CredentialTemplateCreateRequest
+
+    template_id = uuid4()
+
+    class Vault:
+        def create_template(
+            self,
+            name,
+            provider,
+            scopes,
+            actor,
+            description,
+            scope,
+            kind,
+            issuance_policy,
+        ):
+            return CredentialTemplate(
+                id=template_id,
+                name=name,
+                provider=provider,
+                scopes=scopes,
+                kind=kind,
+                scope=scope or CredentialScope(),
+                issuance_policy=issuance_policy or CredentialIssuancePolicy(),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialTemplateCreateRequest(
+        name="Test Template",
+        provider="slack",
+        scopes=["chat:write"],
+        actor="admin",
+        kind=CredentialKind.OAUTH,
+    )
+
+    result = create_credential_template(request, Vault())
+
+    assert result.id == str(template_id)
+    assert result.name == "Test Template"
+
+
+def test_get_credential_template_success() -> None:
+    """Get credential template endpoint returns template."""
+    from orcheo.models import CredentialIssuancePolicy, CredentialTemplate
+    from orcheo_backend.app import get_credential_template
+
+    template_id = uuid4()
+
+    class Vault:
+        def get_template(self, template_id, context=None):
+            return CredentialTemplate(
+                id=template_id,
+                name="Test Template",
+                provider="slack",
+                scopes=["chat:write"],
+                kind=CredentialKind.OAUTH,
+                scope=CredentialScope(),
+                issuance_policy=CredentialIssuancePolicy(),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = get_credential_template(template_id, Vault())
+
+    assert result.id == str(template_id)
+
+
+def test_get_credential_template_not_found() -> None:
+    """Get credential template raises 404 for missing template."""
+    from orcheo.vault import CredentialTemplateNotFoundError
+    from orcheo_backend.app import get_credential_template
+
+    template_id = uuid4()
+
+    class Vault:
+        def get_template(self, template_id, context=None):
+            raise CredentialTemplateNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_credential_template(template_id, Vault())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_get_credential_template_scope_error() -> None:
+    """Get credential template raises 403 for scope violations."""
+    from orcheo_backend.app import get_credential_template
+
+    template_id = uuid4()
+
+    class Vault:
+        def get_template(self, template_id, context=None):
+            raise WorkflowScopeError("Access denied")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_credential_template(template_id, Vault())
+
+    assert exc_info.value.status_code == 403
+
+
+def test_update_credential_template_success() -> None:
+    """Update credential template endpoint updates template."""
+    from orcheo.models import CredentialIssuancePolicy, CredentialTemplate
+    from orcheo_backend.app import update_credential_template
+    from orcheo_backend.app.schemas import CredentialTemplateUpdateRequest
+
+    template_id = uuid4()
+
+    class Vault:
+        def update_template(
+            self,
+            template_id,
+            actor,
+            name,
+            scopes,
+            description,
+            scope,
+            kind,
+            issuance_policy,
+            context,
+        ):
+            return CredentialTemplate(
+                id=template_id,
+                name=name or "Updated Template",
+                provider="slack",
+                scopes=scopes or ["chat:write"],
+                kind=kind or CredentialKind.OAUTH,
+                scope=scope or CredentialScope(),
+                issuance_policy=issuance_policy or CredentialIssuancePolicy(),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialTemplateUpdateRequest(
+        actor="admin",
+        name="Updated Template",
+    )
+
+    result = update_credential_template(template_id, request, Vault())
+
+    assert result.id == str(template_id)
+    assert result.name == "Updated Template"
+
+
+def test_update_credential_template_not_found() -> None:
+    """Update credential template raises 404 for missing template."""
+    from orcheo.vault import CredentialTemplateNotFoundError
+    from orcheo_backend.app import update_credential_template
+    from orcheo_backend.app.schemas import CredentialTemplateUpdateRequest
+
+    template_id = uuid4()
+
+    class Vault:
+        def update_template(
+            self,
+            template_id,
+            actor,
+            name,
+            scopes,
+            description,
+            scope,
+            kind,
+            issuance_policy,
+            context,
+        ):
+            raise CredentialTemplateNotFoundError("not found")
+
+    request = CredentialTemplateUpdateRequest(actor="admin")
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_credential_template(template_id, request, Vault())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_update_credential_template_scope_error() -> None:
+    """Update credential template raises 403 for scope violations."""
+    from orcheo_backend.app import update_credential_template
+    from orcheo_backend.app.schemas import CredentialTemplateUpdateRequest
+
+    template_id = uuid4()
+
+    class Vault:
+        def update_template(
+            self,
+            template_id,
+            actor,
+            name,
+            scopes,
+            description,
+            scope,
+            kind,
+            issuance_policy,
+            context,
+        ):
+            raise WorkflowScopeError("Access denied")
+
+    request = CredentialTemplateUpdateRequest(actor="admin")
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_credential_template(template_id, request, Vault())
+
+    assert exc_info.value.status_code == 403
+
+
+def test_delete_credential_template_success() -> None:
+    """Delete credential template endpoint deletes template."""
+    from orcheo_backend.app import delete_credential_template
+
+    template_id = uuid4()
+    deleted_id = None
+
+    class Vault:
+        def delete_template(self, template_id, context=None):
+            nonlocal deleted_id
+            deleted_id = template_id
+
+    response = delete_credential_template(template_id, Vault())
+
+    assert response.status_code == 204
+    assert deleted_id == template_id
+
+
+def test_delete_credential_template_not_found() -> None:
+    """Delete credential template raises 404 for missing template."""
+    from orcheo.vault import CredentialTemplateNotFoundError
+    from orcheo_backend.app import delete_credential_template
+
+    template_id = uuid4()
+
+    class Vault:
+        def delete_template(self, template_id, context=None):
+            raise CredentialTemplateNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_credential_template(template_id, Vault())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_delete_credential_template_scope_error() -> None:
+    """Delete credential template raises 403 for scope violations."""
+    from orcheo_backend.app import delete_credential_template
+
+    template_id = uuid4()
+
+    class Vault:
+        def delete_template(self, template_id, context=None):
+            raise WorkflowScopeError("Access denied")
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_credential_template(template_id, Vault())
+
+    assert exc_info.value.status_code == 403
+
+
+def test_issue_credential_from_template_success() -> None:
+    """Issue credential from template endpoint creates credential."""
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import issue_credential_from_template
+    from orcheo_backend.app.schemas import CredentialIssuanceRequest
+
+    template_id = uuid4()
+    cred_id = uuid4()
+
+    class Service:
+        def issue_from_template(
+            self,
+            template_id,
+            secret,
+            actor,
+            name,
+            scopes,
+            context,
+            oauth_tokens,
+        ):
+            return CredentialMetadata(
+                id=cred_id,
+                name=name or "Issued Credential",
+                provider="slack",
+                kind=CredentialKind.OAUTH,
+                scope=CredentialScope(),
+                template_id=template_id,
+                encryption=EncryptionEnvelope(
+                    algorithm="aes-256-gcm",
+                    key_id="test-key",
+                    ciphertext="encrypted",
+                ),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialIssuanceRequest(
+        template_id=template_id,
+        actor="admin",
+        name="Issued Credential",
+        secret="test-secret",
+    )
+
+    result = issue_credential_from_template(template_id, request, Service())
+
+    assert result.credential_id == str(cred_id)
+    assert result.template_id == str(template_id)
+
+
+def test_issue_credential_from_template_not_configured() -> None:
+    """Issue credential requires configured service."""
+    from orcheo_backend.app import issue_credential_from_template
+    from orcheo_backend.app.schemas import CredentialIssuanceRequest
+
+    template_id = uuid4()
+
+    request = CredentialIssuanceRequest(
+        template_id=template_id,
+        actor="admin",
+        secret="test-secret",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        issue_credential_from_template(template_id, request, None)
+
+    assert exc_info.value.status_code == 503
+
+
+def test_issue_credential_from_template_not_found() -> None:
+    """Issue credential raises 404 for missing template."""
+    from orcheo.vault import CredentialTemplateNotFoundError
+    from orcheo_backend.app import issue_credential_from_template
+    from orcheo_backend.app.schemas import CredentialIssuanceRequest
+
+    template_id = uuid4()
+
+    class Service:
+        def issue_from_template(
+            self,
+            template_id,
+            secret,
+            actor,
+            name,
+            scopes,
+            context,
+            oauth_tokens,
+        ):
+            raise CredentialTemplateNotFoundError("not found")
+
+    request = CredentialIssuanceRequest(
+        template_id=template_id,
+        actor="admin",
+        secret="test-secret",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        issue_credential_from_template(template_id, request, Service())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_issue_credential_from_template_scope_error() -> None:
+    """Issue credential raises 403 for scope violations."""
+    from orcheo_backend.app import issue_credential_from_template
+    from orcheo_backend.app.schemas import CredentialIssuanceRequest
+
+    template_id = uuid4()
+
+    class Service:
+        def issue_from_template(
+            self,
+            template_id,
+            secret,
+            actor,
+            name,
+            scopes,
+            context,
+            oauth_tokens,
+        ):
+            raise WorkflowScopeError("Access denied")
+
+    request = CredentialIssuanceRequest(
+        template_id=template_id,
+        actor="admin",
+        secret="test-secret",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        issue_credential_from_template(template_id, request, Service())
+
+    assert exc_info.value.status_code == 403
+
+
+def test_issue_credential_from_template_validation_error() -> None:
+    """Issue credential raises 400 for validation errors."""
+    from orcheo_backend.app import issue_credential_from_template
+    from orcheo_backend.app.schemas import CredentialIssuanceRequest
+
+    template_id = uuid4()
+
+    class Service:
+        def issue_from_template(
+            self,
+            template_id,
+            secret,
+            actor,
+            name,
+            scopes,
+            context,
+            oauth_tokens,
+        ):
+            raise ValueError("Invalid secret format")
+
+    request = CredentialIssuanceRequest(
+        template_id=template_id,
+        actor="admin",
+        secret="invalid",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        issue_credential_from_template(template_id, request, Service())
+
+    assert exc_info.value.status_code == 400

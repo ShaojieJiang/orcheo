@@ -804,3 +804,187 @@ def test_file_vault_remove_alert_clears(tmp_path) -> None:
     vault._remove_alert(alert.id)
 
     assert vault.list_alerts() == []
+
+
+def test_vault_cipher_property_access() -> None:
+    cipher = AesGcmCredentialCipher(key="cipher-property-test")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    assert vault.cipher is cipher
+    assert vault.cipher.algorithm == "aes256-gcm.v1"
+
+
+def test_delete_credential_removes_credential_and_alerts() -> None:
+    cipher = AesGcmCredentialCipher(key="delete-credential")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+    context = CredentialAccessContext(workflow_id=workflow_id)
+
+    metadata = vault.create_credential(
+        name="Service",
+        provider="service",
+        scopes=["read"],
+        secret="secret",
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+
+    vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="expiring",
+        actor="ops",
+        credential_id=metadata.id,
+        context=context,
+    )
+
+    assert len(vault.list_credentials(context=context)) == 1
+    assert len(vault.list_alerts(context=context)) == 1
+
+    vault.delete_credential(metadata.id, context=context)
+
+    assert len(vault.list_credentials(context=context)) == 0
+    assert len(vault.list_alerts(context=context)) == 0
+
+
+def test_delete_credential_enforces_scope() -> None:
+    cipher = AesGcmCredentialCipher(key="delete-scope")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+
+    metadata = vault.create_credential(
+        name="Restricted",
+        provider="service",
+        scopes=["read"],
+        secret="secret",
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+
+    with pytest.raises(WorkflowScopeError):
+        vault.delete_credential(
+            metadata.id,
+            context=CredentialAccessContext(workflow_id=uuid4()),
+        )
+
+
+def test_record_template_issuance_records_audit_event() -> None:
+    cipher = AesGcmCredentialCipher(key="issuance-event")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+    context = CredentialAccessContext(workflow_id=workflow_id)
+
+    template = vault.create_template(
+        name="Service",
+        provider="service",
+        scopes=["read"],
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+
+    credential_id = uuid4()
+    updated = vault.record_template_issuance(
+        template_id=template.id,
+        actor="system",
+        credential_id=credential_id,
+        context=context,
+    )
+
+    assert len(updated.audit_log) == len(template.audit_log) + 1
+    assert updated.audit_log[-1].action == "credential_issued"
+    assert updated.audit_log[-1].actor == "system"
+
+
+def test_inmemory_remove_credential_missing() -> None:
+    vault = InMemoryCredentialVault()
+    with pytest.raises(CredentialNotFoundError):
+        vault._remove_credential(uuid4())
+
+
+def test_file_vault_remove_credential_missing(tmp_path) -> None:
+    vault = FileCredentialVault(tmp_path / "vault.sqlite")
+    with pytest.raises(CredentialNotFoundError):
+        vault._remove_credential(uuid4())
+
+
+def test_file_vault_delete_credential(tmp_path) -> None:
+    cipher = AesGcmCredentialCipher(key="file-delete")
+    vault = FileCredentialVault(tmp_path / "vault.sqlite", cipher=cipher)
+
+    metadata = vault.create_credential(
+        name="Service",
+        provider="service",
+        scopes=["read"],
+        secret="secret",
+        actor="ops",
+    )
+
+    alert = vault.record_alert(
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="bad",
+        actor="ops",
+        credential_id=metadata.id,
+    )
+
+    vault.delete_credential(metadata.id)
+
+    with pytest.raises(CredentialNotFoundError):
+        vault.reveal_secret(credential_id=metadata.id)
+
+    with pytest.raises(GovernanceAlertNotFoundError):
+        vault.acknowledge_alert(alert.id, actor="ops")
+
+
+def test_delete_credential_with_mixed_alerts() -> None:
+    cipher = AesGcmCredentialCipher(key="delete-mixed")
+    vault = InMemoryCredentialVault(cipher=cipher)
+
+    credential_one = vault.create_credential(
+        name="Service1",
+        provider="service",
+        scopes=["read"],
+        secret="secret1",
+        actor="ops",
+    )
+
+    credential_two = vault.create_credential(
+        name="Service2",
+        provider="service",
+        scopes=["read"],
+        secret="secret2",
+        actor="ops",
+    )
+
+    alert_one = vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="expiring1",
+        actor="ops",
+        credential_id=credential_one.id,
+    )
+
+    alert_two = vault.record_alert(
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="failed2",
+        actor="ops",
+        credential_id=credential_two.id,
+    )
+
+    global_alert = vault.record_alert(
+        kind=GovernanceAlertKind.ROTATION_OVERDUE,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="global",
+        actor="ops",
+    )
+
+    assert len(vault.list_alerts()) == 3
+
+    vault.delete_credential(credential_one.id)
+
+    remaining_alerts = vault.list_alerts()
+    assert len(remaining_alerts) == 2
+    assert {alert.id for alert in remaining_alerts} == {alert_two.id, global_alert.id}
+
+    with pytest.raises(GovernanceAlertNotFoundError):
+        vault.acknowledge_alert(alert_one.id, actor="ops")
