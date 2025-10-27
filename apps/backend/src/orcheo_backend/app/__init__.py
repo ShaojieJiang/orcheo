@@ -53,6 +53,7 @@ from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault import (
     BaseCredentialVault,
+    CredentialNotFoundError,
     CredentialTemplateNotFoundError,
     FileCredentialVault,
     GovernanceAlertNotFoundError,
@@ -1032,6 +1033,28 @@ def create_credential(
     if request.access != response.access:
         response = response.model_copy(update={"access": request.access})
     return response
+
+
+@_http_router.delete(
+    "/credentials/{credential_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+def delete_credential(
+    credential_id: UUID,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> Response:
+    """Delete a credential."""
+    context = _context_from_workflow(workflow_id)
+    try:
+        vault.delete_credential(credential_id, context=context)
+    except CredentialNotFoundError as exc:
+        _raise_not_found("Credential not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @_http_router.get(

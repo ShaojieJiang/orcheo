@@ -50,7 +50,7 @@ interface TopNavigationProps {
   credentials?: Credential[];
   isCredentialsLoading?: boolean;
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
-  onDeleteCredential?: (id: string) => void;
+  onDeleteCredential?: (id: string) => Promise<void> | void;
 }
 
 export default function TopNavigation({

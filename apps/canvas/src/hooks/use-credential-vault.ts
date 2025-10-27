@@ -16,7 +16,7 @@ interface UseCredentialVaultResult {
   credentials: Credential[];
   isLoading: boolean;
   onAddCredential: (credential: CredentialInput) => Promise<void>;
-  onDeleteCredential: (id: string) => void;
+  onDeleteCredential: (id: string) => Promise<void>;
 }
 
 const DEFAULT_ACTOR = "system";
@@ -191,16 +191,48 @@ export function useCredentialVault(
     [actorName, backendBaseUrl, workflowId],
   );
 
-  const onDeleteCredential = useCallback((id: string) => {
-    setCredentials((previous) =>
-      previous.filter((credential) => credential.id !== id),
-    );
-    toast({
-      title: "Credential removed",
-      description:
-        "Nodes referencing this credential will require reconfiguration before publish.",
-    });
-  }, []);
+  const onDeleteCredential = useCallback(
+    async (id: string) => {
+      const url = new URL(
+        buildBackendHttpUrl(`/api/credentials/${id}`, backendBaseUrl),
+      );
+      if (workflowId) {
+        url.searchParams.set("workflow_id", workflowId);
+      }
+
+      try {
+        const response = await fetch(url.toString(), {
+          method: "DELETE",
+        });
+
+        if (!response.ok && response.status !== 404) {
+          throw new Error(
+            `Failed to delete credential (status ${response.status})`,
+          );
+        }
+
+        setCredentials((previous) =>
+          previous.filter((credential) => credential.id !== id),
+        );
+        toast({
+          title: "Credential removed",
+          description:
+            "Nodes referencing this credential will require reconfiguration before publish.",
+        });
+      } catch (error) {
+        console.error("Failed to delete credential", error);
+        const message =
+          error instanceof Error ? error.message : "Credential removal failed.";
+        toast({
+          title: "Unable to delete credential",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+    },
+    [backendBaseUrl, workflowId],
+  );
 
   return {
     credentials,

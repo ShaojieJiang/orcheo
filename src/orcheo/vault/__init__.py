@@ -172,6 +172,19 @@ class BaseCredentialVault:
             if item.scope.allows(access_context)
         ]
 
+    def delete_credential(
+        self,
+        credential_id: UUID,
+        *,
+        context: CredentialAccessContext | None = None,
+    ) -> None:
+        """Remove a credential and associated governance alerts from the vault."""
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
+        self._remove_credential(metadata.id)
+        for alert in list(self._iter_alerts()):
+            if alert.credential_id == metadata.id:
+                self._remove_alert(alert.id)
+
     def create_template(
         self,
         *,
@@ -421,6 +434,9 @@ class BaseCredentialVault:
     def _iter_metadata(self) -> Iterable[CredentialMetadata]:  # pragma: no cover
         raise NotImplementedError
 
+    def _remove_credential(self, credential_id: UUID) -> None:  # pragma: no cover
+        raise NotImplementedError
+
     def _persist_template(self, template: CredentialTemplate) -> None:
         raise NotImplementedError  # pragma: no cover
 
@@ -501,6 +517,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
     def _iter_metadata(self) -> Iterable[CredentialMetadata]:
         for metadata in self._store.values():
             yield metadata.model_copy(deep=True)
+
+    def _remove_credential(self, credential_id: UUID) -> None:
+        try:
+            del self._store[credential_id]
+        except KeyError as exc:
+            msg = "Credential was not found."
+            raise CredentialNotFoundError(msg) from exc
 
     def _persist_template(self, template: CredentialTemplate) -> None:
         self._templates[template.id] = template.model_copy(deep=True)
@@ -665,6 +688,17 @@ class FileCredentialVault(BaseCredentialVault):
             rows = cursor.fetchall()
         for row in rows:
             yield CredentialMetadata.model_validate_json(row[0])
+
+    def _remove_credential(self, credential_id: UUID) -> None:
+        with self._lock, sqlite3.connect(self._path) as conn:
+            deleted = conn.execute(
+                "DELETE FROM credentials WHERE id = ?",
+                (str(credential_id),),
+            ).rowcount
+            conn.commit()
+        if deleted == 0:
+            msg = "Credential was not found."
+            raise CredentialNotFoundError(msg)
 
     def _persist_template(self, template: CredentialTemplate) -> None:
         payload = template.model_dump_json()

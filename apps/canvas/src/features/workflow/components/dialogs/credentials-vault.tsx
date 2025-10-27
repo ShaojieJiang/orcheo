@@ -62,7 +62,7 @@ interface CredentialsVaultProps {
   credentials?: Credential[];
   isLoading?: boolean;
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
-  onDeleteCredential?: (id: string) => void;
+  onDeleteCredential?: (id: string) => Promise<void> | void;
   className?: string;
 }
 

@@ -1396,14 +1396,48 @@ export default function WorkflowCanvas({
     [backendBaseUrl, currentWorkflowId, user.name],
   );
 
-  const handleDeleteCredential = useCallback((id: string) => {
-    setCredentials((prev) => prev.filter((credential) => credential.id !== id));
-    toast({
-      title: "Credential removed",
-      description:
-        "Nodes referencing this credential will require reconfiguration before publish.",
-    });
-  }, []);
+  const handleDeleteCredential = useCallback(
+    async (id: string) => {
+      const url = new URL(
+        buildBackendHttpUrl(`/api/credentials/${id}`, backendBaseUrl),
+      );
+      if (currentWorkflowId) {
+        url.searchParams.set("workflow_id", currentWorkflowId);
+      }
+
+      try {
+        const response = await fetch(url.toString(), {
+          method: "DELETE",
+        });
+
+        if (!response.ok && response.status !== 404) {
+          throw new Error(
+            `Failed to delete credential (status ${response.status})`,
+          );
+        }
+
+        setCredentials((prev) =>
+          prev.filter((credential) => credential.id !== id),
+        );
+        toast({
+          title: "Credential removed",
+          description:
+            "Nodes referencing this credential will require reconfiguration before publish.",
+        });
+      } catch (error) {
+        console.error("Failed to delete credential", error);
+        const message =
+          error instanceof Error ? error.message : "Credential removal failed.";
+        toast({
+          title: "Unable to delete credential",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+    },
+    [backendBaseUrl, currentWorkflowId],
+  );
 
   const handleCreateSubworkflow = useCallback(() => {
     const selectedNodes = nodes.filter((node) => node.selected);

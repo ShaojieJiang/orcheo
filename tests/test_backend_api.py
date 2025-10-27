@@ -521,6 +521,37 @@ def test_create_credential(api_client: TestClient) -> None:
     assert any(entry["id"] == payload["id"] for entry in entries)
 
 
+def test_delete_credential(api_client: TestClient) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": str(workflow_id),
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    delete_response = api_client.delete(
+        f"/api/credentials/{credential_id}",
+        params={"workflow_id": str(workflow_id)},
+    )
+    assert delete_response.status_code == 204
+
+    fetch_response = api_client.get(
+        "/api/credentials",
+        params={"workflow_id": str(workflow_id)},
+    )
+    assert fetch_response.status_code == 200
+    payload = fetch_response.json()
+    assert all(entry["id"] != credential_id for entry in payload)
+
+
 def test_credential_template_get_scope_violation_returns_403(
     api_client: TestClient,
 ) -> None:
