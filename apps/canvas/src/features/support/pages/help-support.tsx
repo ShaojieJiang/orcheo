@@ -25,6 +25,7 @@ import {
 } from "@/design-system/ui/accordion";
 import TopNavigation from "@features/shared/components/top-navigation";
 import ChatInterface from "@features/shared/components/chat-interface";
+import useCredentialVault from "@/hooks/use-credential-vault";
 
 export default function HelpSupport() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,9 +53,21 @@ export default function HelpSupport() {
     },
   ];
 
+  const {
+    credentials,
+    isLoading: isCredentialsLoading,
+    onAddCredential,
+    onDeleteCredential,
+  } = useCredentialVault({ actorName: user.name });
+
   return (
     <div className="flex min-h-screen flex-col">
-      <TopNavigation />
+      <TopNavigation
+        credentials={credentials}
+        isCredentialsLoading={isCredentialsLoading}
+        onAddCredential={onAddCredential}
+        onDeleteCredential={onDeleteCredential}
+      />
 
       <div className="flex-1 space-y-4 p-8 pt-6 mx-auto w-full max-w-7xl">
         <div className="flex items-center justify-between space-y-2">

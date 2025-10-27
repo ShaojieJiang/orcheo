@@ -22,6 +22,7 @@ import {
   Folder,
   Plus,
   MoreHorizontal,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/design-system/ui/badge";
@@ -34,6 +35,11 @@ import {
   DialogTrigger,
 } from "@/design-system/ui/dialog";
 import { Input } from "@/design-system/ui/input";
+import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
+import type {
+  Credential,
+  CredentialInput,
+} from "@features/workflow/types/credential-vault";
 
 interface TopNavigationProps {
   currentWorkflow?: {
@@ -41,13 +47,22 @@ interface TopNavigationProps {
     path?: string[];
   };
   className?: string;
+  credentials?: Credential[];
+  isCredentialsLoading?: boolean;
+  onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
+  onDeleteCredential?: (id: string) => Promise<void> | void;
 }
 
 export default function TopNavigation({
   currentWorkflow,
   className,
+  credentials = [],
+  isCredentialsLoading = false,
+  onAddCredential,
+  onDeleteCredential,
 }: TopNavigationProps) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== "undefined" ? window.innerWidth : 0,
   );
@@ -327,6 +342,18 @@ export default function TopNavigation({
                 <span>Settings</span>
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setIsVaultOpen(true);
+              }}
+              className="cursor-pointer"
+            >
+              <div className="flex items-center w-full">
+                <Key className="mr-2 h-4 w-4" />
+                <span>Credential Vault</span>
+              </div>
+            </DropdownMenuItem>
             <DropdownMenuItem>
               <Link to="/help-support" className="flex items-center w-full">
                 <HelpCircle className="mr-2 h-4 w-4" />
@@ -345,6 +372,16 @@ export default function TopNavigation({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <Dialog open={isVaultOpen} onOpenChange={setIsVaultOpen}>
+          <DialogContent className="max-w-4xl">
+            <CredentialsVault
+              credentials={credentials}
+              isLoading={isCredentialsLoading}
+              onAddCredential={onAddCredential}
+              onDeleteCredential={onDeleteCredential}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </header>
   );

@@ -20,6 +20,7 @@ import { Separator } from "@/design-system/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/design-system/ui/avatar";
 import { Badge } from "@/design-system/ui/badge";
 import TopNavigation from "@features/shared/components/top-navigation";
+import useCredentialVault from "@/hooks/use-credential-vault";
 
 export default function Profile() {
   const [user] = useState({
@@ -31,9 +32,21 @@ export default function Profile() {
     twoFactorEnabled: false,
   });
 
+  const {
+    credentials,
+    isLoading: isCredentialsLoading,
+    onAddCredential,
+    onDeleteCredential,
+  } = useCredentialVault({ actorName: user.name });
+
   return (
     <div className="flex min-h-screen flex-col">
-      <TopNavigation />
+      <TopNavigation
+        credentials={credentials}
+        isCredentialsLoading={isCredentialsLoading}
+        onAddCredential={onAddCredential}
+        onDeleteCredential={onDeleteCredential}
+      />
 
       <div className="flex-1 space-y-4 p-8 pt-6 mx-auto w-full max-w-7xl">
         <div className="flex items-center justify-between space-y-2">

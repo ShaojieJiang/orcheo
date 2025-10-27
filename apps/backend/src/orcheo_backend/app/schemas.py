@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
@@ -177,6 +177,19 @@ class CredentialValidationRequest(BaseModel):
     actor: str = Field(default="system")
 
 
+class CredentialCreateRequest(BaseModel):
+    """Request payload for creating a credential entry."""
+
+    name: str
+    provider: str
+    secret: str
+    actor: str = Field(default="system")
+    scopes: list[str] = Field(default_factory=list)
+    access: Literal["private", "shared", "public"] = "private"
+    workflow_id: UUID | None = None
+    kind: CredentialKind = CredentialKind.SECRET
+
+
 class CredentialHealthItem(BaseModel):
     """Represents the health state for an individual credential."""
 
@@ -283,6 +296,22 @@ class CredentialIssuanceResponse(BaseModel):
     template_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CredentialVaultEntryResponse(BaseModel):
+    """Response payload describing a credential stored in the vault."""
+
+    id: str
+    name: str
+    provider: str
+    kind: CredentialKind
+    created_at: datetime
+    updated_at: datetime
+    last_rotated_at: datetime | None
+    owner: str | None
+    access: Literal["private", "shared", "public"]
+    status: CredentialHealthStatus
+    secret_preview: str | None = None
 
 
 class GovernanceAlertResponse(BaseModel):

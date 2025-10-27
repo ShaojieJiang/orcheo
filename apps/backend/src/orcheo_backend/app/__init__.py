@@ -9,7 +9,7 @@ import secrets
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, NoReturn, TypeVar, cast
+from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
@@ -40,6 +40,7 @@ from orcheo.models import (
     CredentialHealthStatus,
     CredentialIssuancePolicy,
     CredentialKind,
+    CredentialMetadata,
     CredentialScope,
     CredentialTemplate,
     OAuthTokenSecrets,
@@ -52,6 +53,7 @@ from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault import (
     BaseCredentialVault,
+    CredentialNotFoundError,
     CredentialTemplateNotFoundError,
     FileCredentialVault,
     GovernanceAlertNotFoundError,
@@ -83,6 +85,7 @@ from orcheo_backend.app.schemas import (
     ChatKitSessionRequest,
     ChatKitSessionResponse,
     ChatKitWorkflowTriggerRequest,
+    CredentialCreateRequest,
     CredentialHealthItem,
     CredentialHealthResponse,
     CredentialIssuancePolicyPayload,
@@ -93,6 +96,7 @@ from orcheo_backend.app.schemas import (
     CredentialTemplateResponse,
     CredentialTemplateUpdateRequest,
     CredentialValidationRequest,
+    CredentialVaultEntryResponse,
     CronDispatchRequest,
     GovernanceAlertResponse,
     NodeExecutionRequest,
@@ -456,6 +460,67 @@ def _template_to_response(template: CredentialTemplate) -> CredentialTemplateRes
         issuance_policy=_policy_to_payload(template.issuance_policy),
         created_at=template.created_at,
         updated_at=template.updated_at,
+    )
+
+
+def _scope_from_access(
+    access: Literal["private", "shared", "public"],
+    workflow_id: UUID | None,
+) -> CredentialScope | None:
+    """Derive a credential scope from the requested access label."""
+    if access == "private" and workflow_id is not None:
+        return CredentialScope.for_workflows(workflow_id)
+
+    # Shared access is not fully modelled in the prototype backend yet. Until
+    # multi-tenant workspaces are introduced, treat shared credentials as
+    # workflow-scoped when a workflow is provided, otherwise fall back to
+    # unrestricted visibility similar to public credentials.
+    if access == "shared" and workflow_id is not None:
+        return CredentialScope.for_workflows(workflow_id)
+
+    return CredentialScope.unrestricted()
+
+
+def _infer_credential_access(
+    scope: CredentialScope,
+) -> Literal["private", "shared", "public"]:
+    """Return a simplified access label derived from the scope."""
+    if scope.is_unrestricted():
+        return "public"
+
+    restriction_count = (
+        len(scope.workflow_ids) + len(scope.workspace_ids) + len(scope.roles)
+    )
+
+    if restriction_count <= 1:
+        return "private"
+
+    return "shared"
+
+
+def _credential_to_response(
+    metadata: CredentialMetadata,
+) -> CredentialVaultEntryResponse:
+    """Convert stored credential metadata into an API response payload."""
+    owner = metadata.audit_log[0].actor if metadata.audit_log else None
+    secret_preview: str | None
+    if metadata.kind is CredentialKind.OAUTH:
+        secret_preview = "oauth-token"
+    else:
+        secret_preview = "••••••••"
+
+    return CredentialVaultEntryResponse(
+        id=str(metadata.id),
+        name=metadata.name,
+        provider=metadata.provider,
+        kind=metadata.kind,
+        created_at=metadata.created_at,
+        updated_at=metadata.updated_at,
+        last_rotated_at=metadata.last_rotated_at,
+        owner=owner,
+        access=_infer_credential_access(metadata.scope),
+        status=metadata.health.status,
+        secret_preview=secret_preview,
     )
 
 
@@ -921,6 +986,75 @@ async def create_workflow_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+
+
+@_http_router.get(
+    "/credentials",
+    response_model=list[CredentialVaultEntryResponse],
+)
+def list_credentials(
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> list[CredentialVaultEntryResponse]:
+    """Return credential metadata visible to the caller."""
+    context = _context_from_workflow(workflow_id)
+    credentials = vault.list_credentials(context=context)
+    return [_credential_to_response(metadata) for metadata in credentials]
+
+
+@_http_router.post(
+    "/credentials",
+    response_model=CredentialVaultEntryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_credential(
+    request: CredentialCreateRequest,
+    vault: VaultDep,
+) -> CredentialVaultEntryResponse:
+    """Persist a new credential in the vault."""
+    scope = _scope_from_access(request.access, request.workflow_id)
+    try:
+        metadata = vault.create_credential(
+            name=request.name,
+            provider=request.provider,
+            scopes=request.scopes,
+            secret=request.secret,
+            actor=request.actor,
+            scope=scope,
+            kind=request.kind,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    response = _credential_to_response(metadata)
+    if request.access != response.access:
+        response = response.model_copy(update={"access": request.access})
+    return response
+
+
+@_http_router.delete(
+    "/credentials/{credential_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+def delete_credential(
+    credential_id: UUID,
+    vault: VaultDep,
+    workflow_id: WorkflowIdQuery = None,
+) -> Response:
+    """Delete a credential."""
+    context = _context_from_workflow(workflow_id)
+    try:
+        vault.delete_credential(credential_id, context=context)
+    except CredentialNotFoundError as exc:
+        _raise_not_found("Credential not found", exc)
+    except WorkflowScopeError as exc:
+        _raise_scope_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @_http_router.get(

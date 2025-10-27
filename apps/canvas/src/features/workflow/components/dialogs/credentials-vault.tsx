@@ -47,35 +47,28 @@ import {
   Lock,
   Users,
   Shield,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  Circle,
 } from "lucide-react";
-
-export interface Credential {
-  id: string;
-  name: string;
-  type: string;
-  createdAt: string;
-  updatedAt: string;
-  owner: string;
-  access: "private" | "shared" | "public";
-  secrets: Record<string, string>;
-}
-
-export type CredentialInput = Omit<
+import type {
   Credential,
-  "id" | "createdAt" | "updatedAt" | "owner"
-> & {
-  owner?: string;
-};
+  CredentialInput,
+  CredentialVaultHealthStatus,
+} from "@features/workflow/types/credential-vault";
 
 interface CredentialsVaultProps {
   credentials?: Credential[];
-  onAddCredential?: (credential: CredentialInput) => void;
-  onDeleteCredential?: (id: string) => void;
+  isLoading?: boolean;
+  onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
+  onDeleteCredential?: (id: string) => Promise<void> | void;
   className?: string;
 }
 
 export default function CredentialsVault({
   credentials = [],
+  isLoading = false,
   onAddCredential,
   onDeleteCredential,
   className,
@@ -83,6 +76,8 @@ export default function CredentialsVault({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isSavingCredential, setIsSavingCredential] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [newCredential, setNewCredential] = useState<{
     name: string;
     type: string;
@@ -96,11 +91,13 @@ export default function CredentialsVault({
   });
 
   // Filter credentials based on search query
-  const filteredCredentials = credentials.filter(
-    (credential) =>
-      credential.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      credential.type.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredCredentials = credentials.filter((credential) => {
+    const search = searchQuery.toLowerCase();
+    const type = credential.type?.toLowerCase() ?? "";
+    return (
+      credential.name.toLowerCase().includes(search) || type.includes(search)
+    );
+  });
 
   const toggleShowSecret = (credentialId: string) => {
     setShowSecrets((prev) => ({
@@ -109,9 +106,15 @@ export default function CredentialsVault({
     }));
   };
 
-  const handleAddCredential = () => {
-    if (onAddCredential && newCredential.name.trim()) {
-      onAddCredential(newCredential);
+  const handleAddCredential = async () => {
+    if (!onAddCredential || !newCredential.name.trim()) {
+      return;
+    }
+
+    setSaveError(null);
+    setIsSavingCredential(true);
+    try {
+      await onAddCredential(newCredential);
       setNewCredential({
         name: "",
         type: "api",
@@ -119,6 +122,15 @@ export default function CredentialsVault({
         secrets: { apiKey: "" },
       });
       setIsAddDialogOpen(false);
+    } catch (error) {
+      console.error("Failed to save credential", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to save credential. Please try again.";
+      setSaveError(message);
+    } finally {
+      setIsSavingCredential(false);
     }
   };
 
@@ -159,6 +171,44 @@ export default function CredentialsVault({
 
       default:
         return null;
+    }
+  };
+
+  const getStatusBadge = (status: CredentialVaultHealthStatus | undefined) => {
+    const normalized = status ?? "unknown";
+
+    switch (normalized) {
+      case "healthy":
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800"
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Healthy
+          </Badge>
+        );
+      case "unhealthy":
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Unhealthy
+          </Badge>
+        );
+      case "unknown":
+      default:
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 bg-muted text-muted-foreground border-border"
+          >
+            <Circle className="h-3 w-3" />
+            Unknown
+          </Badge>
+        );
     }
   };
 
@@ -273,14 +323,30 @@ export default function CredentialsVault({
                 />
               </div>
             </div>
+            {saveError ? (
+              <p className="text-sm text-destructive px-1">{saveError}</p>
+            ) : null}
             <DialogFooter>
               <Button
                 variant="outline"
                 onClick={() => setIsAddDialogOpen(false)}
+                disabled={isSavingCredential}
               >
                 Cancel
               </Button>
-              <Button onClick={handleAddCredential}>Save Credential</Button>
+              <Button
+                onClick={handleAddCredential}
+                disabled={isSavingCredential}
+              >
+                {isSavingCredential ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Credential"
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -306,15 +372,26 @@ export default function CredentialsVault({
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Access</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Secret</TableHead>
               <TableHead>Last Updated</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredCredentials.length === 0 ? (
+            {isLoading && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="py-6 text-center">
+                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading credentials...
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+            {!isLoading && filteredCredentials.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
                   <div className="text-muted-foreground">
                     No credentials found
                     {searchQuery && (
@@ -334,21 +411,27 @@ export default function CredentialsVault({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{credential.type}</Badge>
+                    <Badge variant="outline">
+                      {credential.type ?? "unknown"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{getAccessBadge(credential.access)}</TableCell>
+                  <TableCell>{getStatusBadge(credential.status)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="font-mono text-xs bg-muted px-2 py-1 rounded">
-                        {showSecrets[credential.id]
-                          ? Object.values(credential.secrets)[0]
-                          : "••••••••••••••••"}
+                        {credential.secrets
+                          ? showSecrets[credential.id]
+                            ? Object.values(credential.secrets)[0]
+                            : "••••••••••••••••"
+                          : "Not available"}
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
                         onClick={() => toggleShowSecret(credential.id)}
+                        disabled={!credential.secrets}
                       >
                         {showSecrets[credential.id] ? (
                           <EyeOff className="h-3 w-3" />
@@ -361,10 +444,14 @@ export default function CredentialsVault({
                         size="icon"
                         className="h-6 w-6"
                         onClick={() => {
+                          if (!credential.secrets) {
+                            return;
+                          }
                           navigator.clipboard.writeText(
                             Object.values(credential.secrets)[0],
                           );
                         }}
+                        disabled={!credential.secrets}
                       >
                         <Copy className="h-3 w-3" />
                       </Button>
