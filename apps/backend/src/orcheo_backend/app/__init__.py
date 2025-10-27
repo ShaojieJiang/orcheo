@@ -84,6 +84,7 @@ from orcheo_backend.app.schemas import (
     ChatKitSessionRequest,
     ChatKitSessionResponse,
     ChatKitWorkflowTriggerRequest,
+    CredentialCreateRequest,
     CredentialHealthItem,
     CredentialHealthResponse,
     CredentialIssuancePolicyPayload,
@@ -459,6 +460,24 @@ def _template_to_response(template: CredentialTemplate) -> CredentialTemplateRes
         created_at=template.created_at,
         updated_at=template.updated_at,
     )
+
+
+def _scope_from_access(
+    access: Literal["private", "shared", "public"],
+    workflow_id: UUID | None,
+) -> CredentialScope | None:
+    """Derive a credential scope from the requested access label."""
+    if access == "private" and workflow_id is not None:
+        return CredentialScope.for_workflows(workflow_id)
+
+    # Shared access is not fully modelled in the prototype backend yet. Until
+    # multi-tenant workspaces are introduced, treat shared credentials as
+    # workflow-scoped when a workflow is provided, otherwise fall back to
+    # unrestricted visibility similar to public credentials.
+    if access == "shared" and workflow_id is not None:
+        return CredentialScope.for_workflows(workflow_id)
+
+    return CredentialScope.unrestricted()
 
 
 def _infer_credential_access(
@@ -980,6 +999,39 @@ def list_credentials(
     context = _context_from_workflow(workflow_id)
     credentials = vault.list_credentials(context=context)
     return [_credential_to_response(metadata) for metadata in credentials]
+
+
+@_http_router.post(
+    "/credentials",
+    response_model=CredentialVaultEntryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_credential(
+    request: CredentialCreateRequest,
+    vault: VaultDep,
+) -> CredentialVaultEntryResponse:
+    """Persist a new credential in the vault."""
+    scope = _scope_from_access(request.access, request.workflow_id)
+    try:
+        metadata = vault.create_credential(
+            name=request.name,
+            provider=request.provider,
+            scopes=request.scopes,
+            secret=request.secret,
+            actor=request.actor,
+            scope=scope,
+            kind=request.kind,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    response = _credential_to_response(metadata)
+    if request.access != response.access:
+        response = response.model_copy(update={"access": request.access})
+    return response
 
 
 @_http_router.get(

@@ -77,8 +77,8 @@ import { toast } from "@/hooks/use-toast";
 import type {
   Credential,
   CredentialInput,
-} from "@features/workflow/components/dialogs/credentials-vault";
-import type { CredentialVaultEntryResponse } from "@features/workflow/types/credential-vault";
+  CredentialVaultEntryResponse,
+} from "@features/workflow/types/credential-vault";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
 import {
   getNodeIcon,
@@ -1310,25 +1310,91 @@ export default function WorkflowCanvas({
     };
   }, [runtimeCacheKey]);
 
-  const handleAddCredential = useCallback((credential: CredentialInput) => {
-    const timestamp = new Date().toISOString();
-    const owner = credential.owner ?? "system";
+  const handleAddCredential = useCallback(
+    async (credential: CredentialInput) => {
+      const secret = credential.secrets?.apiKey?.trim();
+      if (!secret) {
+        const message = "API key is required to save a credential.";
+        toast({
+          title: "Missing credential secret",
+          description: message,
+          variant: "destructive",
+        });
+        throw new Error(message);
+      }
 
-    const credentialRecord: Credential = {
-      ...credential,
-      owner,
-      status: credential.status ?? "unknown",
-      id: generateRandomId("cred"),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
+      const response = await fetch(
+        buildBackendHttpUrl("/api/credentials", backendBaseUrl),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: credential.name,
+            provider: credential.type ?? "custom", // default provider label
+            secret,
+            actor: user.name,
+            access: credential.access,
+            workflow_id: currentWorkflowId,
+            scopes: [],
+          }),
+        },
+      );
 
-    setCredentials((prev) => [...prev, credentialRecord]);
-    toast({
-      title: "Credential added to vault",
-      description: `${credentialRecord.name} is now available for nodes that require secure access.`,
-    });
-  }, []);
+      if (!response.ok) {
+        let detail = `Failed to save credential (status ${response.status})`;
+        try {
+          const payload = (await response.json()) as { detail?: unknown };
+          if (typeof payload?.detail === "string") {
+            detail = payload.detail;
+          } else if (
+            payload?.detail &&
+            typeof (payload.detail as { message?: unknown }).message ===
+              "string"
+          ) {
+            detail = (payload.detail as { message?: string }).message as string;
+          }
+        } catch (error) {
+          console.warn("Failed to parse credential creation error", error);
+        }
+
+        toast({
+          title: "Unable to save credential",
+          description: detail,
+          variant: "destructive",
+        });
+        throw new Error(detail);
+      }
+
+      const payload = (await response.json()) as CredentialVaultEntryResponse;
+
+      const credentialRecord: Credential = {
+        id: payload.id,
+        name: payload.name,
+        type: payload.provider ?? payload.kind,
+        createdAt: payload.created_at,
+        updatedAt: payload.updated_at,
+        owner: payload.owner,
+        access: payload.access,
+        secrets: credential.secrets,
+        status: payload.status,
+      };
+
+      setCredentials((prev) => {
+        const withoutDuplicate = prev.filter(
+          (existing) => existing.id !== credentialRecord.id,
+        );
+        return [...withoutDuplicate, credentialRecord];
+      });
+
+      toast({
+        title: "Credential added to vault",
+        description: `${credentialRecord.name} is now available for nodes that require secure access.`,
+      });
+    },
+    [backendBaseUrl, currentWorkflowId, user.name],
+  );
 
   const handleDeleteCredential = useCallback((id: string) => {
     setCredentials((prev) => prev.filter((credential) => credential.id !== id));

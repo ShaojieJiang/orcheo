@@ -52,31 +52,16 @@ import {
   AlertTriangle,
   Circle,
 } from "lucide-react";
-import type { CredentialVaultHealthStatus } from "@features/workflow/types/credential-vault";
-
-export interface Credential {
-  id: string;
-  name: string;
-  type?: string;
-  createdAt: string;
-  updatedAt: string;
-  owner?: string | null;
-  access: "private" | "shared" | "public";
-  secrets?: Record<string, string>;
-  status?: CredentialVaultHealthStatus;
-}
-
-export type CredentialInput = Omit<
+import type {
   Credential,
-  "id" | "createdAt" | "updatedAt" | "owner"
-> & {
-  owner?: string;
-};
+  CredentialInput,
+  CredentialVaultHealthStatus,
+} from "@features/workflow/types/credential-vault";
 
 interface CredentialsVaultProps {
   credentials?: Credential[];
   isLoading?: boolean;
-  onAddCredential?: (credential: CredentialInput) => void;
+  onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
   onDeleteCredential?: (id: string) => void;
   className?: string;
 }
@@ -91,6 +76,8 @@ export default function CredentialsVault({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isSavingCredential, setIsSavingCredential] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [newCredential, setNewCredential] = useState<{
     name: string;
     type: string;
@@ -119,9 +106,15 @@ export default function CredentialsVault({
     }));
   };
 
-  const handleAddCredential = () => {
-    if (onAddCredential && newCredential.name.trim()) {
-      onAddCredential(newCredential);
+  const handleAddCredential = async () => {
+    if (!onAddCredential || !newCredential.name.trim()) {
+      return;
+    }
+
+    setSaveError(null);
+    setIsSavingCredential(true);
+    try {
+      await onAddCredential(newCredential);
       setNewCredential({
         name: "",
         type: "api",
@@ -129,6 +122,15 @@ export default function CredentialsVault({
         secrets: { apiKey: "" },
       });
       setIsAddDialogOpen(false);
+    } catch (error) {
+      console.error("Failed to save credential", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to save credential. Please try again.";
+      setSaveError(message);
+    } finally {
+      setIsSavingCredential(false);
     }
   };
 
@@ -321,14 +323,30 @@ export default function CredentialsVault({
                 />
               </div>
             </div>
+            {saveError ? (
+              <p className="text-sm text-destructive px-1">{saveError}</p>
+            ) : null}
             <DialogFooter>
               <Button
                 variant="outline"
                 onClick={() => setIsAddDialogOpen(false)}
+                disabled={isSavingCredential}
               >
                 Cancel
               </Button>
-              <Button onClick={handleAddCredential}>Save Credential</Button>
+              <Button
+                onClick={handleAddCredential}
+                disabled={isSavingCredential}
+              >
+                {isSavingCredential ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Credential"
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

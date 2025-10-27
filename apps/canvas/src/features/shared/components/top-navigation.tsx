@@ -35,10 +35,11 @@ import {
   DialogTrigger,
 } from "@/design-system/ui/dialog";
 import { Input } from "@/design-system/ui/input";
-import CredentialsVault, {
-  type Credential,
-  type CredentialInput,
-} from "@features/workflow/components/dialogs/credentials-vault";
+import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
+import type {
+  Credential,
+  CredentialInput,
+} from "@features/workflow/types/credential-vault";
 
 interface TopNavigationProps {
   currentWorkflow?: {
@@ -48,7 +49,7 @@ interface TopNavigationProps {
   className?: string;
   credentials?: Credential[];
   isCredentialsLoading?: boolean;
-  onAddCredential?: (credential: CredentialInput) => void;
+  onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
   onDeleteCredential?: (id: string) => void;
 }
 

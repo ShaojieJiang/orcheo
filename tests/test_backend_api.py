@@ -490,6 +490,37 @@ def test_list_credentials_endpoint_returns_vault_entries(
     assert credential["secret_preview"]
 
 
+def test_create_credential(api_client: TestClient) -> None:
+    workflow_id = uuid4()
+    response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": str(workflow_id),
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["name"] == "Canvas API"
+    assert payload["provider"] == "api"
+    assert payload["owner"] == "tester"
+    assert payload["access"] == "private"
+
+    fetch_response = api_client.get(
+        "/api/credentials",
+        params={"workflow_id": str(workflow_id)},
+    )
+
+    assert fetch_response.status_code == 200
+    entries = fetch_response.json()
+    assert any(entry["id"] == payload["id"] for entry in entries)
+
+
 def test_credential_template_get_scope_violation_returns_403(
     api_client: TestClient,
 ) -> None:

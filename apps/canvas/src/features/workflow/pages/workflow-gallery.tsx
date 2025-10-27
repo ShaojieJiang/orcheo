@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
+import useCredentialVault from "@/hooks/use-credential-vault";
 import {
   Card,
   CardContent,
@@ -110,6 +111,13 @@ export default function WorkflowGallery() {
       development: false,
     },
   });
+
+  const {
+    credentials,
+    isLoading: isCredentialsLoading,
+    onAddCredential,
+    onDeleteCredential,
+  } = useCredentialVault();
 
   useEffect(() => {
     let isMounted = true;
@@ -466,7 +474,12 @@ export default function WorkflowGallery() {
 
   return (
     <div className="flex flex-col h-screen">
-      <TopNavigation />
+      <TopNavigation
+        credentials={credentials}
+        isCredentialsLoading={isCredentialsLoading}
+        onAddCredential={onAddCredential}
+        onDeleteCredential={onDeleteCredential}
+      />
 
       <main className="flex-1 overflow-auto">
         <div className="h-full">

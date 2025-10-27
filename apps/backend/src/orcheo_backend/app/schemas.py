@@ -177,6 +177,19 @@ class CredentialValidationRequest(BaseModel):
     actor: str = Field(default="system")
 
 
+class CredentialCreateRequest(BaseModel):
+    """Request payload for creating a credential entry."""
+
+    name: str
+    provider: str
+    secret: str
+    actor: str = Field(default="system")
+    scopes: list[str] = Field(default_factory=list)
+    access: Literal["private", "shared", "public"] = "private"
+    workflow_id: UUID | None = None
+    kind: CredentialKind = CredentialKind.SECRET
+
+
 class CredentialHealthItem(BaseModel):
     """Represents the health state for an individual credential."""
 

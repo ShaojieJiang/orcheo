@@ -19,6 +19,7 @@ import { Label } from "@/design-system/ui/label";
 import { Separator } from "@/design-system/ui/separator";
 import TopNavigation from "@features/shared/components/top-navigation";
 import ThemeSettings from "@features/account/components/theme-settings";
+import useCredentialVault from "@/hooks/use-credential-vault";
 
 export default function Settings() {
   const [emailNotifications, setEmailNotifications] = useState({
@@ -34,9 +35,21 @@ export default function Settings() {
     showMinimap: false,
   });
 
+  const {
+    credentials,
+    isLoading: isCredentialsLoading,
+    onAddCredential,
+    onDeleteCredential,
+  } = useCredentialVault();
+
   return (
     <div className="flex min-h-screen flex-col">
-      <TopNavigation />
+      <TopNavigation
+        credentials={credentials}
+        isCredentialsLoading={isCredentialsLoading}
+        onAddCredential={onAddCredential}
+        onDeleteCredential={onDeleteCredential}
+      />
 
       <div className="flex-1 space-y-4 p-8 pt-6 mx-auto w-full max-w-7xl">
         <div className="flex items-center justify-between space-y-2">
