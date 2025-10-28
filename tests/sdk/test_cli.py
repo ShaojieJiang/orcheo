@@ -505,8 +505,16 @@ def test_node_show_nonexistent_error(runner: CliRunner, env: dict[str, str]) -> 
 
 
 def test_main_config_error_handling(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
-    assert result.exit_code == 1
+    # With the default API URL, this should attempt to connect to localhost:8000
+    # The test should mock the API call to verify it uses the default
+    payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://localhost:8000/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
+    assert result.exit_code == 0
+    assert "Demo" in result.stdout
 
 
 # Cache module tests
@@ -730,13 +738,14 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
     try:
         os.environ[CONFIG_DIR_ENV] = str(config_dir)
         os.environ.pop(API_URL_ENV, None)
-        with pytest.raises(CLIConfigurationError, match="API URL is required"):
-            resolve_settings(
-                profile=None,
-                api_url=None,
-                service_token=None,
-                offline=False,
-            )
+        settings = resolve_settings(
+            profile=None,
+            api_url=None,
+            service_token=None,
+            offline=False,
+        )
+        # Should use default localhost:8000
+        assert settings.api_url == "http://localhost:8000"
     finally:
         if original:
             os.environ[CONFIG_DIR_ENV] = original

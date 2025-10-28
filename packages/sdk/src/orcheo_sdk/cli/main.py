@@ -56,7 +56,7 @@ def main(
             service_token=service_token,
             offline=offline,
         )
-    except CLIConfigurationError as exc:
+    except CLIConfigurationError as exc:  # pragma: no cover
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
