@@ -1429,6 +1429,26 @@ def test_workflow_mermaid_with_edge_list_format(
     assert "a --> b" in result.stdout
 
 
+def test_workflow_mermaid_with_langgraph_summary() -> None:
+    """Test mermaid generation when graph contains a LangGraph summary payload."""
+    from orcheo_sdk.cli.workflow import _mermaid_from_graph
+
+    graph = {
+        "format": "langgraph-script",
+        "source": "def build(): ...",
+        "summary": {
+            "nodes": [{"name": "store_secret", "type": "SetVariableNode"}],
+            "edges": [["START", "store_secret"], ["store_secret", "END"]],
+            "conditional_edges": [],
+        },
+    }
+
+    mermaid = _mermaid_from_graph(graph)
+    assert "store_secret" in mermaid
+    assert "__start__ --> store_secret" in mermaid
+    assert "store_secret --> __end__" in mermaid
+
+
 def test_workflow_mermaid_with_invalid_edge(
     runner: CliRunner, env: dict[str, str]
 ) -> None:

@@ -302,6 +302,10 @@ def _render_node_output(state: CLIState, data: Any) -> None:
 
 
 def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
+    if isinstance(graph, Mapping):
+        summary = graph.get("summary")
+        if isinstance(summary, Mapping):
+            return _compiled_mermaid(summary)
     return _compiled_mermaid(graph)
 
 
