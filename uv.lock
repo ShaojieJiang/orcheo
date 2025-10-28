@@ -1950,6 +1950,8 @@ version = "0.4.0"
 source = { editable = "packages/sdk" }
 dependencies = [
     { name = "httpx" },
+    { name = "rich" },
+    { name = "typer" },
 ]
 
 [package.optional-dependencies]
@@ -1966,7 +1968,9 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "rich", specifier = ">=13.7.0" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "typer", specifier = ">=0.12.3" },
 ]
 provides-extras = ["dev"]
 
