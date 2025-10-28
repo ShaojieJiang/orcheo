@@ -83,6 +83,8 @@ assert graph_config["edges"] == [
 
 ## Usage
 
+### Python Client
+
 ```python
 from orcheo_sdk import OrcheoClient
 
@@ -94,6 +96,156 @@ payload = client.build_payload(graph_config, inputs={"name": "Ada"})
 
 Refer to [`examples/quickstart/sdk_server_trigger.py`](../../examples/quickstart/sdk_server_trigger.py) for a complete async implementation
 that streams updates, handles connection failures gracefully, and shuts down once the workflow run finishes.
+
+### Command Line Interface
+
+The SDK includes a comprehensive CLI for managing workflows, nodes, and credentials. All commands support caching and offline mode.
+
+#### Global Options
+
+Available on all commands:
+
+- `--profile` - Profile name from the CLI config
+- `--api-url` - Override the API URL
+- `--service-token` - Override the service token
+- `--offline` - Use cached data when network calls fail
+- `--cache-ttl` - Cache TTL in hours for offline data (default: 24)
+
+#### Commands Reference
+
+##### Workflow Management
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `orcheo workflow list` | List workflows with metadata | `--archived` - Include archived workflows |
+| `orcheo workflow show <id>` | Display workflow details, versions, and runs | - |
+| `orcheo workflow run <id>` | Trigger a workflow execution | `--actor` - Actor name (default: "cli")<br>`--inputs` - JSON inputs payload<br>`--inputs-file` - Path to JSON inputs file |
+| `orcheo workflow delete <id>` | Delete a workflow | `--force` - Skip confirmation prompt |
+| `orcheo workflow upload <file>` | Upload workflow from Python or JSON file | `--id` - Workflow ID (for updates) |
+| `orcheo workflow download <id>` | Download workflow configuration | `-o, --output` - Output file path<br>`-f, --format` - Format: json or python (default: json) |
+
+**Examples:**
+
+```bash
+# List all workflows including archived ones
+orcheo workflow list --archived
+
+# Show workflow details
+orcheo workflow show my-workflow-id
+
+# Run a workflow with inputs
+orcheo workflow run my-workflow-id --inputs '{"name": "Ada"}'
+orcheo workflow run my-workflow-id --inputs-file inputs.json
+
+# Upload a workflow from Python file
+orcheo workflow upload workflow.py
+
+# Update existing workflow
+orcheo workflow upload workflow.py --id my-workflow-id
+
+# Download workflow as JSON
+orcheo workflow download my-workflow-id -o workflow.json
+
+# Download workflow as Python template
+orcheo workflow download my-workflow-id -o workflow.py -f python
+
+# Delete a workflow
+orcheo workflow delete my-workflow-id --force
+```
+
+##### Node Management
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `orcheo node list` | List registered nodes | `--tag` - Filter by category keyword |
+| `orcheo node show <name>` | Display node metadata and schema | - |
+
+**Examples:**
+
+```bash
+# List all nodes
+orcheo node list
+
+# Filter nodes by tag
+orcheo node list --tag ai
+
+# Show node details
+orcheo node show AINode
+```
+
+##### Credential Management
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `orcheo credential list` | List accessible credentials | `--workflow-id` - Filter by workflow |
+| `orcheo credential create <name>` | Create a new credential | `--provider` - Provider identifier (required)<br>`--secret` - Secret value (required)<br>`--actor` - Actor name (default: "cli")<br>`--access` - Access level: private/shared/public<br>`--workflow-id` - Workflow scope<br>`--scope` - Scopes (repeatable)<br>`--kind` - Credential kind |
+| `orcheo credential delete <id>` | Delete a credential | `--workflow-id` - Workflow scope<br>`--force` - Skip confirmation |
+| `orcheo credential reference <name>` | Get credential reference string | - |
+
+**Examples:**
+
+```bash
+# List all credentials
+orcheo credential list
+
+# List credentials for a workflow
+orcheo credential list --workflow-id my-workflow-id
+
+# Create a credential
+orcheo credential create my-api-key \
+  --provider openai \
+  --secret sk-xxx \
+  --access private
+
+# Get reference string for use in workflows
+orcheo credential reference my-api-key
+
+# Delete a credential
+orcheo credential delete cred-id --force
+```
+
+##### Code Generation
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `orcheo code scaffold <id>` | Generate Python trigger snippet | `--actor` - Actor name (default: "cli") |
+
+**Examples:**
+
+```bash
+# Generate Python code to trigger a workflow
+orcheo code scaffold my-workflow-id
+```
+
+#### Configuration
+
+##### Environment Variables
+
+- `ORCHEO_PROFILE` - Default profile to use
+- `ORCHEO_API_URL` - API base URL (default: `http://localhost:8000`)
+- `ORCHEO_SERVICE_TOKEN` - Service authentication token
+- `ORCHEO_CONFIG_DIR` - Override config directory (default: `~/.config/orcheo/`)
+- `ORCHEO_CACHE_DIR` - Override cache directory (default: `~/.cache/orcheo/`)
+
+##### Profile Configuration
+
+Create `~/.config/orcheo/cli.toml`:
+
+```toml
+[profiles.default]
+api_url = "http://localhost:8000"
+service_token = "your-token-here"
+
+[profiles.production]
+api_url = "https://api.orcheo.example.com"
+service_token = "prod-token"
+```
+
+Use profiles with `--profile`:
+
+```bash
+orcheo --profile production workflow list
+```
 
 ## Development
 

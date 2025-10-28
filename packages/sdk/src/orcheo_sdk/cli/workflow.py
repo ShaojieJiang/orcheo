@@ -35,6 +35,18 @@ ForceOption = Annotated[
     bool,
     typer.Option("--force", help="Skip confirmation prompt."),
 ]
+FilePathArgument = Annotated[
+    str,
+    typer.Argument(help="Path to workflow file (Python or JSON)."),
+]
+OutputPathOption = Annotated[
+    str | None,
+    typer.Option("--output", "-o", help="Output file path (default: stdout)."),
+]
+FormatOption = Annotated[
+    str,
+    typer.Option("--format", "-f", help="Output format (json or python)."),
+]
 
 
 def _state(ctx: typer.Context) -> CLIState:
@@ -343,6 +355,109 @@ def delete_workflow(
     )
 
 
+@workflow_app.command("upload")
+def upload_workflow(
+    ctx: typer.Context,
+    file_path: FilePathArgument,
+    workflow_id: Annotated[
+        str | None,
+        typer.Option("--id", help="Workflow ID (for updates). Creates new if omitted."),
+    ] = None,
+) -> None:
+    """Upload a workflow from a Python or JSON file.
+
+    For Python files, the file must define a 'workflow' variable containing a
+    Workflow instance.
+
+    For JSON files, the file must contain a valid workflow configuration object
+    with 'name' and 'graph' fields.
+    """
+    state = _state(ctx)
+    if state.settings.offline:
+        raise CLIError("Uploading workflows requires network connectivity.")
+
+    path_obj = Path(file_path).expanduser()
+    if not path_obj.exists():
+        raise CLIError(f"File '{file_path}' does not exist.")
+    if not path_obj.is_file():
+        raise CLIError(f"Path '{file_path}' is not a file.")
+
+    file_extension = path_obj.suffix.lower()
+    if file_extension == ".py":
+        workflow_config = _load_workflow_from_python(path_obj)
+    elif file_extension == ".json":
+        workflow_config = _load_workflow_from_json(path_obj)
+    else:
+        raise CLIError(
+            f"Unsupported file type '{file_extension}'. Use .py or .json files."
+        )
+
+    # Prepare the deployment
+    if workflow_id:
+        # Update existing workflow
+        url = f"/api/workflows/{workflow_id}"
+        result = state.client.post(url, json_body=workflow_config)
+        state.console.print(
+            f"[green]Workflow '{workflow_id}' updated successfully.[/green]"
+        )
+    else:
+        # Create new workflow
+        url = "/api/workflows"
+        result = state.client.post(url, json_body=workflow_config)
+        state.console.print("[green]Workflow created successfully.[/green]")
+
+    render_json(state.console, result, title="Workflow")
+
+
+@workflow_app.command("download")
+def download_workflow(
+    ctx: typer.Context,
+    workflow_id: WorkflowIdArgument,
+    output_path: OutputPathOption = None,
+    format_type: FormatOption = "json",
+) -> None:
+    """Download a workflow configuration to a file or stdout.
+
+    Supports downloading as JSON (default) or Python code format.
+    """
+    state = _state(ctx)
+    workflow, from_cache, stale = load_with_cache(
+        state,
+        f"workflow:{workflow_id}",
+        lambda: state.client.get(f"/api/workflows/{workflow_id}"),
+    )
+    if from_cache:
+        _cache_notice(state, f"workflow {workflow_id}", stale)
+
+    # Get the latest version
+    versions, _, _ = load_with_cache(
+        state,
+        f"workflow:{workflow_id}:versions",
+        lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
+    )
+    if not versions:
+        raise CLIError(f"Workflow '{workflow_id}' has no versions.")
+
+    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
+    graph = latest_version.get("graph", {})
+
+    # Format the output
+    if format_type.lower() == "json":
+        output_content = _format_workflow_as_json(workflow, graph)
+    elif format_type.lower() == "python":
+        output_content = _format_workflow_as_python(workflow, graph)
+    else:
+        raise CLIError(f"Unsupported format '{format_type}'. Use 'json' or 'python'.")
+
+    # Write to file or stdout
+    if output_path:
+        output_file = Path(output_path).expanduser()
+        output_file.write_text(output_content, encoding="utf-8")
+        state.console.print(f"[green]Workflow downloaded to '{output_path}'.[/green]")
+    else:
+        state.console.print(output_content)
+
+
 def _load_inputs_from_string(value: str) -> Mapping[str, Any]:
     try:
         payload = json.loads(value)
@@ -371,3 +486,140 @@ def _cache_notice(state: CLIState, subject: str, stale: bool) -> None:
     if stale:
         note += " (older than TTL)"
     state.console.print(f"{note} for {subject}.")
+
+
+def _load_workflow_from_python(path: Path) -> dict[str, Any]:
+    """Load a workflow from a Python file.
+
+    The file must define a 'workflow' variable containing a Workflow instance.
+    """
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location("workflow_module", path)
+    if spec is None or spec.loader is None:
+        raise CLIError(f"Failed to load Python module from '{path}'.")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["workflow_module"] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # pragma: no cover
+        raise CLIError(f"Failed to execute Python file: {exc}") from exc
+    finally:
+        sys.modules.pop("workflow_module", None)
+
+    if not hasattr(module, "workflow"):
+        msg = (
+            "Python file must define a 'workflow' variable "
+            "containing a Workflow instance."
+        )
+        raise CLIError(msg)
+
+    workflow = module.workflow
+    if not hasattr(workflow, "to_deployment_payload"):
+        raise CLIError("'workflow' variable must be an orcheo_sdk.Workflow instance.")
+
+    try:
+        return workflow.to_deployment_payload()
+    except Exception as exc:  # pragma: no cover
+        raise CLIError(f"Failed to generate deployment payload: {exc}") from exc
+
+
+def _load_workflow_from_json(path: Path) -> dict[str, Any]:
+    """Load a workflow configuration from a JSON file."""
+    try:
+        content = path.read_text(encoding="utf-8")
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:  # pragma: no cover
+        raise CLIError(f"Invalid JSON file: {exc}") from exc
+    except Exception as exc:  # pragma: no cover
+        raise CLIError(f"Failed to read file: {exc}") from exc
+
+    if not isinstance(data, Mapping):
+        raise CLIError("Workflow file must contain a JSON object.")
+
+    if "name" not in data:
+        raise CLIError("Workflow configuration must include a 'name' field.")
+    if "graph" not in data:
+        raise CLIError("Workflow configuration must include a 'graph' field.")
+
+    return dict(data)
+
+
+def _format_workflow_as_json(
+    workflow: Mapping[str, Any], graph: Mapping[str, Any]
+) -> str:
+    """Format workflow configuration as JSON."""
+    output: dict[str, Any] = {
+        "name": workflow.get("name"),
+        "graph": graph,
+    }
+    if "metadata" in workflow:
+        output["metadata"] = workflow["metadata"]
+
+    return json.dumps(output, indent=2, ensure_ascii=False)
+
+
+def _format_workflow_as_python(
+    workflow: Mapping[str, Any], graph: Mapping[str, Any]
+) -> str:
+    """Format workflow configuration as Python code.
+
+    Generates a basic Python template that users can customize.
+    """
+    name = workflow.get("name", "workflow")
+    nodes = graph.get("nodes", [])
+
+    lines = [
+        '"""Generated workflow configuration."""',
+        "",
+        "from orcheo_sdk import Workflow, WorkflowNode",
+        "from pydantic import BaseModel",
+        "",
+        "",
+    ]
+
+    # Generate node classes (simplified template)
+    seen_types: set[str] = set()
+    for node in nodes:
+        node_type = node.get("type", "Unknown")
+        if node_type in seen_types:
+            continue
+        seen_types.add(node_type)
+
+        lines.extend(
+            [
+                f"class {node_type}Config(BaseModel):",
+                "    # TODO: Define configuration fields",
+                "    pass",
+                "",
+                "",
+                f"class {node_type}Node(WorkflowNode[{node_type}Config]):",
+                f'    type_name = "{node_type}"',
+                "",
+                "",
+            ]
+        )
+
+    # Generate workflow
+    lines.extend(
+        [
+            f'workflow = Workflow(name="{name}")',
+            "",
+        ]
+    )
+
+    # Add nodes
+    for node in nodes:
+        node_name = node.get("name", "unknown")
+        node_type = node.get("type", "Unknown")
+        lines.append(
+            f"# workflow.add_node({node_type}Node('{node_name}', {node_type}Config()))"
+        )
+
+    lines.append("")
+    lines.append("# TODO: Configure node dependencies using depends_on parameter")
+    lines.append("")
+
+    return "\n".join(lines)
