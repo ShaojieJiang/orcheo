@@ -1,7 +1,8 @@
 """Registry implementation for Orcheo nodes."""
 
-from collections.abc import Callable
-from pydantic import BaseModel
+from __future__ import annotations
+from collections.abc import Callable, Iterable
+from pydantic import BaseModel, Field
 
 
 class NodeMetadata(BaseModel):
@@ -19,6 +20,8 @@ class NodeMetadata(BaseModel):
     """Human-readable description of the node's purpose."""
     category: str = "general"
     """Node category, defaults to "general"."""
+    tags: list[str] = Field(default_factory=list)
+    """Optional set of discoverability tags for the node."""
 
 
 class NodeRegistry:
@@ -47,15 +50,34 @@ class NodeRegistry:
         return decorator
 
     def get_node(self, name: str) -> Callable | None:
-        """Get a node implementation by name.
+        """Return a node implementation by name.
 
         Args:
             name: Name of the node to retrieve
 
         Returns:
-            Node implementation function or None if not found
+            Node implementation function or ``None`` if not found
         """
         return self._nodes.get(name)
+
+    def get_metadata(self, name: str) -> NodeMetadata | None:
+        """Return the metadata associated with a registered node.
+
+        Args:
+            name: Name of the node to retrieve metadata for
+
+        Returns:
+            Node metadata instance if the node is registered, otherwise ``None``
+        """
+        return self._metadata.get(name)
+
+    def list_metadata(self) -> list[NodeMetadata]:
+        """Return metadata for all registered nodes."""
+        return list(self._metadata.values())
+
+    def iter_metadata(self) -> Iterable[NodeMetadata]:
+        """Yield metadata objects for registered nodes."""
+        yield from self._metadata.values()
 
     def get_metadata_by_callable(self, obj: Callable) -> NodeMetadata | None:
         """Return metadata associated with a registered callable."""

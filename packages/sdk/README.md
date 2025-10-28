@@ -2,6 +2,24 @@
 
 The Python SDK offers a strongly typed way to generate Orcheo workflow requests without forcing a specific HTTP client dependency.
 
+## Command line interface
+
+The SDK now ships with the `orcheo` CLI for inspecting nodes, workflows, and credentials from the terminal. Once the package is installed you can invoke the CLI via `uv run` (or any Python environment where the package is available):
+
+```bash
+uv run orcheo --help
+```
+
+Configuration mirrors the Python SDK: set `ORCHEO_API_URL` and `ORCHEO_SERVICE_TOKEN` in your shell or define profiles in `~/.config/orcheo/cli.toml`. A simple invocation to list workflows looks like this:
+
+```bash
+ORCHEO_API_URL=https://orcheo.example.com \
+ORCHEO_SERVICE_TOKEN=secret-token \
+uv run orcheo workflow list
+```
+
+Offline-friendly commands (such as `orcheo node list`) will transparently fall back to cached data when the `--offline` flag is supplied. Run `uv run orcheo --help` for the full command surface.
+
 ## Server-side workflow execution
 
 > **Breaking change:** The SDK no longer supports executing workflows locally within the client process. All executions now run on the
