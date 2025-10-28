@@ -247,6 +247,25 @@ def _settings_value(
     return default
 
 
+def _ensure_file_vault_key(path: Path, provided_key: str | None) -> str:
+    """Load the encryption key for a file-backed vault, generating it when missing."""
+    if provided_key:
+        return provided_key
+    key_path = path.with_name(f"{path.stem}.key")
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    if key_path.exists():
+        key = key_path.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+    key = secrets.token_hex(32)
+    key_path.write_text(key, encoding="utf-8")
+    try:
+        os.chmod(key_path, 0o600)
+    except (PermissionError, NotImplementedError, OSError):
+        pass
+    return key
+
+
 def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
     backend = cast(
         str,
@@ -254,7 +273,7 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             settings,
             attr_path="vault.backend",
             env_key="VAULT_BACKEND",
-            default="inmemory",
+            default="file",
         ),
     )
     key = cast(
@@ -266,9 +285,9 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             default=None,
         ),
     )
-    encryption_key = key or secrets.token_hex(32)
-    cipher = AesGcmCredentialCipher(key=encryption_key)
     if backend == "inmemory":
+        encryption_key = key or secrets.token_hex(32)
+        cipher = AesGcmCredentialCipher(key=encryption_key)
         return InMemoryCredentialVault(cipher=cipher)
     if backend == "file":
         local_path = cast(
@@ -281,6 +300,8 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             ),
         )
         path = Path(local_path).expanduser()
+        encryption_key = _ensure_file_vault_key(path, key)
+        cipher = AesGcmCredentialCipher(key=encryption_key)
         return FileCredentialVault(path, cipher=cipher)
     msg = "Vault backend 'aws_kms' is not supported in this environment."
     raise ValueError(msg)

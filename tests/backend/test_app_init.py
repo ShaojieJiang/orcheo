@@ -144,6 +144,31 @@ def test_create_vault_supports_file_backend(tmp_path: Path) -> None:
     assert vault._path == path.expanduser()  # type: ignore[attr-defined]
 
 
+def test_create_vault_generates_encryption_key(tmp_path: Path) -> None:
+    """Missing encryption keys are generated and stored alongside the database."""
+
+    path = tmp_path / "vault.sqlite"
+    settings = SimpleNamespace(
+        vault=SimpleNamespace(
+            backend="file",
+            local_path=str(path),
+            encryption_key=None,
+        )
+    )
+
+    vault = _create_vault(settings)  # type: ignore[arg-type]
+
+    assert isinstance(vault, FileCredentialVault)
+    key_path = path.with_name(f"{path.stem}.key")
+    assert key_path.exists()
+    key_contents = key_path.read_text(encoding="utf-8").strip()
+    assert len(key_contents) == 64
+
+    _create_vault(settings)  # type: ignore[arg-type]
+
+    assert key_path.read_text(encoding="utf-8").strip() == key_contents
+
+
 def test_create_vault_rejects_unsupported_backend() -> None:
     """Unsupported vault backends raise a clear error message."""
 

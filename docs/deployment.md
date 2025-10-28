@@ -23,7 +23,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 
 **Verification**: Run `uv run pytest` to validate the environment. The test suite opens an SQLite connection through the same helper used by the server.
 
-_Vault note_: The default `.env.example` keeps credentials in an in-memory vault suitable for quick iteration. Switch `ORCHEO_VAULT_BACKEND` to `file` when you want encrypted secrets to persist between restarts.
+_Vault note_: The default `.env.example` now stores credentials in an encrypted SQLite vault at `.orcheo/vault.sqlite`. The backend generates and caches the AES key alongside the database on first start. Switch `ORCHEO_VAULT_BACKEND` to `inmemory` for ephemeral secrets or set `ORCHEO_VAULT_ENCRYPTION_KEY` to supply a managed key.
 
 _Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file.
 
