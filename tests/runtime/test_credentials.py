@@ -17,14 +17,13 @@ from orcheo.runtime.credentials import (
     CredentialReferenceNotFoundError,
     CredentialResolver,
     CredentialResolverUnavailableError,
-    DuplicateCredentialReferenceError,
     UnknownCredentialPayloadError,
     credential_ref,
     credential_resolution,
     get_active_credential_resolver,
     parse_credential_reference,
 )
-from orcheo.vault import InMemoryCredentialVault
+from orcheo.vault import DuplicateCredentialNameError, InMemoryCredentialVault
 
 
 def _create_vault_with_secret(secret: str = "s3cret") -> InMemoryCredentialVault:
@@ -153,21 +152,25 @@ def test_resolver_rejects_unknown_payload() -> None:
             resolver.resolve(credential_ref("telegram_bot", "api_key"))
 
 
-def test_resolver_detects_duplicate_names() -> None:
+def test_vault_rejects_duplicate_names() -> None:
     vault = InMemoryCredentialVault()
-    for scope in (CredentialScope.unrestricted(), CredentialScope.unrestricted()):
+    vault.create_credential(
+        name="dup",
+        provider="telegram",
+        scopes=["bot"],
+        secret="value",
+        actor="tester",
+        scope=CredentialScope.unrestricted(),
+    )
+    with pytest.raises(DuplicateCredentialNameError):
         vault.create_credential(
             name="dup",
             provider="telegram",
             scopes=["bot"],
-            secret="value",
+            secret="another",
             actor="tester",
-            scope=scope,
+            scope=CredentialScope.unrestricted(),
         )
-    resolver = CredentialResolver(vault)
-    with credential_resolution(resolver):
-        with pytest.raises(DuplicateCredentialReferenceError):
-            resolver.resolve(credential_ref("dup"))
 
 
 def test_resolver_missing_reference() -> None:

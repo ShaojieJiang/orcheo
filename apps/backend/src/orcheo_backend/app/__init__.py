@@ -56,6 +56,7 @@ from orcheo.vault import (
     BaseCredentialVault,
     CredentialNotFoundError,
     CredentialTemplateNotFoundError,
+    DuplicateCredentialNameError,
     FileCredentialVault,
     GovernanceAlertNotFoundError,
     InMemoryCredentialVault,
@@ -1079,6 +1080,11 @@ def create_credential(
             scope=scope,
             kind=request.kind,
         )
+    except DuplicateCredentialNameError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

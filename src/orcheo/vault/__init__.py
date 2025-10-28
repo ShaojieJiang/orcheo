@@ -40,6 +40,10 @@ class GovernanceAlertNotFoundError(VaultError):
     """Raised when a governance alert cannot be located."""
 
 
+class DuplicateCredentialNameError(VaultError):
+    """Raised when attempting to create a credential with a duplicate name."""
+
+
 class WorkflowScopeError(VaultError):
     """Raised when a credential scope denies access for the provided context."""
 
@@ -505,6 +509,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
         self._alerts: dict[UUID, SecretGovernanceAlert] = {}
 
     def _persist_metadata(self, metadata: CredentialMetadata) -> None:
+        normalized = metadata.name.casefold()
+        for stored_id, stored in self._store.items():
+            if stored_id == metadata.id:
+                continue
+            if stored.name.casefold() == normalized:
+                msg = f"Credential name '{metadata.name}' is already in use."
+                raise DuplicateCredentialNameError(msg)
         self._store[metadata.id] = metadata.model_copy(deep=True)
 
     def _load_metadata(self, credential_id: UUID) -> CredentialMetadata:
@@ -640,6 +651,19 @@ class FileCredentialVault(BaseCredentialVault):
     def _persist_metadata(self, metadata: CredentialMetadata) -> None:
         payload = metadata.model_dump_json()
         with self._lock, sqlite3.connect(self._path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT id
+                  FROM credentials
+                 WHERE lower(name) = lower(?)
+                """,
+                (metadata.name,),
+            )
+            rows = [row[0] for row in cursor.fetchall()]
+            duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
+            if duplicates:
+                msg = f"Credential name '{metadata.name}' is already in use."
+                raise DuplicateCredentialNameError(msg)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO credentials (
@@ -914,6 +938,7 @@ __all__ = [
     "CredentialNotFoundError",
     "CredentialTemplateNotFoundError",
     "GovernanceAlertNotFoundError",
+    "DuplicateCredentialNameError",
     "WorkflowScopeError",
     "RotationPolicyError",
     "BaseCredentialVault",
