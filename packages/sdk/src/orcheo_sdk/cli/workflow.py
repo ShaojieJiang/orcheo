@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any
@@ -51,6 +52,253 @@ FormatOption = Annotated[
 
 def _state(ctx: typer.Context) -> CLIState:
     return ctx.ensure_object(CLIState)
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _generate_slug(value: str) -> str:
+    normalized = _SLUG_RE.sub("-", value.strip().lower()).strip("-")
+    fallback = value.strip().lower()
+    return normalized or fallback or value
+
+
+def _normalize_workflow_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+    normalized = name.strip()
+    if not normalized:
+        raise CLIError("Workflow name cannot be empty.")
+    return normalized
+
+
+def _upload_langgraph_script(
+    state: CLIState,
+    workflow_config: dict[str, Any],
+    workflow_id: str | None,
+    path: Path,
+    name_override: str | None,
+) -> dict[str, Any]:
+    """Upload a LangGraph script using the ingestion API.
+
+    This function handles the two-step process:
+    1. Create/get workflow
+    2. Ingest the script to create a version
+    """
+    script = workflow_config["script"]
+    entrypoint = workflow_config.get("entrypoint")
+
+    derived_name = path.stem.replace("_", "-")
+    workflow_name = name_override or derived_name
+    workflow_slug = _generate_slug(workflow_name) if name_override else derived_name
+
+    if workflow_id:
+        # Use existing workflow
+        try:
+            workflow = state.client.get(f"/api/workflows/{workflow_id}")
+        except Exception as exc:
+            raise CLIError(f"Failed to fetch workflow '{workflow_id}': {exc}") from exc
+        if name_override and workflow.get("name") != name_override:
+            try:
+                state.client.post(
+                    f"/api/workflows/{workflow_id}",
+                    json_body={"name": name_override},
+                )
+                workflow["name"] = name_override
+            except Exception as exc:
+                raise CLIError(
+                    f"Failed to rename workflow '{workflow_id}': {exc}"
+                ) from exc
+    else:
+        # Create new workflow
+        create_payload = {
+            "name": workflow_name,
+            "slug": workflow_slug,
+            "description": f"LangGraph workflow from {path.name}",
+            "tags": ["langgraph", "cli-upload"],
+            "actor": "cli",
+        }
+        try:
+            workflow = state.client.post("/api/workflows", json_body=create_payload)
+            workflow_id = workflow["id"]
+            state.console.print(
+                f"[green]Created workflow '{workflow_id}' ({workflow_name})[/green]"
+            )
+        except Exception as exc:
+            raise CLIError(f"Failed to create workflow: {exc}") from exc
+
+    # Ingest the script to create a version
+    ingest_payload = {
+        "script": script,
+        "entrypoint": entrypoint,
+        "metadata": {"source": "cli-upload", "filename": path.name},
+        "notes": f"Uploaded from {path.name} via CLI",
+        "created_by": "cli",
+    }
+
+    try:
+        version = state.client.post(
+            f"/api/workflows/{workflow_id}/versions/ingest",
+            json_body=ingest_payload,
+        )
+        state.console.print(
+            f"[green]Ingested LangGraph script as version {version['version']}[/green]"
+        )
+    except Exception as exc:
+        raise CLIError(f"Failed to ingest LangGraph script: {exc}") from exc
+
+    # Return the workflow with the latest version info
+    workflow["latest_version"] = version
+    return workflow
+
+
+async def _stream_workflow_run(
+    state: CLIState,
+    workflow_id: str,
+    graph_config: dict[str, Any],
+    inputs: Mapping[str, Any],
+) -> str:
+    """Stream workflow execution via WebSocket and display node outputs."""
+    import json
+    import uuid
+    import websockets
+    from websockets import exceptions as ws_exceptions
+
+    # Build WebSocket URL and payload
+    ws_base = state.client.base_url.replace("http://", "ws://").replace(
+        "https://", "wss://"
+    )
+    websocket_url = f"{ws_base}/ws/workflow/{workflow_id}"
+    execution_id = str(uuid.uuid4())
+    payload = {
+        "type": "run_workflow",
+        "graph_config": graph_config,
+        "inputs": dict(inputs),
+        "execution_id": execution_id,
+    }
+
+    state.console.print("[cyan]Starting workflow execution...[/cyan]")
+    state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
+
+    try:
+        async with websockets.connect(
+            websocket_url, open_timeout=5, close_timeout=5
+        ) as websocket:
+            await websocket.send(json.dumps(payload))
+            return await _process_stream_messages(state, websocket)
+    except (ConnectionRefusedError, OSError) as exc:
+        state.console.print(
+            "[red]Failed to connect to server.[/red]\n"
+            "[dim]Ensure the backend is running.[/dim]"
+        )
+        state.console.print(f"[dim]Error: {exc}[/dim]")
+        return "connection_error"
+    except TimeoutError:
+        state.console.print(
+            "[red]Timed out while connecting.[/red]\n"
+            "[dim]Retry once the server is reachable.[/dim]"
+        )
+        return "timeout"
+    except ws_exceptions.InvalidStatusCode as exc:  # type: ignore[attr-defined]
+        state.console.print(
+            f"[red]Server rejected connection (HTTP {exc.status_code}).[/red]\n"
+            "[dim]Verify the workflow ID and backend availability.[/dim]"
+        )
+        return f"http_{exc.status_code}"
+    except ws_exceptions.WebSocketException as exc:
+        state.console.print(f"[red]WebSocket error: {exc}[/red]")
+        return "websocket_error"
+
+
+async def _process_stream_messages(state: CLIState, websocket: Any) -> str:
+    """Process streaming messages from WebSocket."""
+    import json
+
+    async for message in websocket:
+        update = json.loads(message)
+        status = update.get("status")
+
+        if status:
+            final_status = _handle_status_update(state, update)
+            if final_status:
+                return final_status
+            continue
+
+        # Handle node execution events
+        _handle_node_event(state, update)
+
+    return "completed"
+
+
+def _handle_status_update(state: CLIState, update: dict[str, Any]) -> str | None:
+    """Handle status updates. Returns final status if workflow should end."""
+    status = update.get("status")
+
+    if status == "error":
+        error_detail = update.get("error") or "Unknown error"
+        state.console.print(f"[red]✗ Error: {error_detail}[/red]")
+        return "error"
+    if status == "cancelled":
+        reason = update.get("reason") or "No reason provided"
+        state.console.print(f"[yellow]⚠ Cancelled: {reason}[/yellow]")
+        return "cancelled"
+    if status == "completed":
+        state.console.print("[green]✓ Workflow completed successfully[/green]")
+        return "completed"
+
+    state.console.print(f"[dim]Status: {status}[/dim]")
+    return None
+
+
+def _handle_node_event(state: CLIState, update: dict[str, Any]) -> None:
+    """Handle node execution event updates."""
+    node = update.get("node")
+    event = update.get("event")
+    payload_data = update.get("payload") or update.get("data")
+
+    if not (node and event):
+        return
+
+    if event == "on_chain_start":
+        state.console.print(f"[blue]→ {node}[/blue] [dim]starting...[/dim]")
+    elif event == "on_chain_end":
+        state.console.print(f"[green]✓ {node}[/green]")
+        if payload_data:
+            _render_node_output(state, payload_data)
+    elif event == "on_chain_error":
+        error_msg = payload_data.get("error") if payload_data else "Unknown"
+        state.console.print(f"[red]✗ {node}[/red] [dim]{error_msg}[/dim]")
+    else:
+        # Other events - show in dim
+        state.console.print(f"[dim][{event}] {node}: {payload_data}[/dim]")
+
+
+def _render_node_output(state: CLIState, data: Any) -> None:
+    """Render node output in a compact, readable format."""
+    if not data:
+        return
+
+    if isinstance(data, dict):
+        # Show key-value pairs inline for small dicts
+        if len(data) <= 3 and all(
+            isinstance(v, str | int | float | bool) for v in data.values()
+        ):
+            items = [f"{k}={v!r}" for k, v in data.items()]
+            state.console.print(f"  [dim]{', '.join(items)}[/dim]")
+        else:
+            # Use JSON rendering for complex data
+            render_json(state.console, data, title=None)
+    elif isinstance(data, str) and len(data) < 100:
+        state.console.print(f"  [dim]{data}[/dim]")
+    else:
+        # Fallback to JSON for other types
+        import json as json_module
+
+        try:
+            formatted = json_module.dumps(data, indent=2, default=str)
+            state.console.print(f"[dim]{formatted}[/dim]")
+        except Exception:  # pragma: no cover
+            state.console.print(f"  [dim]{data!r}[/dim]")
 
 
 def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
@@ -296,8 +544,19 @@ def run_workflow(
     triggered_by: ActorOption = "cli",
     inputs: InputsOption = None,
     inputs_file: InputsFileOption = None,
+    stream: Annotated[
+        bool,
+        typer.Option(
+            "--stream/--no-stream",
+            help="Stream node outputs in real-time (default: True).",
+        ),
+    ] = True,
 ) -> None:
-    """Trigger a workflow run using the latest version."""
+    """Trigger a workflow run using the latest version.
+
+    By default, streams node outputs in real-time via WebSocket.
+    Use --no-stream to trigger without streaming (returns run ID immediately).
+    """
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Workflow executions require network connectivity.")
@@ -308,6 +567,10 @@ def run_workflow(
     version_id = latest_version.get("id")
     if not version_id:
         raise CLIError("Latest workflow version is missing an id field.")
+    graph_config = latest_version.get("graph")
+
+    # Fall back to non-streaming if graph config is not available
+    can_stream = stream and graph_config is not None
 
     payload_inputs: Mapping[str, Any] = {}
     if inputs and inputs_file:
@@ -317,19 +580,35 @@ def run_workflow(
     elif inputs_file:
         payload_inputs = _load_inputs_from_path(inputs_file)
 
-    orcheo_client = OrcheoClient(base_url=state.client.base_url)
-    executor = HttpWorkflowExecutor(
-        orcheo_client,
-        auth_token=state.settings.service_token,
-        timeout=30.0,
-    )
-    result = executor.trigger_run(
-        workflow_id,
-        workflow_version_id=version_id,
-        triggered_by=triggered_by,
-        inputs=payload_inputs,
-    )
-    render_json(state.console, result, title="Run created")
+    if can_stream:
+        # Stream workflow execution via WebSocket
+        import asyncio
+
+        final_status = asyncio.run(
+            _stream_workflow_run(
+                state,
+                workflow_id,
+                graph_config,
+                payload_inputs,
+            )
+        )
+        if final_status in {"error", "cancelled", "connection_error", "timeout"}:
+            raise CLIError(f"Workflow execution failed with status: {final_status}")
+    else:
+        # Non-streaming: just trigger and return run ID
+        orcheo_client = OrcheoClient(base_url=state.client.base_url)
+        executor = HttpWorkflowExecutor(
+            orcheo_client,
+            auth_token=state.settings.service_token,
+            timeout=30.0,
+        )
+        result = executor.trigger_run(
+            workflow_id,
+            workflow_version_id=version_id,
+            triggered_by=triggered_by,
+            inputs=payload_inputs,
+        )
+        render_json(state.console, result, title="Run created")
 
 
 @workflow_app.command("delete")
@@ -363,18 +642,40 @@ def upload_workflow(
         str | None,
         typer.Option("--id", help="Workflow ID (for updates). Creates new if omitted."),
     ] = None,
+    entrypoint: Annotated[
+        str | None,
+        typer.Option(
+            "--entrypoint",
+            help=(
+                "Entrypoint function/variable for LangGraph scripts "
+                "(auto-detect if omitted)."
+            ),
+        ),
+    ] = None,
+    workflow_name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            "-n",
+            help="Rename the workflow when uploading.",
+        ),
+    ] = None,
 ) -> None:
     """Upload a workflow from a Python or JSON file.
 
-    For Python files, the file must define a 'workflow' variable containing a
-    Workflow instance.
+    For Python files, supports two formats:
+    1. SDK Workflow: File defines a 'workflow' variable with Workflow instance
+    2. LangGraph script: Raw LangGraph code (auto-detected if no 'workflow' var)
 
-    For JSON files, the file must contain a valid workflow configuration object
-    with 'name' and 'graph' fields.
+    For JSON files, must contain valid workflow config with 'name' and 'graph'.
+
+    Use --entrypoint to specify a custom entrypoint for LangGraph scripts.
     """
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Uploading workflows requires network connectivity.")
+
+    requested_name = _normalize_workflow_name(workflow_name)
 
     path_obj = Path(file_path).expanduser()
     if not path_obj.exists():
@@ -392,19 +693,33 @@ def upload_workflow(
             f"Unsupported file type '{file_extension}'. Use .py or .json files."
         )
 
-    # Prepare the deployment
-    if workflow_id:
-        # Update existing workflow
-        url = f"/api/workflows/{workflow_id}"
-        result = state.client.post(url, json_body=workflow_config)
-        state.console.print(
-            f"[green]Workflow '{workflow_id}' updated successfully.[/green]"
+    # Check if this is a LangGraph script that needs ingestion
+    is_langgraph_script = workflow_config.get("_type") == "langgraph_script"
+
+    if is_langgraph_script:
+        # Override entrypoint if provided
+        if entrypoint:
+            workflow_config["entrypoint"] = entrypoint
+        result = _upload_langgraph_script(
+            state,
+            workflow_config,
+            workflow_id,
+            path_obj,
+            requested_name,
         )
     else:
-        # Create new workflow
-        url = "/api/workflows"
+        if requested_name:
+            workflow_config["name"] = requested_name
+        if workflow_id:
+            url = f"/api/workflows/{workflow_id}"
+            success_message = (
+                f"[green]Workflow '{workflow_id}' updated successfully.[/green]"
+            )
+        else:
+            url = "/api/workflows"
+            success_message = "[green]Workflow created successfully.[/green]"
         result = state.client.post(url, json_body=workflow_config)
-        state.console.print("[green]Workflow created successfully.[/green]")
+        state.console.print(success_message)
 
     render_json(state.console, result, title="Workflow")
 
@@ -488,10 +803,29 @@ def _cache_notice(state: CLIState, subject: str, stale: bool) -> None:
     state.console.print(f"{note} for {subject}.")
 
 
+def _strip_main_block(script: str) -> str:
+    """Remove if __name__ == "__main__" blocks from Python scripts.
+
+    RestrictedPython doesn't allow variables starting with underscore,
+    so we strip out these blocks before ingestion.
+    """
+    lines = script.split("\n")
+    filtered_lines = []
+    for line in lines:
+        if line.strip().startswith('if __name__ == "__main__"'):
+            break
+        if line.strip().startswith("if __name__ == '__main__'"):
+            break
+        filtered_lines.append(line)
+    return "\n".join(filtered_lines)
+
+
 def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     """Load a workflow from a Python file.
 
-    The file must define a 'workflow' variable containing a Workflow instance.
+    Supports two formats:
+    1. SDK Workflow: File defines a 'workflow' variable with a Workflow instance
+    2. LangGraph script: File contains raw LangGraph code (returns special format)
     """
     import importlib.util
     import sys
@@ -509,21 +843,34 @@ def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     finally:
         sys.modules.pop("workflow_module", None)
 
-    if not hasattr(module, "workflow"):
-        msg = (
-            "Python file must define a 'workflow' variable "
-            "containing a Workflow instance."
-        )
-        raise CLIError(msg)
+    # Check if this is an SDK Workflow file
+    if hasattr(module, "workflow"):
+        workflow = module.workflow
+        if not hasattr(workflow, "to_deployment_payload"):
+            msg = "'workflow' variable must be an orcheo_sdk.Workflow instance."
+            raise CLIError(msg)
 
-    workflow = module.workflow
-    if not hasattr(workflow, "to_deployment_payload"):
-        raise CLIError("'workflow' variable must be an orcheo_sdk.Workflow instance.")
+        try:
+            return workflow.to_deployment_payload()
+        except Exception as exc:  # pragma: no cover
+            raise CLIError(f"Failed to generate deployment payload: {exc}") from exc
 
+    # If no 'workflow' variable, treat as raw LangGraph script
+    # Return a special marker indicating this needs ingestion API
     try:
-        return workflow.to_deployment_payload()
+        script_content = path.read_text(encoding="utf-8")
     except Exception as exc:  # pragma: no cover
-        raise CLIError(f"Failed to generate deployment payload: {exc}") from exc
+        raise CLIError(f"Failed to read file: {exc}") from exc
+
+    # Strip out if __name__ == "__main__" blocks which contain underscore vars
+    # that RestrictedPython doesn't allow
+    script_content = _strip_main_block(script_content)
+
+    return {
+        "_type": "langgraph_script",
+        "script": script_content,
+        "entrypoint": None,  # Auto-detect entrypoint
+    }
 
 
 def _load_workflow_from_json(path: Path) -> dict[str, Any]:
