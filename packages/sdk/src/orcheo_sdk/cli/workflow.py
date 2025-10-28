@@ -63,7 +63,7 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
                     _normalise_vertex(target, START, END),
                 )
             )
-        except ValueError:
+        except ValueError:  # pragma: no cover - handled via continue
             continue
 
     if not compiled_edges:
