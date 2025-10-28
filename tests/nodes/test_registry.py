@@ -60,3 +60,27 @@ def test_get_metadata_by_callable_no_match() -> None:
 
     result = registry.get_metadata_by_callable(unregistered_node)
     assert result is None
+
+
+def test_get_metadata_returns_registered_entry() -> None:
+    """get_metadata surfaces registered metadata by node name."""
+
+    registry = NodeRegistry()
+    metadata = NodeMetadata(name="alpha", description="Alpha node", category="demo")
+    registry.register(metadata)(lambda _: None)
+
+    assert registry.get_metadata("alpha") is metadata
+    assert registry.get_metadata("missing") is None
+
+
+def test_list_metadata_returns_sorted_entries() -> None:
+    """list_metadata returns metadata sorted by case-insensitive name."""
+
+    registry = NodeRegistry()
+    first = NodeMetadata(name="Beta", description="", category="")
+    second = NodeMetadata(name="alpha", description="", category="")
+    registry.register(first)(lambda _: None)
+    registry.register(second)(lambda _: None)
+
+    names = [item.name for item in registry.list_metadata()]
+    assert names == ["alpha", "Beta"]

@@ -55,6 +55,30 @@ directly to the backend importer, execute it, and stream live updates.
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
 
+## CLI
+
+Orcheo ships with a LangGraph-friendly CLI for node discovery, workflow
+inspection, credential management, and reference code generation. Install the
+workspace dependencies and invoke the CLI via uv:
+
+```bash
+uv run orcheo --help
+```
+
+Example commands:
+
+- `uv run orcheo node list` – enumerate registered nodes and their metadata
+- `uv run orcheo workflow show <workflow-id>` – inspect workflows, graph
+  versions, and recent runs
+- `uv run orcheo credential create <name> --provider <provider> --secret <value>` –
+  manage vault credentials
+- `uv run orcheo code scaffold <workflow-id>` – generate Python snippets that
+  trigger workflows via the SDK
+
+Pass `--offline` to reuse cached metadata when disconnected. See
+[`docs/cli_tool_design.md`](docs/cli_tool_design.md) for roadmap details and
+future MCP server integration plans.
+
 ## Frontend experience plan
 
 The path to a production-quality canvas is captured in
