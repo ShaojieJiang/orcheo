@@ -407,6 +407,62 @@ def test_workflow_run_inputs_string_not_json_object(
     assert "must be a JSON object" in str(result.exception)
 
 
+def test_workflow_delete_with_force(runner: CliRunner, env: dict[str, str]) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1", "--force"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "deleted successfully" in result.stdout
+
+
+def test_workflow_delete_without_force_prompts(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    # Test without --force which would prompt for confirmation
+    # We'll simulate the user aborting
+    with respx.mock:
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1"],
+            env=env,
+            input="n\n",  # No to confirmation
+        )
+    # Typer.confirm with abort=True will exit with code 1 when user says no
+    assert result.exit_code == 1
+
+
+def test_workflow_delete_with_confirmation(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    # Test that delete succeeds when user confirms
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1"],
+            env=env,
+            input="y\n",  # Yes to confirmation
+        )
+    assert result.exit_code == 0
+    assert "deleted successfully" in result.stdout
+
+
+def test_workflow_delete_offline_error(runner: CliRunner, env: dict[str, str]) -> None:
+    offline_args = ["--offline", "workflow", "delete", "wf-1", "--force"]
+    result = runner.invoke(app, offline_args, env=env)
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "network connectivity" in str(result.exception)
+
+
 def test_credential_list_with_workflow_id(
     runner: CliRunner, env: dict[str, str]
 ) -> None:

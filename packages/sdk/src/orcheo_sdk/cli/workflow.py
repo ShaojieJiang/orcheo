@@ -31,6 +31,10 @@ InputsFileOption = Annotated[
     str | None,
     typer.Option("--inputs-file", help="Path to JSON file with inputs."),
 ]
+ForceOption = Annotated[
+    bool,
+    typer.Option("--force", help="Skip confirmation prompt."),
+]
 
 
 def _state(ctx: typer.Context) -> CLIState:
@@ -300,6 +304,29 @@ def run_workflow(
         inputs=payload_inputs,
     )
     render_json(state.console, result, title="Run created")
+
+
+@workflow_app.command("delete")
+def delete_workflow(
+    ctx: typer.Context,
+    workflow_id: WorkflowIdArgument,
+    force: ForceOption = False,
+) -> None:
+    """Delete a workflow by ID."""
+    state = _state(ctx)
+    if state.settings.offline:
+        raise CLIError("Deleting workflows requires network connectivity.")
+
+    if not force:
+        typer.confirm(
+            f"Are you sure you want to delete workflow '{workflow_id}'?",
+            abort=True,
+        )
+
+    state.client.delete(f"/api/workflows/{workflow_id}")
+    state.console.print(
+        f"[green]Workflow '{workflow_id}' deleted successfully.[/green]"
+    )
 
 
 def _load_inputs_from_string(value: str) -> Mapping[str, Any]:
