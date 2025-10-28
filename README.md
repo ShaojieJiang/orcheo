@@ -55,6 +55,16 @@ directly to the backend importer, execute it, and stream live updates.
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
 
+## CLI roadmap
+
+Developer feedback highlighted the need for a LangGraph-friendly CLI that can
+inspect workflows, surface node metadata, manage credentials, and emit Mermaid
+diagrams or `[[cred_name]]` references without leaving the terminal. The high
+level design and implementation plan live in
+[`docs/cli_tool_design.md`](docs/cli_tool_design.md); upcoming milestones will
+wire these commands into the SDK so they can later power an MCP server for AI
+coding agents.
+
 ## Frontend experience plan
 
 The path to a production-quality canvas is captured in
