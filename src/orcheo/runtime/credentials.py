@@ -211,7 +211,16 @@ class CredentialResolver:
             current: Any = tokens
             for attribute in tail:
                 if not hasattr(current, attribute):
-                    msg = f"OAuth token payload does not expose attribute '{attribute}'"
+                    available = [
+                        attr
+                        for attr in ("access_token", "refresh_token", "expires_at")
+                        if hasattr(current, attr)
+                    ]
+                    available_list = ", ".join(available) or "<none>"
+                    msg = (
+                        "OAuth token payload does not expose attribute "
+                        f"'{attribute}'. Available: {available_list}"
+                    )
                     raise UnknownCredentialPayloadError(msg)
                 current = getattr(current, attribute)
             return current
@@ -234,12 +243,12 @@ class CredentialResolver:
     def _resolve_oauth_tokens(
         self, metadata: CredentialMetadata
     ) -> OAuthTokenSecrets | None:
-        cached = self._oauth_cache.get(metadata.id)
-        if cached is not None:
-            return cached.model_copy(deep=True) if cached is not None else None
         if metadata.kind is not CredentialKind.OAUTH:
             msg = "OAuth payload requested for credential that is not of kind 'oauth'"
             raise UnknownCredentialPayloadError(msg)
+        cached = self._oauth_cache.get(metadata.id)
+        if cached is not None:
+            return cached.model_copy(deep=True)
         tokens = metadata.reveal_oauth_tokens(cipher=self._vault.cipher)
         self._oauth_cache[metadata.id] = tokens
         if tokens is None:
