@@ -57,6 +57,14 @@ class NodeRegistry:
         """
         return self._nodes.get(name)
 
+    def get_metadata(self, name: str) -> NodeMetadata | None:
+        """Return metadata for the node identified by ``name`` if available."""
+        return self._metadata.get(name)
+
+    def list_metadata(self) -> list[NodeMetadata]:
+        """Return all registered node metadata entries sorted by name."""
+        return sorted(self._metadata.values(), key=lambda item: item.name.lower())
+
     def get_metadata_by_callable(self, obj: Callable) -> NodeMetadata | None:
         """Return metadata associated with a registered callable."""
         for name, registered in self._nodes.items():
