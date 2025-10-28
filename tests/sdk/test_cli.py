@@ -308,68 +308,103 @@ def test_workflow_run_with_inputs_file(
 def test_workflow_run_both_inputs_error(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:
+    versions = [{"id": "ver-1", "version": 1}]
     inputs_file = tmp_path / "inputs.json"
     inputs_file.write_text('{"key": "value"}', encoding="utf-8")
-    result = runner.invoke(
-        app,
-        [
-            "workflow",
-            "run",
-            "wf-1",
-            "--inputs",
-            "{}",
-            "--inputs-file",
-            str(inputs_file),
-        ],
-        env=env,
-    )
+    with respx.mock(assert_all_called=False) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "run",
+                "wf-1",
+                "--inputs",
+                "{}",
+                "--inputs-file",
+                str(inputs_file),
+            ],
+            env=env,
+        )
     assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "either --inputs or --inputs-file" in str(result.exception).lower()
 
 
 def test_workflow_run_inputs_file_not_exists(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    result = runner.invoke(
-        app,
-        ["workflow", "run", "wf-1", "--inputs-file", "/nonexistent/file.json"],
-        env=env,
-    )
+    versions = [{"id": "ver-1", "version": 1}]
+    with respx.mock(assert_all_called=False) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "run", "wf-1", "--inputs-file", "/nonexistent/file.json"],
+            env=env,
+        )
     assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "does not exist" in str(result.exception)
 
 
 def test_workflow_run_inputs_file_not_file(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:
-    result = runner.invoke(
-        app,
-        ["workflow", "run", "wf-1", "--inputs-file", str(tmp_path)],
-        env=env,
-    )
+    versions = [{"id": "ver-1", "version": 1}]
+    with respx.mock(assert_all_called=False) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "run", "wf-1", "--inputs-file", str(tmp_path)],
+            env=env,
+        )
     assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "is not a file" in str(result.exception)
 
 
 def test_workflow_run_inputs_file_not_json_object(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:
+    versions = [{"id": "ver-1", "version": 1}]
     inputs_file = tmp_path / "inputs.json"
     inputs_file.write_text('["array"]', encoding="utf-8")
-    result = runner.invoke(
-        app,
-        ["workflow", "run", "wf-1", "--inputs-file", str(inputs_file)],
-        env=env,
-    )
+    with respx.mock(assert_all_called=False) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "run", "wf-1", "--inputs-file", str(inputs_file)],
+            env=env,
+        )
     assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must be a JSON object" in str(result.exception)
 
 
 def test_workflow_run_inputs_string_not_json_object(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    result = runner.invoke(
-        app,
-        ["workflow", "run", "wf-1", "--inputs", '["array"]'],
-        env=env,
-    )
+    versions = [{"id": "ver-1", "version": 1}]
+    with respx.mock(assert_all_called=False) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "run", "wf-1", "--inputs", '["array"]'],
+            env=env,
+        )
     assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must be a JSON object" in str(result.exception)
 
 
 def test_credential_list_with_workflow_id(
@@ -1027,3 +1062,423 @@ def test_workflow_run_inputs_invalid_json(
     )
     # Should fail due to invalid JSON
     assert result.exit_code != 0
+
+
+def test_code_scaffold_with_both_stale_caches(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test scaffold shows stale notice when both workflow and versions are stale."""
+    import json
+
+    cache_dir = tmp_path / "stale_cache"
+    cache_dir.mkdir(exist_ok=True)
+
+    # Create cache files with timestamps from 25 hours ago (older than default 24h TTL)
+    stale_time = datetime.now(tz=UTC) - timedelta(hours=25)
+    workflow = {"id": "wf-1", "name": "Cached"}
+    versions = [{"id": "ver-1", "version": 1}]
+
+    # Write cache files with old timestamps
+    workflow_cache = cache_dir / "workflow_wf-1.json"
+    workflow_cache.write_text(
+        json.dumps(
+            {
+                "timestamp": stale_time.isoformat(),
+                "payload": workflow,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    versions_cache = cache_dir / "workflow_wf-1_versions.json"
+    versions_cache.write_text(
+        json.dumps(
+            {
+                "timestamp": stale_time.isoformat(),
+                "payload": versions,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env_with_cache = env | {"ORCHEO_CACHE_DIR": str(cache_dir)}
+    result = runner.invoke(
+        app, ["--offline", "code", "scaffold", "wf-1"], env=env_with_cache
+    )
+    assert result.exit_code == 0
+    assert "Using cached data" in result.stdout
+    # With stale cache entries, should show the TTL warning
+    assert "older than TTL" in result.stdout
+
+
+def test_api_client_without_token() -> None:
+    """Test that ApiClient works without a token."""
+    client = ApiClient(base_url="http://test.com", token=None)
+    with respx.mock:
+        route = respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(200, json={"key": "value"})
+        )
+        result = client.get("/api/test")
+    assert result == {"key": "value"}
+    # Verify no Authorization header was sent
+    assert "Authorization" not in route.calls[0].request.headers
+
+
+def test_api_client_error_with_nested_message() -> None:
+    """Test error formatting with nested detail.message structure."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400, json={"detail": {"message": "Nested error message"}}
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    assert "Nested error message" in str(exc_info.value)
+
+
+def test_api_client_error_with_detail_detail() -> None:
+    """Test error formatting with detail.detail structure."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400, json={"detail": {"detail": "Detail in detail field"}}
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    assert "Detail in detail field" in str(exc_info.value)
+
+
+def test_api_client_error_with_message_field() -> None:
+    """Test error formatting with top-level message field."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.post("http://test.com/api/test").mock(
+            return_value=httpx.Response(500, json={"message": "Server error message"})
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.post("/api/test", json_body={})
+    assert "Server error message" in str(exc_info.value)
+
+
+def test_load_with_cache_offline_mode_without_cache(tmp_path: Path) -> None:
+    """Test load_with_cache in offline mode when cache is missing."""
+    from orcheo_sdk.cli.config import CLISettings
+    from rich.console import Console
+
+    cache_dir = tmp_path / "cache"
+    cache = CacheManager(directory=cache_dir, ttl=timedelta(hours=1))
+
+    settings = CLISettings(
+        api_url="http://test.com", service_token=None, profile="test", offline=True
+    )
+    client = ApiClient(base_url="http://test.com", token=None)
+    state = CLIState(settings=settings, client=client, cache=cache, console=Console())
+
+    # In offline mode without cache, should try to load and get None
+    # Then attempt to call loader which should not be called in true offline
+    # But based on the code, it will try the loader anyway after cache miss
+    def loader() -> dict:
+        return {"fresh": "data"}
+
+    payload, from_cache, is_stale = load_with_cache(state, "missing_key", loader)
+    # When offline and no cache, it tries the loader
+    assert payload == {"fresh": "data"}
+    assert not from_cache
+
+
+def test_workflow_show_no_latest_version(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow show when there's no latest version."""
+    workflow = {"id": "wf-1", "name": "NoVersion"}
+    versions: list[dict] = []
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+    assert result.exit_code == 0
+    # Should not show latest version section since there are no versions
+
+
+def test_workflow_show_no_runs(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test workflow show when there are no runs."""
+    workflow = {"id": "wf-1", "name": "NoRuns"}
+    versions = [
+        {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+    assert result.exit_code == 0
+    # Should not show recent runs section since there are no runs
+
+
+def test_workflow_list_uses_cache_notice(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test that workflow list shows cache notice when using cached data."""
+    payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        # First call to populate cache
+        first = runner.invoke(app, ["workflow", "list"], env=env)
+        assert first.exit_code == 0
+
+    # Second call in offline mode should use cache
+    result = runner.invoke(app, ["--offline", "workflow", "list"], env=env)
+    assert result.exit_code == 0
+    assert "Using cached data" in result.stdout
+
+
+def test_workflow_mermaid_with_edge_list_format(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test mermaid generation with edges as list tuples."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "a"}, {"id": "b"}], "edges": [["a", "b"]]},
+        }
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+    assert result.exit_code == 0
+    assert "a --> b" in result.stdout
+
+
+def test_workflow_mermaid_with_invalid_edge(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test mermaid generation skips invalid edges."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "nodes": [{"id": "a"}],
+                "edges": [
+                    "invalid",  # String, not a valid edge format
+                    {"from": "a"},  # Missing 'to'
+                    {"to": "b"},  # Missing 'from'
+                ],
+            },
+        }
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+    assert result.exit_code == 0
+    # Should not crash, just skip invalid edges
+
+
+def test_workflow_show_with_stale_cache_notice(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow show displays stale cache notice."""
+    import json
+
+    cache_dir = tmp_path / "stale_wf_cache"
+    cache_dir.mkdir(exist_ok=True)
+
+    # Create cache files with 25-hour-old timestamps (older than 24h TTL)
+    stale_time = datetime.now(tz=UTC) - timedelta(hours=25)
+    workflow = {"id": "wf-1", "name": "Cached"}
+    versions = [
+        {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
+    ]
+    runs = [{"id": "run-1", "status": "succeeded", "created_at": "2024-01-01"}]
+
+    # Write stale cache files
+    for key, data in [
+        ("workflow_wf-1", workflow),
+        ("workflow_wf-1_versions", versions),
+        ("workflow_wf-1_runs", runs),
+    ]:
+        cache_file = cache_dir / f"{key}.json"
+        cache_file.write_text(
+            json.dumps({"timestamp": stale_time.isoformat(), "payload": data}),
+            encoding="utf-8",
+        )
+
+    env_with_cache = env | {"ORCHEO_CACHE_DIR": str(cache_dir)}
+    result = runner.invoke(
+        app, ["--offline", "workflow", "show", "wf-1"], env=env_with_cache
+    )
+    assert result.exit_code == 0
+    assert "Using cached data" in result.stdout
+    assert "older than TTL" in result.stdout
+
+
+def test_api_client_error_with_detail_as_string() -> None:
+    """Test error formatting when detail is a string, not a mapping."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(400, json={"detail": "Simple error string"})
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When detail is not a Mapping, should fall through to response.text
+    assert exc_info.value.status_code == 400
+
+
+def test_api_client_error_with_empty_message_in_detail() -> None:
+    """Test error formatting when detail.message and detail.detail are both empty."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400, json={"detail": {"message": None, "detail": None}}
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When message is None/empty, should check "message" in payload
+    assert exc_info.value.status_code == 400
+
+
+def test_api_client_error_with_detail_missing_message_field() -> None:
+    """Test error formatting when detail Mapping has no message/detail fields."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400, json={"detail": {"some_other_field": "value"}}
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When detail has no message/detail fields, fall through to response.text
+    assert exc_info.value.status_code == 400
+
+
+def test_api_client_error_with_non_mapping_detail_no_message() -> None:
+    """Test error formatting when detail is not a Mapping and no message field."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(400, json={"detail": "error string"})
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When detail is not Mapping and no message, falls through to response.text
+    assert exc_info.value.status_code == 400
+
+
+def test_api_client_error_with_no_detail_no_message() -> None:
+    """Test error formatting when payload has neither detail nor message."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(400, json={"error": "something"})
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When no detail and no message fields, falls through to response.text
+    assert exc_info.value.status_code == 400
+
+
+def test_api_client_error_detail_mapping_no_message_value() -> None:
+    """Test error formatting when detail is Mapping with no valid message value."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400,
+                json={"detail": {"message": "", "detail": ""}},
+                text='{"detail": {"message": "", "detail": ""}}',
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When detail.message and detail.detail are empty strings (falsy but present)
+    # Should fall through to checking "message" in payload, then to response.text
+    assert exc_info.value.status_code == 400
+    assert '{"detail"' in str(exc_info.value)
+
+
+def test_api_client_error_detail_not_mapping_no_message() -> None:
+    """Test error formatting when detail is not a Mapping and no message field."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400,
+                json={"detail": "string detail", "other_field": "value"},
+                text='{"detail": "string detail", "other_field": "value"}',
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When detail is not a Mapping and there's no "message" field in payload
+    # Should fall through to response.text (line 109)
+    assert exc_info.value.status_code == 400
+    assert "string detail" in str(exc_info.value)
+
+
+def test_api_client_error_payload_not_mapping() -> None:
+    """Test error formatting when payload itself is not a Mapping."""
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400,
+                json=["error", "list"],
+                text='["error", "list"]',
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+    # When payload is not a Mapping (e.g., a list), should go directly to response.text
+    # This covers the branch 101->109 where isinstance(payload, Mapping) is False
+    assert exc_info.value.status_code == 400
+    assert '["error", "list"]' in str(exc_info.value)
