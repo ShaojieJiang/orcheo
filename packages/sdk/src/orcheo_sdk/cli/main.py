@@ -1,8 +1,10 @@
 """Orcheo CLI entrypoint."""
 
 from __future__ import annotations
+import sys
 from datetime import timedelta
 from typing import Annotated
+import click
 import typer
 from rich.console import Console
 from orcheo_sdk.cli.cache import CacheManager
@@ -70,9 +72,15 @@ def main(
 
 def run() -> None:
     """Entry point used by console scripts."""
+    console = Console()
     try:
         app(standalone_mode=False)
+    except click.UsageError as exc:
+        console.print(f"[red]Error:[/red] {exc.message}")
+        if exc.ctx and exc.ctx.command_path:
+            help_cmd = f"{exc.ctx.command_path} --help"
+            console.print(f"\nRun '[cyan]{help_cmd}[/cyan]' for usage information.")
+        sys.exit(1)
     except CLIError as exc:
-        console = Console()
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc

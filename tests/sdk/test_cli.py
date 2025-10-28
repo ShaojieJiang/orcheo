@@ -993,6 +993,55 @@ def test_run_cli_error_handling(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc_info.value.exit_code == 1
 
 
+def test_run_usage_error_handling(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that UsageError is caught and displayed with a friendly message."""
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        # Create a command with a proper name
+        cmd = click.Command("workflow")
+        # Create parent context for "orcheo" with info_name set
+        parent_ctx = click.Context(click.Command("orcheo"), info_name="orcheo")
+        # Create child context with parent to get "orcheo workflow" path
+        ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
+        raise click.UsageError("Missing command.", ctx=ctx)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    # Verify help command suggestion is printed (covers lines 81-82)
+    captured = capsys.readouterr()
+    assert "Missing command." in captured.out
+    assert "orcheo workflow --help" in captured.out
+
+
+def test_run_usage_error_without_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that UsageError without context doesn't show help command."""
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        # Raise UsageError without context
+        raise click.UsageError("Invalid option.")
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    # Verify error is printed but no help command suggestion (covers branch 80->83)
+    captured = capsys.readouterr()
+    assert "Invalid option." in captured.out
+    assert "--help" not in captured.out
+
+
 def test_workflow_show_with_cache_notice(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
