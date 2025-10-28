@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import re
+from collections.abc import Mapping
 from typing import Any
 import typer
 from orcheo_sdk.cli import render as renderers
@@ -15,6 +16,7 @@ from orcheo_sdk.cli.services import (
     fetch_workflows,
     trigger_workflow_run,
 )
+from orcheo.graph.builder import build_graph
 
 
 workflow_app = typer.Typer(help="Inspect and run workflows")
@@ -55,8 +57,8 @@ def _label_for_node(node: dict[str, Any]) -> str:
     return label.replace('"', '"')
 
 
-def build_mermaid(graph: dict[str, Any]) -> str:
-    """Return a Mermaid diagram representing the supplied graph."""
+def _build_mermaid_fallback(graph: Mapping[str, Any]) -> str:
+    """Return a basic Mermaid diagram as a fallback representation."""
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
     conditionals = graph.get("conditional_edges", [])
@@ -94,6 +96,19 @@ def build_mermaid(graph: dict[str, Any]) -> str:
     if len(lines) == 1:
         lines.append("    %% No nodes defined in workflow")
     return "\n".join(lines)
+
+
+def build_mermaid(graph: Mapping[str, Any] | None) -> str:
+    """Return a Mermaid diagram for the supplied workflow graph."""
+    if not isinstance(graph, Mapping):
+        return _build_mermaid_fallback({})
+
+    try:
+        state_graph = build_graph(graph)
+        compiled_graph = state_graph.compile()
+        return compiled_graph.get_graph().draw_mermaid()
+    except Exception:  # pragma: no cover - fallback for invalid graphs
+        return _build_mermaid_fallback(graph)
 
 
 @workflow_app.command("list", help="List workflows in the connected workspace")
