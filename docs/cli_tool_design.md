@@ -41,16 +41,16 @@ groups:
 
 | Command | Description |
 |---------|-------------|
-| `orcheo nodes list [--tag ai]` | Return nodes with metadata (name, type, version, tags). |
-| `orcheo nodes show <node>` | Display node schema, inputs/outputs, credential requirements. |
-| `orcheo workflows list` | List workflows with owner, last run, and status. |
-| `orcheo workflows show <workflow>` | Print workflow summary, Mermaid graph, and latest runs. |
-| `orcheo workflows run <workflow>` | Trigger an execution and stream status to the console. |
-| `orcheo credentials list` | Surface credential names, scopes, expiry, and health. |
-| `orcheo credentials create <template>` | Provision a credential from a template with guided prompts. |
-| `orcheo credentials update <cred>` | Rotate secrets or edit metadata for an existing credential. |
-| `orcheo credentials delete <cred>` | Revoke a credential with confirmation safeguards. |
-| `orcheo credentials reference <cred>` | Emit the `[[cred_name]]` snippet and usage guidance. |
+| `orcheo node list [--tag ai]` | Return nodes with metadata (name, type, version, tags). |
+| `orcheo node show <node>` | Display node schema, inputs/outputs, credential requirements. |
+| `orcheo workflow list` | List workflows with owner, last run, and status. |
+| `orcheo workflow show <workflow>` | Print workflow summary, Mermaid graph, and latest runs. |
+| `orcheo workflow run <workflow>` | Trigger an execution and stream status to the console. |
+| `orcheo credential list` | Surface credential names, scopes, expiry, and health. |
+| `orcheo credential create <template>` | Provision a credential from a template with guided prompts. |
+| `orcheo credential update <cred>` | Rotate secrets or edit metadata for an existing credential. |
+| `orcheo credential delete <cred>` | Revoke a credential with confirmation safeguards. |
+| `orcheo credential reference <cred>` | Emit the `[[cred_name]]` snippet and usage guidance. |
 | `orcheo code scaffold <workflow>` | Generate Python snippets that invoke the workflow or nodes. |
 
 Each command uses the existing REST APIs exposed by the backend. Shared helpers
@@ -67,7 +67,7 @@ handle:
 flowchart LR
     user((User)) --> cli["Orcheo CLI (uv run)"] --> api["Orcheo REST Backends"]
     cli -->|Auth helpers| auth{{"Service tokens & config"}}
-    cli -->|Command registry| cmds["nodes / workflows / credentials"]
+    cli -->|Command registry| cmds["node / workflow / credential"]
     cli -->|Output renderers| render["Tables, Mermaid, snippets"]
     cli -.->|Shared actions| mcp[["Future MCP server"]]
 ```
@@ -127,10 +127,10 @@ translation and presentation.
 ## Offline Operation
 
 - **Supported commands** – development workflows continue to function offline:
-  `orcheo nodes list/show`, `orcheo code scaffold`, and rendering previously
+  `orcheo node list/show`, `orcheo code scaffold`, and rendering previously
   cached workflow definitions remain available without network access.
-- **Unsupported commands** – deployment-focused operations (`orcheo workflows`
-  run/list/show against live data and all `orcheo credentials` mutations)
+- **Unsupported commands** – deployment-focused operations (`orcheo workflow`
+  run/list/show against live data and all `orcheo credential` mutations)
   require connectivity because they read or mutate server state.
 - **Caching model** – the CLI stores read-only metadata from successful online
   sessions in `~/.cache/orcheo/` with timestamps. Offline commands transparently
