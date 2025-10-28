@@ -1665,6 +1665,39 @@ def test_node_execution_with_delay_node(api_client: TestClient) -> None:
     assert result["error"] is None
 
 
+def test_node_execution_resolves_credentials(api_client: TestClient) -> None:
+    """Placeholders in node config should resolve through the vault."""
+
+    workflow_id = uuid4()
+    vault: InMemoryCredentialVault = api_client.app.state.vault  # type: ignore[attr-defined]
+    vault.create_credential(
+        name="telegram_bot",
+        provider="telegram",
+        scopes=["bot"],
+        secret="resolved-token",
+        actor="tester",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+
+    response = api_client.post(
+        "/api/nodes/execute",
+        json={
+            "node_config": {
+                "type": "SetVariableNode",
+                "name": "store_secret",
+                "variables": {"token": "[[telegram_bot]]"},
+            },
+            "inputs": {},
+            "workflow_id": str(workflow_id),
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "success"
+    assert result["result"] == {"token": "resolved-token"}
+
+
 def test_node_execution_with_inputs(api_client: TestClient) -> None:
     """Test executing a node with custom inputs."""
     response = api_client.post(

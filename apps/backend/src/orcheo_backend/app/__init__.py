@@ -48,6 +48,7 @@ from orcheo.models import (
 )
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
@@ -171,6 +172,44 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     logger.debug("=" * 80)
     logger.debug("Final state values: %s", state_values)
     logger.debug("=" * 80)
+
+
+async def _stream_workflow_updates(
+    compiled_graph: Any,
+    state: Any,
+    config: RunnableConfig,
+    history_store: RunHistoryStore,
+    execution_id: str,
+    websocket: WebSocket,
+) -> None:
+    """Stream workflow updates to the client while recording history."""
+    try:
+        async for step in compiled_graph.astream(
+            state,
+            config=config,  # type: ignore[arg-type]
+            stream_mode="updates",
+        ):  # pragma: no cover
+            _log_step_debug(step)
+            await history_store.append_step(execution_id, step)
+            try:
+                await websocket.send_json(step)
+            except Exception as exc:  # pragma: no cover
+                logger.error("Error processing messages: %s", exc)
+                raise
+
+        final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
+        _log_final_state_debug(final_state.values)
+    except asyncio.CancelledError as exc:
+        reason = str(exc) or "Workflow execution cancelled"
+        cancellation_payload = {"status": "cancelled", "reason": reason}
+        await history_store.append_step(execution_id, cancellation_payload)
+        await history_store.mark_cancelled(execution_id, reason=reason)
+        raise
+    except Exception as exc:
+        error_payload = {"status": "error", "error": str(exc)}
+        await history_store.append_step(execution_id, error_payload)
+        await history_store.mark_failed(execution_id, str(exc))
+        raise
 
 
 load_dotenv()
@@ -596,63 +635,50 @@ async def execute_workflow(
 
     settings = get_settings()
     history_store = get_history_store()
+    vault = get_vault()
+    workflow_uuid: UUID | None = None
+    try:
+        workflow_uuid = UUID(workflow_id)
+    except ValueError:
+        pass
+    credential_context = _context_from_workflow(workflow_uuid)
+    resolver = CredentialResolver(vault, context=credential_context)
     await history_store.start_run(
         workflow_id=workflow_id, execution_id=execution_id, inputs=inputs
     )
 
-    async with create_checkpointer(settings) as checkpointer:
-        graph = build_graph(graph_config)
-        compiled_graph = graph.compile(checkpointer=checkpointer)
+    with credential_resolution(resolver):
+        async with create_checkpointer(settings) as checkpointer:
+            graph = build_graph(graph_config)
+            compiled_graph = graph.compile(checkpointer=checkpointer)
 
-        # Initialize state based on graph format
-        # LangGraph scripts: pass inputs directly, letting the script define state
-        # Orcheo workflows: use State class with structured fields
-        is_langgraph_script = graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
-        if is_langgraph_script:
-            # For LangGraph scripts, pass inputs as-is to respect the script's
-            # state schema definition. The script has full control over state.
-            state: Any = inputs
-        else:
-            # Orcheo workflows use the State class with predefined fields
-            state = {
-                "messages": [],
-                "results": {},
-                "inputs": inputs,
-            }
-        _log_sensitive_debug("Initial state: %s", state)
+            # Initialize state based on graph format
+            # LangGraph scripts: pass inputs directly, letting the script define state
+            # Orcheo workflows: use State class with structured fields
+            is_langgraph_script = graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
+            if is_langgraph_script:
+                # For LangGraph scripts, pass inputs as-is to respect the script's
+                # state schema definition. The script has full control over state.
+                state: Any = inputs
+            else:
+                # Orcheo workflows use the State class with predefined fields
+                state = {
+                    "messages": [],
+                    "results": {},
+                    "inputs": inputs,
+                }
+            _log_sensitive_debug("Initial state: %s", state)
 
-        # Run graph with streaming
-        config = {"configurable": {"thread_id": execution_id}}
-        try:
-            async for step in compiled_graph.astream(
+            # Run graph with streaming
+            config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
+            await _stream_workflow_updates(
+                compiled_graph,
                 state,
-                config=config,  # type: ignore[arg-type]
-                stream_mode="updates",
-            ):  # pragma: no cover
-                # Log node execution details
-                _log_step_debug(step)
-
-                await history_store.append_step(execution_id, step)
-                try:
-                    await websocket.send_json(step)
-                except Exception as exc:  # pragma: no cover
-                    logger.error("Error processing messages: %s", exc)
-                    raise
-
-            # Get and log final state after successful stream completion
-            final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
-            _log_final_state_debug(final_state.values)
-        except asyncio.CancelledError as exc:
-            reason = str(exc) or "Workflow execution cancelled"
-            cancellation_payload = {"status": "cancelled", "reason": reason}
-            await history_store.append_step(execution_id, cancellation_payload)
-            await history_store.mark_cancelled(execution_id, reason=reason)
-            raise
-        except Exception as exc:
-            error_payload = {"status": "error", "error": str(exc)}
-            await history_store.append_step(execution_id, error_payload)
-            await history_store.mark_failed(execution_id, str(exc))
-            raise
+                config,
+                history_store,
+                execution_id,
+                websocket,
+            )
 
     completion_payload = {"status": "completed"}
     await history_store.append_step(execution_id, completion_payload)
@@ -1673,21 +1699,26 @@ async def execute_node(
         # Extract node parameters (everything except 'type')
         node_params = {k: v for k, v in node_config.items() if k != "type"}
 
-        # Instantiate the node
-        node_instance = node_class(**node_params)
+        vault = get_vault()
+        context = _context_from_workflow(request.workflow_id)
+        resolver = CredentialResolver(vault, context=context)
 
-        # Create minimal state for execution
-        state: State = {
-            "messages": [],
-            "results": {},
-            "inputs": inputs,
-        }
+        with credential_resolution(resolver):
+            # Instantiate the node
+            node_instance = node_class(**node_params)
 
-        # Create config with optional workflow context for credentials
-        config: RunnableConfig = {"configurable": {"thread_id": str(uuid.uuid4())}}
+            # Create minimal state for execution
+            state: State = {
+                "messages": [],
+                "results": {},
+                "inputs": inputs,
+            }
 
-        # Execute the node
-        result = await node_instance(state, config)
+            # Create config with optional workflow context for credentials
+            config: RunnableConfig = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
+            # Execute the node
+            result = await node_instance(state, config)
 
         # Extract the actual result based on node type
         # AINode wraps in messages, TaskNode wraps in results
