@@ -675,10 +675,10 @@ async def test_list_workflows_returns_all() -> None:
     )
 
     class Repository:
-        async def list_workflows(self):
+        async def list_workflows(self, *, include_archived: bool = False):
             return [workflow1, workflow2]
 
-    result = await list_workflows(Repository())
+    result = await list_workflows(Repository(), include_archived=False)
 
     assert len(result) == 2
     assert result[0].id == workflow1.id

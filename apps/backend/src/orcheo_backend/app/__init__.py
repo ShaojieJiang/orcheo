@@ -801,9 +801,18 @@ async def trigger_chatkit_workflow(
 @_http_router.get("/workflows", response_model=list[Workflow])
 async def list_workflows(
     repository: RepositoryDep,
+    include_archived: bool = Query(False, description="Include archived workflows"),
 ) -> list[Workflow]:
-    """Return all registered workflows."""
-    return await repository.list_workflows()
+    """Return workflows, excluding archived ones by default.
+
+    Args:
+        repository: Workflow repository dependency
+        include_archived: If True, include archived workflows in the response
+
+    Returns:
+        List of workflows matching the filter criteria
+    """
+    return await repository.list_workflows(include_archived=include_archived)
 
 
 @_http_router.post(

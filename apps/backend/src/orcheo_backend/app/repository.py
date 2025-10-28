@@ -51,8 +51,13 @@ class VersionDiff:
 class WorkflowRepository(Protocol):
     """Protocol describing workflow repository behaviour."""
 
-    async def list_workflows(self) -> list[Workflow]:
-        """Return all workflows stored in the repository."""
+    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+        """Return workflows stored in the repository.
+
+        Args:
+            include_archived: If True, include archived workflows. If False, only
+                return unarchived workflows. Defaults to False.
+        """
 
     async def create_workflow(
         self,
@@ -233,11 +238,21 @@ class InMemoryWorkflowRepository:
         self._credential_service: OAuthCredentialService | None = credential_service
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
-    async def list_workflows(self) -> list[Workflow]:
-        """Return all workflows stored within the repository."""
+    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+        """Return workflows stored within the repository.
+
+        Args:
+            include_archived: If True, include archived workflows. If False, only return
+                unarchived workflows. Defaults to False.
+
+        Returns:
+            List of workflows matching the filter criteria.
+        """
         async with self._lock:
             return [
-                workflow.model_copy(deep=True) for workflow in self._workflows.values()
+                workflow.model_copy(deep=True)
+                for workflow in self._workflows.values()
+                if include_archived or not workflow.is_archived
             ]
 
     async def create_workflow(

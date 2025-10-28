@@ -168,13 +168,27 @@ def _normalise_vertex(value: Any, start: Any, end: Any) -> Any:
 
 
 @workflow_app.command("list")
-def list_workflows(ctx: typer.Context) -> None:
-    """List workflows with metadata."""
+def list_workflows(
+    ctx: typer.Context,
+    archived: bool = typer.Option(
+        False,
+        "--archived",
+        help="Include archived workflows in the list",
+    ),
+) -> None:
+    """List workflows with metadata.
+
+    By default, only shows unarchived workflows.
+    Use --archived to include archived workflows.
+    """
     state = _state(ctx)
+    url = "/api/workflows"
+    if archived:
+        url += "?include_archived=true"
     payload, from_cache, stale = load_with_cache(
         state,
         "workflows",
-        lambda: state.client.get("/api/workflows"),
+        lambda: state.client.get(url),
     )
     if from_cache:
         _cache_notice(state, "workflow catalog", stale)

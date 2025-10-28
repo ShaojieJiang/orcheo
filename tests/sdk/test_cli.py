@@ -65,6 +65,36 @@ def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> 
     assert "Demo" in result.stdout
 
 
+def test_workflow_list_excludes_archived_by_default(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = [{"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env=env)
+    assert result.exit_code == 0
+    assert "Active" in result.stdout
+
+
+def test_workflow_list_includes_archived_with_flag(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = [
+        {"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False},
+        {"id": "wf-2", "name": "Archived", "slug": "archived", "is_archived": True},
+    ]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows?include_archived=true").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list", "--archived"], env=env)
+    assert result.exit_code == 0
+    assert "Active" in result.stdout
+    assert "Archived" in result.stdout
+
+
 def test_workflow_show_uses_cache_when_offline(
     runner: CliRunner, env: dict[str, str]
 ) -> None:

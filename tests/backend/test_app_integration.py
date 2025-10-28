@@ -35,6 +35,90 @@ def test_list_workflows_empty(client):
     assert response.json() == []
 
 
+def test_list_workflows_excludes_archived_by_default(client):
+    """List workflows excludes archived workflows by default."""
+    # Create an active workflow
+    active_response = client.post(
+        "/api/workflows",
+        json={
+            "name": "Active Workflow",
+            "slug": "active",
+            "actor": "admin",
+        },
+    )
+    assert active_response.status_code == 201
+
+    # Create and archive another workflow
+    archived_response = client.post(
+        "/api/workflows",
+        json={
+            "name": "Archived Workflow",
+            "slug": "archived",
+            "actor": "admin",
+        },
+    )
+    assert archived_response.status_code == 201
+    archived_id = archived_response.json()["id"]
+
+    # Archive the workflow
+    archive_response = client.delete(f"/api/workflows/{archived_id}?actor=admin")
+    assert archive_response.status_code == 200
+
+    # List workflows without include_archived flag
+    list_response = client.get("/api/workflows")
+    assert list_response.status_code == 200
+    workflows = list_response.json()
+    assert len(workflows) == 1
+    assert workflows[0]["name"] == "Active Workflow"
+    assert not workflows[0]["is_archived"]
+
+
+def test_list_workflows_includes_archived_with_flag(client):
+    """List workflows includes archived workflows when include_archived=true."""
+    # Create an active workflow
+    active_response = client.post(
+        "/api/workflows",
+        json={
+            "name": "Active Workflow",
+            "slug": "active",
+            "actor": "admin",
+        },
+    )
+    assert active_response.status_code == 201
+
+    # Create and archive another workflow
+    archived_response = client.post(
+        "/api/workflows",
+        json={
+            "name": "Archived Workflow",
+            "slug": "archived",
+            "actor": "admin",
+        },
+    )
+    assert archived_response.status_code == 201
+    archived_id = archived_response.json()["id"]
+
+    # Archive the workflow
+    archive_response = client.delete(f"/api/workflows/{archived_id}?actor=admin")
+    assert archive_response.status_code == 200
+
+    # List workflows with include_archived=true
+    list_response = client.get("/api/workflows?include_archived=true")
+    assert list_response.status_code == 200
+    workflows = list_response.json()
+    assert len(workflows) == 2
+
+    workflow_names = {wf["name"] for wf in workflows}
+    assert "Active Workflow" in workflow_names
+    assert "Archived Workflow" in workflow_names
+
+    for wf in workflows:
+        if wf["name"] == "Active Workflow":
+            assert not wf["is_archived"]
+        elif wf["name"] == "Archived Workflow":
+            assert wf["is_archived"]
+
+
 def test_create_and_get_workflow(client):
     """Create and retrieve a workflow."""
     # Create workflow
