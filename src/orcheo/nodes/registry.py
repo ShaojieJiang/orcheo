@@ -1,6 +1,6 @@
 """Registry implementation for Orcheo nodes."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pydantic import BaseModel
 
 
@@ -65,6 +65,14 @@ class NodeRegistry:
             if isinstance(registered, type) and isinstance(obj, registered):
                 return self._metadata.get(name)
         return None
+
+    def iter_metadata(self) -> Iterable[tuple[str, NodeMetadata]]:
+        """Yield ``(name, metadata)`` pairs for registered nodes."""
+        return self._metadata.items()
+
+    def list_metadata(self) -> list[NodeMetadata]:
+        """Return a snapshot of all registered node metadata."""
+        return list(self._metadata.values())
 
 
 # Global registry instance

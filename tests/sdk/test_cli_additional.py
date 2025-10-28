@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 
 import importlib
 
+from orcheo.nodes.registry import NodeMetadata, NodeRegistry
+
 app_module = importlib.import_module("orcheo_sdk.cli.app")
 from orcheo_sdk.cli import app as cli_app
 from orcheo_sdk.cli.api import (
@@ -29,7 +31,11 @@ from orcheo_sdk.cli.config import (
     resolve_settings,
 )
 from orcheo_sdk.cli.credentials import _find_credential, credential_app
-from orcheo_sdk.cli.nodes import _schema_rows, node_app
+from orcheo_sdk.cli.nodes import (
+    NodeRegistryUnavailableError,
+    _schema_rows,
+    node_app,
+)
 from orcheo_sdk.cli.render import graph_to_mermaid
 from orcheo_sdk.cli.state import CLIContext
 from orcheo_sdk.cli.utils import show_cache_notice
@@ -109,6 +115,10 @@ def test_app_callback_configures_context(
 
     monkeypatch.setattr(app_module, "resolve_settings", lambda **_: settings)
     monkeypatch.setattr(app_module, "APIClient", DummyClient)
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.nodes._get_node_registry",
+        lambda: NodeRegistry(),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -124,7 +134,7 @@ def test_app_callback_configures_context(
     assert client.base_url == "https://service.example/api"
     assert client.service_token == "token-123"
     assert client.closed, "Client.close was not invoked"
-    assert client.last_offline is True
+    assert client.last_offline is None
 
 
 def test_app_callback_profile_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -656,98 +666,201 @@ def test_find_credential_helper() -> None:
     assert _find_credential(entries, "missing") is None
 
 
-def test_node_list_offline_cache_miss(
+def test_node_list_uses_local_registry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     class DummyClient:
-        def get_json(
-            self, path: str, *, params=None, offline=False, description="resource"
-        ) -> FetchResult:  # noqa: ANN001
-            raise OfflineCacheMissError("no node cache")
+        def __getattr__(self, name: str) -> Any:  # pragma: no cover - defensive
+            raise AssertionError(f"client should not be used for node listing ({name})")
 
-    context = _build_context(tmp_path=tmp_path, client=DummyClient(), offline=True)
-    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
-
-    runner = CliRunner()
-    result = runner.invoke(node_app, ["list"])
-    assert result.exit_code == 1
-    assert "no node cache" in result.output
-
-
-def test_node_list_filters_and_skip_invalid(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    recorded: dict[str, Any] = {}
-
-    class DummyClient:
-        def get_json(
-            self, path: str, *, params=None, offline=False, description="resource"
-        ) -> FetchResult:  # noqa: ANN001
-            recorded.update(params or {})
-            data = [
-                {
-                    "name": "http_request",
-                    "type": "http",
-                    "version": "1",
-                    "category": "net",
-                    "tags": ["http"],
-                },
-                "invalid",
-            ]
-            return FetchResult(data=data, from_cache=False, timestamp=None)
-
-    context = _build_context(tmp_path=tmp_path, client=DummyClient(), offline=False)
-    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
-
-    runner = CliRunner()
-    result = runner.invoke(node_app, ["list", "--tag", "http", "--category", "network"])
-    assert result.exit_code == 0
-    assert recorded == {"tag": "http", "category": "network"}
-    assert "http_request" in result.output
-    assert "http" in result.output
-    assert "invalid" not in result.output
-
-
-def test_node_list_api_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    class DummyClient:
-        def get_json(
-            self, path: str, *, params=None, offline=False, description="resource"
-        ) -> FetchResult:  # noqa: ANN001
-            raise ApiRequestError("node failure")
+        def close(self) -> None:  # pragma: no cover - nothing to clean up
+            return None
 
     context = _build_context(tmp_path=tmp_path, client=DummyClient())
     monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
 
+    registry = NodeRegistry()
+    registry.register(
+        NodeMetadata(name="alpha", description="Alpha node", category="logic")
+    )(lambda _: None)
+    registry.register(
+        NodeMetadata(name="beta", description="Handles data", category="general")
+    )(lambda _: None)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
+
     runner = CliRunner()
     result = runner.invoke(node_app, ["list"])
-    assert result.exit_code == 1
-    assert "node failure" in result.output
+
+    assert result.exit_code == 0
+    output = result.output.lower()
+    assert "alpha" in output
+    assert "logic" in output
+    assert "beta" in output
 
 
-def test_node_list_without_tags(
+def test_node_list_category_filter(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    class DummyClient:
-        def get_json(
-            self, path: str, *, params=None, offline=False, description="resource"
-        ) -> FetchResult:  # noqa: ANN001
-            data = [
-                {
-                    "name": "simple",
-                    "type": "utility",
-                    "version": "1",
-                    "category": "general",
-                }
-            ]
-            return FetchResult(data=data, from_cache=False, timestamp=None)
-
-    context = _build_context(tmp_path=tmp_path, client=DummyClient())
+    context = _build_context(tmp_path=tmp_path, client=object())
     monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    registry = NodeRegistry()
+    registry.register(
+        NodeMetadata(name="alpha", description="Alpha node", category="logic")
+    )(lambda _: None)
+    registry.register(
+        NodeMetadata(name="beta", description="Handles data", category="general")
+    )(lambda _: None)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
+
+    runner = CliRunner()
+    result = runner.invoke(node_app, ["list", "--category", "logic"])
+
+    assert result.exit_code == 0
+    output = result.output.lower()
+    assert "alpha" in output
+    assert "beta" not in output
+
+
+def test_node_list_tag_filter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    context = _build_context(tmp_path=tmp_path, client=object())
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    registry = NodeRegistry()
+
+    class TaggedMetadata(NodeMetadata):
+        tags: list[str] = []
+
+    registry.register(
+        TaggedMetadata(
+            name="alpha",
+            description="Handles HTTP calls",
+            category="logic",
+            tags=["http"],
+        )
+    )(lambda _: None)
+    registry.register(
+        NodeMetadata(name="beta", description="Processes files", category="general")
+    )(lambda _: None)
+    registry.register(
+        TaggedMetadata(
+            name="gamma",
+            description="HTTP fallback",
+            category="logic",
+            tags=["misc"],
+        )
+    )(lambda _: None)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
+
+    runner = CliRunner()
+    result = runner.invoke(node_app, ["list", "--tag", "http"])
+
+    assert result.exit_code == 0
+    output = result.output.lower()
+    assert "alpha" in output
+    assert "beta" not in output
+    assert "gamma" in output
+
+
+def test_node_list_reports_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from orcheo.nodes.ai import Agent
+    from orcheo.nodes.code import PythonCode
+    from orcheo.nodes.logic import IfElseNode
+    from orcheo.nodes.triggers import ManualTriggerNode
+
+    context = _build_context(tmp_path=tmp_path, client=object())
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    registry = NodeRegistry()
+    registry.register(NodeMetadata(name="agent", description="AI node", category="ai"))(
+        Agent
+    )
+    registry.register(
+        NodeMetadata(name="decision", description="Branching", category="logic")
+    )(IfElseNode)
+    registry.register(
+        NodeMetadata(name="code", description="Python task", category="code")
+    )(PythonCode)
+    registry.register(
+        NodeMetadata(name="trigger", description="Manual", category="trigger")
+    )(ManualTriggerNode)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
 
     runner = CliRunner()
     result = runner.invoke(node_app, ["list"])
+
     assert result.exit_code == 0
-    assert "simple" in result.output
+    output = result.output.lower()
+    assert " ai " in output
+    assert " decision " in output
+    assert " task " in output
+    assert " trigger " in output
+
+
+def test_node_list_unknown_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    context = _build_context(tmp_path=tmp_path, client=object())
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    registry = NodeRegistry()
+    registry._metadata["ghost"] = NodeMetadata(
+        name="ghost",
+        description="Missing implementation",
+        category="misc",
+    )
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
+
+    runner = CliRunner()
+    result = runner.invoke(node_app, ["list"])
+
+    assert result.exit_code == 0
+    output = result.output.lower()
+    assert "ghost" in output
+    assert "unknown" in output
+
+
+def test_node_list_registry_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    context = _build_context(tmp_path=tmp_path, client=object())
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    def fail_import(module: str) -> object:
+        raise ModuleNotFoundError(module)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.import_module", fail_import)
+
+    runner = CliRunner()
+    result = runner.invoke(node_app, ["list"])
+
+    assert result.exit_code == 1
+    assert "Orcheo core is not installed." in result.output
+
+
+def test_node_list_registry_missing_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    context = _build_context(tmp_path=tmp_path, client=object())
+    monkeypatch.setattr("orcheo_sdk.cli.nodes.get_context", lambda _: context)
+
+    from importlib import import_module
+
+    registry_module = import_module("orcheo.nodes.registry")
+    monkeypatch.setattr(registry_module, "registry", object())
+
+    runner = CliRunner()
+    result = runner.invoke(node_app, ["list"])
+
+    assert result.exit_code == 1
+    assert "does not expose node metadata" in result.output
 
 
 def test_node_show_uses_cache_notice(

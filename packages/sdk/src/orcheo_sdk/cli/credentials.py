@@ -9,7 +9,7 @@ from .render import render_kv_section, render_table
 from .utils import abort_with_error, get_context, show_cache_notice
 
 
-credential_app = typer.Typer(help="Manage Orcheo credentials.")
+credential_app = typer.Typer(help="Manage Orcheo credentials.", add_completion=True)
 
 
 @credential_app.command("list")

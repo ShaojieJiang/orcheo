@@ -7,7 +7,7 @@ from .api import ApiRequestError
 from .utils import abort_with_error, get_context
 
 
-code_app = typer.Typer(help="Generate Orcheo SDK reference code.")
+code_app = typer.Typer(help="Generate Orcheo SDK reference code.", add_completion=True)
 
 
 @code_app.command("scaffold")

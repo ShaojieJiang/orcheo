@@ -11,7 +11,7 @@ from .state import CLIContext
 from .utils import abort_with_error, get_context, show_cache_notice
 
 
-workflow_app = typer.Typer(help="Inspect and run workflows.")
+workflow_app = typer.Typer(help="Inspect and run workflows.", add_completion=True)
 
 
 @workflow_app.command("list")

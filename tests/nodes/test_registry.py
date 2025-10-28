@@ -60,3 +60,19 @@ def test_get_metadata_by_callable_no_match() -> None:
 
     result = registry.get_metadata_by_callable(unregistered_node)
     assert result is None
+
+
+def test_list_metadata_returns_copy() -> None:
+    """list_metadata returns all registered metadata entries."""
+
+    registry = NodeRegistry()
+    metadata = NodeMetadata(
+        name="demo",
+        description="Demo node",
+        category="test",
+    )
+
+    registry.register(metadata)(lambda state: state)
+
+    snapshot = registry.list_metadata()
+    assert snapshot == [metadata]

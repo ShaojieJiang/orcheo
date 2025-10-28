@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from orcheo.nodes.registry import NodeMetadata, NodeRegistry
 from typer.testing import CliRunner
 
 from orcheo_sdk.cli import app
@@ -56,21 +57,24 @@ def _api_url(base: str) -> str:
     return f"{base.rstrip('/')}/api"
 
 
-def test_node_list_and_cache(runner: CliRunner, client_stub, tmp_path: Path) -> None:
-    responses, _ = client_stub
+def test_node_list_and_cache(
+    runner: CliRunner,
+    client_stub,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses, clients = client_stub
     base = "https://api.orcheo.test"
-    responses[("GET", f"{_api_url(base)}/nodes/catalog")] = (
-        200,
-        [
-            {
-                "name": "http_request",
-                "type": "http",
-                "version": "1.0.0",
-                "category": "data",
-                "tags": ["http", "data"],
-            }
-        ],
-    )
+    registry = NodeRegistry()
+    registry.register(
+        NodeMetadata(
+            name="http_request",
+            description="Perform an HTTP request",
+            category="data",
+        )
+    )(lambda _: None)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
 
     result = runner.invoke(
         app,
@@ -85,8 +89,9 @@ def test_node_list_and_cache(runner: CliRunner, client_stub, tmp_path: Path) -> 
     )
     assert result.exit_code == 0
     assert "http_request" in result.output
-    # Simulate offline by clearing responses and relying on cache
-    responses.clear()
+    assert responses == {}
+    assert clients and not clients[0].requests
+
     offline_result = runner.invoke(
         app,
         [
@@ -100,7 +105,8 @@ def test_node_list_and_cache(runner: CliRunner, client_stub, tmp_path: Path) -> 
         ],
     )
     assert offline_result.exit_code == 0
-    assert "Served from cache" in offline_result.output
+    assert "http_request" in offline_result.output
+    assert "Served from cache" not in offline_result.output
 
 
 def test_workflow_show_and_run(runner: CliRunner, client_stub, tmp_path: Path) -> None:
@@ -436,7 +442,10 @@ def test_code_scaffold(runner: CliRunner, client_stub, tmp_path: Path) -> None:
 
 
 def test_profile_configuration_precedence(
-    runner: CliRunner, client_stub, tmp_path: Path
+    runner: CliRunner,
+    client_stub,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     responses, clients = client_stub
     config_path = tmp_path / "cli.toml"
@@ -448,18 +457,16 @@ service_token = "profile-token"
         """.strip()
     )
     base = "https://profile.orcheo.test"
-    responses[("GET", f"{_api_url(base)}/nodes/catalog")] = (
-        200,
-        [
-            {
-                "name": "storage",
-                "type": "db",
-                "version": "1.0.0",
-                "category": "storage",
-                "tags": [],
-            }
-        ],
-    )
+    registry = NodeRegistry()
+    registry.register(
+        NodeMetadata(
+            name="storage",
+            description="Persist data to storage",
+            category="storage",
+        )
+    )(lambda _: None)
+
+    monkeypatch.setattr("orcheo_sdk.cli.nodes._get_node_registry", lambda: registry)
 
     result = runner.invoke(
         app,
@@ -476,5 +483,6 @@ service_token = "profile-token"
     )
     assert result.exit_code == 0
     assert "storage" in result.output
+    assert clients and not clients[0].requests
     assert clients, "No HTTP client was created"
     assert clients[0].headers.get("Authorization") == "Bearer profile-token"

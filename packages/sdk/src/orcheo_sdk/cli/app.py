@@ -15,7 +15,9 @@ from .state import CLIContext
 from .workflows import workflow_app
 
 
-app = typer.Typer(help="Command line tools for the Orcheo platform.")
+app = typer.Typer(
+    help="Command line tools for the Orcheo platform.", add_completion=True
+)
 app.add_typer(node_app, name="node")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")

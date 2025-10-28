@@ -7,7 +7,10 @@ import pytest
 from orcheo_sdk.cli import app as cli_app
 from orcheo_sdk.cli.api import APIClient, ApiRequestError
 from orcheo_sdk.cli.cache import CacheStore
+from orcheo_sdk.cli.code import code_app
 from orcheo_sdk.cli.config import CLISettings, ProfileNotFoundError, resolve_settings
+from orcheo_sdk.cli.credentials import credential_app
+from orcheo_sdk.cli.nodes import _get_node_registry, node_app
 from orcheo_sdk.cli.render import (
     graph_to_mermaid,
     render_kv_section,
@@ -15,9 +18,29 @@ from orcheo_sdk.cli.render import (
     render_table,
 )
 from orcheo_sdk.cli.state import CLIContext
+from orcheo_sdk.cli.workflows import workflow_app
 from orcheo_sdk.cli.utils import get_context, show_cache_notice
 from rich.console import Console
 from typer.testing import CliRunner
+
+
+def test_cli_apps_enable_completion() -> None:
+    """All CLI entrypoints should expose shell completion commands."""
+
+    assert cli_app._add_completion is True
+    assert node_app._add_completion is True
+    assert workflow_app._add_completion is True
+    assert credential_app._add_completion is True
+    assert code_app._add_completion is True
+
+
+def test_get_node_registry_success() -> None:
+    """_get_node_registry returns the global Orcheo node registry."""
+
+    from orcheo.nodes.registry import registry as global_registry
+
+    registry = _get_node_registry()
+    assert registry is global_registry
 
 
 def test_cache_store_roundtrip(tmp_path: Path) -> None:
