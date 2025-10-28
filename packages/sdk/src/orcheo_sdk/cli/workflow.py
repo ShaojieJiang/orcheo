@@ -38,10 +38,7 @@ def _state(ctx: typer.Context) -> CLIState:
 
 
 def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
-    try:
-        return _compiled_mermaid(graph)
-    except Exception:
-        return _fallback_mermaid(graph)
+    return _compiled_mermaid(graph)
 
 
 def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
@@ -57,14 +54,34 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
     for name in sorted(node_names):
         stub.add_node(name, _identity_state)  # type: ignore[type-var]
 
+    compiled_edges: list[tuple[Any, Any]] = []
     for source, target in normalised_edges:
         try:
-            stub.add_edge(
-                _normalise_vertex(source, START, END),
-                _normalise_vertex(target, START, END),
+            compiled_edges.append(
+                (
+                    _normalise_vertex(source, START, END),
+                    _normalise_vertex(target, START, END),
+                )
             )
         except ValueError:
             continue
+
+    if not compiled_edges:
+        if node_names:
+            compiled_edges.append((START, sorted(node_names)[0]))
+        else:
+            compiled_edges.append((START, END))
+    elif not any(source is START for source, _ in compiled_edges):
+        targets = {target for _, target in compiled_edges}
+        for candidate in sorted(node_names):
+            if candidate not in targets:
+                compiled_edges.append((START, candidate))
+                break
+        else:
+            compiled_edges.append((START, compiled_edges[0][0]))
+
+    for source, target in compiled_edges:
+        stub.add_edge(source, target)
 
     compiled = stub.compile()
     return compiled.get_graph().draw_mermaid()
@@ -144,46 +161,6 @@ def _normalise_vertex(value: Any, start: Any, end: Any) -> Any:
     if upper == "END":
         return end
     return text
-
-
-def _fallback_mermaid(graph: Mapping[str, Any]) -> str:
-    nodes = graph.get("nodes", [])
-    edges = graph.get("edges", [])
-    lines = ["graph TD"]
-
-    def _node_repr(node: Any) -> tuple[str, str]:
-        if isinstance(node, Mapping):
-            identifier = str(
-                node.get("id")
-                or node.get("name")
-                or node.get("label")
-                or node.get("type")
-            )
-            label = str(node.get("label") or node.get("type") or identifier)
-        else:
-            identifier = str(node)
-            label = identifier
-        safe_identifier = identifier.replace("-", "_")
-        return safe_identifier, label
-
-    for node in nodes:
-        node_id, label = _node_repr(node)
-        lines.append(f"    {node_id}[{label}]")
-
-    for edge in edges:
-        if isinstance(edge, Mapping):
-            source = edge.get("from") or edge.get("source")
-            target = edge.get("to") or edge.get("target")
-        elif isinstance(edge, (list, tuple)) and len(edge) == 2:  # noqa: UP038
-            source, target = edge
-        else:
-            continue
-        if not source or not target:
-            continue
-        source_id = str(source).replace("-", "_")
-        target_id = str(target).replace("-", "_")
-        lines.append(f"    {source_id} --> {target_id}")
-    return "\n".join(lines)
 
 
 @workflow_app.command("list")
