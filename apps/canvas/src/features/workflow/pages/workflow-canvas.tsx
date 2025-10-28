@@ -3933,6 +3933,12 @@ export default function WorkflowCanvas({
   }, [applySnapshot, createSnapshot]);
 
   useEffect(() => {
+    const targetDocument =
+      typeof document !== "undefined" ? document : undefined;
+    if (!targetDocument) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isEditable =
@@ -4007,8 +4013,8 @@ export default function WorkflowCanvas({
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    targetDocument.addEventListener("keydown", handleKeyDown);
+    return () => targetDocument.removeEventListener("keydown", handleKeyDown);
   }, [
     deleteNodes,
     handleRedo,
@@ -4419,7 +4425,12 @@ export default function WorkflowCanvas({
   }, [applySnapshot, convertPersistedNodesToCanvas, workflowId]);
 
   useEffect(() => {
-    if (!currentWorkflowId || typeof window === "undefined") {
+    if (!currentWorkflowId) {
+      return;
+    }
+
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (!targetWindow) {
       return;
     }
 
@@ -4435,9 +4446,12 @@ export default function WorkflowCanvas({
       }
     };
 
-    window.addEventListener(WORKFLOW_STORAGE_EVENT, handleStorageUpdate);
+    targetWindow.addEventListener(WORKFLOW_STORAGE_EVENT, handleStorageUpdate);
     return () => {
-      window.removeEventListener(WORKFLOW_STORAGE_EVENT, handleStorageUpdate);
+      targetWindow.removeEventListener(
+        WORKFLOW_STORAGE_EVENT,
+        handleStorageUpdate,
+      );
     };
   }, [currentWorkflowId]);
 

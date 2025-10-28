@@ -7,6 +7,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 from pydantic import BaseModel
 from orcheo.graph.state import State
+from orcheo.runtime.credentials import (
+    CredentialReference,
+    CredentialResolverUnavailableError,
+    get_active_credential_resolver,
+    parse_credential_reference,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -20,31 +26,10 @@ class BaseNode(BaseModel):
 
     def _decode_value(self, value: Any, state: State) -> Any:
         """Recursively decode a value that may contain template strings."""
-        if isinstance(value, str) and "{{" in value:
-            # Extract path from {{path.to.value}} format
-            path_str = value.strip("{}").strip()
-            path_parts = path_str.split(".")
-
-            # Start from state["results"] for backwards compatibility
-            # unless the path explicitly starts with "results"
-            if path_parts[0] == "results":
-                result: Any = state
-            else:
-                result = state.get("results", {})
-
-            for part in path_parts:
-                if isinstance(result, dict):
-                    result = result.get(part)
-                else:
-                    logger.warning(
-                        "Node %s could not resolve template '%s' at segment '%s'; "
-                        "leaving value unchanged.",
-                        self.name,
-                        value,
-                        part,
-                    )
-                    return value  # Can't traverse, return original
-            return result
+        if isinstance(value, CredentialReference):
+            return self._resolve_credential_reference(value)
+        if isinstance(value, str):
+            return self._decode_string_value(value, state)
         if isinstance(value, BaseModel):
             # Handle Pydantic models by decoding their dict representation
             for field_name in value.__class__.model_fields:
@@ -57,6 +42,50 @@ class BaseNode(BaseModel):
         if isinstance(value, list):
             return [self._decode_value(item, state) for item in value]
         return value
+
+    def _decode_string_value(self, value: str, state: State) -> Any:
+        """Return decoded value for placeholders or state templates."""
+        reference = parse_credential_reference(value)
+        if reference is not None:
+            return self._resolve_credential_reference(reference)
+        if "{{" not in value:
+            return value
+
+        path_str = value.strip("{}").strip()
+        path_parts = path_str.split(".")
+
+        # Start from state["results"] for backwards compatibility
+        # unless the path explicitly starts with "results"
+        if path_parts[0] == "results":
+            result: Any = state
+        else:
+            result = state.get("results", {})
+
+        for part in path_parts:
+            if isinstance(result, dict):
+                result = result.get(part)
+                continue
+            logger.warning(
+                "Node %s could not resolve template '%s' at segment '%s'; "
+                "leaving value unchanged.",
+                self.name,
+                value,
+                part,
+            )
+            return value
+        return result
+
+    def _resolve_credential_reference(self, reference: CredentialReference) -> Any:
+        """Return the materialised value for ``reference`` or raise an error."""
+        resolver = get_active_credential_resolver()
+        if resolver is None:
+            msg = (
+                "Credential placeholders require an active resolver. "
+                f"Node '{self.name}' attempted to access "
+                f"{reference.identifier!r}"
+            )
+            raise CredentialResolverUnavailableError(msg)
+        return resolver.resolve(reference)
 
     def decode_variables(self, state: State) -> None:
         """Decode the variables in attributes of the node."""

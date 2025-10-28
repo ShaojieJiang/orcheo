@@ -68,13 +68,18 @@ export default function TopNavigation({
   );
 
   useEffect(() => {
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (!targetWindow) {
+      return;
+    }
+
     const handleResize = () => {
-      setWindowWidth(window.innerWidth);
+      setWindowWidth(targetWindow.innerWidth);
     };
 
-    window.addEventListener("resize", handleResize);
+    targetWindow.addEventListener("resize", handleResize);
     return () => {
-      window.removeEventListener("resize", handleResize);
+      targetWindow.removeEventListener("resize", handleResize);
     };
   }, []);
 

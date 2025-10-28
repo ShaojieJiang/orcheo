@@ -46,6 +46,11 @@ export default function CommandPalette({
 
   // Handle keyboard navigation
   useEffect(() => {
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (!targetWindow) {
+      return;
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!open) return;
 
@@ -73,8 +78,8 @@ export default function CommandPalette({
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    targetWindow.addEventListener("keydown", handleKeyDown);
+    return () => targetWindow.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedIndex, onOpenChange]);
 
