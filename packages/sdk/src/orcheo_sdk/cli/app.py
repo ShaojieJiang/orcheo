@@ -1,6 +1,7 @@
 """Typer application wiring for the Orcheo CLI."""
 
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Annotated
 import typer
@@ -66,6 +67,7 @@ def _configure(
             profile=profile,
             config_path=config_path,
             cache_dir=cache_dir,
+            env=os.environ,
         )
     except ProfileNotFoundError as exc:
         raise typer.BadParameter(str(exc)) from exc
