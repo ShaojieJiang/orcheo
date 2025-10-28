@@ -36,6 +36,11 @@ export default function WorkflowSearch({
   }, [isOpen]);
 
   useEffect(() => {
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (!targetWindow) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!isOpen) {
         return;
@@ -56,8 +61,8 @@ export default function WorkflowSearch({
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    targetWindow.addEventListener("keydown", handleKeyDown);
+    return () => targetWindow.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose, onHighlightNext, onHighlightPrevious]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {

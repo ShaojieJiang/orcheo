@@ -150,15 +150,23 @@ export default function SidebarLayout({
   }, []);
 
   useEffect(() => {
-    if (resizable) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-
-      return () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-      };
+    if (!resizable) {
+      return;
     }
+
+    const targetDocument =
+      typeof document !== "undefined" ? document : undefined;
+    if (!targetDocument) {
+      return;
+    }
+
+    targetDocument.addEventListener("mousemove", handleMouseMove);
+    targetDocument.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      targetDocument.removeEventListener("mousemove", handleMouseMove);
+      targetDocument.removeEventListener("mouseup", handleMouseUp);
+    };
   }, [resizable, handleMouseMove, handleMouseUp]);
 
   return (

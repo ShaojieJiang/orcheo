@@ -143,14 +143,15 @@ export default function WorkflowGallery() {
 
     void load();
 
-    if (typeof window !== "undefined") {
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (targetWindow) {
       const handler = () => {
         void load();
       };
-      window.addEventListener(WORKFLOW_STORAGE_EVENT, handler);
+      targetWindow.addEventListener(WORKFLOW_STORAGE_EVENT, handler);
       return () => {
         isMounted = false;
-        window.removeEventListener(WORKFLOW_STORAGE_EVENT, handler);
+        targetWindow.removeEventListener(WORKFLOW_STORAGE_EVENT, handler);
       };
     }
 

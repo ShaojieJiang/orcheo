@@ -81,6 +81,12 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
 
   // Handle clicks outside the controls to hide them
   useEffect(() => {
+    const targetDocument =
+      typeof document !== "undefined" ? document : undefined;
+    if (!targetDocument) {
+      return;
+    }
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (
@@ -93,9 +99,9 @@ const WorkflowNode = ({ id, data, selected }: NodeProps<WorkflowNodeData>) => {
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
+    targetDocument.addEventListener("mousedown", handleClickOutside);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      targetDocument.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
 

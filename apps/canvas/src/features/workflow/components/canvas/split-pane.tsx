@@ -88,17 +88,23 @@ export default function SplitPane({
   };
 
   useEffect(() => {
+    const targetDocument =
+      typeof document !== "undefined" ? document : undefined;
+    if (!targetDocument) {
+      return;
+    }
+
     if (isDragging) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      targetDocument.addEventListener("mousemove", handleMouseMove);
+      targetDocument.addEventListener("mouseup", handleMouseUp);
     } else {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      targetDocument.removeEventListener("mousemove", handleMouseMove);
+      targetDocument.removeEventListener("mouseup", handleMouseUp);
     }
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      targetDocument.removeEventListener("mousemove", handleMouseMove);
+      targetDocument.removeEventListener("mouseup", handleMouseUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDragging]);
