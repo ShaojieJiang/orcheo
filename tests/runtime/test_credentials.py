@@ -17,6 +17,7 @@ from orcheo.runtime.credentials import (
     CredentialReferenceNotFoundError,
     CredentialResolver,
     CredentialResolverUnavailableError,
+    DuplicateCredentialReferenceError,
     UnknownCredentialPayloadError,
     credential_ref,
     credential_resolution,
@@ -150,6 +151,28 @@ def test_resolver_rejects_unknown_payload() -> None:
             resolver.resolve(credential_ref("telegram_bot", "secret.value"))
         with pytest.raises(UnknownCredentialPayloadError):
             resolver.resolve(credential_ref("telegram_bot", "api_key"))
+
+
+def test_resolver_rejects_duplicate_name_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolver should fail fast when multiple credentials share a name."""
+
+    vault = _create_vault_with_secret()
+    resolver = CredentialResolver(vault)
+    metadata = vault.list_credentials(context=None)[0]
+    duplicate = metadata.model_copy(update={"id": uuid4()}, deep=True)
+    metadata_by_id = {metadata.id: metadata, duplicate.id: duplicate}
+    metadata_by_name = {metadata.name: [metadata, duplicate]}
+
+    monkeypatch.setattr(
+        resolver,
+        "_load_metadata_index",
+        lambda: (metadata_by_id, metadata_by_name),
+    )
+
+    with pytest.raises(DuplicateCredentialReferenceError):
+        resolver.resolve(credential_ref(metadata.name))
 
 
 def test_vault_rejects_duplicate_names() -> None:

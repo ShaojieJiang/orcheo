@@ -18,6 +18,7 @@ from orcheo.models import (
 from orcheo.vault import (
     CredentialNotFoundError,
     CredentialTemplateNotFoundError,
+    DuplicateCredentialNameError,
     FileCredentialVault,
     GovernanceAlertNotFoundError,
     InMemoryCredentialVault,
@@ -904,6 +905,28 @@ def test_file_vault_remove_credential_missing(tmp_path) -> None:
     vault = FileCredentialVault(tmp_path / "vault.sqlite")
     with pytest.raises(CredentialNotFoundError):
         vault._remove_credential(uuid4())
+
+
+def test_file_vault_rejects_duplicate_names(tmp_path) -> None:
+    """File-backed vaults should prevent duplicate credential names."""
+
+    vault = FileCredentialVault(tmp_path / "vault.sqlite")
+    vault.create_credential(
+        name="Service",
+        provider="service",
+        scopes=["read"],
+        secret="secret",
+        actor="ops",
+    )
+
+    with pytest.raises(DuplicateCredentialNameError):
+        vault.create_credential(
+            name="Service",
+            provider="service",
+            scopes=["write"],
+            secret="another",
+            actor="ops",
+        )
 
 
 def test_file_vault_delete_credential(tmp_path) -> None:

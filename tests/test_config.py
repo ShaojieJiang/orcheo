@@ -169,6 +169,38 @@ def test_vault_token_ttl_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.vault_token_ttl_seconds == 900
 
 
+def test_aws_vault_requires_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AWS KMS vaults must provide an encryption key."""
+
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "aws_kms")
+    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("ORCHEO_VAULT_AWS_REGION", "us-east-1")
+    monkeypatch.setenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", "key-id")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
+def test_inmemory_vault_clears_optional_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In-memory vault should strip persistence-specific options."""
+
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "inmemory")
+    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "ignored")
+    monkeypatch.setenv("ORCHEO_VAULT_LOCAL_PATH", "custom/path.sqlite")
+    monkeypatch.setenv("ORCHEO_VAULT_AWS_REGION", "us-east-1")
+    monkeypatch.setenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", "key-id")
+
+    settings = config.get_settings(refresh=True)
+
+    assert settings.vault_backend == "inmemory"
+    assert settings.vault_encryption_key is None
+    assert settings.vault_local_path is None
+    assert settings.vault_aws_region is None
+    assert settings.vault_aws_kms_key_id is None
+
+
 def test_numeric_fields_accept_str_coercible_objects() -> None:
     """Port and vault TTL should coerce objects that stringify to integers."""
 

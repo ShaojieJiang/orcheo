@@ -14,6 +14,7 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.workflow import (
     _handle_node_event,
     _handle_status_update,
+    _mermaid_from_graph,
     _process_stream_messages,
     _render_node_output,
     _stream_workflow_run,
@@ -134,6 +135,31 @@ def test_upload_langgraph_script_create_failure() -> None:
             None,
         )
     assert "Failed to create workflow" in str(excinfo.value)
+
+
+def test_upload_langgraph_script_rename_failure() -> None:
+    state = make_state()
+
+    class RenameFailingClient(StubClient):
+        def get(self, url: str) -> Any:  # type: ignore[override]
+            assert url.endswith("/api/workflows/wf-1")
+            return {"id": "wf-1", "name": "existing"}
+
+        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            raise RuntimeError("cannot rename")
+
+    state.client = RenameFailingClient()
+
+    workflow_config = {"script": "print('hello')", "entrypoint": None}
+    with pytest.raises(CLIError) as excinfo:
+        _upload_langgraph_script(
+            state,
+            workflow_config,
+            "wf-1",
+            Path("demo.py"),
+            "New Name",
+        )
+    assert "Failed to rename workflow 'wf-1'" in str(excinfo.value)
 
 
 @pytest.mark.asyncio()
@@ -390,6 +416,25 @@ def test_handle_node_event_variants(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any("[custom]" in msg for msg in state.console.messages)
 
 
+def test_handle_node_event_on_chain_end_without_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = make_state()
+    called = False
+
+    def fail_render(*_: Any, **__: Any) -> None:
+        nonlocal called
+        called = True
+        raise AssertionError("render should not be called")
+
+    monkeypatch.setattr("orcheo_sdk.cli.workflow._render_node_output", fail_render)
+
+    _handle_node_event(state, {"node": "B", "event": "on_chain_end"})
+
+    assert not called
+    assert any("✓ B" in msg for msg in state.console.messages)
+
+
 def test_render_node_output_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     state = make_state()
     rendered: list[Any] = []
@@ -443,6 +488,39 @@ def test_run_workflow_raises_on_failed_stream(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(CLIError) as excinfo:
         run_workflow(DummyCtx(state), "wf-1")
     assert "Workflow execution failed" in str(excinfo.value)
+
+
+def test_run_workflow_allows_successful_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = make_state()
+
+    state.client.responses = {
+        "/api/workflows/wf-1/versions": [
+            {"id": "ver-1", "version": 1, "graph": {"nodes": []}}
+        ]
+    }
+
+    async def fake_stream(
+        state_arg: CLIState,
+        workflow_id: str,
+        graph_config: dict[str, Any],
+        inputs: Any,
+    ) -> str:
+        assert state_arg is state
+        assert workflow_id == "wf-1"
+        assert graph_config == {"nodes": []}
+        assert inputs == {}
+        return "completed"
+
+    monkeypatch.setattr("orcheo_sdk.cli.workflow._stream_workflow_run", fake_stream)
+
+    class DummyCtx:
+        def __init__(self, state_obj: CLIState) -> None:
+            self._state = state_obj
+
+        def ensure_object(self, _: Any) -> CLIState:
+            return self._state
+
+    run_workflow(DummyCtx(state), "wf-1")
 
 
 def test_upload_workflow_overrides_entrypoint(
@@ -516,3 +594,16 @@ def test_strip_main_block_stops_on_single_quote() -> None:
     script = "print('hello')\nif __name__ == '__main__':\n    run()"
     result = _strip_main_block(script)
     assert result == "print('hello')"
+
+
+def test_mermaid_from_graph_handles_non_mapping_graph() -> None:
+    class FakeGraph:
+        def __init__(self) -> None:
+            self._data = {"nodes": [], "edges": []}
+
+        def get(self, key: str, default: Any = None) -> Any:
+            return self._data.get(key, default)
+
+    mermaid = _mermaid_from_graph(FakeGraph())
+    assert "__start__" in mermaid
+    assert "__end__" in mermaid
