@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
+from chatkit.server import StreamingResult
+from chatkit.types import ChatKitReq
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
 from fastapi import (
@@ -26,6 +28,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.runnables import RunnableConfig
+from pydantic import TypeAdapter, ValidationError
+from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -66,6 +70,11 @@ from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,
     OAuthCredentialService,
+)
+from orcheo_backend.app.chatkit_service import (
+    ChatKitRequestContext,
+    OrcheoChatKitServer,
+    create_chatkit_server,
 )
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
@@ -373,6 +382,17 @@ def get_repository() -> WorkflowRepository:
 
 
 RepositoryDep = Annotated[WorkflowRepository, Depends(get_repository)]
+
+_chatkit_server_ref: dict[str, OrcheoChatKitServer | None] = {"server": None}
+
+
+def get_chatkit_server() -> OrcheoChatKitServer:
+    """Return the singleton ChatKit server wired to the repository."""
+    server = _chatkit_server_ref["server"]
+    if server is None:
+        server = create_chatkit_server(_repository, get_vault)
+        _chatkit_server_ref["server"] = server
+    return server
 
 
 def get_history_store() -> RunHistoryStore:
@@ -740,6 +760,33 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         await websocket.send_json({"status": "error", "error": str(exc)})
     finally:
         await websocket.close()
+
+
+@_http_router.post("/chatkit", include_in_schema=False)
+async def chatkit_gateway(request: Request) -> Response:
+    """Proxy ChatKit SDK requests to the Orcheo-backed server."""
+    payload = await request.body()
+    try:
+        adapter: TypeAdapter[ChatKitReq] = TypeAdapter(ChatKitReq)
+        parsed_request = adapter.validate_json(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Invalid ChatKit payload.",
+                "errors": exc.errors(),
+            },
+        ) from exc
+
+    context: ChatKitRequestContext = {"chatkit_request": parsed_request}
+    server = get_chatkit_server()
+    result = await server.process(payload, context)
+
+    if isinstance(result, StreamingResult):
+        return StreamingResponse(result, media_type="text/event-stream")
+    if hasattr(result, "json"):
+        return Response(content=result.json, media_type="application/json")
+    return JSONResponse(result)
 
 
 @_http_router.post(
