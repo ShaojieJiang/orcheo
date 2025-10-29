@@ -259,6 +259,7 @@ class SqliteChatKitStore(Store[ChatKitRequestContext]):
         async with self._lock:
             async with self._connection() as conn:
                 ordinal = await self._next_item_ordinal(conn, thread_id)
+                payload = _json_dumps(_ITEM_ADAPTER.dump_python(item, mode="json"))
                 await conn.execute(
                     """
                     INSERT INTO chat_messages (
@@ -269,13 +270,18 @@ class SqliteChatKitStore(Store[ChatKitRequestContext]):
                         item_json,
                         created_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        thread_id = excluded.thread_id,
+                        item_type = excluded.item_type,
+                        item_json = excluded.item_json,
+                        created_at = excluded.created_at
                     """,
                     (
                         item.id,
                         thread_id,
                         ordinal,
                         getattr(item, "type", None),
-                        _json_dumps(_ITEM_ADAPTER.dump_python(item, mode="json")),
+                        payload,
                         _to_iso(item.created_at),
                     ),
                 )
