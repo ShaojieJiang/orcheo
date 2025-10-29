@@ -84,7 +84,10 @@ class SqliteChatKitStore(Store[ChatKitRequestContext]):
                     if hasattr(thread.status, "model_dump")
                     else thread.status
                 )
-                metadata_payload = thread.metadata
+                metadata_payload = self._merge_metadata_from_context(
+                    thread,
+                    context,
+                )
                 workflow_id = metadata_payload.get("workflow_id")
                 updated_at = _now()
                 await conn.execute(
@@ -116,6 +119,25 @@ class SqliteChatKitStore(Store[ChatKitRequestContext]):
                     ),
                 )
                 await conn.commit()
+
+    @staticmethod
+    def _merge_metadata_from_context(
+        thread: ThreadMetadata,
+        context: ChatKitRequestContext | None,
+    ) -> dict[str, Any]:
+        existing = dict(thread.metadata or {})
+        if not context:
+            return existing
+
+        request = context.get("chatkit_request")
+        metadata = getattr(request, "metadata", None)
+        if isinstance(metadata, dict) and metadata:
+            merged = {**existing, **metadata}
+            thread.metadata = merged
+            return merged
+
+        thread.metadata = existing
+        return existing
 
     async def load_threads(
         self,

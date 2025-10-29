@@ -5,6 +5,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from chatkit.store import NotFoundError
 from chatkit.types import (
@@ -104,6 +105,31 @@ async def test_sqlite_store_persists_conversation(tmp_path: Path) -> None:
     await store.delete_thread(thread.id, context)
     with pytest.raises(NotFoundError):
         await store.load_thread(thread.id, context)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_merges_metadata_from_context(tmp_path: Path) -> None:
+    """Incoming ChatKit metadata should populate the stored thread."""
+
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    request = SimpleNamespace(
+        metadata={"workflow_id": "wf_ctx", "workflow_name": "Ctx"}
+    )
+    context: dict[str, object] = {"chatkit_request": request}
+
+    thread = ThreadMetadata(
+        id="thr_ctx",
+        created_at=_timestamp(),
+    )
+
+    await store.save_thread(thread, context)
+
+    assert thread.metadata["workflow_id"] == "wf_ctx"
+
+    loaded_thread = await store.load_thread(thread.id, {})
+    assert loaded_thread.metadata["workflow_id"] == "wf_ctx"
 
 
 @pytest.mark.asyncio
