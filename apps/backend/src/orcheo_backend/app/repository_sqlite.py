@@ -52,8 +52,16 @@ class SqliteWorkflowRepository:
         self._credential_service = credential_service
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
-    async def list_workflows(self) -> list[Workflow]:
-        """Return all persisted workflows."""
+    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+        """Return workflows, excluding archived ones by default.
+
+        Args:
+            include_archived: If True, include archived workflows. If False, only
+                return unarchived workflows. Defaults to False.
+
+        Returns:
+            List of workflows matching the filter criteria.
+        """
         await self._ensure_initialized()
         async with self._lock:
             async with self._connection() as conn:
@@ -61,10 +69,13 @@ class SqliteWorkflowRepository:
                     "SELECT payload FROM workflows ORDER BY created_at ASC"
                 )
                 rows = await cursor.fetchall()
-            return [
+            workflows = [
                 Workflow.model_validate_json(row["payload"]).model_copy(deep=True)
                 for row in rows
             ]
+            if include_archived:
+                return workflows
+            return [wf for wf in workflows if not wf.is_archived]
 
     async def create_workflow(
         self,

@@ -19,7 +19,7 @@ _DEFAULTS: dict[str, object] = {
     "POSTGRES_DSN": None,
     "HOST": "0.0.0.0",
     "PORT": 8000,
-    "VAULT_BACKEND": "inmemory",
+    "VAULT_BACKEND": "file",
     "VAULT_ENCRYPTION_KEY": None,
     "VAULT_LOCAL_PATH": ".orcheo/vault.sqlite",
     "VAULT_AWS_REGION": None,
@@ -60,7 +60,10 @@ class VaultSettings(BaseModel):
     @field_validator("encryption_key", "local_path", "aws_region", "aws_kms_key_id")
     @classmethod
     def _coerce_optional_str(cls, value: object) -> str | None:
-        return None if value is None else str(value)
+        if value is None:
+            return None
+        candidate = str(value)
+        return candidate or None
 
     @field_validator("token_ttl_seconds", mode="before")
     @classmethod
@@ -85,13 +88,6 @@ class VaultSettings(BaseModel):
             msg = "ORCHEO_VAULT_TOKEN_TTL_SECONDS must be greater than zero."
             raise ValueError(msg)
 
-        if self.backend != "inmemory" and not self.encryption_key:
-            msg = (
-                "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using persistent "
-                "vault backends."
-            )
-            raise ValueError(msg)
-
         if self.backend == "file":
             self.local_path = self.local_path or cast(
                 str, _DEFAULTS["VAULT_LOCAL_PATH"]
@@ -99,6 +95,12 @@ class VaultSettings(BaseModel):
             self.aws_region = None
             self.aws_kms_key_id = None
         elif self.backend == "aws_kms":
+            if not self.encryption_key:
+                msg = (
+                    "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using the aws_kms "
+                    "vault backend."
+                )
+                raise ValueError(msg)
             if not self.aws_region or not self.aws_kms_key_id:
                 msg = (
                     "ORCHEO_VAULT_AWS_REGION and ORCHEO_VAULT_AWS_KMS_KEY_ID must be "
@@ -107,6 +109,7 @@ class VaultSettings(BaseModel):
                 raise ValueError(msg)
             self.local_path = None
         else:  # inmemory
+            self.encryption_key = None
             self.local_path = None
             self.aws_region = None
             self.aws_kms_key_id = None

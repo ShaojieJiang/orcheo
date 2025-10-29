@@ -6,7 +6,6 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from orcheo_sdk.cli.errors import CLIConfigurationError
 
 
 CONFIG_DIR_ENV = "ORCHEO_CONFIG_DIR"
@@ -71,19 +70,17 @@ def resolve_settings(
     profiles = load_profiles(config_path)
     profile_data = profiles.get(profile_name, {})
 
-    resolved_api_url = api_url or os.getenv(API_URL_ENV) or profile_data.get("api_url")
+    resolved_api_url = (
+        api_url
+        or os.getenv(API_URL_ENV)
+        or profile_data.get("api_url")
+        or "http://localhost:8000"
+    )
     resolved_token = (
         service_token
         or os.getenv(SERVICE_TOKEN_ENV)
         or profile_data.get("service_token")
     )
-
-    if not resolved_api_url:
-        msg = (
-            "API URL is required. Set ORCHEO_API_URL, configure the profile in "
-            f"{config_path}, or pass --api-url."
-        )
-        raise CLIConfigurationError(msg)
 
     return CLISettings(
         api_url=resolved_api_url,

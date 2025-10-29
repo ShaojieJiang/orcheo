@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 import httpx
 import pytest
 import respx
@@ -63,6 +64,36 @@ def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> 
         result = runner.invoke(app, ["workflow", "list"], env=env)
     assert result.exit_code == 0
     assert "Demo" in result.stdout
+
+
+def test_workflow_list_excludes_archived_by_default(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = [{"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env=env)
+    assert result.exit_code == 0
+    assert "Active" in result.stdout
+
+
+def test_workflow_list_includes_archived_with_flag(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = [
+        {"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False},
+        {"id": "wf-2", "name": "Archived", "slug": "archived", "is_archived": True},
+    ]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows?include_archived=true").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list", "--archived"], env=env)
+    assert result.exit_code == 0
+    assert "Active" in result.stdout
+    assert "Archived" in result.stdout
 
 
 def test_workflow_show_uses_cache_when_offline(
@@ -407,6 +438,62 @@ def test_workflow_run_inputs_string_not_json_object(
     assert "must be a JSON object" in str(result.exception)
 
 
+def test_workflow_delete_with_force(runner: CliRunner, env: dict[str, str]) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1", "--force"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "deleted successfully" in result.stdout
+
+
+def test_workflow_delete_without_force_prompts(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    # Test without --force which would prompt for confirmation
+    # We'll simulate the user aborting
+    with respx.mock:
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1"],
+            env=env,
+            input="n\n",  # No to confirmation
+        )
+    # Typer.confirm with abort=True will exit with code 1 when user says no
+    assert result.exit_code == 1
+
+
+def test_workflow_delete_with_confirmation(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    # Test that delete succeeds when user confirms
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1"],
+            env=env,
+            input="y\n",  # Yes to confirmation
+        )
+    assert result.exit_code == 0
+    assert "deleted successfully" in result.stdout
+
+
+def test_workflow_delete_offline_error(runner: CliRunner, env: dict[str, str]) -> None:
+    offline_args = ["--offline", "workflow", "delete", "wf-1", "--force"]
+    result = runner.invoke(app, offline_args, env=env)
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "network connectivity" in str(result.exception)
+
+
 def test_credential_list_with_workflow_id(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
@@ -505,8 +592,16 @@ def test_node_show_nonexistent_error(runner: CliRunner, env: dict[str, str]) -> 
 
 
 def test_main_config_error_handling(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
-    assert result.exit_code == 1
+    # With the default API URL, this should attempt to connect to localhost:8000
+    # The test should mock the API call to verify it uses the default
+    payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://localhost:8000/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
+    assert result.exit_code == 0
+    assert "Demo" in result.stdout
 
 
 # Cache module tests
@@ -730,13 +825,14 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
     try:
         os.environ[CONFIG_DIR_ENV] = str(config_dir)
         os.environ.pop(API_URL_ENV, None)
-        with pytest.raises(CLIConfigurationError, match="API URL is required"):
-            resolve_settings(
-                profile=None,
-                api_url=None,
-                service_token=None,
-                offline=False,
-            )
+        settings = resolve_settings(
+            profile=None,
+            api_url=None,
+            service_token=None,
+            offline=False,
+        )
+        # Should use default localhost:8000
+        assert settings.api_url == "http://localhost:8000"
     finally:
         if original:
             os.environ[CONFIG_DIR_ENV] = original
@@ -982,6 +1078,55 @@ def test_run_cli_error_handling(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(typer.Exit) as exc_info:
         run()
     assert exc_info.value.exit_code == 1
+
+
+def test_run_usage_error_handling(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that UsageError is caught and displayed with a friendly message."""
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        # Create a command with a proper name
+        cmd = click.Command("workflow")
+        # Create parent context for "orcheo" with info_name set
+        parent_ctx = click.Context(click.Command("orcheo"), info_name="orcheo")
+        # Create child context with parent to get "orcheo workflow" path
+        ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
+        raise click.UsageError("Missing command.", ctx=ctx)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    # Verify help command suggestion is printed (covers lines 81-82)
+    captured = capsys.readouterr()
+    assert "Missing command." in captured.out
+    assert "orcheo workflow --help" in captured.out
+
+
+def test_run_usage_error_without_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that UsageError without context doesn't show help command."""
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        # Raise UsageError without context
+        raise click.UsageError("Invalid option.")
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    # Verify error is printed but no help command suggestion (covers branch 80->83)
+    captured = capsys.readouterr()
+    assert "Invalid option." in captured.out
+    assert "--help" not in captured.out
 
 
 def test_workflow_show_with_cache_notice(
@@ -1282,6 +1427,26 @@ def test_workflow_mermaid_with_edge_list_format(
         result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
     assert result.exit_code == 0
     assert "a --> b" in result.stdout
+
+
+def test_workflow_mermaid_with_langgraph_summary() -> None:
+    """Test mermaid generation when graph contains a LangGraph summary payload."""
+    from orcheo_sdk.cli.workflow import _mermaid_from_graph
+
+    graph = {
+        "format": "langgraph-script",
+        "source": "def build(): ...",
+        "summary": {
+            "nodes": [{"name": "store_secret", "type": "SetVariableNode"}],
+            "edges": [["START", "store_secret"], ["store_secret", "END"]],
+            "conditional_edges": [],
+        },
+    }
+
+    mermaid = _mermaid_from_graph(graph)
+    assert "store_secret" in mermaid
+    assert "__start__ --> store_secret" in mermaid
+    assert "store_secret --> __end__" in mermaid
 
 
 def test_workflow_mermaid_with_invalid_edge(
@@ -1725,3 +1890,1334 @@ def test_workflow_show_with_mermaid_generation(
     assert result.exit_code == 0
     assert "start_node" in result.stdout
     assert "end_node" in result.stdout
+
+
+# Workflow upload tests
+def test_workflow_upload_python_file_offline_error(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload fails in offline mode."""
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text("workflow = None", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["--offline", "workflow", "upload", str(py_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "network connectivity" in str(result.exception)
+
+
+def test_workflow_upload_file_not_exists(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow upload fails when file does not exist."""
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", "/nonexistent/file.py"],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "does not exist" in str(result.exception)
+
+
+def test_workflow_upload_path_is_not_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload fails when path is not a file."""
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(tmp_path)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "is not a file" in str(result.exception)
+
+
+def test_workflow_upload_unsupported_file_type(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload fails with unsupported file extension."""
+    txt_file = tmp_path / "workflow.txt"
+    txt_file.write_text("some content", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(txt_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Unsupported file type" in str(result.exception)
+
+
+def test_workflow_upload_python_file_create_new(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload creates new workflow from Python file."""
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text(
+        """
+from orcheo_sdk import Workflow
+
+workflow = Workflow(name="TestWorkflow")
+""",
+        encoding="utf-8",
+    )
+
+    created = {"id": "wf-new", "name": "TestWorkflow"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "created successfully" in result.stdout
+
+
+def test_workflow_upload_python_file_update_existing(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload updates existing workflow from Python file."""
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text(
+        """
+from orcheo_sdk import Workflow
+
+workflow = Workflow(name="TestWorkflow")
+""",
+        encoding="utf-8",
+    )
+
+    updated = {"id": "wf-1", "name": "TestWorkflow"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=updated)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--id", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "updated successfully" in result.stdout
+
+
+def test_workflow_upload_python_file_create_new_with_name_override(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload allows renaming when creating from Python file."""
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text(
+        """
+from orcheo_sdk import Workflow
+
+workflow = Workflow(name="TestWorkflow")
+""",
+        encoding="utf-8",
+    )
+
+    created = {"id": "wf-new", "name": "Renamed Workflow"}
+    with respx.mock(assert_all_called=True) as router:
+        create_route = router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--name", "Renamed Workflow"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    body = json.loads(create_route.calls[0].request.content)
+    assert body["name"] == "Renamed Workflow"
+
+
+def test_workflow_upload_python_file_update_existing_with_name_override(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload allows renaming when updating from Python file."""
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text(
+        """
+from orcheo_sdk import Workflow
+
+workflow = Workflow(name="OldName")
+""",
+        encoding="utf-8",
+    )
+
+    updated = {"id": "wf-1", "name": "Renamed Workflow"}
+    with respx.mock(assert_all_called=True) as router:
+        update_route = router.post("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=updated)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "upload",
+                str(py_file),
+                "--id",
+                "wf-1",
+                "--name",
+                "Renamed Workflow",
+            ],
+            env=env,
+        )
+    assert result.exit_code == 0
+    body = json.loads(update_route.calls[0].request.content)
+    assert body["name"] == "Renamed Workflow"
+
+
+def test_workflow_upload_json_file_create_new(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload creates new workflow from JSON file."""
+    json_file = tmp_path / "workflow.json"
+    json_file.write_text(
+        json.dumps({"name": "TestWorkflow", "graph": {"nodes": [], "edges": []}}),
+        encoding="utf-8",
+    )
+
+    created = {"id": "wf-new", "name": "TestWorkflow"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(json_file)],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "created successfully" in result.stdout
+
+
+def test_workflow_upload_json_file_update_existing(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload updates existing workflow from JSON file."""
+    json_file = tmp_path / "workflow.json"
+    json_file.write_text(
+        json.dumps({"name": "TestWorkflow", "graph": {"nodes": [], "edges": []}}),
+        encoding="utf-8",
+    )
+
+    updated = {"id": "wf-1", "name": "TestWorkflow"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=updated)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(json_file), "--id", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "updated successfully" in result.stdout
+
+
+# Workflow download tests
+def test_workflow_download_json_to_stdout(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download outputs JSON to stdout."""
+    workflow = {"id": "wf-1", "name": "Test", "metadata": {"key": "value"}}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "a"}], "edges": []},
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert '"name": "Test"' in result.stdout
+    assert '"metadata"' in result.stdout
+
+
+def test_workflow_download_json_to_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow download saves JSON to file."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "a"}], "edges": []},
+        }
+    ]
+    output_file = tmp_path / "output.json"
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--output", str(output_file)],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "downloaded to" in result.stdout
+    assert output_file.exists()
+    content = json.loads(output_file.read_text(encoding="utf-8"))
+    assert content["name"] == "Test"
+
+
+def test_workflow_download_python_to_stdout(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download outputs Python code to stdout."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "nodes": [
+                    {"name": "node1", "type": "Agent"},
+                    {"name": "node2", "type": "Agent"},
+                ],
+                "edges": [],
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--format", "python"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "from orcheo_sdk import Workflow" in result.stdout
+    assert "class AgentConfig" in result.stdout
+    assert "class AgentNode" in result.stdout
+
+
+def test_workflow_download_python_to_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow download saves Python code to file."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "nodes": [{"name": "node1", "type": "Code"}],
+                "edges": [],
+            },
+        }
+    ]
+    output_file = tmp_path / "output.py"
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "download",
+                "wf-1",
+                "--format",
+                "python",
+                "-o",
+                str(output_file),
+            ],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "downloaded to" in result.stdout
+    assert output_file.exists()
+    content = output_file.read_text(encoding="utf-8")
+    assert "from orcheo_sdk import Workflow" in content
+
+
+def test_workflow_download_no_versions_error(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download fails when workflow has no versions."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "has no versions" in str(result.exception)
+
+
+def test_workflow_download_unsupported_format_error(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download fails with unsupported format."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [], "edges": []},
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--format", "yaml"],
+            env=env,
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Unsupported format" in str(result.exception)
+
+
+# Python workflow loading tests
+def test_load_workflow_from_python_missing_workflow_variable(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test loading Python file without 'workflow' treats it as LangGraph script."""
+    py_file = tmp_path / "no_workflow.py"
+    py_file.write_text("some_other_var = 123", encoding="utf-8")
+
+    # Now it treats files without 'workflow' as LangGraph scripts
+    # and tries to create a workflow and ingest them
+    created_workflow = {"id": "wf-new", "name": "no-workflow"}
+    # The ingestion will fail because it's not valid LangGraph code
+    with respx.mock() as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-new/versions/ingest").mock(
+            return_value=httpx.Response(
+                400, json={"detail": "Script did not produce a LangGraph StateGraph"}
+            )
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Failed to ingest LangGraph script" in str(result.exception)
+
+
+def test_load_workflow_from_python_wrong_type(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test loading Python file with wrong workflow type fails."""
+    py_file = tmp_path / "wrong_type.py"
+    py_file.write_text("workflow = 'not a Workflow instance'", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(py_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must be an orcheo_sdk.Workflow instance" in str(result.exception)
+
+
+# JSON workflow loading tests
+def test_load_workflow_from_json_not_object(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test loading JSON file that is not an object fails."""
+    json_file = tmp_path / "array.json"
+    json_file.write_text('["not", "an", "object"]', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(json_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must contain a JSON object" in str(result.exception)
+
+
+def test_load_workflow_from_json_missing_name(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test loading JSON file without 'name' field fails."""
+    json_file = tmp_path / "no_name.json"
+    json_file.write_text('{"graph": {}}', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(json_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must include a 'name' field" in str(result.exception)
+
+
+def test_load_workflow_from_json_missing_graph(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test loading JSON file without 'graph' field fails."""
+    json_file = tmp_path / "no_graph.json"
+    json_file.write_text('{"name": "Test"}', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(json_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "must include a 'graph' field" in str(result.exception)
+
+
+# Format workflow tests
+def test_format_workflow_as_json_without_metadata(tmp_path: Path) -> None:
+    """Test formatting workflow as JSON without metadata."""
+    from orcheo_sdk.cli.workflow import _format_workflow_as_json
+
+    workflow = {"id": "wf-1", "name": "Test"}
+    graph = {"nodes": [{"id": "a"}], "edges": []}
+
+    result = _format_workflow_as_json(workflow, graph)
+    data = json.loads(result)
+
+    assert data["name"] == "Test"
+    assert data["graph"] == graph
+    assert "metadata" not in data
+
+
+def test_format_workflow_as_json_with_metadata(tmp_path: Path) -> None:
+    """Test formatting workflow as JSON with metadata."""
+    from orcheo_sdk.cli.workflow import _format_workflow_as_json
+
+    workflow = {"id": "wf-1", "name": "Test", "metadata": {"key": "value"}}
+    graph = {"nodes": [{"id": "a"}], "edges": []}
+
+    result = _format_workflow_as_json(workflow, graph)
+    data = json.loads(result)
+
+    assert data["name"] == "Test"
+    assert data["graph"] == graph
+    assert data["metadata"] == {"key": "value"}
+
+
+def test_format_workflow_as_python_multiple_node_types(tmp_path: Path) -> None:
+    """Test formatting workflow as Python with multiple node types."""
+    from orcheo_sdk.cli.workflow import _format_workflow_as_python
+
+    workflow = {"name": "TestWorkflow"}
+    graph = {
+        "nodes": [
+            {"name": "agent1", "type": "Agent"},
+            {"name": "agent2", "type": "Agent"},
+            {"name": "code1", "type": "Code"},
+        ],
+        "edges": [],
+    }
+
+    result = _format_workflow_as_python(workflow, graph)
+
+    assert 'workflow = Workflow(name="TestWorkflow")' in result
+    assert "class AgentConfig(BaseModel):" in result
+    assert "class AgentNode(WorkflowNode[AgentConfig]):" in result
+    assert "class CodeConfig(BaseModel):" in result
+    assert "class CodeNode(WorkflowNode[CodeConfig]):" in result
+    # Should not duplicate Agent classes
+    assert result.count("class AgentConfig") == 1
+    assert "# TODO: Configure node dependencies" in result
+
+
+def test_format_workflow_as_python_empty_nodes(tmp_path: Path) -> None:
+    """Test formatting workflow as Python with no nodes."""
+    from orcheo_sdk.cli.workflow import _format_workflow_as_python
+
+    workflow = {"name": "EmptyWorkflow"}
+    graph = {"nodes": [], "edges": []}
+
+    result = _format_workflow_as_python(workflow, graph)
+
+    assert 'workflow = Workflow(name="EmptyWorkflow")' in result
+    assert "from orcheo_sdk import Workflow" in result
+
+
+def test_workflow_download_with_cache_notice(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download shows cache notice when using cached data."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "a"}], "edges": []},
+        }
+    ]
+
+    # First call to populate cache
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        first = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],
+            env=env,
+        )
+        assert first.exit_code == 0
+
+    # Second call in offline mode should use cache and show notice
+    result = runner.invoke(
+        app,
+        ["--offline", "workflow", "download", "wf-1"],
+        env=env,
+    )
+    assert result.exit_code == 0
+    assert "Using cached data" in result.stdout
+
+
+def test_workflow_upload_python_spec_loading_failure(
+    runner: CliRunner,
+    env: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test workflow upload handles spec_from_file_location failure."""
+    import importlib.util
+
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text("workflow = None", encoding="utf-8")
+
+    # Mock spec_from_file_location to return None
+    def mock_spec_from_file_location(name: str, location: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        importlib.util, "spec_from_file_location", mock_spec_from_file_location
+    )
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(py_file)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Failed to load Python module" in str(result.exception)
+
+
+def test_workflow_upload_langgraph_script_create_new(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload creates new workflow from LangGraph script."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def greet(state):
+    return {"message": "Hello"}
+
+def build_graph():
+    graph = StateGraph(dict)
+    graph.add_node("greet", greet)
+    graph.set_entry_point("greet")
+    graph.set_finish_point("greet")
+    return graph
+""",
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "langgraph-workflow"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-new/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "Created workflow" in result.stdout
+    assert "Ingested LangGraph script as version 1" in result.stdout
+
+
+def test_workflow_upload_langgraph_script_update_existing(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload adds version to existing workflow from LangGraph."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def greet(state):
+    return {"message": "Hello Updated"}
+
+def build_graph():
+    graph = StateGraph(dict)
+    graph.add_node("greet", greet)
+    graph.set_entry_point("greet")
+    graph.set_finish_point("greet")
+    return graph
+""",
+        encoding="utf-8",
+    )
+
+    existing_workflow = {"id": "wf-1", "name": "existing"}
+    created_version = {"id": "v-2", "version": 2, "workflow_id": "wf-1"}
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=existing_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-1/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--id", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "Ingested LangGraph script as version 2" in result.stdout
+
+
+def test_workflow_upload_langgraph_script_fetch_existing_error(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload fails when fetching existing workflow fails."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def greet(state):
+    return {"message": "Hello"}
+""",
+        encoding="utf-8",
+    )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(404, json={"error": "Not found"})
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--id", "wf-1"],
+            env=env,
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Failed to fetch workflow" in str(result.exception)
+
+
+def test_workflow_upload_langgraph_script_create_workflow_error(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload fails when creating new workflow fails."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def greet(state):
+    return {"message": "Hello"}
+""",
+        encoding="utf-8",
+    )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(500, json={"error": "Internal error"})
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Failed to create workflow" in str(result.exception)
+
+
+def test_workflow_upload_langgraph_script_with_entrypoint(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload with custom entrypoint."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def my_custom_graph():
+    graph = StateGraph(dict)
+    return graph
+""",
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "langgraph-workflow"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        ingest_route = router.post(
+            "http://api.test/api/workflows/wf-new/versions/ingest"
+        ).mock(return_value=httpx.Response(201, json=created_version))
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--entrypoint", "my_custom_graph"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    # Verify the entrypoint was passed in the request
+    request_body = json.loads(ingest_route.calls[0].request.content)
+    assert request_body["entrypoint"] == "my_custom_graph"
+
+
+def test_workflow_upload_langgraph_script_create_new_with_name_override(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test LangGraph upload allows renaming during creation."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+    return graph
+""",
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "custom-workflow"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        create_route = router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-new/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "upload",
+                str(py_file),
+                "--name",
+                "Custom Workflow",
+            ],
+            env=env,
+        )
+    assert result.exit_code == 0
+    body = json.loads(create_route.calls[0].request.content)
+    assert body["name"] == "Custom Workflow"
+    assert body["slug"] == "custom-workflow"
+
+
+def test_workflow_upload_langgraph_script_update_existing_with_name_override(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test LangGraph upload renames existing workflow before ingest."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+    return graph
+""",
+        encoding="utf-8",
+    )
+
+    existing_workflow = {"id": "wf-1", "name": "Old"}
+    created_version = {"id": "v-2", "version": 2, "workflow_id": "wf-1"}
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=existing_workflow)
+        )
+        rename_route = router.post("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(
+                200, json={"id": "wf-1", "name": "Renamed Workflow"}
+            )
+        )
+        ingest_route = router.post(
+            "http://api.test/api/workflows/wf-1/versions/ingest"
+        ).mock(return_value=httpx.Response(201, json=created_version))
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "upload",
+                str(py_file),
+                "--id",
+                "wf-1",
+                "--name",
+                "Renamed Workflow",
+            ],
+            env=env,
+        )
+    assert result.exit_code == 0
+    rename_body = json.loads(rename_route.calls[0].request.content)
+    assert rename_body["name"] == "Renamed Workflow"
+    # Ensure ingest still occurs
+    assert ingest_route.calls
+
+
+def test_workflow_upload_with_blank_name_error(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload rejects empty rename values."""
+    json_file = tmp_path / "workflow.json"
+    json_file.write_text(
+        json.dumps({"name": "Original", "graph": {"nodes": [], "edges": []}}),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(json_file), "--name", "   "],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "cannot be empty" in str(result.exception)
+
+
+def test_strip_main_block_single_quotes(tmp_path: Path) -> None:
+    """Test _strip_main_block removes if __name__ with single quotes."""
+    from orcheo_sdk.cli.workflow import _strip_main_block
+
+    script = """
+def hello():
+    return "world"
+
+if __name__ == '__main__':
+    hello()
+"""
+    result = _strip_main_block(script)
+    assert "if __name__" not in result
+    assert "    hello()" not in result
+    assert "def hello():" in result
+
+
+def test_strip_main_block_double_quotes(tmp_path: Path) -> None:
+    """Test _strip_main_block removes if __name__ with double quotes."""
+    from orcheo_sdk.cli.workflow import _strip_main_block
+
+    script = """
+def hello():
+    return "world"
+
+if __name__ == "__main__":
+    hello()
+"""
+    result = _strip_main_block(script)
+    assert "if __name__" not in result
+    assert "    hello()" not in result
+    assert "def hello():" in result
+
+
+def test_handle_status_update_error() -> None:
+    """Test _handle_status_update with error status."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "error", "error": "Something went wrong"}
+    result = _handle_status_update(state, update)
+    assert result == "error"
+    assert "Something went wrong" in output.getvalue()
+
+
+def test_handle_status_update_error_no_detail() -> None:
+    """Test _handle_status_update with error status but no error detail."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "error"}
+    result = _handle_status_update(state, update)
+    assert result == "error"
+    assert "Unknown error" in output.getvalue()
+
+
+def test_handle_status_update_cancelled() -> None:
+    """Test _handle_status_update with cancelled status."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "cancelled", "reason": "User stopped it"}
+    result = _handle_status_update(state, update)
+    assert result == "cancelled"
+    assert "User stopped it" in output.getvalue()
+
+
+def test_handle_status_update_cancelled_no_reason() -> None:
+    """Test _handle_status_update with cancelled status but no reason."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "cancelled"}
+    result = _handle_status_update(state, update)
+    assert result == "cancelled"
+    assert "No reason provided" in output.getvalue()
+
+
+def test_handle_status_update_completed() -> None:
+    """Test _handle_status_update with completed status."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "completed"}
+    result = _handle_status_update(state, update)
+    assert result == "completed"
+    assert "completed successfully" in output.getvalue()
+
+
+def test_handle_status_update_other_status() -> None:
+    """Test _handle_status_update with other status."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_status_update
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"status": "running"}
+    result = _handle_status_update(state, update)
+    assert result is None
+    assert "running" in output.getvalue()
+
+
+def test_handle_node_event_on_chain_start() -> None:
+    """Test _handle_node_event with on_chain_start event."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"node": "test_node", "event": "on_chain_start"}
+    _handle_node_event(state, update)
+    assert "test_node" in output.getvalue()
+    assert "starting" in output.getvalue()
+
+
+def test_handle_node_event_on_chain_end() -> None:
+    """Test _handle_node_event with on_chain_end event."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {
+        "node": "test_node",
+        "event": "on_chain_end",
+        "payload": {"result": "success"},
+    }
+    _handle_node_event(state, update)
+    assert "test_node" in output.getvalue()
+
+
+def test_handle_node_event_on_chain_error() -> None:
+    """Test _handle_node_event with on_chain_error event."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {
+        "node": "test_node",
+        "event": "on_chain_error",
+        "payload": {"error": "Failed to process"},
+    }
+    _handle_node_event(state, update)
+    assert "test_node" in output.getvalue()
+    assert "Failed to process" in output.getvalue()
+
+
+def test_handle_node_event_on_chain_error_no_payload() -> None:
+    """Test _handle_node_event with on_chain_error event but no payload."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"node": "test_node", "event": "on_chain_error"}
+    _handle_node_event(state, update)
+    assert "test_node" in output.getvalue()
+    assert "Unknown" in output.getvalue()
+
+
+def test_handle_node_event_other_event() -> None:
+    """Test _handle_node_event with other event types."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"node": "test_node", "event": "on_chain_stream", "data": "some data"}
+    _handle_node_event(state, update)
+    assert "test_node" in output.getvalue()
+    assert "on_chain_stream" in output.getvalue()
+
+
+def test_handle_node_event_no_node() -> None:
+    """Test _handle_node_event with no node field."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"event": "on_chain_start"}
+    _handle_node_event(state, update)
+    # Should not print anything
+    assert output.getvalue() == ""
+
+
+def test_handle_node_event_no_event() -> None:
+    """Test _handle_node_event with no event field."""
+    import io
+    from orcheo_sdk.cli.workflow import _handle_node_event
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    update = {"node": "test_node"}
+    _handle_node_event(state, update)
+    # Should not print anything
+    assert output.getvalue() == ""
+
+
+def test_render_node_output_small_dict() -> None:
+    """Test _render_node_output with small dict."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = {"status": "ok", "count": 42, "flag": True}
+    _render_node_output(state, data)
+    output_text = output.getvalue()
+    assert "status" in output_text
+    assert "ok" in output_text
+
+
+def test_render_node_output_large_dict() -> None:
+    """Test _render_node_output with large dict."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = {"a": 1, "b": 2, "c": 3, "d": 4}
+    _render_node_output(state, data)
+    # Should use JSON rendering for dicts with more than 3 keys
+    output_text = output.getvalue()
+    assert output_text  # Should have some output
+
+
+def test_render_node_output_dict_complex_values() -> None:
+    """Test _render_node_output with dict containing complex values."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = {"nested": {"value": 1}, "list": [1, 2, 3]}
+    _render_node_output(state, data)
+    output_text = output.getvalue()
+    assert output_text  # Should have some output
+
+
+def test_render_node_output_short_string() -> None:
+    """Test _render_node_output with short string."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = "Hello world"
+    _render_node_output(state, data)
+    assert "Hello world" in output.getvalue()
+
+
+def test_render_node_output_long_string() -> None:
+    """Test _render_node_output with long string."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = "x" * 150
+    _render_node_output(state, data)
+    output_text = output.getvalue()
+    assert output_text  # Should have some output
+
+
+def test_render_node_output_other_type() -> None:
+    """Test _render_node_output with other data types."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    data = [1, 2, 3, 4, 5]
+    _render_node_output(state, data)
+    output_text = output.getvalue()
+    assert output_text  # Should have some output
+
+
+def test_render_node_output_none() -> None:
+    """Test _render_node_output with None."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    _render_node_output(state, None)
+    # Should not output anything for None
+    assert output.getvalue() == ""
+
+
+def test_render_node_output_empty_dict() -> None:
+    """Test _render_node_output with empty dict."""
+    import io
+    from orcheo_sdk.cli.workflow import _render_node_output
+    from rich.console import Console
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, no_color=True, markup=False)
+    state = SimpleNamespace(console=console)
+
+    _render_node_output(state, {})
+    # Empty dict should not output anything
+    assert output.getvalue() == ""

@@ -4,8 +4,10 @@ from __future__ import annotations
 import secrets
 import sqlite3
 import threading
-from collections.abc import Iterable, MutableMapping, Sequence
+from collections.abc import Iterable, Iterator, MutableMapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
+from queue import Empty, Full, LifoQueue
 from uuid import UUID
 from orcheo.models import (
     AesGcmCredentialCipher,
@@ -38,6 +40,10 @@ class CredentialTemplateNotFoundError(VaultError):
 
 class GovernanceAlertNotFoundError(VaultError):
     """Raised when a governance alert cannot be located."""
+
+
+class DuplicateCredentialNameError(VaultError):
+    """Raised when attempting to create a credential with a duplicate name."""
 
 
 class WorkflowScopeError(VaultError):
@@ -505,6 +511,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
         self._alerts: dict[UUID, SecretGovernanceAlert] = {}
 
     def _persist_metadata(self, metadata: CredentialMetadata) -> None:
+        normalized = metadata.name.casefold()
+        for stored_id, stored in self._store.items():
+            if stored_id == metadata.id:
+                continue
+            if stored.name.casefold() == normalized:
+                msg = f"Credential name '{metadata.name}' is already in use."
+                raise DuplicateCredentialNameError(msg)
         self._store[metadata.id] = metadata.model_copy(deep=True)
 
     def _load_metadata(self, credential_id: UUID) -> CredentialMetadata:
@@ -574,11 +587,13 @@ class FileCredentialVault(BaseCredentialVault):
         super().__init__(cipher=cipher)
         self._path = Path(path).expanduser()
         self._lock = threading.Lock()
+        self._connection_pool: LifoQueue[sqlite3.Connection] = LifoQueue(maxsize=5)
         self._initialize()
 
     def _initialize(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self._path) as conn:
+        conn = self._create_connection()
+        try:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS credentials (
@@ -636,10 +651,58 @@ class FileCredentialVault(BaseCredentialVault):
                 """
             )
             conn.commit()
+        finally:
+            self._release_connection(conn)
+
+    def _create_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(
+            self._path,
+            check_same_thread=False,
+            timeout=30.0,
+        )
+        return conn
+
+    def _release_connection(self, conn: sqlite3.Connection) -> None:
+        if conn.in_transaction:
+            conn.rollback()
+        try:
+            self._connection_pool.put_nowait(conn)
+        except Full:
+            conn.close()
+
+    @contextmanager
+    def _acquire_connection(self) -> Iterator[sqlite3.Connection]:
+        try:
+            conn = self._connection_pool.get_nowait()
+        except Empty:
+            conn = self._create_connection()
+        try:
+            yield conn
+        finally:
+            self._release_connection(conn)
+
+    @contextmanager
+    def _locked_connection(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            with self._acquire_connection() as conn:
+                yield conn
 
     def _persist_metadata(self, metadata: CredentialMetadata) -> None:
         payload = metadata.model_dump_json()
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id
+                  FROM credentials
+                 WHERE lower(name) = lower(?)
+                """,
+                (metadata.name,),
+            )
+            rows = [row[0] for row in cursor.fetchall()]
+            duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
+            if duplicates:
+                msg = f"Credential name '{metadata.name}' is already in use."
+                raise DuplicateCredentialNameError(msg)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO credentials (
@@ -665,7 +728,7 @@ class FileCredentialVault(BaseCredentialVault):
             conn.commit()
 
     def _load_metadata(self, credential_id: UUID) -> CredentialMetadata:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 "SELECT payload FROM credentials WHERE id = ?",
                 (str(credential_id),),
@@ -677,7 +740,7 @@ class FileCredentialVault(BaseCredentialVault):
         return CredentialMetadata.model_validate_json(row[0])
 
     def _iter_metadata(self) -> Iterable[CredentialMetadata]:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT payload
@@ -690,7 +753,7 @@ class FileCredentialVault(BaseCredentialVault):
             yield CredentialMetadata.model_validate_json(row[0])
 
     def _remove_credential(self, credential_id: UUID) -> None:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             deleted = conn.execute(
                 "DELETE FROM credentials WHERE id = ?",
                 (str(credential_id),),
@@ -702,7 +765,7 @@ class FileCredentialVault(BaseCredentialVault):
 
     def _persist_template(self, template: CredentialTemplate) -> None:
         payload = template.model_dump_json()
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO credential_templates (
@@ -728,7 +791,7 @@ class FileCredentialVault(BaseCredentialVault):
             conn.commit()
 
     def _load_template(self, template_id: UUID) -> CredentialTemplate:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 "SELECT payload FROM credential_templates WHERE id = ?",
                 (str(template_id),),
@@ -740,7 +803,7 @@ class FileCredentialVault(BaseCredentialVault):
         return CredentialTemplate.model_validate_json(row[0])
 
     def _iter_templates(self) -> Iterable[CredentialTemplate]:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT payload
@@ -753,7 +816,7 @@ class FileCredentialVault(BaseCredentialVault):
             yield CredentialTemplate.model_validate_json(row[0])
 
     def _remove_template(self, template_id: UUID) -> None:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             deleted = conn.execute(
                 "DELETE FROM credential_templates WHERE id = ?",
                 (str(template_id),),
@@ -765,7 +828,7 @@ class FileCredentialVault(BaseCredentialVault):
 
     def _persist_alert(self, alert: SecretGovernanceAlert) -> None:
         payload = alert.model_dump_json()
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO governance_alerts (
@@ -789,7 +852,7 @@ class FileCredentialVault(BaseCredentialVault):
             conn.commit()
 
     def _load_alert(self, alert_id: UUID) -> SecretGovernanceAlert:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 "SELECT payload FROM governance_alerts WHERE id = ?",
                 (str(alert_id),),
@@ -801,7 +864,7 @@ class FileCredentialVault(BaseCredentialVault):
         return SecretGovernanceAlert.model_validate_json(row[0])
 
     def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT payload
@@ -814,7 +877,7 @@ class FileCredentialVault(BaseCredentialVault):
             yield SecretGovernanceAlert.model_validate_json(row[0])
 
     def _remove_alert(self, alert_id: UUID) -> None:
-        with self._lock, sqlite3.connect(self._path) as conn:
+        with self._locked_connection() as conn:
             conn.execute(
                 "DELETE FROM governance_alerts WHERE id = ?",
                 (str(alert_id),),
@@ -914,6 +977,7 @@ __all__ = [
     "CredentialNotFoundError",
     "CredentialTemplateNotFoundError",
     "GovernanceAlertNotFoundError",
+    "DuplicateCredentialNameError",
     "WorkflowScopeError",
     "RotationPolicyError",
     "BaseCredentialVault",

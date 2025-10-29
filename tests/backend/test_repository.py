@@ -136,6 +136,78 @@ async def test_create_and_list_workflows(repository: WorkflowRepository) -> None
 
 
 @pytest.mark.asyncio()
+async def test_list_workflows_excludes_archived_by_default(
+    repository: WorkflowRepository,
+) -> None:
+    """List workflows excludes archived workflows by default."""
+
+    active = await repository.create_workflow(
+        name="Active Flow",
+        slug=None,
+        description="Active workflow",
+        tags=[],
+        actor="tester",
+    )
+
+    archived_workflow = await repository.create_workflow(
+        name="Archived Flow",
+        slug=None,
+        description="Archived workflow",
+        tags=[],
+        actor="tester",
+    )
+
+    await repository.archive_workflow(archived_workflow.id, actor="tester")
+
+    workflows = await repository.list_workflows()
+    assert len(workflows) == 1
+    assert workflows[0].id == active.id
+    assert not workflows[0].is_archived
+
+
+@pytest.mark.asyncio()
+async def test_list_workflows_includes_archived_when_requested(
+    repository: WorkflowRepository,
+) -> None:
+    """List workflows includes archived workflows when include_archived=True."""
+
+    active = await repository.create_workflow(
+        name="Active Flow",
+        slug=None,
+        description="Active workflow",
+        tags=[],
+        actor="tester",
+    )
+
+    archived_workflow = await repository.create_workflow(
+        name="Archived Flow",
+        slug=None,
+        description="Archived workflow",
+        tags=[],
+        actor="tester",
+    )
+
+    await repository.archive_workflow(archived_workflow.id, actor="tester")
+
+    workflows = await repository.list_workflows(include_archived=True)
+    assert len(workflows) == 2
+
+    active_found = False
+    archived_found = False
+
+    for wf in workflows:
+        if wf.id == active.id:
+            active_found = True
+            assert not wf.is_archived
+        elif wf.id == archived_workflow.id:
+            archived_found = True
+            assert wf.is_archived
+
+    assert active_found
+    assert archived_found
+
+
+@pytest.mark.asyncio()
 async def test_update_and_archive_workflow(
     repository: WorkflowRepository,
 ) -> None:

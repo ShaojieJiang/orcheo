@@ -56,6 +56,7 @@ from orcheo.vault import (
     BaseCredentialVault,
     CredentialNotFoundError,
     CredentialTemplateNotFoundError,
+    DuplicateCredentialNameError,
     FileCredentialVault,
     GovernanceAlertNotFoundError,
     InMemoryCredentialVault,
@@ -247,6 +248,25 @@ def _settings_value(
     return default
 
 
+def _ensure_file_vault_key(path: Path, provided_key: str | None) -> str:
+    """Load the encryption key for a file-backed vault, generating it when missing."""
+    if provided_key:
+        return provided_key
+    key_path = path.with_name(f"{path.stem}.key")
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    if key_path.exists():
+        key = key_path.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+    key = secrets.token_hex(32)
+    key_path.write_text(key, encoding="utf-8")
+    try:
+        os.chmod(key_path, 0o600)
+    except (PermissionError, NotImplementedError, OSError):
+        pass
+    return key
+
+
 def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
     backend = cast(
         str,
@@ -254,7 +274,7 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             settings,
             attr_path="vault.backend",
             env_key="VAULT_BACKEND",
-            default="inmemory",
+            default="file",
         ),
     )
     key = cast(
@@ -266,9 +286,9 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             default=None,
         ),
     )
-    encryption_key = key or secrets.token_hex(32)
-    cipher = AesGcmCredentialCipher(key=encryption_key)
     if backend == "inmemory":
+        encryption_key = key or secrets.token_hex(32)
+        cipher = AesGcmCredentialCipher(key=encryption_key)
         return InMemoryCredentialVault(cipher=cipher)
     if backend == "file":
         local_path = cast(
@@ -281,6 +301,8 @@ def _create_vault(settings: Dynaconf) -> BaseCredentialVault:
             ),
         )
         path = Path(local_path).expanduser()
+        encryption_key = _ensure_file_vault_key(path, key)
+        cipher = AesGcmCredentialCipher(key=encryption_key)
         return FileCredentialVault(path, cipher=cipher)
     msg = "Vault backend 'aws_kms' is not supported in this environment."
     raise ValueError(msg)
@@ -801,9 +823,18 @@ async def trigger_chatkit_workflow(
 @_http_router.get("/workflows", response_model=list[Workflow])
 async def list_workflows(
     repository: RepositoryDep,
+    include_archived: bool = Query(False, description="Include archived workflows"),
 ) -> list[Workflow]:
-    """Return all registered workflows."""
-    return await repository.list_workflows()
+    """Return workflows, excluding archived ones by default.
+
+    Args:
+        repository: Workflow repository dependency
+        include_archived: If True, include archived workflows in the response
+
+    Returns:
+        List of workflows matching the filter criteria
+    """
+    return await repository.list_workflows(include_archived=include_archived)
 
 
 @_http_router.post(
@@ -1049,6 +1080,11 @@ def create_credential(
             scope=scope,
             kind=request.kind,
         )
+    except DuplicateCredentialNameError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

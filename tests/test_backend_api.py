@@ -521,6 +521,26 @@ def test_create_credential(api_client: TestClient) -> None:
     assert any(entry["id"] == payload["id"] for entry in entries)
 
 
+def test_create_credential_duplicate_name_returns_409(
+    api_client: TestClient,
+) -> None:
+    workflow_id = uuid4()
+    payload = {
+        "name": "Canvas API",
+        "provider": "api",
+        "secret": "sk_test_canvas",
+        "actor": "tester",
+        "access": "private",
+        "workflow_id": str(workflow_id),
+    }
+    first = api_client.post("/api/credentials", json=payload)
+    assert first.status_code == 201
+
+    duplicate = api_client.post("/api/credentials", json=payload)
+    assert duplicate.status_code == status.HTTP_409_CONFLICT
+    assert "already in use" in duplicate.json()["detail"]
+
+
 def test_delete_credential(api_client: TestClient) -> None:
     workflow_id = uuid4()
     create_response = api_client.post(
