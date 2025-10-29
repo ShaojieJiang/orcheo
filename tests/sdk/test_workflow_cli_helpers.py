@@ -19,6 +19,8 @@ from orcheo_sdk.cli.workflow import (
     _render_node_output,
     _stream_workflow_run,
     _strip_main_block,
+    _load_inputs_from_path,
+    _validate_local_path,
     _upload_langgraph_script,
     run_workflow,
     upload_workflow,
@@ -612,6 +614,106 @@ def test_upload_workflow_overrides_entrypoint(
 
     assert captured_config is not None
     assert captured_config["entrypoint"] == "custom.entry"
+
+
+def test_upload_workflow_rejects_directory_traversal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state = make_state()
+    outside_file = tmp_path.parent / "outside.py"
+    outside_file.write_text("print('hi')", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+
+    class DummyCtx:
+        def __init__(self, state_obj: CLIState) -> None:
+            self._state = state_obj
+
+        def ensure_object(self, _: Any) -> CLIState:
+            return self._state
+
+    with pytest.raises(CLIError) as excinfo:
+        upload_workflow(DummyCtx(state), "../outside.py")
+
+    assert "escapes the current working directory" in str(excinfo.value)
+
+
+def test_load_inputs_from_path_blocks_traversal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    outside_inputs = tmp_path.parent / "inputs.json"
+    outside_inputs.write_text("{}", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(CLIError) as excinfo:
+        _load_inputs_from_path("../inputs.json")
+
+    assert "escapes the current working directory" in str(excinfo.value)
+
+
+def test_load_inputs_from_path_allows_relative_inside_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    payload_file = tmp_path / "inputs.json"
+    payload_file.write_text('{"value": 1}', encoding="utf-8")
+
+    payload = _load_inputs_from_path("inputs.json")
+
+    assert payload == {"value": 1}
+
+
+def test_validate_local_path_requires_existing_parent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(CLIError) as excinfo:
+        _validate_local_path(
+            "missing-dir/output.json",
+            description="output",
+            must_exist=False,
+            require_file=True,
+        )
+
+    assert "does not exist" in str(excinfo.value)
+
+
+def test_validate_local_path_rejects_non_directory_parent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    parent_file = tmp_path / "parent.txt"
+    parent_file.write_text("content", encoding="utf-8")
+
+    with pytest.raises(CLIError) as excinfo:
+        _validate_local_path(
+            "parent.txt/output.json",
+            description="output",
+            must_exist=False,
+            require_file=True,
+        )
+
+    assert "not a directory" in str(excinfo.value)
+
+
+def test_validate_local_path_rejects_existing_directory_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    existing_dir = tmp_path / "existing"
+    existing_dir.mkdir()
+
+    with pytest.raises(CLIError) as excinfo:
+        _validate_local_path(
+            "existing",
+            description="output",
+            must_exist=False,
+            require_file=True,
+        )
+
+    assert "not a file" in str(excinfo.value)
 
 
 def test_strip_main_block_stops_on_double_quote() -> None:

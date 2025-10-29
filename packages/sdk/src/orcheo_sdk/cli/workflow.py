@@ -686,11 +686,7 @@ def upload_workflow(
 
     requested_name = _normalize_workflow_name(workflow_name)
 
-    path_obj = Path(file_path).expanduser()
-    if not path_obj.exists():
-        raise CLIError(f"File '{file_path}' does not exist.")
-    if not path_obj.is_file():
-        raise CLIError(f"Path '{file_path}' is not a file.")
+    path_obj = _validate_local_path(file_path, description="workflow")
 
     file_extension = path_obj.suffix.lower()
     if file_extension == ".py":
@@ -775,7 +771,12 @@ def download_workflow(
 
     # Write to file or stdout
     if output_path:
-        output_file = Path(output_path).expanduser()
+        output_file = _validate_local_path(
+            output_path,
+            description="output",
+            must_exist=False,
+            require_file=True,
+        )
         output_file.write_text(output_content, encoding="utf-8")
         state.console.print(f"[green]Workflow downloaded to '{output_path}'.[/green]")
     else:
@@ -793,12 +794,51 @@ def _load_inputs_from_string(value: str) -> Mapping[str, Any]:
     return payload
 
 
-def _load_inputs_from_path(path: str) -> Mapping[str, Any]:
+def _validate_local_path(
+    path: str | Path,
+    *,
+    description: str,
+    must_exist: bool = True,
+    require_file: bool = True,
+) -> Path:
+    """Resolve a user-supplied path and guard against traversal attempts."""
     path_obj = Path(path).expanduser()
-    if not path_obj.exists():
-        raise CLIError(f"Inputs file '{path}' does not exist.")
-    if not path_obj.is_file():
-        raise CLIError(f"Inputs path '{path}' is not a file.")
+    try:
+        resolved = path_obj.resolve(strict=False)
+    except RuntimeError as exc:  # pragma: no cover - defensive guard
+        raise CLIError(f"Failed to resolve {description} path '{path}': {exc}") from exc
+
+    if not path_obj.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            resolved.relative_to(cwd)
+        except ValueError as exc:
+            message = (
+                f"{description.capitalize()} path '{path}' "
+                "escapes the current working directory."
+            )
+            raise CLIError(message) from exc
+
+    if must_exist and not resolved.exists():
+        raise CLIError(f"{description.capitalize()} file '{path}' does not exist.")
+    if must_exist and require_file and resolved.exists() and not resolved.is_file():
+        raise CLIError(f"{description.capitalize()} path '{path}' is not a file.")
+    if not must_exist:
+        parent = resolved.parent
+        if not parent.exists():
+            raise CLIError(
+                f"Directory '{parent}' for {description} path '{path}' does not exist."
+            )
+        if not parent.is_dir():
+            raise CLIError(f"Parent of {description} path '{path}' is not a directory.")
+        if require_file and resolved.exists() and not resolved.is_file():
+            raise CLIError(f"{description.capitalize()} path '{path}' is not a file.")
+
+    return resolved
+
+
+def _load_inputs_from_path(path: str) -> Mapping[str, Any]:
+    path_obj = _validate_local_path(path, description="inputs")
     data = json.loads(path_obj.read_text(encoding="utf-8"))
     if not isinstance(data, Mapping):
         raise CLIError("Inputs payload must be a JSON object.")
