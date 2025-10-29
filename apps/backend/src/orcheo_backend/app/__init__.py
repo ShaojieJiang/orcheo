@@ -8,6 +8,8 @@ import os
 import secrets
 import uuid
 from collections.abc import Mapping
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
@@ -76,6 +78,7 @@ from orcheo_backend.app.chatkit_service import (
     OrcheoChatKitServer,
     create_chatkit_server,
 )
+from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -159,6 +162,85 @@ _sensitive_env_enabled = (_current_env or "").lower() in _DEV_LOGGING_ENV_VALUES
 _should_log_sensitive_debug = (
     _sensitive_env_enabled or os.getenv("LOG_SENSITIVE_DEBUG") == "1"
 )
+
+_CHATKIT_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+_chatkit_cleanup_task: dict[str, asyncio.Task | None] = {"task": None}
+
+
+def _coerce_int(value: object, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if value is None:
+        return default
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return default
+
+
+def _chatkit_retention_days() -> int:
+    settings = get_settings()
+    days = _coerce_int(settings.get("CHATKIT_RETENTION_DAYS", 30), 30)
+    return days if days > 0 else 30
+
+
+def _get_chatkit_store() -> SqliteChatKitStore | None:
+    server = _chatkit_server_ref.get("server")
+    if server is None:
+        return None
+    store = getattr(server, "store", None)
+    if isinstance(store, SqliteChatKitStore):
+        return store
+    return None
+
+
+async def _ensure_chatkit_cleanup_task() -> None:
+    if _chatkit_cleanup_task["task"] is not None:
+        return
+
+    store = _get_chatkit_store()
+    if store is None:
+        return
+
+    retention_days = _chatkit_retention_days()
+    interval_seconds = max(_CHATKIT_CLEANUP_INTERVAL_SECONDS, 300)
+
+    async def _cleanup_loop() -> None:
+        try:
+            while True:
+                cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
+                try:
+                    pruned = await store.prune_threads_older_than(cutoff)
+                    if pruned:
+                        logger.info(
+                            "Pruned %s ChatKit thread(s) older than %s",
+                            pruned,
+                            cutoff.isoformat(),
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # pragma: no cover - best effort logging
+                    logger.exception("ChatKit cleanup task failed")
+
+                await asyncio.sleep(interval_seconds)
+        finally:
+            _chatkit_cleanup_task["task"] = None
+
+    _chatkit_cleanup_task["task"] = asyncio.create_task(
+        _cleanup_loop(),
+        name="chatkit_cleanup",
+    )
+
+
+async def _cancel_chatkit_cleanup_task() -> None:
+    task = _chatkit_cleanup_task.get("task")
+    if task is None:
+        return
+
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    _chatkit_cleanup_task["task"] = None
 
 
 def _log_sensitive_debug(message: str, *args: Any) -> None:
@@ -1861,6 +1943,18 @@ def create_app(
             application.dependency_overrides[get_credential_service] = (
                 lambda: inferred_service
             )
+
+    @application.on_event("startup")
+    async def _start_chatkit_background_tasks() -> None:
+        try:
+            get_chatkit_server()
+        except HTTPException:
+            return
+        await _ensure_chatkit_cleanup_task()
+
+    @application.on_event("shutdown")
+    async def _stop_chatkit_background_tasks() -> None:
+        await _cancel_chatkit_cleanup_task()
 
     application.include_router(_http_router)
     application.include_router(_ws_router)

@@ -73,7 +73,6 @@ class StaticProvider(OAuthProvider):
 @pytest.fixture()
 def api_client() -> Iterator[TestClient]:
     """Yield a configured API client backed by a fresh repository."""
-
     cipher = AesGcmCredentialCipher(key="api-client-key")
     vault = InMemoryCredentialVault(cipher=cipher)
     service = OAuthCredentialService(vault, token_ttl_seconds=600, providers={})

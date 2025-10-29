@@ -95,7 +95,7 @@ This document proposes the design for integrating OpenAI ChatKit into Orcheo so 
 - LangGraph script tests verifying deterministic responses for sample inputs.
 
 ## Rollout Plan
-1. Implement backend endpoint and persistence (feature flag via environment variable `ENABLE_CHATKIT_DEMO`).
+1. Implement backend endpoint and persistence enabled by default.
 2. Add LangGraph demo script and register workflow in local Orcheo instance.
 3. Update example HTML and provide README snippet on how to run the demo.
 4. Conduct end-to-end manual test: start FastAPI, open HTML file, run sample conversation.

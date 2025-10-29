@@ -214,12 +214,31 @@
         const presetWorkflowName = window.ORCHEO_WORKFLOW_NAME || null;
         const domainKey =
           window.ORCHEO_CHATKIT_DOMAIN_KEY || "domain_pk_localhost_dev";
+        const WORKFLOW_STORAGE_KEY = "orcheo.chatkit.workflow";
+
+        function loadStoredWorkflow() {
+          try {
+            const stored = window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY);
+            if (!stored) {
+              return null;
+            }
+            const parsed = JSON.parse(stored);
+            if (parsed && parsed.id && parsed.name) {
+              return { id: parsed.id, name: parsed.name };
+            }
+          } catch (error) {
+            console.warn("Unable to load stored workflow selection", error);
+          }
+          return null;
+        }
+
+        const storedWorkflow = loadStoredWorkflow();
 
         const state = {
           backendBase: sanitizeBaseUrl(defaultBackend),
           workflow: presetWorkflowId
             ? { id: presetWorkflowId, name: presetWorkflowName || presetWorkflowId }
-            : null,
+            : storedWorkflow,
         };
 
         let cachedWorkflows = [];
@@ -235,12 +254,52 @@
           statusElement.dataset.tone = tone;
         }
 
+        function persistWorkflow(workflow) {
+          try {
+            if (workflow) {
+              window.sessionStorage.setItem(
+                WORKFLOW_STORAGE_KEY,
+                JSON.stringify(workflow),
+              );
+            } else {
+              window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
+            }
+          } catch (error) {
+            console.warn("Unable to persist workflow selection", error);
+          }
+        }
+
+        function syncComposerDisabled() {
+          if (!chatkit || typeof chatkit !== "object") {
+            return;
+          }
+          const root = chatkit.shadowRoot;
+          if (!root) {
+            return;
+          }
+          const sendButton =
+            root.querySelector('[data-testid="composer-send-button"]') ||
+            root.querySelector('button[type="submit"]');
+          if (!sendButton) {
+            return;
+          }
+          const disabled = !state.workflow;
+          sendButton.disabled = disabled;
+          if (disabled) {
+            sendButton.title = "Select a workflow to enable messaging.";
+          } else {
+            sendButton.removeAttribute("title");
+          }
+        }
+
         function updateSelectionLabel() {
+          persistWorkflow(state.workflow);
           if (state.workflow) {
             selectionElement.textContent = `${state.workflow.name} (${state.workflow.id})`;
           } else {
             selectionElement.textContent = "None selected";
           }
+          syncComposerDisabled();
         }
 
         function buildMetadataAwareFetch(workflow, backendBase) {
@@ -284,6 +343,7 @@
         function applyChatKitOptions() {
           if (!state.workflow) {
             setStatus("Select a workflow to enable the ChatKit widget.", "warn");
+            syncComposerDisabled();
             return;
           }
 
@@ -314,6 +374,7 @@
           }
 
           setStatus(`ChatKit configured for workflow “${workflowName}”.`, "success");
+          syncComposerDisabled();
         }
 
         async function loadWorkflows() {
@@ -399,6 +460,12 @@
           }
         });
 
+        const composerWatcher = window.setInterval(syncComposerDisabled, 800);
+        window.addEventListener("beforeunload", () => {
+          window.clearInterval(composerWatcher);
+        });
+
+        syncComposerDisabled();
         updateSelectionLabel();
         applyChatKitOptions();
         loadWorkflows();

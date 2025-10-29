@@ -107,6 +107,26 @@ def build_graph() -> StateGraph:
     return graph
 
 
+def run_chatkit_demo(
+    message: str, context: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Execute the demo graph and return a ChatKit-ready payload."""
+    payload: State = {"message": message}
+    if context:
+        payload["metadata"] = dict(context)
+
+    compiled = build_graph().compile()
+    outcome = compiled.invoke(payload)
+    reply_value = outcome.get("reply", "")
+    reply = str(reply_value) if reply_value is not None else ""
+
+    return {
+        "reply": reply,
+        "intent": outcome.get("intent"),
+        "state": outcome,
+    }
+
+
 if __name__ == "__main__":
     compiled = build_graph().compile()
     payload = {"message": "Hello! Can you help me run the pipeline?"}

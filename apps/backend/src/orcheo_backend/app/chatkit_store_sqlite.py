@@ -445,6 +445,62 @@ class SqliteChatKitStore(Store[ChatKitRequestContext]):
                 )
                 await conn.commit()
 
+    async def prune_threads_older_than(self, cutoff: datetime) -> int:
+        """Delete threads and attachments not updated since ``cutoff``."""
+        await self._ensure_initialized()
+        cutoff_iso = _to_iso(cutoff)
+        async with self._lock:
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT id FROM chat_threads WHERE updated_at < ?",
+                    (cutoff_iso,),
+                )
+                rows = await cursor.fetchall()
+                thread_ids = [row["id"] for row in rows]
+
+                if not thread_ids:
+                    return 0
+
+                attachment_paths: list[str] = []
+                for thread_id in thread_ids:
+                    cursor = await conn.execute(
+                        """
+                        SELECT storage_path
+                          FROM chat_attachments
+                         WHERE thread_id = ? AND storage_path IS NOT NULL
+                        """,
+                        (thread_id,),
+                    )
+                    attachment_paths.extend(
+                        row["storage_path"]
+                        for row in await cursor.fetchall()
+                        if row["storage_path"]
+                    )
+
+                for thread_id in thread_ids:
+                    await conn.execute(
+                        "DELETE FROM chat_attachments WHERE thread_id = ?",
+                        (thread_id,),
+                    )
+                    await conn.execute(
+                        "DELETE FROM chat_threads WHERE id = ?",
+                        (thread_id,),
+                    )
+
+                await conn.commit()
+
+        for path_str in attachment_paths:
+            try:
+                Path(path_str).unlink(missing_ok=True)
+            except Exception:  # pragma: no cover - best effort cleanup
+                logger.warning(
+                    "Failed to delete ChatKit attachment file",
+                    extra={"storage_path": path_str},
+                    exc_info=True,
+                )
+
+        return len(thread_ids)
+
     @asynccontextmanager
     async def _connection(self) -> AsyncIterator[aiosqlite.Connection]:
         conn = await aiosqlite.connect(self._database_path)
