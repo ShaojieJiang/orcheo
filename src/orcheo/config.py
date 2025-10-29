@@ -16,6 +16,7 @@ _DEFAULTS: dict[str, object] = {
     "SQLITE_PATH": "checkpoints.sqlite",
     "REPOSITORY_BACKEND": "sqlite",
     "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
+    "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
     "POSTGRES_DSN": None,
     "HOST": "0.0.0.0",
     "PORT": 8000,
@@ -130,6 +131,9 @@ class AppSettings(BaseModel):
     repository_sqlite_path: str = Field(
         default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
     )
+    chatkit_sqlite_path: str = Field(
+        default=cast(str, _DEFAULTS["CHATKIT_SQLITE_PATH"])
+    )
     postgres_dsn: str | None = None
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
@@ -171,6 +175,11 @@ class AppSettings(BaseModel):
     def _coerce_repo_sqlite_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
+    @field_validator("chatkit_sqlite_path", mode="before")
+    @classmethod
+    def _coerce_chatkit_sqlite_path(cls, value: object) -> str:
+        return str(value) if value is not None else ""
+
     @field_validator("port", mode="before")
     @classmethod
     def _parse_port(cls, value: object) -> int:
@@ -199,6 +208,9 @@ class AppSettings(BaseModel):
         self.repository_sqlite_path = self.repository_sqlite_path or cast(
             str, _DEFAULTS["REPOSITORY_SQLITE_PATH"]
         )
+        self.chatkit_sqlite_path = self.chatkit_sqlite_path or cast(
+            str, _DEFAULTS["CHATKIT_SQLITE_PATH"]
+        )
         self.host = self.host or cast(str, _DEFAULTS["HOST"])
         return self
 
@@ -224,6 +236,9 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             ),
             repository_sqlite_path=source.get(
                 "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
+            ),
+            chatkit_sqlite_path=source.get(
+                "CHATKIT_SQLITE_PATH", _DEFAULTS["CHATKIT_SQLITE_PATH"]
             ),
             postgres_dsn=source.get("POSTGRES_DSN"),
             host=source.get("HOST", _DEFAULTS["HOST"]),
@@ -254,6 +269,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("SQLITE_PATH", settings.sqlite_path)
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
+    normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
     normalized.set("HOST", settings.host)
     normalized.set("PORT", settings.port)

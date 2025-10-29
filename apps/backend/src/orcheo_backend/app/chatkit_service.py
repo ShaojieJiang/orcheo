@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
@@ -32,9 +33,12 @@ from orcheo.models import CredentialAccessContext
 from orcheo.persistence import create_checkpointer
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.vault import BaseCredentialVault
+from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
     WorkflowRepository,
     WorkflowRun,
+    WorkflowVersionNotFoundError,
 )
 
 
@@ -525,31 +529,41 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         context: ChatKitRequestContext,
     ) -> AsyncIterator[ThreadStreamEvent]:
         """Execute the workflow and yield assistant events."""
-        # workflow_id = self._require_workflow_id(thread)
-        # user_item = await self._resolve_user_item(thread, item, context)
-        # message_text = _collect_text_from_user_content(user_item.content)
-        # history = await self._history(thread, context)
-        # inputs = self._build_inputs_payload(thread, message_text, history)
+        workflow_id = self._require_workflow_id(thread)
+        user_item = await self._resolve_user_item(thread, item, context)
+        message_text = _collect_text_from_user_content(user_item.content)
+        history = await self._history(thread, context)
+        inputs = self._build_inputs_payload(thread, message_text, history)
 
-        # try:
-        #     reply, _state, run = await self._run_workflow(workflow_id, inputs)
-        # except WorkflowNotFoundError as exc:
-        #     raise CustomStreamError(str(exc), allow_retry=False) from exc
-        # except WorkflowVersionNotFoundError as exc:
-        #     raise CustomStreamError(str(exc), allow_retry=False) from exc
+        try:
+            reply, _state, run = await self._run_workflow(workflow_id, inputs)
+        except WorkflowNotFoundError as exc:
+            raise CustomStreamError(str(exc), allow_retry=False) from exc
+        except WorkflowVersionNotFoundError as exc:
+            raise CustomStreamError(str(exc), allow_retry=False) from exc
 
-        # self._record_run_metadata(thread, run)
-        reply = "Hello, world!"
+        self._record_run_metadata(thread, run)
         assistant_item = self._build_assistant_item(thread, reply, context)
+        await self.store.add_thread_item(thread.id, assistant_item, context)
+        await self.store.save_thread(thread, context)
         yield ThreadItemDoneEvent(item=assistant_item)
 
 
 def create_chatkit_server(
     repository: WorkflowRepository,
     vault_provider: Callable[[], BaseCredentialVault],
+    *,
+    store: Store[ChatKitRequestContext] | None = None,
 ) -> OrcheoChatKitServer:
     """Factory returning an Orcheo-configured ChatKit server."""
-    store = InMemoryChatKitStore()
+    if store is None:
+        settings = get_settings()
+        candidate = settings.get(
+            "CHATKIT_SQLITE_PATH",
+            getattr(settings, "chatkit_sqlite_path", "~/.orcheo/chatkit.sqlite"),
+        )
+        sqlite_path = Path(str(candidate or "~/.orcheo/chatkit.sqlite")).expanduser()
+        store = SqliteChatKitStore(sqlite_path)
     return OrcheoChatKitServer(
         store=store,
         repository=repository,

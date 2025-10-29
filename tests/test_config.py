@@ -33,6 +33,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.checkpoint_backend == "sqlite"
     assert settings.sqlite_path == "checkpoints.sqlite"
+    assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
     assert settings.vault_backend == "file"

@@ -19,6 +19,7 @@ from orcheo.vault import InMemoryCredentialVault
 from orcheo_backend.app import app
 from orcheo_backend.app.chatkit_service import (
     ChatKitRequestContext,
+    InMemoryChatKitStore,
     create_chatkit_server,
 )
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
@@ -69,7 +70,11 @@ async def test_chatkit_server_emits_assistant_reply() -> None:
         created_by="tester",
     )
 
-    server = create_chatkit_server(repository, InMemoryCredentialVault)
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
     server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
         return_value=("Echo: Ping", {}, None)
     )
@@ -106,7 +111,11 @@ async def test_chatkit_server_emits_assistant_reply() -> None:
 async def test_chatkit_server_requires_workflow_metadata() -> None:
     """Missing workflow metadata surfaces a descriptive error."""
     repository = InMemoryWorkflowRepository()
-    server = create_chatkit_server(repository, InMemoryCredentialVault)
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
     thread = ThreadMetadata(id="thr_missing", created_at=datetime.now(UTC), metadata={})
     context: ChatKitRequestContext = {}
 
