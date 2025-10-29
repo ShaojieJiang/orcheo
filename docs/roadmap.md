@@ -51,6 +51,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Execute the [frontend experience plan](./frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the canvas rebuild.
 
 ### Milestone 5 – Node Ecosystem & Integrations
+- [ ] Ship the ChatKit integration per [ChatKit Integration Design](./chatkit_integration_design.md), wiring the demo frontend, backend endpoint, LangGraph stub, and SQLite persistence.
 - [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
 - [x] Build basic nodes and utilities (If/Else, Switch, While, Set Variable, Delay, Sticky Note) with tests, docs, and templates.
 - [x] Add single-node execution API endpoint and frontend integration for testing individual nodes in isolation (includes backend endpoint, frontend API client, and Node Inspector UI integration).
