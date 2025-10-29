@@ -157,6 +157,8 @@ async def _stream_workflow_run(
     workflow_id: str,
     graph_config: dict[str, Any],
     inputs: Mapping[str, Any],
+    *,
+    triggered_by: str | None = None,
 ) -> str:
     """Stream workflow execution via WebSocket and display node outputs."""
     import json
@@ -170,12 +172,14 @@ async def _stream_workflow_run(
     )
     websocket_url = f"{ws_base}/ws/workflow/{workflow_id}"
     execution_id = str(uuid.uuid4())
-    payload = {
+    payload: dict[str, Any] = {
         "type": "run_workflow",
         "graph_config": graph_config,
         "inputs": dict(inputs),
         "execution_id": execution_id,
     }
+    if triggered_by is not None:
+        payload["triggered_by"] = triggered_by
 
     state.console.print("[cyan]Starting workflow execution...[/cyan]")
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
@@ -594,6 +598,7 @@ def run_workflow(
                 workflow_id,
                 graph_config,
                 payload_inputs,
+                triggered_by=triggered_by,
             )
         )
         if final_status in {"error", "cancelled", "connection_error", "timeout"}:

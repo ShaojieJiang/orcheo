@@ -201,12 +201,14 @@ async def test_stream_workflow_run_succeeds(
         "wf-1",
         {"nodes": []},
         {"input": "value"},
+        triggered_by="cli-actor",
     )
     assert result == "completed"
     assert connection.sent, "payload was not sent"
     payload = json.loads(connection.sent[0])
     assert payload["type"] == "run_workflow"
     assert payload["inputs"] == {"input": "value"}
+    assert payload["triggered_by"] == "cli-actor"
 
 
 @pytest.mark.asyncio()
@@ -220,7 +222,13 @@ async def test_stream_workflow_run_handles_connection_error(
 
     fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
 
-    result = await _stream_workflow_run(state, "wf-1", {"cfg": True}, {})
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        triggered_by=None,
+    )
     assert result == "connection_error"
     assert any("Failed to connect" in msg for msg in state.console.messages)
 
@@ -243,7 +251,13 @@ async def test_stream_workflow_run_handles_timeout(
 
     fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
 
-    result = await _stream_workflow_run(state, "wf-1", {"cfg": True}, {})
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        triggered_by=None,
+    )
     assert result == "timeout"
     assert any("Timed out" in msg for msg in state.console.messages)
 
@@ -264,7 +278,13 @@ async def test_stream_workflow_run_handles_invalid_status(
 
     fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
 
-    result = await _stream_workflow_run(state, "wf-1", {"cfg": True}, {})
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        triggered_by=None,
+    )
     assert result == "http_403"
     assert any("Server rejected connection" in msg for msg in state.console.messages)
 
@@ -285,7 +305,13 @@ async def test_stream_workflow_run_handles_websocket_exception(
 
     fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
 
-    result = await _stream_workflow_run(state, "wf-1", {"cfg": True}, {})
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        triggered_by=None,
+    )
     assert result == "websocket_error"
     assert any("WebSocket error" in msg for msg in state.console.messages)
 
@@ -469,11 +495,13 @@ def test_run_workflow_raises_on_failed_stream(monkeypatch: pytest.MonkeyPatch) -
         workflow_id: str,
         graph_config: dict[str, Any],
         inputs: Any,
+        triggered_by: str | None = None,
     ) -> str:
         assert state_arg is state
         assert workflow_id == "wf-1"
         assert graph_config == {"nodes": []}
         assert inputs == {}
+        assert triggered_by == "cli"
         return "error"
 
     monkeypatch.setattr("orcheo_sdk.cli.workflow._stream_workflow_run", fake_stream)
@@ -504,11 +532,13 @@ def test_run_workflow_allows_successful_stream(monkeypatch: pytest.MonkeyPatch) 
         workflow_id: str,
         graph_config: dict[str, Any],
         inputs: Any,
+        triggered_by: str | None = None,
     ) -> str:
         assert state_arg is state
         assert workflow_id == "wf-1"
         assert graph_config == {"nodes": []}
         assert inputs == {}
+        assert triggered_by == "cli"
         return "completed"
 
     monkeypatch.setattr("orcheo_sdk.cli.workflow._stream_workflow_run", fake_stream)
