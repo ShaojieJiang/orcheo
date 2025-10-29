@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from chatkit.errors import CustomStreamError
 from chatkit.types import (
+    AssistantMessageContent,
     AssistantMessageItem,
     InferenceOptions,
     ThreadItemDoneEvent,
@@ -143,3 +144,556 @@ def test_chatkit_endpoint_rejects_invalid_payload() -> None:
     assert response.status_code == 400
     payload = response.json()
     assert payload["detail"]["message"].startswith("Invalid ChatKit payload")
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_threads_pagination() -> None:
+    """InMemoryChatKitStore supports paginated thread listing."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    threads = [
+        ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, i + 1, tzinfo=UTC),
+            metadata={"index": i},
+        )
+        for i in range(5)
+    ]
+    for thread in threads:
+        await store.save_thread(thread, context)
+
+    page1 = await store.load_threads(limit=2, after=None, order="asc", context=context)
+    assert len(page1.data) == 2
+    assert page1.has_more is True
+    assert page1.data[0].id == "thr_0"
+
+    page2 = await store.load_threads(
+        limit=2, after=page1.data[-1].id, order="asc", context=context
+    )
+    assert len(page2.data) == 2
+    assert page2.data[0].id == "thr_2"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_threads_descending() -> None:
+    """InMemoryChatKitStore can list threads in descending order."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    for i in range(3):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, i + 1, tzinfo=UTC),
+        )
+        await store.save_thread(thread, context)
+
+    page = await store.load_threads(limit=10, after=None, order="desc", context=context)
+    assert page.data[0].id == "thr_2"
+    assert page.data[-1].id == "thr_0"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_thread_items_pagination() -> None:
+    """InMemoryChatKitStore supports paginated item listing."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_items"
+
+    items = [
+        UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        for i in range(4)
+    ]
+    for item in items:
+        await store.add_thread_item(thread_id, item, context)
+
+    page1 = await store.load_thread_items(
+        thread_id, after=None, limit=2, order="asc", context=context
+    )
+    assert len(page1.data) == 2
+    assert page1.has_more is True
+
+    page2 = await store.load_thread_items(
+        thread_id, after=page1.data[-1].id, limit=2, order="asc", context=context
+    )
+    assert len(page2.data) == 2
+    assert page2.has_more is False
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_save_item() -> None:
+    """InMemoryChatKitStore can insert or update items."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_save"
+
+    item = UserMessageItem(
+        id="msg_1",
+        thread_id=thread_id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Original")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.save_item(thread_id, item, context)
+
+    loaded = await store.load_item(thread_id, "msg_1", context)
+    assert loaded.content[0].text == "Original"
+
+    updated_item = UserMessageItem(
+        id="msg_1",
+        thread_id=thread_id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Updated")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.save_item(thread_id, updated_item, context)
+
+    loaded_updated = await store.load_item(thread_id, "msg_1", context)
+    assert loaded_updated.content[0].text == "Updated"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_item_not_found() -> None:
+    """InMemoryChatKitStore raises NotFoundError for missing items."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    from chatkit.store import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await store.load_item("thr_missing", "msg_missing", context)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_delete_thread_item() -> None:
+    """InMemoryChatKitStore can delete individual items."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_delete"
+
+    item = UserMessageItem(
+        id="msg_delete",
+        thread_id=thread_id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Delete me")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.add_thread_item(thread_id, item, context)
+
+    await store.delete_thread_item(thread_id, "msg_delete", context)
+
+    page = await store.load_thread_items(
+        thread_id, after=None, limit=10, order="asc", context=context
+    )
+    assert len(page.data) == 0
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_delete_thread() -> None:
+    """InMemoryChatKitStore can delete entire threads."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    thread = ThreadMetadata(id="thr_delete", created_at=datetime.now(UTC))
+    await store.save_thread(thread, context)
+
+    await store.delete_thread("thr_delete", context)
+
+    from chatkit.store import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await store.load_thread("thr_delete", context)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_attachment_methods_not_implemented() -> None:
+    """InMemoryChatKitStore raises NotImplementedError for attachments."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    from chatkit.types import FileAttachment
+
+    attachment = FileAttachment(id="atc_1", name="test.txt", mime_type="text/plain")
+
+    with pytest.raises(NotImplementedError):
+        await store.save_attachment(attachment, context)
+
+    with pytest.raises(NotImplementedError):
+        await store.load_attachment("atc_1", context)
+
+    with pytest.raises(NotImplementedError):
+        await store.delete_attachment("atc_1", context)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_merge_metadata_from_context() -> None:
+    """InMemoryChatKitStore merges metadata from request context."""
+    store = InMemoryChatKitStore()
+
+    class FakeRequest:
+        metadata = {"workflow_id": "wf_123", "extra": "data"}
+
+    context: ChatKitRequestContext = {"chatkit_request": FakeRequest()}  # type: ignore[typeddict-item]
+
+    thread = ThreadMetadata(
+        id="thr_merge",
+        created_at=datetime.now(UTC),
+        metadata={"existing": "value"},
+    )
+    await store.save_thread(thread, context)
+
+    assert thread.metadata["workflow_id"] == "wf_123"
+    assert thread.metadata["existing"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_invalid_workflow_id() -> None:
+    """Server raises CustomStreamError for invalid workflow_id format."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    thread = ThreadMetadata(
+        id="thr_bad",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "not-a-uuid"},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_bad",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    with pytest.raises(CustomStreamError, match="invalid"):
+        _ = [event async for event in server.respond(thread, user_item, context)]
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_resolve_user_item_from_history() -> None:
+    """Server can resolve the most recent user item when none is provided."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_build_script_graph(),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+    server._run_workflow = AsyncMock(return_value=("Reply", {}, None))  # type: ignore[attr-defined]
+
+    thread = ThreadMetadata(
+        id="thr_resolve",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_resolve",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    events = [event async for event in server.respond(thread, None, context)]
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_resolve_user_item_not_found() -> None:
+    """Server raises error when no user item can be found."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    thread = ThreadMetadata(
+        id="thr_no_user",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    with pytest.raises(CustomStreamError, match="Unable to locate"):
+        _ = [event async for event in server.respond(thread, None, context)]
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_records_run_metadata() -> None:
+    """Server updates thread metadata with run information."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_build_script_graph(),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=(
+            "Reply",
+            {},
+            await repository.create_run(
+                workflow.id,
+                workflow_version_id=(
+                    await repository.get_latest_version(workflow.id)
+                ).id,
+                triggered_by="test",
+                input_payload={},
+            ),
+        )
+    )
+
+    thread = ThreadMetadata(
+        id="thr_meta",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_meta",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Test")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    loaded = await server.store.load_thread(thread.id, context)
+    assert "last_run_at" in loaded.metadata
+    assert "last_run_id" in loaded.metadata
+    assert "runs" in loaded.metadata
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_workflow_not_found() -> None:
+    """Server raises CustomStreamError when workflow doesn't exist."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    from uuid import uuid4
+
+    fake_workflow_id = uuid4()
+    thread = ThreadMetadata(
+        id="thr_notfound",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(fake_workflow_id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_notfound",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    with pytest.raises(CustomStreamError):
+        _ = [event async for event in server.respond(thread, user_item, context)]
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_workflow_version_not_found() -> None:
+    """Server raises CustomStreamError when workflow version doesn't exist."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    thread = ThreadMetadata(
+        id="thr_noversion",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_noversion",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    with pytest.raises(CustomStreamError):
+        _ = [event async for event in server.respond(thread, user_item, context)]
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_builds_history() -> None:
+    """Server includes conversation history in workflow inputs."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_build_script_graph(),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    captured_inputs = {}
+
+    async def mock_run(wf_id, inputs, actor="chatkit"):
+        captured_inputs.update(inputs)
+        return ("Reply", {}, None)
+
+    server._run_workflow = AsyncMock(side_effect=mock_run)  # type: ignore[attr-defined]
+
+    thread = ThreadMetadata(
+        id="thr_history",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item1 = UserMessageItem(
+        id="msg_1",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="First message")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item1, context)
+
+    assistant_item = AssistantMessageItem(
+        id="msg_2",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[AssistantMessageContent(text="First response")],
+    )
+    await server.store.add_thread_item(thread.id, assistant_item, context)
+
+    user_item2 = UserMessageItem(
+        id="msg_3",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Second message")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item2, context)
+
+    _ = [event async for event in server.respond(thread, user_item2, context)]
+
+    assert "history" in captured_inputs
+    history = captured_inputs["history"]
+    assert len(history) == 3
+    assert history[0]["role"] == "user"
+    assert history[0]["content"] == "First message"
+    assert history[1]["role"] == "assistant"
+    assert history[1]["content"] == "First response"
+    assert history[2]["role"] == "user"
+    assert history[2]["content"] == "Second message"

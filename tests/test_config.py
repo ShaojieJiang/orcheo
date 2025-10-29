@@ -220,3 +220,14 @@ def test_numeric_fields_accept_str_coercible_objects() -> None:
 
     assert normalized.port == 4711
     assert normalized.vault_token_ttl_seconds == 1234
+
+
+def test_chatkit_retention_coerces_string_values() -> None:
+    """Chatkit retention days should accept string representations of integers."""
+
+    source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("CHATKIT_RETENTION_DAYS", "21")
+
+    normalized = config._normalize_settings(source)
+
+    assert normalized.chatkit_retention_days == 21

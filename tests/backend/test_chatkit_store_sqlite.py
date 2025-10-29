@@ -312,3 +312,137 @@ async def test_prune_threads_older_than(tmp_path: Path) -> None:
     loaded_recent = await store.load_thread(recent_thread.id, context)
     assert loaded_recent.id == recent_thread.id
     assert not attachment_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_with_pagination(tmp_path: Path) -> None:
+    """SQLite store supports cursor-based pagination for threads."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(5):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, i + 1, tzinfo=UTC),
+            metadata={"index": i},
+        )
+        await store.save_thread(thread, context)
+
+    page1 = await store.load_threads(limit=2, after=None, order="asc", context=context)
+    assert len(page1.data) == 2
+    assert page1.has_more is True
+    assert page1.data[0].id == "thr_0"
+
+    page2 = await store.load_threads(
+        limit=2, after=page1.data[-1].id, order="asc", context=context
+    )
+    assert len(page2.data) == 2
+    assert page2.data[0].id == "thr_2"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_descending(tmp_path: Path) -> None:
+    """SQLite store supports descending order for threads."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(3):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, i + 1, tzinfo=UTC),
+        )
+        await store.save_thread(thread, context)
+
+    page = await store.load_threads(limit=10, after=None, order="desc", context=context)
+    assert page.data[0].id == "thr_2"
+    assert page.data[-1].id == "thr_0"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_thread_items_pagination(tmp_path: Path) -> None:
+    """SQLite store supports cursor-based pagination for thread items."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_items"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    for i in range(4):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    page1 = await store.load_thread_items(
+        thread_id, after=None, limit=2, order="asc", context=context
+    )
+    assert len(page1.data) == 2
+    assert page1.has_more is True
+
+    page2 = await store.load_thread_items(
+        thread_id, after=page1.data[-1].id, limit=2, order="asc", context=context
+    )
+    assert len(page2.data) == 2
+    assert page2.has_more is False
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_thread_items_descending(tmp_path: Path) -> None:
+    """SQLite store supports descending order for thread items."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_desc"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    for i in range(3):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    page = await store.load_thread_items(
+        thread_id, after=None, limit=10, order="desc", context=context
+    )
+    assert page.data[0].id == "msg_2"
+    assert page.data[-1].id == "msg_0"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_item_not_found(tmp_path: Path) -> None:
+    """SQLite store raises NotFoundError for missing items."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    with pytest.raises(NotFoundError):
+        await store.load_item("thr_missing", "msg_missing", context)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_thread_not_found(tmp_path: Path) -> None:
+    """SQLite store raises NotFoundError for missing threads."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    with pytest.raises(NotFoundError):
+        await store.load_thread("thr_missing", context)
