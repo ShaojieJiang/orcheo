@@ -867,7 +867,32 @@ async def chatkit_gateway(request: Request) -> Response:
     if isinstance(result, StreamingResult):
         return StreamingResponse(result, media_type="text/event-stream")
     if hasattr(result, "json"):
-        return Response(content=result.json, media_type="application/json")
+        json_payload = result.json
+        status_code = getattr(result, "status_code", status.HTTP_200_OK)
+        headers = getattr(result, "headers", None)
+        media_type = getattr(result, "media_type", "application/json")
+
+        if callable(json_payload):
+            payload = json_payload()
+        else:
+            payload = json_payload
+
+        header_mapping = dict(headers) if headers else None
+
+        if isinstance(payload, str | bytes | bytearray):
+            return Response(
+                content=payload,
+                status_code=status_code,
+                media_type=media_type,
+                headers=header_mapping,
+            )
+
+        return JSONResponse(
+            payload,
+            status_code=status_code,
+            headers=header_mapping,
+            media_type=media_type,
+        )
     return JSONResponse(result)
 
 
