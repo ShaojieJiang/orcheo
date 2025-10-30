@@ -1110,3 +1110,231 @@ async def test_sqlite_store_concurrent_initialization(tmp_path: Path) -> None:
     assert thread1.id == "thr_concurrent_1"
     assert thread2.id == "thr_concurrent_2"
     assert thread3.id == "thr_concurrent_3"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_row_to_item_with_datetime_created_at(
+    tmp_path: Path,
+) -> None:
+    """Row to item conversion should handle datetime created_at in payload."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_datetime"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    created_time = datetime(2024, 1, 1, hour=12, tzinfo=UTC)
+    item_payload = {
+        "type": "user_message",
+        "id": "msg_datetime",
+        "thread_id": thread_id,
+        "created_at": created_time,
+        "content": [{"type": "input_text", "text": "Test"}],
+        "attachments": [],
+        "quoted_text": None,
+        "inference_options": {},
+    }
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (
+                id, thread_id, ordinal, item_type, item_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_datetime",
+                thread_id,
+                0,
+                "user_message",
+                json.dumps(item_payload, default=str),
+                created_time.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    loaded = await store.load_item(thread_id, "msg_datetime", context)
+    assert loaded.id == "msg_datetime"
+    assert isinstance(loaded.created_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_migrate_chat_messages_migration_failure(tmp_path: Path) -> None:
+    """Migration should handle failures gracefully."""
+    db_path = tmp_path / "migration_fail.sqlite"
+    thread_id = "thr_fail"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE chat_threads (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                workflow_id TEXT,
+                status_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        now_iso = _timestamp().isoformat()
+        conn.execute(
+            """
+            INSERT INTO chat_threads VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                thread_id,
+                None,
+                "wf_test",
+                json.dumps({"type": "active"}),
+                json.dumps({}),
+                now_iso,
+                now_iso,
+            ),
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY,
+                ordinal INTEGER NOT NULL,
+                item_type TEXT,
+                item_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_corrupt",
+                0,
+                "user_message",
+                "THIS IS NOT VALID JSON",
+                now_iso,
+            ),
+        )
+        conn.commit()
+
+    with pytest.raises(json.JSONDecodeError):
+        store = SqliteChatKitStore(db_path)
+        context: dict[str, object] = {}
+        await store.load_thread_items(
+            thread_id, after=None, limit=10, order="asc", context=context
+        )
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_infer_thread_id_no_context(tmp_path: Path) -> None:
+    """Infer thread ID should return None when context is missing."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    attachment = FileAttachment(
+        id="atc_no_ctx",
+        name="test.txt",
+        mime_type="text/plain",
+    )
+
+    context: dict[str, object] = {}
+    await store.save_attachment(attachment, context)
+
+    loaded = await store.load_attachment(attachment.id, context)
+    assert loaded.name == "test.txt"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_infer_thread_id_no_params(tmp_path: Path) -> None:
+    """Infer thread ID should handle request without params."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    request = SimpleNamespace()
+    context: dict[str, object] = {"chatkit_request": request}
+
+    attachment = FileAttachment(
+        id="atc_no_params",
+        name="test.txt",
+        mime_type="text/plain",
+    )
+
+    await store.save_attachment(attachment, context)
+
+    loaded = await store.load_attachment(attachment.id, context)
+    assert loaded.name == "test.txt"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_merge_metadata_non_dict_metadata(tmp_path: Path) -> None:
+    """Save thread should handle request with non-dict metadata."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    request = SimpleNamespace(metadata="not a dict")
+    context: dict[str, object] = {"chatkit_request": request}
+
+    thread = ThreadMetadata(
+        id="thr_non_dict_meta",
+        created_at=_timestamp(),
+        metadata={"existing": "value"},
+    )
+
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread(thread.id, {})
+    assert loaded.metadata["existing"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_row_to_item_with_non_string_created_at(
+    tmp_path: Path,
+) -> None:
+    """Row to item should handle non-string created_at in payload."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_non_str_date"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    created_time = datetime(2024, 6, 15, hour=10, tzinfo=UTC)
+    # Payload with created_at as integer (not a string)
+    item_payload = {
+        "type": "user_message",
+        "id": "msg_non_str",
+        "thread_id": thread_id,
+        "created_at": 1234567890,  # Not a string
+        "content": [{"type": "input_text", "text": "Test"}],
+        "attachments": [],
+        "quoted_text": None,
+        "inference_options": {},
+    }
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (
+                id, thread_id, ordinal, item_type, item_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_non_str",
+                thread_id,
+                0,
+                "user_message",
+                json.dumps(item_payload),
+                created_time.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    loaded = await store.load_item(thread_id, "msg_non_str", context)
+    assert loaded.id == "msg_non_str"
+    # Should use the created_at from the row, not the invalid payload value
+    assert isinstance(loaded.created_at, datetime)

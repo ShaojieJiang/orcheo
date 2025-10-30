@@ -1153,3 +1153,351 @@ async def test_in_memory_store_merge_metadata_without_request() -> None:
 
     loaded = await store.load_thread("thr_no_request", context)
     assert loaded.metadata["existing"] == "value"
+
+
+def test_collect_text_from_user_content_with_no_text() -> None:
+    """_collect_text_from_user_content handles content without text."""
+    from orcheo_backend.app.chatkit_service import _collect_text_from_user_content
+
+    class ContentWithoutText:
+        pass
+
+    content = [ContentWithoutText()]
+    result = _collect_text_from_user_content(content)
+    assert result == ""
+
+
+def test_collect_text_from_assistant_content_with_no_text() -> None:
+    """_collect_text_from_assistant_content handles content with empty text."""
+    from orcheo_backend.app.chatkit_service import _collect_text_from_assistant_content
+
+    content = [AssistantMessageContent(text="")]
+    result = _collect_text_from_assistant_content(content)
+    assert result == ""
+
+
+def test_extract_reply_from_state_with_results_non_string_value() -> None:
+    """_extract_reply_from_state handles non-string results values."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"results": {"node_a": {"other": "value"}}}
+    result = _extract_reply_from_state(state)
+    assert result is None
+
+
+def test_extract_reply_from_state_with_empty_messages() -> None:
+    """_extract_reply_from_state handles empty messages list."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"messages": []}
+    result = _extract_reply_from_state(state)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_with_basemodel_state() -> None:
+    """_run_workflow handles BaseModel state."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from pydantic import BaseModel
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    await repository.create_version(
+        workflow.id,
+        graph=_build_script_graph(),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    class TestState(BaseModel):
+        reply: str
+
+    mock_compiled = MagicMock()
+    mock_compiled.ainvoke = AsyncMock(return_value=TestState(reply="Test reply"))
+
+    with patch("orcheo_backend.app.chatkit_service.build_graph") as mock_build:
+        mock_graph = MagicMock()
+        mock_graph.compile.return_value = mock_compiled
+        mock_build.return_value = mock_graph
+
+        inputs = {"message": "Test message"}
+        reply, state, run = await server._run_workflow(workflow.id, inputs)
+
+    assert reply == "Test reply"
+    assert isinstance(state, dict)
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_records_run_metadata_without_run() -> None:
+    """_record_run_metadata handles None run."""
+    from orcheo_backend.app.chatkit_service import OrcheoChatKitServer
+
+    thread = ThreadMetadata(
+        id="thr_no_run",
+        created_at=datetime.now(UTC),
+        metadata={},
+    )
+
+    OrcheoChatKitServer._record_run_metadata(thread, None)
+
+    assert "last_run_at" in thread.metadata
+    assert "last_run_id" not in thread.metadata
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_save_item_iterates_through_non_matching() -> None:
+    """InMemoryChatKitStore iterates through non-matching items before appending."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_iter"
+
+    # Add multiple items
+    for i in range(3):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime.now(UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    # Now save a new item that doesn't match any existing ones
+    new_item = UserMessageItem(
+        id="msg_new",
+        thread_id=thread_id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="New message")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.save_item(thread_id, new_item, context)
+
+    loaded = await store.load_item(thread_id, "msg_new", context)
+    assert loaded.content[0].text == "New message"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_item_iterates_through_non_matching() -> None:
+    """InMemoryChatKitStore iterates through non-matching items before raising."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_search"
+
+    # Add multiple items
+    for i in range(3):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime.now(UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    from chatkit.store import NotFoundError
+
+    # Try to load a non-existent item, forcing iteration through all items
+    with pytest.raises(NotFoundError):
+        await store.load_item(thread_id, "msg_nonexistent", context)
+
+
+def test_stringify_langchain_message_with_empty_list_entries() -> None:
+    """_stringify_langchain_message filters out empty entries from lists."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    # Test with list containing empty strings and None-producing entries
+    msg = {"content": ["", {"text": ""}, {"content": "Valid"}, None]}
+    result = _stringify_langchain_message(msg)
+    assert "Valid" in result
+
+
+def test_extract_reply_from_state_with_none_reply_in_results() -> None:
+    """_extract_reply_from_state handles None reply in results mapping."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    # Test when reply exists but is None in results
+    state = {"results": {"node_a": {"reply": None}, "node_b": "fallback"}}
+    result = _extract_reply_from_state(state)
+    assert result == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_history_with_unknown_item_type() -> None:
+    """_history skips items that are neither user nor assistant messages."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    thread = ThreadMetadata(
+        id="thr_unknown",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    # Add a user message
+    user_item = UserMessageItem(
+        id="msg_user",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    # Manually inject an unknown item type using save_item
+
+    # Create a mock item that's neither user nor assistant
+    class UnknownItem:
+        id = "msg_unknown"
+        thread_id = thread.id
+        created_at = datetime.now(UTC)
+        type = "unknown"
+
+        def model_copy(self, deep=True):
+            return self
+
+    # Directly manipulate the store's internal state to add an unknown item
+    state = server.store._state_for(thread.id)
+    state.items.append(UnknownItem())
+
+    history = await server._history(thread, context)
+    # History should only contain the user message, not the unknown item
+    assert len(history) == 1
+    assert history[0]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_resolve_user_item_with_assistant_as_most_recent() -> None:
+    """_resolve_user_item raises error when most recent item is not a user message."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    thread = ThreadMetadata(
+        id="thr_assistant_recent",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    # Add an assistant message as the most recent item
+    assistant_item = AssistantMessageItem(
+        id="msg_assistant",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[AssistantMessageContent(text="Assistant response")],
+    )
+    await server.store.add_thread_item(thread.id, assistant_item, context)
+
+    # Call _resolve_user_item without providing an item - should raise error
+    with pytest.raises(CustomStreamError, match="Unable to locate"):
+        await server._resolve_user_item(thread, None, context)
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_with_repository_create_run_failure() -> None:
+    """_run_workflow handles repository failure when creating run record."""
+    from unittest.mock import AsyncMock
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    graph_config = {
+        "format": "langgraph-script",
+        "source": """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def respond(state):
+        return {"reply": "Test reply"}
+
+    graph.add_node("respond", respond)
+    graph.add_edge(START, "respond")
+    graph.add_edge("respond", END)
+    return graph
+""",
+        "entrypoint": "build_graph",
+    }
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_config,
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    # Mock create_run to raise an exception, causing run to remain None
+    original_create_run = server._repository.create_run
+    server._repository.create_run = AsyncMock(side_effect=Exception("DB error"))
+
+    inputs = {"message": "Test message"}
+    reply, state, run = await server._run_workflow(workflow.id, inputs)
+
+    # Workflow should still complete successfully even though run tracking failed
+    assert reply == "Test reply"
+    assert run is None
+
+    # Restore original method
+    server._repository.create_run = original_create_run
