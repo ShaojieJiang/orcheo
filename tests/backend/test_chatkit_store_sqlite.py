@@ -446,3 +446,667 @@ async def test_sqlite_store_thread_not_found(tmp_path: Path) -> None:
 
     with pytest.raises(NotFoundError):
         await store.load_thread("thr_missing", context)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_add_thread_item_wrong_thread(tmp_path: Path) -> None:
+    """Add thread item should raise ValueError when thread_id mismatch."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    thread = ThreadMetadata(id="thr_correct", created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    item = UserMessageItem(
+        id="msg_wrong",
+        thread_id="thr_different",
+        created_at=_timestamp(),
+        content=[UserMessageTextContent(type="input_text", text="Test")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+
+    with pytest.raises(ValueError, match="does not belong"):
+        await store.add_thread_item("thr_correct", item, context)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_save_item_update_existing(tmp_path: Path) -> None:
+    """Save item should update an existing item."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    thread = ThreadMetadata(id="thr_update", created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    item = UserMessageItem(
+        id="msg_update",
+        thread_id=thread.id,
+        created_at=_timestamp(),
+        content=[UserMessageTextContent(type="input_text", text="Original")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.add_thread_item(thread.id, item, context)
+
+    updated_item = UserMessageItem(
+        id="msg_update",
+        thread_id=thread.id,
+        created_at=_timestamp(),
+        content=[UserMessageTextContent(type="input_text", text="Updated")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await store.save_item(thread.id, updated_item, context)
+
+    loaded = await store.load_item(thread.id, item.id, context)
+    assert loaded.content[0].text == "Updated"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_prune_threads_no_old_threads(tmp_path: Path) -> None:
+    """Prune should return 0 when no threads are old enough."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    thread = ThreadMetadata(id="thr_new", created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    cutoff = datetime.now(tz=UTC) - timedelta(days=30)
+    removed = await store.prune_threads_older_than(cutoff)
+
+    assert removed == 0
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_merge_metadata_no_request(tmp_path: Path) -> None:
+    """Save thread should handle context without chatkit_request."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    thread = ThreadMetadata(
+        id="thr_no_req",
+        created_at=_timestamp(),
+        metadata={"existing": "value"},
+    )
+
+    context: dict[str, object] = {"other_key": "other_value"}
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread(thread.id, {})
+    assert loaded.metadata["existing"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_merge_metadata_no_metadata_attr(tmp_path: Path) -> None:
+    """Save thread should handle request without metadata attribute."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    request = SimpleNamespace(params="test")
+    context: dict[str, object] = {"chatkit_request": request}
+
+    thread = ThreadMetadata(
+        id="thr_no_meta",
+        created_at=_timestamp(),
+        metadata={"existing": "value"},
+    )
+
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread(thread.id, {})
+    assert loaded.metadata["existing"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_merge_metadata_empty_dict(tmp_path: Path) -> None:
+    """Save thread should handle request with empty metadata dict."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    request = SimpleNamespace(metadata={})
+    context: dict[str, object] = {"chatkit_request": request}
+
+    thread = ThreadMetadata(
+        id="thr_empty_meta",
+        created_at=_timestamp(),
+        metadata={"existing": "value"},
+    )
+
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread(thread.id, {})
+    assert loaded.metadata["existing"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_infer_thread_id_from_context(tmp_path: Path) -> None:
+    """Save attachment should infer thread_id from context."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    thread = ThreadMetadata(id="thr_infer", created_at=_timestamp())
+    await store.save_thread(thread, {})
+
+    params = SimpleNamespace(thread_id="thr_infer")
+    request = SimpleNamespace(params=params)
+    context: dict[str, object] = {"chatkit_request": request}
+
+    attachment = FileAttachment(
+        id="atc_infer",
+        name="test.txt",
+        mime_type="text/plain",
+    )
+    await store.save_attachment(attachment, context)
+
+    loaded = await store.load_attachment(attachment.id, {})
+    assert loaded.name == "test.txt"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_pagination_with_after_marker(
+    tmp_path: Path,
+) -> None:
+    """Load threads should correctly handle pagination with after cursor."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(5):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+        )
+        await store.save_thread(thread, context)
+
+    first_page = await store.load_threads(
+        limit=2, after=None, order="asc", context=context
+    )
+    assert len(first_page.data) == 2
+    assert first_page.has_more is True
+
+    second_page = await store.load_threads(
+        limit=2, after=first_page.data[-1].id, order="asc", context=context
+    )
+    assert len(second_page.data) == 2
+    assert second_page.data[0].id != first_page.data[-1].id
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_thread_items_pagination_with_after(
+    tmp_path: Path,
+) -> None:
+    """Load thread items should correctly handle pagination with after cursor."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_paginate"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    for i in range(5):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    first_page = await store.load_thread_items(
+        thread_id, after=None, limit=2, order="asc", context=context
+    )
+    assert len(first_page.data) == 2
+    assert first_page.has_more is True
+
+    second_page = await store.load_thread_items(
+        thread_id, after=first_page.data[-1].id, limit=2, order="asc", context=context
+    )
+    assert len(second_page.data) == 2
+    assert second_page.data[0].id != first_page.data[-1].id
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_row_to_item_with_string_created_at(tmp_path: Path) -> None:
+    """Row to item conversion should handle string created_at in payload."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_string_date"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    created_time = datetime(2024, 1, 1, hour=12, tzinfo=UTC)
+    item_payload = {
+        "type": "user_message",
+        "id": "msg_str_date",
+        "thread_id": thread_id,
+        "created_at": created_time.isoformat(),
+        "content": [{"type": "input_text", "text": "Test"}],
+        "attachments": [],
+        "quoted_text": None,
+        "inference_options": {},
+    }
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (
+                id, thread_id, ordinal, item_type, item_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_str_date",
+                thread_id,
+                0,
+                "user_message",
+                json.dumps(item_payload),
+                created_time.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    loaded = await store.load_item(thread_id, "msg_str_date", context)
+    assert loaded.id == "msg_str_date"
+    assert isinstance(loaded.created_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_naive_datetime_conversion(tmp_path: Path) -> None:
+    """Store should handle naive datetime by adding UTC timezone."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    naive_dt = datetime(2024, 1, 1, 12, 0, 0)
+    thread = ThreadMetadata(
+        id="thr_naive",
+        created_at=naive_dt,
+    )
+
+    await store.save_thread(thread, context)
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT created_at FROM chat_threads WHERE id = ?", ("thr_naive",)
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert "+00:00" in row[0] or "Z" in row[0] or row[0].endswith("+00:00")
+
+
+@pytest.mark.asyncio
+async def test_migrate_chat_messages_drop_message_without_thread_id(
+    tmp_path: Path,
+) -> None:
+    """Migration should drop messages without thread_id in payload."""
+    db_path = tmp_path / "legacy_no_tid.sqlite"
+    thread_id = "thr_for_migration"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE chat_threads (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                workflow_id TEXT,
+                status_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        now_iso = _timestamp().isoformat()
+        conn.execute(
+            """
+            INSERT INTO chat_threads VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                thread_id,
+                None,
+                "wf_test",
+                json.dumps({"type": "active"}),
+                json.dumps({}),
+                now_iso,
+                now_iso,
+            ),
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY,
+                ordinal INTEGER NOT NULL,
+                item_type TEXT,
+                item_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_no_tid",
+                0,
+                "user_message",
+                json.dumps({"type": "user_message", "id": "msg_no_tid"}),
+                now_iso,
+            ),
+        )
+        conn.commit()
+
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    items = await store.load_thread_items(
+        thread_id, after=None, limit=10, order="asc", context=context
+    )
+    assert len(items.data) == 0
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_already_initialized(tmp_path: Path) -> None:
+    """Store should skip initialization when already initialized."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    thread = ThreadMetadata(id="thr_init", created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    assert store._initialized is True
+
+    thread2 = ThreadMetadata(id="thr_init2", created_at=_timestamp())
+    await store.save_thread(thread2, context)
+
+    loaded = await store.load_thread("thr_init2", context)
+    assert loaded.id == "thr_init2"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_no_migration_when_thread_id_exists(tmp_path: Path) -> None:
+    """Migration should skip when thread_id column already exists."""
+    db_path = tmp_path / "modern.sqlite"
+    thread_id = "thr_modern"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE chat_threads (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                workflow_id TEXT,
+                status_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        now_iso = _timestamp().isoformat()
+        conn.execute(
+            """
+            INSERT INTO chat_threads VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                thread_id,
+                None,
+                "wf_test",
+                json.dumps({"type": "active"}),
+                json.dumps({}),
+                now_iso,
+                now_iso,
+            ),
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                item_type TEXT,
+                item_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_modern",
+                thread_id,
+                0,
+                "user_message",
+                json.dumps(
+                    {
+                        "type": "user_message",
+                        "id": "msg_modern",
+                        "thread_id": thread_id,
+                        "content": [{"type": "input_text", "text": "Test"}],
+                        "attachments": [],
+                        "quoted_text": None,
+                        "inference_options": {},
+                    }
+                ),
+                now_iso,
+            ),
+        )
+        conn.commit()
+
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    items = await store.load_thread_items(
+        thread_id, after=None, limit=10, order="asc", context=context
+    )
+    assert len(items.data) == 1
+    assert items.data[0].id == "msg_modern"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_pagination_desc_with_after(
+    tmp_path: Path,
+) -> None:
+    """Load threads descending should correctly handle pagination with after."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(5):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+        )
+        await store.save_thread(thread, context)
+
+    first_page = await store.load_threads(
+        limit=2, after=None, order="desc", context=context
+    )
+    assert len(first_page.data) == 2
+    assert first_page.has_more is True
+
+    second_page = await store.load_threads(
+        limit=2, after=first_page.data[-1].id, order="desc", context=context
+    )
+    assert len(second_page.data) == 2
+    assert second_page.data[0].id != first_page.data[-1].id
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_thread_items_pagination_desc_with_after(
+    tmp_path: Path,
+) -> None:
+    """Load thread items descending should handle pagination with after."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_desc_paginate"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    for i in range(5):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    first_page = await store.load_thread_items(
+        thread_id, after=None, limit=2, order="desc", context=context
+    )
+    assert len(first_page.data) == 2
+    assert first_page.has_more is True
+
+    second_page = await store.load_thread_items(
+        thread_id, after=first_page.data[-1].id, limit=2, order="desc", context=context
+    )
+    assert len(second_page.data) == 2
+    assert second_page.data[0].id != first_page.data[-1].id
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_with_invalid_after(tmp_path: Path) -> None:
+    """Load threads should handle invalid after cursor gracefully."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(3):
+        thread = ThreadMetadata(
+            id=f"thr_{i}",
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+        )
+        await store.save_thread(thread, context)
+
+    page = await store.load_threads(
+        limit=10, after="nonexistent_thread", order="asc", context=context
+    )
+    assert len(page.data) == 3
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_thread_items_with_invalid_after(
+    tmp_path: Path,
+) -> None:
+    """Load thread items should handle invalid after cursor gracefully."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_invalid_after"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    for i in range(3):
+        item = UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        await store.add_thread_item(thread_id, item, context)
+
+    page = await store.load_thread_items(
+        thread_id, after="nonexistent_item", limit=10, order="asc", context=context
+    )
+    assert len(page.data) == 3
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_row_to_item_missing_created_at_in_payload(
+    tmp_path: Path,
+) -> None:
+    """Row to item should use row created_at when missing from payload."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+    thread_id = "thr_no_created"
+
+    thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    created_time = datetime(2024, 1, 1, hour=12, tzinfo=UTC)
+    item_payload = {
+        "type": "user_message",
+        "content": [{"type": "input_text", "text": "Test"}],
+        "attachments": [],
+        "quoted_text": None,
+        "inference_options": {},
+    }
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (
+                id, thread_id, ordinal, item_type, item_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_no_created",
+                thread_id,
+                0,
+                "user_message",
+                json.dumps(item_payload),
+                created_time.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    loaded = await store.load_item(thread_id, "msg_no_created", context)
+    assert loaded.id == "msg_no_created"
+    assert isinstance(loaded.created_at, datetime)
+    assert loaded.created_at == created_time
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_concurrent_initialization(tmp_path: Path) -> None:
+    """Store should handle concurrent initialization attempts safely."""
+    import asyncio
+
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    async def save_thread_task(thread_id: str) -> None:
+        thread = ThreadMetadata(id=thread_id, created_at=_timestamp())
+        await store.save_thread(thread, context)
+
+    await asyncio.gather(
+        save_thread_task("thr_concurrent_1"),
+        save_thread_task("thr_concurrent_2"),
+        save_thread_task("thr_concurrent_3"),
+    )
+
+    thread1 = await store.load_thread("thr_concurrent_1", context)
+    thread2 = await store.load_thread("thr_concurrent_2", context)
+    thread3 = await store.load_thread("thr_concurrent_3", context)
+
+    assert thread1.id == "thr_concurrent_1"
+    assert thread2.id == "thr_concurrent_2"
+    assert thread3.id == "thr_concurrent_3"

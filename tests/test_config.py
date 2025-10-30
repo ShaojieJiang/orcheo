@@ -32,13 +32,13 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = config.get_settings(refresh=True)
 
     assert settings.checkpoint_backend == "sqlite"
-    assert settings.sqlite_path == "checkpoints.sqlite"
+    assert settings.sqlite_path == "~/.orcheo/checkpoints.sqlite"
     assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
     assert settings.vault_backend == "file"
     assert settings.vault_encryption_key is None
-    assert settings.vault_local_path == ".orcheo/vault.sqlite"
+    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
     assert settings.vault_aws_region is None
     assert settings.vault_aws_kms_key_id is None
     assert settings.vault_token_ttl_seconds == 3600
@@ -118,7 +118,7 @@ def test_file_vault_allows_missing_encryption_key(
 
     assert settings.vault_backend == "file"
     assert settings.vault_encryption_key is None
-    assert settings.vault_local_path == ".orcheo/vault.sqlite"
+    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
 
 
 def test_file_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,7 +131,7 @@ def test_file_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = config.get_settings(refresh=True)
 
     assert settings.vault_backend == "file"
-    assert settings.vault_local_path == ".orcheo/vault.sqlite"
+    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
     assert settings.vault_encryption_key == "dummy-key"
 
 

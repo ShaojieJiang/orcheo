@@ -8,7 +8,7 @@ import os
 import secrets
 import uuid
 from collections.abc import Mapping
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
@@ -1940,7 +1940,21 @@ def create_app(
     credential_service: OAuthCredentialService | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""
-    application = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> Any:
+        """Manage application lifespan with startup and shutdown logic."""
+        # Startup
+        try:
+            get_chatkit_server()
+            await _ensure_chatkit_cleanup_task()
+        except HTTPException:
+            pass
+        yield
+        # Shutdown
+        await _cancel_chatkit_cleanup_task()
+
+    application = FastAPI(lifespan=lifespan)
 
     application.add_middleware(
         CORSMiddleware,
@@ -1968,18 +1982,6 @@ def create_app(
             application.dependency_overrides[get_credential_service] = (
                 lambda: inferred_service
             )
-
-    @application.on_event("startup")
-    async def _start_chatkit_background_tasks() -> None:
-        try:
-            get_chatkit_server()
-        except HTTPException:
-            return
-        await _ensure_chatkit_cleanup_task()
-
-    @application.on_event("shutdown")
-    async def _stop_chatkit_background_tasks() -> None:
-        await _cancel_chatkit_cleanup_task()
 
     application.include_router(_http_router)
     application.include_router(_ws_router)

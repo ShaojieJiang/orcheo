@@ -697,3 +697,459 @@ async def test_chatkit_server_builds_history() -> None:
     assert history[1]["content"] == "First response"
     assert history[2]["role"] == "user"
     assert history[2]["content"] == "Second message"
+
+
+def test_stringify_langchain_message_with_base_message() -> None:
+    """_stringify_langchain_message handles BaseMessage objects."""
+    from langchain_core.messages import HumanMessage
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    msg = HumanMessage(content="Hello world")
+    result = _stringify_langchain_message(msg)
+    assert result == "Hello world"
+
+
+def test_stringify_langchain_message_with_mapping() -> None:
+    """_stringify_langchain_message handles dict-like objects."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    msg = {"content": "Test content"}
+    result = _stringify_langchain_message(msg)
+    assert result == "Test content"
+
+    msg_with_text = {"text": "Test text"}
+    result = _stringify_langchain_message(msg_with_text)
+    assert result == "Test text"
+
+
+def test_stringify_langchain_message_with_list() -> None:
+    """_stringify_langchain_message handles list content."""
+    from langchain_core.messages import HumanMessage
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    msg = HumanMessage(content=["Hello", "world"])
+    result = _stringify_langchain_message(msg)
+    assert result == "Hello world"
+
+
+def test_stringify_langchain_message_with_nested_list() -> None:
+    """_stringify_langchain_message handles nested list structures."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    msg = {"content": [{"text": "Part 1"}, {"text": "Part 2"}]}
+    result = _stringify_langchain_message(msg)
+    assert "Part 1" in result
+    assert "Part 2" in result
+
+
+def test_stringify_langchain_message_with_object() -> None:
+    """_stringify_langchain_message handles objects with content attribute."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    class CustomMessage:
+        content = "Custom content"
+
+    msg = CustomMessage()
+    result = _stringify_langchain_message(msg)
+    assert result == "Custom content"
+
+
+def test_build_initial_state_langgraph_format() -> None:
+    """_build_initial_state returns inputs directly for langgraph-script format."""
+    from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+    from orcheo_backend.app.chatkit_service import _build_initial_state
+
+    graph_config = {"format": LANGGRAPH_SCRIPT_FORMAT}
+    inputs = {"message": "Hello", "metadata": {"key": "value"}}
+    result = _build_initial_state(graph_config, inputs)
+
+    assert result == inputs
+    assert result["message"] == "Hello"
+
+
+def test_build_initial_state_standard_format() -> None:
+    """_build_initial_state wraps inputs for standard format."""
+    from orcheo_backend.app.chatkit_service import _build_initial_state
+
+    graph_config = {"format": "standard"}
+    inputs = {"message": "Hello"}
+    result = _build_initial_state(graph_config, inputs)
+
+    assert "messages" in result
+    assert "results" in result
+    assert "inputs" in result
+    assert result["inputs"] == inputs
+
+
+def test_extract_reply_from_state_with_reply_key() -> None:
+    """_extract_reply_from_state extracts reply from top-level key."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"reply": "Direct reply"}
+    result = _extract_reply_from_state(state)
+    assert result == "Direct reply"
+
+
+def test_extract_reply_from_state_with_none_reply() -> None:
+    """_extract_reply_from_state handles None reply by checking other locations."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"reply": None, "messages": [{"content": "Message content"}]}
+    result = _extract_reply_from_state(state)
+    assert result is not None
+
+
+def test_extract_reply_from_state_from_results_dict() -> None:
+    """_extract_reply_from_state extracts reply from results mapping."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"results": {"node_a": {"reply": "Reply from results"}}}
+    result = _extract_reply_from_state(state)
+    assert result == "Reply from results"
+
+
+def test_extract_reply_from_state_from_results_string() -> None:
+    """_extract_reply_from_state extracts string value from results."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"results": {"node_a": "String result"}}
+    result = _extract_reply_from_state(state)
+    assert result == "String result"
+
+
+def test_extract_reply_from_state_from_messages() -> None:
+    """_extract_reply_from_state extracts from last message."""
+    from langchain_core.messages import AIMessage
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"messages": [AIMessage(content="AI response")]}
+    result = _extract_reply_from_state(state)
+    assert result == "AI response"
+
+
+def test_extract_reply_from_state_returns_none() -> None:
+    """_extract_reply_from_state returns None when no reply found."""
+    from orcheo_backend.app.chatkit_service import _extract_reply_from_state
+
+    state = {"unrelated": "data"}
+    result = _extract_reply_from_state(state)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_end_to_end() -> None:
+    """_run_workflow executes workflow and returns reply."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    # Use a properly structured script
+    graph_config = {
+        "format": "langgraph-script",
+        "source": """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def respond(state):
+        message = state.get("message", "")
+        return {"reply": f"Echo: {message}"}
+
+    graph.add_node("respond", respond)
+    graph.add_edge(START, "respond")
+    graph.add_edge("respond", END)
+    return graph
+""",
+        "entrypoint": "build_graph",
+    }
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_config,
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    inputs = {"message": "Test message"}
+    reply, state, run = await server._run_workflow(workflow.id, inputs)
+
+    assert reply == "Echo: Test message"
+    assert isinstance(state, dict)
+    assert run is not None
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_without_reply() -> None:
+    """_run_workflow raises error when workflow doesn't produce reply."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    # Create a graph that doesn't produce a reply
+    graph_config = {
+        "format": "langgraph-script",
+        "source": """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def no_reply(state):
+        return {"output": "something else"}
+
+    graph.add_node("no_reply", no_reply)
+    graph.add_edge(START, "no_reply")
+    graph.add_edge("no_reply", END)
+    return graph
+""",
+        "entrypoint": "build_graph",
+    }
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_config,
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    with pytest.raises(CustomStreamError, match="without producing a reply"):
+        await server._run_workflow(workflow.id, {})
+
+
+def test_create_chatkit_server_with_default_store() -> None:
+    """create_chatkit_server creates SqliteChatKitStore when no store provided."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    repository = InMemoryWorkflowRepository()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sqlite_path = Path(tmpdir) / "test_chatkit.sqlite"
+
+        mock_settings = MagicMock()
+        mock_settings.get.return_value = str(sqlite_path)
+        mock_settings.chatkit_sqlite_path = str(sqlite_path)
+
+        with patch(
+            "orcheo_backend.app.chatkit_service.get_settings",
+            return_value=mock_settings,
+        ):
+            server = create_chatkit_server(repository, InMemoryCredentialVault)
+            assert server is not None
+            assert server._repository == repository
+
+
+def test_create_chatkit_server_with_env_var() -> None:
+    """create_chatkit_server respects CHATKIT_SQLITE_PATH environment variable."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    repository = InMemoryWorkflowRepository()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sqlite_path = Path(tmpdir) / "env_chatkit.sqlite"
+
+        mock_settings = MagicMock()
+        mock_settings.get.return_value = str(sqlite_path)
+        mock_settings.chatkit_sqlite_path = str(sqlite_path)
+
+        with patch(
+            "orcheo_backend.app.chatkit_service.get_settings",
+            return_value=mock_settings,
+        ):
+            server = create_chatkit_server(repository, InMemoryCredentialVault)
+            assert server is not None
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_load_thread_items_descending() -> None:
+    """InMemoryChatKitStore can list items in descending order."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+    thread_id = "thr_desc"
+
+    items = [
+        UserMessageItem(
+            id=f"msg_{i}",
+            thread_id=thread_id,
+            created_at=datetime(2024, 1, 1, hour=i, tzinfo=UTC),
+            content=[UserMessageTextContent(type="input_text", text=f"Message {i}")],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+        for i in range(3)
+    ]
+    for item in items:
+        await store.add_thread_item(thread_id, item, context)
+
+    page = await store.load_thread_items(
+        thread_id, after=None, limit=10, order="desc", context=context
+    )
+    assert page.data[0].id == "msg_2"
+    assert page.data[-1].id == "msg_0"
+
+
+@pytest.mark.asyncio
+async def test_collect_text_from_user_content_multiple_parts() -> None:
+    """_collect_text_from_user_content joins multiple text parts."""
+    from orcheo_backend.app.chatkit_service import _collect_text_from_user_content
+
+    content = [
+        UserMessageTextContent(type="input_text", text="Part 1"),
+        UserMessageTextContent(type="input_text", text="Part 2"),
+    ]
+    result = _collect_text_from_user_content(content)
+    assert result == "Part 1 Part 2"
+
+
+@pytest.mark.asyncio
+async def test_collect_text_from_assistant_content_multiple_parts() -> None:
+    """_collect_text_from_assistant_content joins multiple text parts."""
+    from orcheo_backend.app.chatkit_service import _collect_text_from_assistant_content
+
+    content = [
+        AssistantMessageContent(text="Response 1"),
+        AssistantMessageContent(text="Response 2"),
+    ]
+    result = _collect_text_from_assistant_content(content)
+    assert result == "Response 1 Response 2"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_records_run_metadata_with_existing_runs() -> None:
+    """Server appends run IDs to existing runs list."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_build_script_graph(),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_server(
+        repository,
+        InMemoryCredentialVault,
+        store=InMemoryChatKitStore(),
+    )
+
+    run1 = await repository.create_run(
+        workflow.id,
+        workflow_version_id=(await repository.get_latest_version(workflow.id)).id,
+        triggered_by="test",
+        input_payload={},
+    )
+
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=(
+            "Reply",
+            {},
+            await repository.create_run(
+                workflow.id,
+                workflow_version_id=(
+                    await repository.get_latest_version(workflow.id)
+                ).id,
+                triggered_by="test",
+                input_payload={},
+            ),
+        )
+    )
+
+    thread = ThreadMetadata(
+        id="thr_runs",
+        created_at=datetime.now(UTC),
+        metadata={
+            "workflow_id": str(workflow.id),
+            "runs": [str(run1.id)],
+        },
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_runs",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Test")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    loaded = await server.store.load_thread(thread.id, context)
+    assert len(loaded.metadata["runs"]) == 2
+
+
+def test_stringify_langchain_message_with_plain_string() -> None:
+    """_stringify_langchain_message handles plain string values."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    result = _stringify_langchain_message("plain string")
+    assert result == "plain string"
+
+
+def test_stringify_langchain_message_with_none_content() -> None:
+    """_stringify_langchain_message handles objects without content."""
+    from orcheo_backend.app.chatkit_service import _stringify_langchain_message
+
+    class EmptyMessage:
+        pass
+
+    msg = EmptyMessage()
+    result = _stringify_langchain_message(msg)
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_merge_metadata_without_request() -> None:
+    """InMemoryChatKitStore handles contexts without chatkit_request."""
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    thread = ThreadMetadata(
+        id="thr_no_request",
+        created_at=datetime.now(UTC),
+        metadata={"existing": "value"},
+    )
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread("thr_no_request", context)
+    assert loaded.metadata["existing"] == "value"
