@@ -1982,7 +1982,7 @@ docs = [
 
 [[package]]
 name = "orcheo-backend"
-version = "0.8.1"
+version = "0.8.2"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "fastapi" },
