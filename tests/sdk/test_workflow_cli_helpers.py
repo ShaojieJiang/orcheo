@@ -14,14 +14,14 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.workflow import (
     _handle_node_event,
     _handle_status_update,
+    _load_inputs_from_path,
     _mermaid_from_graph,
     _process_stream_messages,
     _render_node_output,
     _stream_workflow_run,
     _strip_main_block,
-    _load_inputs_from_path,
-    _validate_local_path,
     _upload_langgraph_script,
+    _validate_local_path,
     run_workflow,
     upload_workflow,
 )

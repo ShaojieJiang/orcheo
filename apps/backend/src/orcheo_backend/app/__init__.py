@@ -8,9 +8,13 @@ import os
 import secrets
 import uuid
 from collections.abc import Mapping
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
 from uuid import UUID
+from chatkit.server import StreamingResult
+from chatkit.types import ChatKitReq
 from dotenv import load_dotenv
 from dynaconf import Dynaconf
 from fastapi import (
@@ -26,6 +30,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.runnables import RunnableConfig
+from pydantic import TypeAdapter, ValidationError
+from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.graph.ingestion import (
@@ -67,6 +73,12 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     OAuthCredentialService,
 )
+from orcheo_backend.app.chatkit_service import (
+    ChatKitRequestContext,
+    OrcheoChatKitServer,
+    create_chatkit_server,
+)
+from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -150,6 +162,85 @@ _sensitive_env_enabled = (_current_env or "").lower() in _DEV_LOGGING_ENV_VALUES
 _should_log_sensitive_debug = (
     _sensitive_env_enabled or os.getenv("LOG_SENSITIVE_DEBUG") == "1"
 )
+
+_CHATKIT_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+_chatkit_cleanup_task: dict[str, asyncio.Task | None] = {"task": None}
+
+
+def _coerce_int(value: object, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if value is None:
+        return default
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return default
+
+
+def _chatkit_retention_days() -> int:
+    settings = get_settings()
+    days = _coerce_int(settings.get("CHATKIT_RETENTION_DAYS", 30), 30)
+    return days if days > 0 else 30
+
+
+def _get_chatkit_store() -> SqliteChatKitStore | None:
+    server = _chatkit_server_ref.get("server")
+    if server is None:
+        return None
+    store = getattr(server, "store", None)
+    if isinstance(store, SqliteChatKitStore):
+        return store
+    return None
+
+
+async def _ensure_chatkit_cleanup_task() -> None:
+    if _chatkit_cleanup_task["task"] is not None:
+        return
+
+    store = _get_chatkit_store()
+    if store is None:
+        return
+
+    retention_days = _chatkit_retention_days()
+    interval_seconds = max(_CHATKIT_CLEANUP_INTERVAL_SECONDS, 300)
+
+    async def _cleanup_loop() -> None:
+        try:
+            while True:
+                cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
+                try:
+                    pruned = await store.prune_threads_older_than(cutoff)
+                    if pruned:
+                        logger.info(
+                            "Pruned %s ChatKit thread(s) older than %s",
+                            pruned,
+                            cutoff.isoformat(),
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # pragma: no cover - best effort logging
+                    logger.exception("ChatKit cleanup task failed")
+
+                await asyncio.sleep(interval_seconds)
+        finally:
+            _chatkit_cleanup_task["task"] = None
+
+    _chatkit_cleanup_task["task"] = asyncio.create_task(
+        _cleanup_loop(),
+        name="chatkit_cleanup",
+    )
+
+
+async def _cancel_chatkit_cleanup_task() -> None:
+    task = _chatkit_cleanup_task.get("task")
+    if task is None:
+        return
+
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    _chatkit_cleanup_task["task"] = None
 
 
 def _log_sensitive_debug(message: str, *args: Any) -> None:
@@ -373,6 +464,17 @@ def get_repository() -> WorkflowRepository:
 
 
 RepositoryDep = Annotated[WorkflowRepository, Depends(get_repository)]
+
+_chatkit_server_ref: dict[str, OrcheoChatKitServer | None] = {"server": None}
+
+
+def get_chatkit_server() -> OrcheoChatKitServer:
+    """Return the singleton ChatKit server wired to the repository."""
+    server = _chatkit_server_ref["server"]
+    if server is None:
+        server = create_chatkit_server(_repository, get_vault)
+        _chatkit_server_ref["server"] = server
+    return server
 
 
 def get_history_store() -> RunHistoryStore:
@@ -740,6 +842,58 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         await websocket.send_json({"status": "error", "error": str(exc)})
     finally:
         await websocket.close()
+
+
+@_http_router.post("/chatkit", include_in_schema=False)
+async def chatkit_gateway(request: Request) -> Response:
+    """Proxy ChatKit SDK requests to the Orcheo-backed server."""
+    payload = await request.body()
+    try:
+        adapter: TypeAdapter[ChatKitReq] = TypeAdapter(ChatKitReq)
+        parsed_request = adapter.validate_json(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Invalid ChatKit payload.",
+                "errors": exc.errors(),
+            },
+        ) from exc
+
+    context: ChatKitRequestContext = {"chatkit_request": parsed_request}
+    server = get_chatkit_server()
+    result = await server.process(payload, context)
+
+    if isinstance(result, StreamingResult):
+        return StreamingResponse(result, media_type="text/event-stream")
+    if hasattr(result, "json"):
+        json_payload = result.json
+        status_code = getattr(result, "status_code", status.HTTP_200_OK)
+        headers = getattr(result, "headers", None)
+        media_type = getattr(result, "media_type", "application/json")
+
+        if callable(json_payload):
+            payload = json_payload()
+        else:
+            payload = json_payload
+
+        header_mapping = dict(headers) if headers else None
+
+        if isinstance(payload, str | bytes | bytearray):
+            return Response(
+                content=payload,
+                status_code=status_code,
+                media_type=media_type,
+                headers=header_mapping,
+            )
+
+        return JSONResponse(
+            payload,
+            status_code=status_code,
+            headers=header_mapping,
+            media_type=media_type,
+        )
+    return JSONResponse(result)
 
 
 @_http_router.post(
@@ -1786,7 +1940,21 @@ def create_app(
     credential_service: OAuthCredentialService | None = None,
 ) -> FastAPI:
     """Instantiate and configure the FastAPI application."""
-    application = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> Any:
+        """Manage application lifespan with startup and shutdown logic."""
+        # Startup
+        try:
+            get_chatkit_server()
+            await _ensure_chatkit_cleanup_task()
+        except HTTPException:
+            pass
+        yield
+        # Shutdown
+        await _cancel_chatkit_cleanup_task()
+
+    application = FastAPI(lifespan=lifespan)
 
     application.add_middleware(
         CORSMiddleware,

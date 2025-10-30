@@ -13,15 +13,18 @@ VaultBackend = Literal["inmemory", "file", "aws_kms"]
 
 _DEFAULTS: dict[str, object] = {
     "CHECKPOINT_BACKEND": "sqlite",
-    "SQLITE_PATH": "checkpoints.sqlite",
+    "SQLITE_PATH": "~/.orcheo/checkpoints.sqlite",
     "REPOSITORY_BACKEND": "sqlite",
     "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
+    "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
+    "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",
+    "CHATKIT_RETENTION_DAYS": 30,
     "POSTGRES_DSN": None,
     "HOST": "0.0.0.0",
     "PORT": 8000,
     "VAULT_BACKEND": "file",
     "VAULT_ENCRYPTION_KEY": None,
-    "VAULT_LOCAL_PATH": ".orcheo/vault.sqlite",
+    "VAULT_LOCAL_PATH": "~/.orcheo/vault.sqlite",
     "VAULT_AWS_REGION": None,
     "VAULT_AWS_KMS_KEY_ID": None,
     "VAULT_TOKEN_TTL_SECONDS": 3600,
@@ -130,6 +133,15 @@ class AppSettings(BaseModel):
     repository_sqlite_path: str = Field(
         default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
     )
+    chatkit_sqlite_path: str = Field(
+        default=cast(str, _DEFAULTS["CHATKIT_SQLITE_PATH"])
+    )
+    chatkit_storage_path: str = Field(
+        default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
+    )
+    chatkit_retention_days: int = Field(
+        default=cast(int, _DEFAULTS["CHATKIT_RETENTION_DAYS"]), gt=0
+    )
     postgres_dsn: str | None = None
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
@@ -171,6 +183,30 @@ class AppSettings(BaseModel):
     def _coerce_repo_sqlite_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
+    @field_validator("chatkit_sqlite_path", mode="before")
+    @classmethod
+    def _coerce_chatkit_sqlite_path(cls, value: object) -> str:
+        return str(value) if value is not None else ""
+
+    @field_validator("chatkit_storage_path", mode="before")
+    @classmethod
+    def _coerce_chatkit_storage_path(cls, value: object) -> str:
+        return str(value) if value is not None else ""
+
+    @field_validator("chatkit_retention_days", mode="before")
+    @classmethod
+    def _coerce_chatkit_retention(cls, value: object) -> int:
+        candidate_obj = (
+            value if value is not None else _DEFAULTS["CHATKIT_RETENTION_DAYS"]
+        )
+        if isinstance(candidate_obj, int):
+            return candidate_obj
+        try:
+            return int(str(candidate_obj))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            msg = "ORCHEO_CHATKIT_RETENTION_DAYS must be an integer."
+            raise ValueError(msg) from exc
+
     @field_validator("port", mode="before")
     @classmethod
     def _parse_port(cls, value: object) -> int:
@@ -199,6 +235,14 @@ class AppSettings(BaseModel):
         self.repository_sqlite_path = self.repository_sqlite_path or cast(
             str, _DEFAULTS["REPOSITORY_SQLITE_PATH"]
         )
+        self.chatkit_sqlite_path = self.chatkit_sqlite_path or cast(
+            str, _DEFAULTS["CHATKIT_SQLITE_PATH"]
+        )
+        self.chatkit_storage_path = self.chatkit_storage_path or cast(
+            str, _DEFAULTS["CHATKIT_STORAGE_PATH"]
+        )
+        if self.chatkit_retention_days <= 0:  # pragma: no cover - defensive
+            self.chatkit_retention_days = cast(int, _DEFAULTS["CHATKIT_RETENTION_DAYS"])
         self.host = self.host or cast(str, _DEFAULTS["HOST"])
         return self
 
@@ -224,6 +268,15 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             ),
             repository_sqlite_path=source.get(
                 "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
+            ),
+            chatkit_sqlite_path=source.get(
+                "CHATKIT_SQLITE_PATH", _DEFAULTS["CHATKIT_SQLITE_PATH"]
+            ),
+            chatkit_storage_path=source.get(
+                "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
+            ),
+            chatkit_retention_days=source.get(
+                "CHATKIT_RETENTION_DAYS", _DEFAULTS["CHATKIT_RETENTION_DAYS"]
             ),
             postgres_dsn=source.get("POSTGRES_DSN"),
             host=source.get("HOST", _DEFAULTS["HOST"]),
@@ -254,6 +307,9 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("SQLITE_PATH", settings.sqlite_path)
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
+    normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
+    normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
+    normalized.set("CHATKIT_RETENTION_DAYS", settings.chatkit_retention_days)
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
     normalized.set("HOST", settings.host)
     normalized.set("PORT", settings.port)

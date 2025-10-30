@@ -10,6 +10,10 @@
       crossorigin="anonymous"
     ></script>
     <style>
+      :root {
+        color-scheme: dark;
+      }
+
       body {
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         margin: 0;
@@ -28,7 +32,69 @@
         border-radius: 1rem;
         padding: 1.5rem;
         display: grid;
+        gap: 1.25rem;
+        max-width: 960px;
+      }
+
+      .controls {
+        display: grid;
         gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        align-items: end;
+      }
+
+      .field {
+        display: grid;
+        gap: 0.35rem;
+      }
+
+      .field span {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(148, 163, 184, 0.9);
+      }
+
+      .field input,
+      .field select {
+        appearance: none;
+        width: 100%;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.65rem;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.75);
+        color: inherit;
+        font-size: 0.95rem;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+
+      .field input:focus,
+      .field select:focus {
+        outline: none;
+        border-color: #38bdf8;
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+      }
+
+      button {
+        cursor: pointer;
+        padding: 0.7rem 1rem;
+        border-radius: 0.65rem;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: rgba(56, 189, 248, 0.15);
+        color: inherit;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+      }
+
+      button:hover {
+        background: rgba(56, 189, 248, 0.25);
+        border-color: rgba(148, 163, 184, 0.6);
+        transform: translateY(-1px);
+      }
+
+      button:active {
+        transform: translateY(0);
       }
 
       openai-chatkit {
@@ -48,6 +114,45 @@
       a {
         color: #38bdf8;
       }
+
+      .status {
+        font-size: 0.9rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.75rem;
+        background: rgba(30, 41, 59, 0.65);
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-height: 2.25rem;
+      }
+
+      .status[data-tone="info"] {
+        border-color: rgba(148, 163, 184, 0.35);
+      }
+
+      .status[data-tone="success"] {
+        border-color: rgba(74, 222, 128, 0.5);
+        background: rgba(22, 101, 52, 0.55);
+        color: #bbf7d0;
+      }
+
+      .status[data-tone="warn"] {
+        border-color: rgba(251, 191, 36, 0.45);
+        background: rgba(120, 53, 15, 0.55);
+        color: #fef3c7;
+      }
+
+      .status[data-tone="error"] {
+        border-color: rgba(248, 113, 113, 0.55);
+        background: rgba(127, 29, 29, 0.55);
+        color: #fecaca;
+      }
+
+      .selection {
+        font-size: 0.95rem;
+        color: rgba(226, 232, 240, 0.9);
+      }
     </style>
   </head>
   <body>
@@ -55,52 +160,202 @@
     <div class="container">
       <p>
         This page shows a minimal wiring between the
-        <strong>OpenAI ChatKit</strong> web component and the new Orcheo backend
+        <strong>OpenAI ChatKit</strong> web component and the Orcheo backend
         endpoints (<code>/api/chatkit/session</code> and
-        <code>/api/chatkit/workflows/:id/trigger</code>). Configure your backend
-        URL and workflow identifier in the script block below, then open the
-        ChatKit widget to dispatch workflow runs straight from the embedded UI.
+        <code>/api/chatkit/workflows/:id/trigger</code>). Use the controls below
+        to configure the backend URL and pick a workflow to drive the widget.
+      </p>
+
+      <div class="controls">
+        <label class="field">
+          <span>Backend URL</span>
+          <input id="backend-url" type="url" placeholder="http://localhost:8000" />
+        </label>
+        <label class="field">
+          <span>Workflow</span>
+          <select id="workflow-select" disabled>
+            <option>Loading workflows…</option>
+          </select>
+        </label>
+        <button type="button" id="refresh-workflows">Refresh workflows</button>
+      </div>
+
+      <p class="selection">
+        Selected workflow:
+        <span data-selected-workflow>None selected</span>
+      </p>
+
+      <p class="status" id="status-message" data-tone="info" role="status">
+        Configure a backend URL to load workflows.
       </p>
 
       <openai-chatkit></openai-chatkit>
 
       <p>
-        Generate or copy a ChatKit client secret and expose it to the backend by
-        setting <code>CHATKIT_CLIENT_SECRET</code> (or
-        <code>CHATKIT_CLIENT_SECRET_&lt;WORKFLOW_ID&gt;</code>) in the API
-        environment. The session endpoint will hand that token to the widget and
-        the client-tool callback invokes the workflow trigger endpoint.
+        Provide a ChatKit domain key (set
+        <code>ORCHEO_CHATKIT_DOMAIN_KEY</code> or use the default placeholder)
+        so that the widget can call your backend. Messages are forwarded to
+        <code>/api/chatkit</code>, which runs the selected workflow and streams
+        the reply back through ChatKit.
       </p>
     </div>
 
     <script>
       window.addEventListener("DOMContentLoaded", () => {
         const chatkit = document.querySelector("openai-chatkit");
-        const backendBase = window.ORCHEO_BACKEND_URL || "http://localhost:8000";
-        const workflowId = window.ORCHEO_WORKFLOW_ID || "00000000-0000-0000-0000-000000000000";
-        const workflowName = window.ORCHEO_WORKFLOW_NAME || "Canvas Preview";
+        const backendInput = document.getElementById("backend-url");
+        const workflowSelect = document.getElementById("workflow-select");
+        const refreshButton = document.getElementById("refresh-workflows");
+        const statusElement = document.getElementById("status-message");
+        const selectionElement = document.querySelector("[data-selected-workflow]");
 
-        const configureChatKit = () => {
+        const defaultBackend = window.ORCHEO_BACKEND_URL || "http://localhost:8000";
+        const presetWorkflowId = window.ORCHEO_WORKFLOW_ID || null;
+        const presetWorkflowName = window.ORCHEO_WORKFLOW_NAME || null;
+        const domainKey =
+          window.ORCHEO_CHATKIT_DOMAIN_KEY || "domain_pk_localhost_dev";
+        const WORKFLOW_STORAGE_KEY = "orcheo.chatkit.workflow";
+
+        function loadStoredWorkflow() {
+          try {
+            const stored = window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY);
+            if (!stored) {
+              return null;
+            }
+            const parsed = JSON.parse(stored);
+            if (parsed && parsed.id && parsed.name) {
+              return { id: parsed.id, name: parsed.name };
+            }
+          } catch (error) {
+            console.warn("Unable to load stored workflow selection", error);
+          }
+          return null;
+        }
+
+        const storedWorkflow = loadStoredWorkflow();
+
+        const state = {
+          backendBase: sanitizeBaseUrl(defaultBackend),
+          workflow: presetWorkflowId
+            ? { id: presetWorkflowId, name: presetWorkflowName || presetWorkflowId }
+            : storedWorkflow,
+        };
+
+        let cachedWorkflows = [];
+
+        backendInput.value = state.backendBase;
+
+        function sanitizeBaseUrl(value) {
+          return (value || "").trim().replace(/\/+$/, "");
+        }
+
+        function setStatus(message, tone = "info") {
+          statusElement.textContent = message;
+          statusElement.dataset.tone = tone;
+        }
+
+        function persistWorkflow(workflow) {
+          try {
+            if (workflow) {
+              window.sessionStorage.setItem(
+                WORKFLOW_STORAGE_KEY,
+                JSON.stringify(workflow),
+              );
+            } else {
+              window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
+            }
+          } catch (error) {
+            console.warn("Unable to persist workflow selection", error);
+          }
+        }
+
+        function syncComposerDisabled() {
+          if (!chatkit || typeof chatkit !== "object") {
+            return;
+          }
+          const root = chatkit.shadowRoot;
+          if (!root) {
+            return;
+          }
+          const sendButton =
+            root.querySelector('[data-testid="composer-send-button"]') ||
+            root.querySelector('button[type="submit"]');
+          if (!sendButton) {
+            return;
+          }
+          const disabled = !state.workflow;
+          sendButton.disabled = disabled;
+          if (disabled) {
+            sendButton.title = "Select a workflow to enable messaging.";
+          } else {
+            sendButton.removeAttribute("title");
+          }
+        }
+
+        function updateSelectionLabel() {
+          persistWorkflow(state.workflow);
+          if (state.workflow) {
+            selectionElement.textContent = `${state.workflow.name} (${state.workflow.id})`;
+          } else {
+            selectionElement.textContent = "None selected";
+          }
+          syncComposerDisabled();
+        }
+
+        function buildMetadataAwareFetch(workflow, backendBase) {
+          const originalFetch = window.fetch.bind(window);
+
+          if (!workflow) {
+            return originalFetch;
+          }
+
+          return async (input, init = {}) => {
+            const nextInit = { ...init };
+            const headers = new Headers(nextInit.headers || {});
+            const contentType = headers.get("Content-Type");
+
+            if (
+              typeof nextInit.body === "string" &&
+              contentType &&
+              contentType.includes("application/json")
+            ) {
+              try {
+                const payload = JSON.parse(nextInit.body);
+                if (payload && typeof payload === "object") {
+                  payload.metadata = {
+                    ...(payload.metadata || {}),
+                    workflow_id: workflow.id,
+                    workflow_name: workflow.name,
+                    backend_base: backendBase,
+                  };
+                  nextInit.body = JSON.stringify(payload);
+                }
+              } catch (error) {
+                console.warn("Unable to augment ChatKit payload metadata", error);
+              }
+            }
+
+            nextInit.headers = headers;
+            return originalFetch(input, nextInit);
+          };
+        }
+
+        function applyChatKitOptions() {
+          if (!state.workflow) {
+            setStatus("Select a workflow to enable the ChatKit widget.", "warn");
+            syncComposerDisabled();
+            return;
+          }
+
+          const workflowId = state.workflow.id;
+          const workflowName = state.workflow.name;
+          const backendBase = state.backendBase;
+
           const options = {
             api: {
-              async getClientSecret(currentSecret) {
-                const response = await fetch(`${backendBase}/api/chatkit/session`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    currentClientSecret: currentSecret,
-                    workflowId,
-                    workflowLabel: workflowName,
-                  }),
-                });
-
-                if (!response.ok) {
-                  throw new Error("Unable to fetch ChatKit client secret from Orcheo backend");
-                }
-
-                const data = await response.json();
-                return data.client_secret || data.clientSecret;
-              },
+              url: `${backendBase}/api/chatkit`,
+              domainKey,
+              fetch: buildMetadataAwareFetch(state.workflow, backendBase),
             },
             header: {
               enabled: true,
@@ -108,52 +363,112 @@
             },
             composer: {
               placeholder: `Test the ${workflowName} workflow…`,
-              tools: [
-                {
-                  id: "orcheo.run_workflow",
-                  label: "Run workflow",
-                  icon: "bolt",
-                  shortLabel: "Run",
-                },
-              ],
-            },
-            onClientTool: async ({ name, params }) => {
-              if (name !== "orcheo.run_workflow") {
-                return {};
-              }
-
-              const response = await fetch(
-                `${backendBase}/api/chatkit/workflows/${workflowId}/trigger`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    message: typeof params?.message === "string" ? params.message : "",
-                    metadata: params || {},
-                    actor: "chatkit-demo",
-                  }),
-                },
-              );
-
-              if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Workflow trigger failed: ${text}`);
-              }
-
-              return response.json();
             },
           };
 
-          if (chatkit.setOptions) {
-            chatkit.setOptions(options);
+          const assignOptions = () => chatkit.setOptions(options);
+          if (typeof chatkit.setOptions === "function") {
+            assignOptions();
           } else {
-            customElements.whenDefined("openai-chatkit").then(() => {
-              chatkit.setOptions(options);
-            });
+            customElements.whenDefined("openai-chatkit").then(assignOptions);
           }
-        };
 
-        configureChatKit();
+          setStatus(`ChatKit configured for workflow “${workflowName}”.`, "success");
+          syncComposerDisabled();
+        }
+
+        async function loadWorkflows() {
+          const backendBase = sanitizeBaseUrl(backendInput.value) || "http://localhost:8000";
+          state.backendBase = backendBase;
+          backendInput.value = backendBase;
+
+          setStatus("Loading workflows from backend…", "info");
+          workflowSelect.disabled = true;
+          workflowSelect.innerHTML = "";
+
+          try {
+            const response = await fetch(`${backendBase}/api/workflows`);
+            if (!response.ok) {
+              throw new Error(`${response.status} ${response.statusText}`);
+            }
+
+            const workflows = await response.json();
+            cachedWorkflows = Array.isArray(workflows) ? workflows : [];
+
+            if (cachedWorkflows.length === 0) {
+              workflowSelect.innerHTML =
+                '<option value="">No workflows available</option>';
+              state.workflow = null;
+              updateSelectionLabel();
+              setStatus("No workflows found. Create one in Orcheo first.", "warn");
+              return;
+            }
+
+            workflowSelect.innerHTML = "";
+            cachedWorkflows.forEach((workflow) => {
+              const option = document.createElement("option");
+              option.value = workflow.id;
+              option.textContent = `${workflow.name} (${workflow.id})`;
+              option.dataset.workflowName = workflow.name;
+              workflowSelect.appendChild(option);
+            });
+
+            const initialWorkflow =
+              cachedWorkflows.find((workflow) => workflow.id === (state.workflow?.id || presetWorkflowId)) ||
+              cachedWorkflows[0];
+
+            state.workflow = initialWorkflow
+              ? { id: initialWorkflow.id, name: initialWorkflow.name }
+              : null;
+
+            workflowSelect.value = state.workflow ? state.workflow.id : "";
+            workflowSelect.disabled = false;
+            updateSelectionLabel();
+            applyChatKitOptions();
+          } catch (error) {
+            workflowSelect.innerHTML =
+              '<option value="">Failed to load workflows</option>';
+            workflowSelect.disabled = true;
+            state.workflow = null;
+            updateSelectionLabel();
+            setStatus(`Failed to load workflows: ${error.message}`, "error");
+          }
+        }
+
+        workflowSelect.addEventListener("change", () => {
+          const selectedId = workflowSelect.value;
+          const workflow = cachedWorkflows.find((item) => item.id === selectedId) || null;
+          state.workflow = workflow
+            ? { id: workflow.id, name: workflow.name }
+            : null;
+          updateSelectionLabel();
+          applyChatKitOptions();
+        });
+
+        refreshButton.addEventListener("click", () => {
+          loadWorkflows();
+        });
+
+        backendInput.addEventListener("change", () => {
+          loadWorkflows();
+        });
+
+        backendInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            loadWorkflows();
+          }
+        });
+
+        const composerWatcher = window.setInterval(syncComposerDisabled, 800);
+        window.addEventListener("beforeunload", () => {
+          window.clearInterval(composerWatcher);
+        });
+
+        syncComposerDisabled();
+        updateSelectionLabel();
+        applyChatKitOptions();
+        loadWorkflows();
       });
     </script>
   </body>
