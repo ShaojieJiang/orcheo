@@ -761,7 +761,12 @@ def download_workflow(
         raise CLIError(f"Workflow '{workflow_id}' has no versions.")
 
     latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    graph = latest_version.get("graph", {})
+    graph_raw = latest_version.get("graph")
+    graph: Mapping[str, Any]
+    if isinstance(graph_raw, Mapping):
+        graph = graph_raw
+    else:
+        graph = {}
 
     # Auto-detect format if requested
     resolved_format = format_type.lower()

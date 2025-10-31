@@ -2495,6 +2495,38 @@ def test_workflow_download_auto_format_sdk_workflow(
     assert "graph" in output
 
 
+def test_workflow_download_auto_format_missing_graph(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Gracefully handle workflows whose versions lack a graph payload."""
+    workflow = {"id": "wf-1", "name": "SDKWorkflow"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            # Older versions may omit the "graph" field altogether.
+            # The CLI should fall back to JSON output without crashing.
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],  # No --format, should default to auto
+            env=env,
+        )
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert output["name"] == "SDKWorkflow"
+    assert output["graph"] == {}
+
+
 def test_workflow_download_auto_format_explicit(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
