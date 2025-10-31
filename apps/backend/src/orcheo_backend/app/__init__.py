@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn, TypeVar, cast
+from typing import Annotated, Any, Literal, NoReturn, cast
 from uuid import UUID
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
@@ -313,10 +313,8 @@ _history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistorySto
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
 
-T = TypeVar("T")
 
-
-def _settings_value(
+def _settings_value[T](
     settings: Any, *, attr_path: str | None, env_key: str, default: T
 ) -> T:
     """Return a configuration value supporting Dynaconf and attribute objects."""
