@@ -1,6 +1,5 @@
 """Tests for Slack node."""
 
-import os
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +22,9 @@ def slack_node():
         name="slack_node",
         tool_name="slack_post_message",
         kwargs={"channel": "#general", "text": "Hello World!"},
+        bot_token="test_token",
+        team_id="test_team",
+        channel_ids="test_channel_ids",
     )
 
 
@@ -52,41 +54,33 @@ async def test_slack_node_run_success(slack_node):
         with patch(
             "orcheo.nodes.slack.Client", return_value=mock_context_manager
         ) as mock_client_class:
-            with patch.dict(
-                os.environ,
-                {
+            result = await slack_node.run({}, None)
+
+            # Verify the transport was created with correct parameters
+            mock_transport_class.assert_called_once_with(
+                "@modelcontextprotocol/server-slack",
+                env_vars={
                     "SLACK_BOT_TOKEN": "test_token",
                     "SLACK_TEAM_ID": "test_team",
                     "SLACK_CHANNEL_IDS": "test_channel_ids",
                 },
-            ):
-                result = await slack_node.run({}, None)
+            )
 
-                # Verify the transport was created with correct parameters
-                mock_transport_class.assert_called_once_with(
-                    "@modelcontextprotocol/server-slack",
-                    env_vars={
-                        "SLACK_BOT_TOKEN": "test_token",
-                        "SLACK_TEAM_ID": "test_team",
-                        "SLACK_CHANNEL_IDS": "test_channel_ids",
-                    },
-                )
+            # Verify the client was created with the transport
+            mock_client_class.assert_called_once_with(mock_transport)
 
-                # Verify the client was created with the transport
-                mock_client_class.assert_called_once_with(mock_transport)
+            # Verify the tool was called with correct parameters
+            mock_client.call_tool.assert_called_once_with(
+                "slack_post_message",
+                {"channel": "#general", "text": "Hello World!"},
+            )
 
-                # Verify the tool was called with correct parameters
-                mock_client.call_tool.assert_called_once_with(
-                    "slack_post_message",
-                    {"channel": "#general", "text": "Hello World!"},
-                )
-
-                # Verify the result is converted to dict
-                assert result == {
-                    "content": [{"text": "Message sent successfully"}],
-                    "is_error": False,
-                    "error": None,
-                }
+            # Verify the result is converted to dict
+            assert result == {
+                "content": [{"text": "Message sent successfully"}],
+                "is_error": False,
+                "error": None,
+            }
 
 
 @pytest.mark.asyncio
@@ -104,22 +98,22 @@ async def test_slack_node_run_missing_env_vars(slack_node):
     mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
+    slack_node.channel_ids = None
+
     with patch(
         "orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport
     ) as mock_transport_class:
         with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            with patch.dict(os.environ, {}, clear=True):
-                await slack_node.run({}, None)
+            await slack_node.run({}, None)
 
-                # Verify environment variables default to empty strings
-                mock_transport_class.assert_called_once_with(
-                    "@modelcontextprotocol/server-slack",
-                    env_vars={
-                        "SLACK_BOT_TOKEN": "",
-                        "SLACK_TEAM_ID": "",
-                        "SLACK_CHANNEL_IDS": "",
-                    },
-                )
+            # Verify optional channel IDs are omitted when not provided
+            mock_transport_class.assert_called_once_with(
+                "@modelcontextprotocol/server-slack",
+                env_vars={
+                    "SLACK_BOT_TOKEN": "test_token",
+                    "SLACK_TEAM_ID": "test_team",
+                },
+            )
 
 
 @pytest.mark.asyncio
@@ -145,26 +139,18 @@ async def test_slack_node_run_different_tool(slack_node):
 
     with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
         with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            with patch.dict(
-                os.environ,
-                {
-                    "SLACK_BOT_TOKEN": "test_token",
-                    "SLACK_TEAM_ID": "test_team",
-                    "SLACK_CHANNEL_IDS": "test_channel_ids",
-                },
-            ):
-                result = await slack_node.run({}, None)
+            result = await slack_node.run({}, None)
 
-                # Verify the correct tool was called with correct kwargs
-                mock_client.call_tool.assert_called_once_with(
-                    "slack_list_channels", {"limit": 10}
-                )
+            # Verify the correct tool was called with correct kwargs
+            mock_client.call_tool.assert_called_once_with(
+                "slack_list_channels", {"limit": 10}
+            )
 
-                assert result == {
-                    "content": [{"channels": ["#general", "#random"]}],
-                    "is_error": False,
-                    "error": None,
-                }
+            assert result == {
+                "content": [{"channels": ["#general", "#random"]}],
+                "is_error": False,
+                "error": None,
+            }
 
 
 @pytest.mark.asyncio
@@ -184,22 +170,14 @@ async def test_slack_node_run_error_case(slack_node):
 
     with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
         with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            with patch.dict(
-                os.environ,
-                {
-                    "SLACK_BOT_TOKEN": "test_token",
-                    "SLACK_TEAM_ID": "test_team",
-                    "SLACK_CHANNEL_IDS": "test_channel_ids",
-                },
-            ):
-                result = await slack_node.run({}, None)
+            result = await slack_node.run({}, None)
 
-                # Verify error result is properly returned
-                assert result == {
-                    "content": [],
-                    "is_error": True,
-                    "error": "Channel not found",
-                }
+            # Verify error result is properly returned
+            assert result == {
+                "content": [],
+                "is_error": True,
+                "error": "Channel not found",
+            }
 
 
 @pytest.mark.asyncio
@@ -222,21 +200,13 @@ async def test_slack_node_run_empty_kwargs(slack_node):
 
     with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
         with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            with patch.dict(
-                os.environ,
-                {
-                    "SLACK_BOT_TOKEN": "test_token",
-                    "SLACK_TEAM_ID": "test_team",
-                    "SLACK_CHANNEL_IDS": "test_channel_ids",
-                },
-            ):
-                result = await slack_node.run({}, None)
+            result = await slack_node.run({}, None)
 
-                # Verify the tool was called with empty kwargs
-                mock_client.call_tool.assert_called_once_with("slack_post_message", {})
+            # Verify the tool was called with empty kwargs
+            mock_client.call_tool.assert_called_once_with("slack_post_message", {})
 
-                assert result == {
-                    "content": [{"text": "Success"}],
-                    "is_error": False,
-                    "error": None,
-                }
+            assert result == {
+                "content": [{"text": "Success"}],
+                "is_error": False,
+                "error": None,
+            }

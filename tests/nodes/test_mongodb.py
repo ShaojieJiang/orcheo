@@ -435,6 +435,7 @@ class TestMongoDBResultConversion:
         )
 
         # Manually call __del__ to test cleanup
+        node._ensure_collection()
         node.__del__()
 
         # Verify the client close method was called
