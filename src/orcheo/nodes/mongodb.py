@@ -2,6 +2,7 @@
 
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
+from pydantic import PrivateAttr
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
@@ -13,7 +14,6 @@ from pymongo.results import (
     InsertOneResult,
     UpdateResult,
 )
-from pydantic import PrivateAttr
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry

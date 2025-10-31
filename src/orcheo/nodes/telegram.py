@@ -50,7 +50,7 @@ def escape_markdown(text: str) -> str:
 class MessageTelegram(TaskNode):
     """Node for sending Telegram messages."""
 
-    token: str
+    token: str = "[[telegram_token]]"
     chat_id: str | None = None
     message: str | None = None
     parse_mode: str | None = None

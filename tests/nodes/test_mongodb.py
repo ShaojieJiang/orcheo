@@ -1,7 +1,9 @@
 """Test MongoDB node result conversion."""
 
 import asyncio
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
+from langchain_core.runnables import RunnableConfig
 from pymongo.results import (
     BulkWriteResult,
     DeleteResult,
@@ -16,7 +18,7 @@ from orcheo.nodes.mongodb import MongoDBNode
 class TestMongoDBResultConversion:
     """Test MongoDB result conversion to dict/list[dict] format."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """Set up test fixtures."""
         # Mock MongoDB components to avoid requiring real connection
         self.mock_collection = MagicMock()
@@ -26,7 +28,7 @@ class TestMongoDBResultConversion:
         self.mock_client.__getitem__.return_value = self.mock_database
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_cursor_to_list_dict(self, mock_mongo_client):
+    def test_convert_cursor_to_list_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of cursor results to list[dict]."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -57,7 +59,7 @@ class TestMongoDBResultConversion:
         assert result[1] == {"_id": "2", "name": "doc2"}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_command_cursor_to_list_dict(self, mock_mongo_client):
+    def test_convert_command_cursor_to_list_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of command cursor results to list[dict]."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -86,7 +88,7 @@ class TestMongoDBResultConversion:
         assert result[1] == {"_id": "2", "count": 3}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_insert_result_to_dict(self, mock_mongo_client):
+    def test_convert_insert_result_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of insert result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -111,7 +113,7 @@ class TestMongoDBResultConversion:
         assert result["acknowledged"] is True
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_insert_many_result_to_dict(self, mock_mongo_client):
+    def test_convert_insert_many_result_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of insert many result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -142,7 +144,7 @@ class TestMongoDBResultConversion:
         assert result["acknowledged"] is True
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_update_result_to_dict(self, mock_mongo_client):
+    def test_convert_update_result_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of update result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -171,7 +173,7 @@ class TestMongoDBResultConversion:
         assert result["acknowledged"] is True
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_delete_result_to_dict(self, mock_mongo_client):
+    def test_convert_delete_result_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of delete result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -196,7 +198,7 @@ class TestMongoDBResultConversion:
         assert result["acknowledged"] is True
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_bulk_write_result_to_dict(self, mock_mongo_client):
+    def test_convert_bulk_write_result_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of bulk write result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -231,7 +233,9 @@ class TestMongoDBResultConversion:
         assert result["acknowledged"] is True
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_bulk_write_result_no_upserted_ids(self, mock_mongo_client):
+    def test_convert_bulk_write_result_no_upserted_ids(
+        self, mock_mongo_client: Any
+    ) -> None:
         """Test conversion of bulk write result with no upserted_ids."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -259,7 +263,7 @@ class TestMongoDBResultConversion:
         assert result["upserted_ids"] == {}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_primitive_to_dict(self, mock_mongo_client):
+    def test_convert_primitive_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of primitive values to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -289,7 +293,7 @@ class TestMongoDBResultConversion:
         assert result == {"result": 3.14}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_none_to_dict(self, mock_mongo_client):
+    def test_convert_none_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of None result to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -306,7 +310,7 @@ class TestMongoDBResultConversion:
         assert result == {"result": None}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_list_to_list_dict(self, mock_mongo_client):
+    def test_convert_list_to_list_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of list results to list[dict]."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -335,7 +339,7 @@ class TestMongoDBResultConversion:
         assert result[1] == {"key2": "val2"}
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_object_with_dict_to_dict(self, mock_mongo_client):
+    def test_convert_object_with_dict_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of objects with __dict__ to dict."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -350,7 +354,7 @@ class TestMongoDBResultConversion:
 
         # Create an object with __dict__
         class CustomObject:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.attr1 = "value1"
                 self.attr2 = 42
 
@@ -361,7 +365,7 @@ class TestMongoDBResultConversion:
         assert result["attr2"] == 42
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_convert_unknown_object_to_dict(self, mock_mongo_client):
+    def test_convert_unknown_object_to_dict(self, mock_mongo_client: Any) -> None:
         """Test conversion of unknown objects to dict using string representation."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -378,7 +382,7 @@ class TestMongoDBResultConversion:
         class ComplexObject:
             __slots__ = ()
 
-            def __str__(self):
+            def __str__(self) -> str:
                 return "complex_object_representation"
 
         complex_obj = ComplexObject()
@@ -387,7 +391,7 @@ class TestMongoDBResultConversion:
         assert result["result"] == "complex_object_representation"
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_run_method(self, mock_mongo_client):
+    def test_run_method(self, mock_mongo_client: Any) -> None:
         """Test the run method of MongoDB node."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -404,8 +408,8 @@ class TestMongoDBResultConversion:
         )
 
         # Create a mock state and config
-        state = State(messages=[], outputs={})
-        config = {}
+        state = State(messages=[], inputs={}, results={})
+        config = cast(RunnableConfig, {})
 
         # Run the node
         result = asyncio.run(node.run(state, config))
@@ -421,7 +425,7 @@ class TestMongoDBResultConversion:
         self.mock_collection.find.assert_called_once_with({"status": "active"})
 
     @patch("orcheo.nodes.mongodb.MongoClient")
-    def test_del_method(self, mock_mongo_client):
+    def test_del_method(self, mock_mongo_client: Any) -> None:
         """Test the __del__ method closes the client."""
         # Mock MongoDB client
         mock_mongo_client.return_value = self.mock_client
@@ -440,3 +444,64 @@ class TestMongoDBResultConversion:
 
         # Verify the client close method was called
         self.mock_client.close.assert_called_once()
+
+    @patch("orcheo.nodes.mongodb.MongoClient")
+    def test_ensure_collection_client_already_exists(
+        self, mock_mongo_client: Any
+    ) -> None:
+        """Test _ensure_collection when client already exists."""
+        # Mock MongoDB client
+        mock_mongo_client.return_value = self.mock_client
+
+        node = MongoDBNode(
+            name="test_node",
+            database="test_db",
+            collection="test_coll",
+            operation="find",
+            query={},
+        )
+
+        # First call - creates client and collection
+        node._ensure_collection()
+        assert node._client is not None
+        assert node._collection is not None
+
+        # Get reference to the existing client
+        existing_client = node._client
+        existing_collection = node._collection
+
+        # Second call - should reuse existing client and collection
+        node._ensure_collection()
+        assert node._client is existing_client
+        assert node._collection is existing_collection
+
+        # MongoClient should only be called once
+        assert mock_mongo_client.call_count == 1
+
+    @patch("orcheo.nodes.mongodb.MongoClient")
+    def test_ensure_collection_collection_already_exists(
+        self, mock_mongo_client: Any
+    ) -> None:
+        """Test _ensure_collection when collection already exists but client doesn't."""
+        # Mock MongoDB client
+        mock_mongo_client.return_value = self.mock_client
+
+        node = MongoDBNode(
+            name="test_node",
+            database="test_db",
+            collection="test_coll",
+            operation="find",
+            query={},
+        )
+
+        # Manually set client but not collection
+        node._client = self.mock_client
+        assert node._collection is None
+
+        # Call _ensure_collection - should only create collection
+        node._ensure_collection()
+        assert node._client is self.mock_client
+        assert node._collection is not None
+
+        # MongoClient should not be called since client already existed
+        mock_mongo_client.assert_not_called()
