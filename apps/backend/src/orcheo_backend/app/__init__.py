@@ -961,7 +961,7 @@ async def trigger_chatkit_workflow(
         )
     except CredentialHealthError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
 
@@ -1192,7 +1192,7 @@ async def create_workflow_run(
         _raise_not_found("Workflow version not found", exc)
     except CredentialHealthError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
 
@@ -1239,7 +1239,7 @@ def create_credential(
         ) from exc
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
@@ -1527,7 +1527,7 @@ async def validate_workflow_credentials(
     report = await service.ensure_workflow_health(workflow_id, actor=request.actor)
     if not report.is_healthy:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "message": "Credentials failed validation.",
                 "failures": report.failures,
@@ -1762,7 +1762,7 @@ async def invoke_webhook_trigger(
         _raise_webhook_error(exc)
     except CredentialHealthError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
 
@@ -1812,7 +1812,7 @@ async def dispatch_cron_triggers(
         return await repository.dispatch_due_cron_runs(now=now)
     except CredentialHealthError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
 
@@ -1833,7 +1833,7 @@ async def dispatch_manual_runs(
         _raise_not_found("Workflow version not found", exc)
     except CredentialHealthError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
 

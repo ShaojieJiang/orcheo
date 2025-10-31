@@ -1,9 +1,10 @@
 """MongoDB node."""
 
-import os
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
+from pydantic import PrivateAttr
 from pymongo import MongoClient
+from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
 from pymongo.results import (
@@ -32,6 +33,8 @@ class MongoDBNode(TaskNode):
     - MDB_CONNECTION_STRING: Required.
     """
 
+    connection_string: str = "[[mdb_connection_string]]"
+    """Connection string for MongoDB."""
     database: str
     """The database to use."""
     collection: str
@@ -74,12 +77,15 @@ class MongoDBNode(TaskNode):
     ]
     query: dict = {}
     """The query to pass to the operation."""
+    _client: MongoClient | None = PrivateAttr(default=None)
+    _collection: Collection | None = PrivateAttr(default=None)
 
-    def __init__(self, **kwargs: Any) -> None:
-        """Initialize the MongoDB client."""
-        super().__init__(**kwargs)
-        self._client: MongoClient = MongoClient(os.getenv("MDB_CONNECTION_STRING"))
-        self._collection = self._client[self.database][self.collection]
+    def _ensure_collection(self) -> None:
+        """Ensure the MongoDB collection is initialised."""
+        if self._client is None:
+            self._client = MongoClient(self.connection_string)
+        if self._collection is None:
+            self._collection = self._client[self.database][self.collection]
 
     def _convert_result_to_dict(self, result: Any) -> dict | list[dict]:
         """Convert MongoDB operation result to dict or list[dict] format."""
@@ -154,10 +160,13 @@ class MongoDBNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the MongoDB node with persistent session."""
+        self._ensure_collection()
+        assert self._collection is not None
         operation = getattr(self._collection, self.operation)
         result = operation(self.query)
         return {"data": self._convert_result_to_dict(result)}
 
     def __del__(self) -> None:
         """Automatic cleanup when object is garbage collected."""
-        self._client.close()
+        if self._client is not None:
+            self._client.close()

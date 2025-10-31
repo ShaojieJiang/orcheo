@@ -1,6 +1,5 @@
 """Slack node."""
 
-import os
 from dataclasses import asdict
 from typing import Literal
 from fastmcp import Client
@@ -42,16 +41,24 @@ class SlackNode(TaskNode):
     """The name of the tool supported by the MCP server."""
     kwargs: dict = {}
     """The keyword arguments to pass to the tool."""
+    bot_token: str = "[[slack_bot_token]]"
+    """Bot user OAuth token."""
+    team_id: str = "[[slack_team_id]]"
+    """Slack workspace ID."""
+    channel_ids: str | None = None
+    """Optional comma separated list of channel IDs."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the Slack node."""
+        env_vars = {
+            "SLACK_BOT_TOKEN": self.bot_token,
+            "SLACK_TEAM_ID": self.team_id,
+        }
+        if self.channel_ids:
+            env_vars["SLACK_CHANNEL_IDS"] = self.channel_ids
         transport = NpxStdioTransport(
             "@modelcontextprotocol/server-slack",
-            env_vars={
-                "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN", ""),
-                "SLACK_TEAM_ID": os.getenv("SLACK_TEAM_ID", ""),
-                "SLACK_CHANNEL_IDS": os.getenv("SLACK_CHANNEL_IDS", ""),
-            },
+            env_vars=env_vars,
         )
         async with Client(transport) as client:
             result = await client.call_tool(self.tool_name, self.kwargs)

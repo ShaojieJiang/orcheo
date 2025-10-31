@@ -360,7 +360,7 @@ async def test_validate_workflow_credentials_reports_failures() -> None:
             service=Service(),
         )
 
-    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @pytest.mark.asyncio()
@@ -441,7 +441,7 @@ async def test_invoke_webhook_trigger_wraps_health_error() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await invoke_webhook_trigger(workflow_id, request, repository=Repository())
 
-    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @pytest.mark.asyncio()
@@ -455,7 +455,7 @@ async def test_dispatch_cron_triggers_wraps_health_error() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await dispatch_cron_triggers(repository=Repository())
 
-    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @pytest.mark.asyncio()
@@ -475,7 +475,7 @@ async def test_dispatch_manual_runs_wraps_health_error() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await dispatch_manual_runs(manual_request, repository=Repository())
 
-    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_create_app_infers_credential_service(monkeypatch: pytest.MonkeyPatch) -> None:
