@@ -29,7 +29,7 @@ from typer.testing import CliRunner
 
 @pytest.fixture()
 def runner() -> CliRunner:
-    return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 @pytest.fixture()
@@ -2320,6 +2320,215 @@ def test_workflow_download_unsupported_format_error(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "Unsupported format" in str(result.exception)
+
+
+def test_workflow_download_langgraph_script_returns_original_source(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download returns original LangGraph script source."""
+    original_source = """from langgraph.graph import StateGraph
+from typing import TypedDict
+
+class State(TypedDict):
+    messages: list[str]
+
+def my_node(state: State) -> State:
+    return {"messages": state["messages"] + ["processed"]}
+
+graph = StateGraph(State)
+graph.add_node("my_node", my_node)
+graph.set_entry_point("my_node")
+graph.set_finish_point("my_node")
+"""
+    workflow = {"id": "wf-1", "name": "LangGraphWorkflow"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "format": "langgraph-script",
+                "source": original_source,
+                "entrypoint": None,
+                "summary": {
+                    "nodes": [{"name": "my_node", "type": "function"}],
+                    "edges": [],
+                },
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--format", "python"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "from langgraph.graph import StateGraph" in result.stdout
+    assert "def my_node(state: State)" in result.stdout
+    # Should NOT contain SDK template code
+    assert "from orcheo_sdk import Workflow" not in result.stdout
+
+
+def test_workflow_download_langgraph_script_json_includes_source(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download as JSON includes original LangGraph source."""
+    original_source = "from langgraph.graph import StateGraph\n"
+    workflow = {"id": "wf-1", "name": "LangGraphWorkflow"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "format": "langgraph-script",
+                "source": original_source,
+                "entrypoint": None,
+                "summary": {"nodes": [], "edges": []},
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--format", "json"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert output["graph"]["format"] == "langgraph-script"
+    assert output["graph"]["source"] == original_source
+
+
+def test_workflow_download_auto_format_langgraph_script(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test download with auto format: LangGraph script downloads as Python."""
+    original_source = """from langgraph.graph import StateGraph
+
+def my_node(state):
+    return state
+
+graph = StateGraph(dict)
+graph.add_node("my_node", my_node)
+"""
+    workflow = {"id": "wf-1", "name": "LangGraphWorkflow"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "format": "langgraph-script",
+                "source": original_source,
+                "entrypoint": None,
+                "summary": {"nodes": [{"name": "my_node"}], "edges": []},
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],  # No --format, should default to auto
+            env=env,
+        )
+    assert result.exit_code == 0
+    # Should output Python code (not JSON)
+    assert "from langgraph.graph import StateGraph" in result.stdout
+    assert "def my_node(state)" in result.stdout
+    # Should NOT contain JSON structure
+    assert '"name"' not in result.stdout
+
+
+def test_workflow_download_auto_format_sdk_workflow(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download with auto format for SDK workflow downloads as JSON."""
+    workflow = {"id": "wf-1", "name": "SDKWorkflow"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                # No "format" field or format is not "langgraph-script"
+                "nodes": [{"name": "node1", "type": "Agent"}],
+                "edges": [],
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1"],  # No --format, should default to auto
+            env=env,
+        )
+    assert result.exit_code == 0
+    # Should output JSON (not Python code)
+    output = json.loads(result.stdout)
+    assert output["name"] == "SDKWorkflow"
+    assert "graph" in output
+
+
+def test_workflow_download_auto_format_explicit(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download with explicit --format auto for LangGraph script."""
+    original_source = "from langgraph.graph import StateGraph\n"
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {
+                "format": "langgraph-script",
+                "source": original_source,
+                "entrypoint": None,
+                "summary": {"nodes": [], "edges": []},
+            },
+        }
+    ]
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--format", "auto"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    # Should output Python code
+    assert original_source in result.stdout
 
 
 # Python workflow loading tests
