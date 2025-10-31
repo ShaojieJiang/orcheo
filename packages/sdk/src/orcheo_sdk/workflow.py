@@ -4,11 +4,8 @@ from __future__ import annotations
 from abc import ABC
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, Generic, Literal, TypeVar
+from typing import Any, ClassVar, Literal
 from pydantic import BaseModel
-
-
-ConfigT = TypeVar("ConfigT", bound=BaseModel)
 
 
 @dataclass(slots=True)
@@ -21,7 +18,7 @@ class DeploymentRequest:
     headers: dict[str, str]
 
 
-class WorkflowNode(Generic[ConfigT], ABC):
+class WorkflowNode[ConfigT: BaseModel](ABC):
     """Base class for authoring typed workflow nodes."""
 
     type_name: ClassVar[str]

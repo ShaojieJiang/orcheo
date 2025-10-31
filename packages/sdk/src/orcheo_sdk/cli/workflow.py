@@ -46,7 +46,7 @@ OutputPathOption = Annotated[
 ]
 FormatOption = Annotated[
     str,
-    typer.Option("--format", "-f", help="Output format (json or python)."),
+    typer.Option("--format", "-f", help="Output format (auto, json, or python)."),
 ]
 
 
@@ -734,11 +734,13 @@ def download_workflow(
     ctx: typer.Context,
     workflow_id: WorkflowIdArgument,
     output_path: OutputPathOption = None,
-    format_type: FormatOption = "json",
+    format_type: FormatOption = "auto",
 ) -> None:
     """Download a workflow configuration to a file or stdout.
 
-    Supports downloading as JSON (default) or Python code format.
+    Supports downloading as JSON, Python code, or auto (auto-detects format).
+    When format is 'auto' (default), LangGraph scripts download as Python,
+    others as JSON.
     """
     state = _state(ctx)
     workflow, from_cache, stale = load_with_cache(
@@ -759,15 +761,32 @@ def download_workflow(
         raise CLIError(f"Workflow '{workflow_id}' has no versions.")
 
     latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    graph = latest_version.get("graph", {})
+    graph_raw = latest_version.get("graph")
+    graph: Mapping[str, Any]
+    if isinstance(graph_raw, Mapping):
+        graph = graph_raw
+    else:
+        graph = {}
+
+    # Auto-detect format if requested
+    resolved_format = format_type.lower()
+    if resolved_format == "auto":
+        # If workflow was uploaded as a LangGraph script, download as Python
+        # Otherwise, download as JSON
+        if graph.get("format") == "langgraph-script":
+            resolved_format = "python"
+        else:
+            resolved_format = "json"
 
     # Format the output
-    if format_type.lower() == "json":
+    if resolved_format == "json":
         output_content = _format_workflow_as_json(workflow, graph)
-    elif format_type.lower() == "python":
+    elif resolved_format == "python":
         output_content = _format_workflow_as_python(workflow, graph)
     else:
-        raise CLIError(f"Unsupported format '{format_type}'. Use 'json' or 'python'.")
+        raise CLIError(
+            f"Unsupported format '{format_type}'. Use 'auto', 'json', or 'python'."
+        )
 
     # Write to file or stdout
     if output_path:
@@ -962,8 +981,13 @@ def _format_workflow_as_python(
 ) -> str:
     """Format workflow configuration as Python code.
 
-    Generates a basic Python template that users can customize.
+    For LangGraph scripts, returns the original source code.
+    For SDK workflows, generates a basic Python template that users can customize.
     """
+    # Check if this is a LangGraph script with original source
+    if graph.get("format") == "langgraph-script" and "source" in graph:
+        return graph["source"]
+
     name = workflow.get("name", "workflow")
     nodes = graph.get("nodes", [])
 

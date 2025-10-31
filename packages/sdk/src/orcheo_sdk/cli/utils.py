@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 from collections.abc import Callable
-from typing import TypeVar
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.state import CLIState
 
 
-T = TypeVar("T")
-
-
-def load_with_cache(
+def load_with_cache[T](
     state: CLIState,
     cache_key: str,
     loader: Callable[[], T],
