@@ -4,13 +4,16 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, cast
-import psycopg
+from typing import TYPE_CHECKING, Any, Literal, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+if TYPE_CHECKING:
+    pass
 
 
 def _rows_to_dicts(
@@ -47,6 +50,8 @@ class PostgresNode(TaskNode):
 
     def _execute(self) -> dict[str, Any]:
         """Execute the configured query returning structured results."""
+        import psycopg
+
         with psycopg.connect(self.dsn) as connection:
             connection.autocommit = self.autocommit
             with connection.cursor() as cursor:

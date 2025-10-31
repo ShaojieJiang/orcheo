@@ -177,3 +177,36 @@ async def test_discord_webhook_node_supports_optional_fields() -> None:
     assert captured["avatar_url"].endswith("avatar.png")
     assert captured["embeds"] == [{"title": "Update"}]
     assert captured["tts"] is True
+
+
+@pytest.mark.asyncio
+async def test_discord_webhook_node_omits_optional_fields_when_none() -> None:
+    """DiscordWebhookNode should omit optional fields when they are None."""
+
+    state = State({"results": {}})
+    node = DiscordWebhookNode(
+        name="discord",
+        webhook_url="https://discordapp.com/api/webhooks/789",
+        content=None,
+        username=None,
+        avatar_url=None,
+        embeds=None,
+        tts=False,
+    )
+
+    with respx.mock(base_url="https://discordapp.com") as router:
+        captured: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content))
+            return httpx.Response(204)
+
+        route = router.post("/api/webhooks/789").mock(side_effect=handler)
+        await node(state, RunnableConfig())
+
+    assert route.called
+    assert "content" not in captured
+    assert "username" not in captured
+    assert "avatar_url" not in captured
+    assert "embeds" not in captured
+    assert captured["tts"] is False

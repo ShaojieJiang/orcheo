@@ -44,7 +44,7 @@ def _extract_value(payload: Any, path: str) -> tuple[bool, Any]:
             continue
 
         if isinstance(current, Sequence) and not isinstance(
-            current, (str, bytes, bytearray)
+            current, str | bytes | bytearray
         ):
             if not segment.isdigit():
                 return False, None
@@ -103,9 +103,13 @@ class HttpRequestNode(TaskNode):
     json_body: Any | None = Field(
         default=None, description="JSON payload supplied for request bodies"
     )
+    content: Any | None = Field(
+        default=None,
+        description="Raw bytes or text content for the request body",
+    )
     data: Any | None = Field(
         default=None,
-        description="Arbitrary request body payload (form data, bytes, etc.)",
+        description="Form data payload (url-encoded or multipart)",
     )
     timeout: float | None = Field(
         default=30.0, ge=0.0, description="Optional timeout in seconds for the request"
@@ -130,6 +134,8 @@ class HttpRequestNode(TaskNode):
 
         if self.json_body is not None:
             request_kwargs["json"] = self.json_body
+        if self.content is not None:
+            request_kwargs["content"] = self.content
         if self.data is not None:
             request_kwargs["data"] = self.data
 
@@ -305,7 +311,7 @@ def _transform_title(value: Any) -> Any:
 def _transform_length(value: Any) -> int:
     if isinstance(value, Mapping):
         return len(value)
-    if isinstance(value, (str, Sequence)) and not isinstance(value, (bytes, bytearray)):
+    if isinstance(value, str | Sequence) and not isinstance(value, bytes | bytearray):
         return len(value)
     return 0
 
@@ -402,7 +408,7 @@ class MergeNode(TaskNode):
         if isinstance(first, Mapping):
             return "dict"
         if isinstance(first, Sequence) and not isinstance(
-            first, (str, bytes, bytearray)
+            first, str | bytes | bytearray
         ):
             return "list"
         msg = "Unable to infer merge mode; specify mode explicitly"
@@ -428,7 +434,7 @@ class MergeNode(TaskNode):
         seen: set[Any] | None = set() if self.deduplicate else None
         for item in self.items:
             if not isinstance(item, Sequence) or isinstance(
-                item, (str, bytes, bytearray)
+                item, str | bytes | bytearray
             ):
                 msg = "All items must be sequences when merging lists"
                 raise ValueError(msg)

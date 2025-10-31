@@ -4,12 +4,16 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import warnings
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from langchain_core.runnables import RunnableConfig
-from py_mini_racer import py_mini_racer
 from pydantic import Field
 from RestrictedPython import compile_restricted
+
+
+if TYPE_CHECKING:
+    pass
 from RestrictedPython.Eval import default_guarded_getitem, default_guarded_getiter
 from RestrictedPython.Guards import (
     full_write_guard,
@@ -118,7 +122,15 @@ class PythonSandboxNode(TaskNode):
         if self.expose_state:
             locals_namespace["state"] = state
 
-        bytecode = compile_restricted(self.source, filename="<sandbox>", mode="exec")
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*Prints, but never reads 'printed' variable.*",
+                category=SyntaxWarning,
+            )
+            bytecode = compile_restricted(
+                self.source, filename="<sandbox>", mode="exec"
+            )
         exec(bytecode, sandbox_globals, locals_namespace)
 
         result = locals_namespace.get(self.result_variable)
@@ -177,6 +189,8 @@ class JavaScriptSandboxNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute JavaScript and return the evaluated result."""
+        from py_mini_racer import py_mini_racer
+
         runtime = py_mini_racer.MiniRacer()
 
         if self.capture_console:

@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from typing import Any
-
 import httpx
 import pytest
 import respx
@@ -70,7 +69,7 @@ async def test_http_request_node_handles_non_json_response() -> None:
         name="http",
         method="POST",
         url="https://example.com/api",
-        data="payload",
+        content="payload",
     )
 
     with respx.mock(base_url="https://example.com") as router:
@@ -127,6 +126,77 @@ async def test_http_request_node_sends_json_body(
     }
     assert payload["json"] == {"ok": True}
     assert payload["elapsed"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_http_request_node_sends_form_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HttpRequestNode should include form data payloads when provided."""
+
+    captured: dict[str, Any] = {}
+
+    async def fake_request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        captured["method"] = method
+        captured["url"] = url
+        captured["data"] = kwargs.get("data")
+        return httpx.Response(
+            200,
+            json={"success": True},
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    node = HttpRequestNode(
+        name="http",
+        method="POST",
+        url="https://example.com/form",
+        data={"field1": "value1", "field2": "value2"},
+    )
+
+    state = State({"results": {}})
+    payload = (await node(state, RunnableConfig()))["results"]["http"]
+
+    assert captured["data"] == {"field1": "value1", "field2": "value2"}
+    assert payload["json"] == {"success": True}
+
+
+@pytest.mark.asyncio
+async def test_http_request_node_handles_elapsed_from_response_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HttpRequestNode should handle elapsed time from response.elapsed attribute."""
+
+    class MockResponse(httpx.Response):
+        """Mock response with elapsed attribute."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._elapsed = timedelta(seconds=2.5)
+
+        @property
+        def elapsed(self) -> timedelta:
+            return self._elapsed
+
+    async def fake_request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        return MockResponse(200, json={"ok": True})
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    node = HttpRequestNode(
+        name="http",
+        method="GET",
+        url="https://example.com/api",
+    )
+
+    state = State({"results": {}})
+    payload = (await node(state, RunnableConfig()))["results"]["http"]
+
+    assert payload["elapsed"] == 2.5
 
 
 def test_split_path_raises_for_empty_values() -> None:
@@ -338,6 +408,28 @@ async def test_data_transform_node_skips_missing_values() -> None:
     assert payload["result"] == {}
 
 
+@pytest.mark.asyncio
+async def test_data_transform_node_uses_default_for_missing_values() -> None:
+    """Missing fields should use default when when_missing is 'default'."""
+
+    state = State({"results": {}})
+    node = DataTransformNode(
+        name="defaults",
+        input_data={"existing": "value"},
+        transforms=[
+            FieldTransform(
+                source="missing_field",
+                target="result.value",
+                when_missing="default",
+                default="default_value",
+            )
+        ],
+    )
+
+    payload = (await node(state, RunnableConfig()))["results"]["defaults"]
+    assert payload["result"] == {"result": {"value": "default_value"}}
+
+
 def test_apply_transform_handles_unknown_key() -> None:
     """_apply_transform should return original values for unknown transforms."""
 
@@ -349,6 +441,14 @@ def test_transform_length_handles_various_inputs() -> None:
 
     assert data_module._transform_length({"key": "value"}) == 1
     assert data_module._transform_length(object()) == 0
+
+
+def test_transform_string_handles_none() -> None:
+    """_transform_string should convert None to empty string."""
+
+    assert data_module._transform_string(None) == ""
+    assert data_module._transform_string("test") == "test"
+    assert data_module._transform_string(123) == "123"
 
 
 @pytest.mark.asyncio
