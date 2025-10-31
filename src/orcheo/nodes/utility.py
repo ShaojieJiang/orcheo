@@ -16,6 +16,7 @@ from RestrictedPython.Guards import (
     guarded_iter_unpack_sequence,
     guarded_unpack_sequence,
     safe_builtins,
+    safer_getattr,
 )
 from RestrictedPython.PrintCollector import PrintCollector
 from orcheo.graph.state import State
@@ -104,7 +105,7 @@ class PythonSandboxNode(TaskNode):
         """Execute the configured source code and return the results."""
         sandbox_globals: dict[str, Any] = {
             "__builtins__": safe_builtins,
-            "_getattr_": getattr,
+            "_getattr_": safer_getattr,
             "_getitem_": default_guarded_getitem,
             "_getiter_": default_guarded_getiter,
             "_write_": full_write_guard,
