@@ -45,7 +45,7 @@ class SlackNode(TaskNode):
     """Bot user OAuth token."""
     team_id: str = "[[slack_team_id]]"
     """Slack workspace ID."""
-    channel_ids: str | None = "[[slack_channel_ids]]"
+    channel_ids: str | None = None
     """Optional comma separated list of channel IDs."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
