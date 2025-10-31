@@ -52,7 +52,8 @@ dependencies = [
   "dynaconf>=3.2.4",
   "cryptography>=43.0.1",
   "RestrictedPython>=7.2",
-  "langchain>=1.0.3"
+  "langchain>=1.0.3",
+  "py-mini-racer>=0.6.0",
 ]
 description = "Add your description here"
 name = "orcheo"
