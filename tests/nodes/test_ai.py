@@ -1,139 +1,108 @@
 """Tests for AI node implementation."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel
 from orcheo.graph.state import State
-from orcheo.nodes.ai import Agent, StructuredOutput
+from orcheo.nodes.ai import AgentNode
 
 
-@pytest.fixture
-def mock_model():
-    model = Mock()
-    # Mock the bind_tools method to return itself (not async)
-    model.bind_tools.return_value = model
-    return model
+class ResponseModel(BaseModel):
+    """Test response model."""
+
+    name: str
 
 
 @pytest.fixture
 def mock_agent():
+    """Mock agent."""
     agent = AsyncMock()
-    agent.ainvoke.return_value = {"output": "test result"}
+    agent.ainvoke.return_value = {
+        "messages": [{"role": "assistant", "content": "test"}]
+    }
     return agent
 
 
 @pytest.fixture
+def mock_mcp_client():
+    """Mock MCP client."""
+    client = AsyncMock()
+    client.get_tools.return_value = []
+    return client
+
+
+@pytest.fixture
 def agent():
-    return Agent(
+    """Agent node fixture."""
+    return AgentNode(
         name="test_agent",
-        model_settings={"model_name": "gpt-3.5-turbo"},
+        model_name="openai:gpt-4o-mini",
         system_prompt="Test prompt",
     )
 
 
-def test_structured_output_json_schema():
-    output = StructuredOutput(
-        schema_type="json_schema",
-        schema_str='{"type": "object", "properties": {"name": {"type": "string"}}}',
-    )
-    schema = output.get_schema_type()
-    assert schema == {"type": "object", "properties": {"name": {"type": "string"}}}
-
-
-def test_structured_output_pydantic():
-    output = StructuredOutput(
-        schema_type="pydantic",
-        schema_str="""
-class TestModel(BaseModel):
-    name: str
-""",
-    )
-    schema = output.get_schema_type()
-    assert schema.__name__ == "TestModel"
-
-
 @pytest.mark.asyncio
-@patch("orcheo.nodes.ai.init_chat_model")
-@patch("orcheo.nodes.ai.create_react_agent")
-async def test_run_with_structured_output(
-    mock_create_agent, mock_init_model, agent, mock_model, mock_agent
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_run_without_response_format(
+    mock_mcp_client_class, mock_create_agent, agent, mock_agent, mock_mcp_client
 ):
-    # Setup
-    mock_init_model.return_value = mock_model
+    """Test agent run without response format."""
+    mock_mcp_client_class.return_value = mock_mcp_client
     mock_create_agent.return_value = mock_agent
 
-    agent.structured_output = {
-        "schema_type": "json_schema",
-        "schema_str": '{"type": "object", "properties": {"name": {"type": "string"}}}',
-    }
-    state = State({"input": "test"})
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
     config = RunnableConfig()
 
-    # Execute
     result = await agent.run(state, config)
 
-    # Verify
-    mock_init_model.assert_called_once_with(model_name="gpt-3.5-turbo")
     mock_create_agent.assert_called_once()
-    mock_agent.ainvoke.assert_called_once_with(state, config)
-    assert result == {"output": "test result"}
+    mock_agent.ainvoke.assert_called_once()
+    assert "messages" in result
 
 
 @pytest.mark.asyncio
-@patch("orcheo.nodes.ai.init_chat_model")
-@patch("orcheo.nodes.ai.create_react_agent")
-async def test_run_with_memory_checkpointer(
-    mock_create_agent, mock_init_model, agent, mock_model, mock_agent
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_run_with_response_format(
+    mock_mcp_client_class, mock_create_agent, agent, mock_agent, mock_mcp_client
 ):
-    # Setup
-    mock_init_model.return_value = mock_model
+    """Test agent run with response format."""
+    mock_mcp_client_class.return_value = mock_mcp_client
     mock_create_agent.return_value = mock_agent
 
-    agent.checkpointer = "memory"
-    state = State({"input": "test"})
+    agent.response_format = ResponseModel
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
     config = RunnableConfig()
 
-    # Execute
     result = await agent.run(state, config)
 
-    # Verify
-    mock_init_model.assert_called_once_with(model_name="gpt-3.5-turbo")
     mock_create_agent.assert_called_once()
-    mock_agent.ainvoke.assert_called_once_with(state, config)
-    assert result == {"output": "test result"}
+    mock_agent.ainvoke.assert_called_once()
+    assert "messages" in result
 
 
 @pytest.mark.asyncio
-@patch("orcheo.nodes.ai.init_chat_model")
-@patch("orcheo.nodes.ai.create_react_agent")
-async def test_run_without_checkpointer(
-    mock_create_agent, mock_init_model, agent, mock_model, mock_agent
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_prepare_tools(
+    mock_mcp_client_class, mock_create_agent, agent, mock_agent, mock_mcp_client
 ):
-    # Setup
-    mock_init_model.return_value = mock_model
+    """Test tool preparation."""
+    mock_mcp_client_class.return_value = mock_mcp_client
+    mock_mcp_tools = [AsyncMock()]
+    mock_mcp_client.get_tools.return_value = mock_mcp_tools
     mock_create_agent.return_value = mock_agent
 
-    agent.checkpointer = None
-    state = State({"input": "test"})
+    agent.predefined_tools = ["tool1"]
+    agent.workflow_tools = ["workflow1"]
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
     config = RunnableConfig()
 
-    # Execute
-    result = await agent.run(state, config)
+    await agent.run(state, config)
 
-    # Verify
-    mock_init_model.assert_called_once_with(model_name="gpt-3.5-turbo")
+    mock_mcp_client.get_tools.assert_called_once()
     mock_create_agent.assert_called_once()
-    mock_agent.ainvoke.assert_called_once_with(state, config)
-    assert result == {"output": "test result"}
-
-
-@pytest.mark.asyncio
-async def test_run_with_invalid_checkpointer(agent):
-    # Setup
-    agent.checkpointer = "invalid"
-    state = State({"input": "test"})
-    config = RunnableConfig()
-
-    # Execute and verify
-    with pytest.raises(ValueError, match="Invalid checkpointer: invalid"):
-        await agent.run(state, config)
+    call_kwargs = mock_create_agent.call_args[1]
+    assert len(call_kwargs["tools"]) == 3  # 1 predefined + 1 workflow + 1 mcp

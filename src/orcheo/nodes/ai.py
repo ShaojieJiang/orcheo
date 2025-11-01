@@ -1,111 +1,70 @@
 """AI Agent node."""
 
-import json
-from dataclasses import field
-from typing import Any, Literal
-from langchain.chat_models import init_chat_model
+from __future__ import annotations
+from typing import Any
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.prebuilt import create_react_agent
-from pydantic import BaseModel
+from langchain_core.tools import BaseTool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from pydantic import BaseModel, Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import AINode, BaseNode
+from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
-
-
-class StructuredOutput(BaseModel):
-    """Structured output config for the agent."""
-
-    schema_type: Literal["json_schema", "json_dict", "pydantic", "typed_dict"]
-    schema_str: str
-
-    def get_schema_type(self) -> dict | type[BaseModel]:
-        """Get the schema type based on the schema type and content."""
-        if self.schema_type == "json_schema":
-            return json.loads(self.schema_str)
-        else:
-            # Execute the schema as Python code and get the last defined object
-            namespace: dict[str, Any] = {}
-            schema = (
-                "from pydantic import BaseModel\n"
-                + "from typing_extensions import TypedDict\n"
-                + self.schema_str
-            )
-            exec(schema, namespace)
-            return list(namespace.values())[-1]
 
 
 @registry.register(
     NodeMetadata(
-        name="Agent",
+        name="AgentNode",
         description="Execute an AI agent with tools",
         category="ai",
     )
 )
-class Agent(AINode):
+class AgentNode(AINode):
     """Node for executing an AI agent with tools."""
 
-    model_settings: dict
+    model_name: str
+    """Model name for the agent."""
+    model_settings: dict | None = None
     """Model settings for the agent."""
     system_prompt: str | None = None
     """System prompt for the agent."""
-    checkpointer: str | None = None
-    """Checkpointer used to save the agent's state."""
-    tools: list[BaseNode | BaseTool] = field(default_factory=list)
-    """Tools used by the agent."""
-    structured_output: dict | StructuredOutput | None = None
-    """Structured output for the agent."""
+    predefined_tools: list[str] = Field(default_factory=list)
+    """Tool names predefined by Orcheo."""
+    workflow_tools: list[str] = Field(default_factory=list)
+    """Workflow IDs to be used as tools."""
+    mcp_servers: dict[str, Any] = Field(default_factory=dict)
+    """MCP servers to be used as tools (Connection from langchain_mcp_adapters)."""
+    response_format: dict | type[BaseModel] | None = None
 
-    def _prepare_tools(self) -> list[BaseTool]:
+    """Response format for the agent."""
+
+    async def _prepare_tools(self) -> list[BaseTool]:
         """Prepare the tools for the agent."""
-        return [
-            tool
-            if isinstance(tool, BaseTool)
-            else StructuredTool.from_function(
-                tool.tool_run,
-                coroutine=tool.tool_arun,
-                name=tool.name,
-                parse_docstring=True,
-            )
-            for tool in self.tools
-        ]
+        # TODO: get tool definitions from predefined_tools and workflow_tools
+
+        mcp_client = MultiServerMCPClient(connections=self.mcp_servers)
+        mcp_tools = await mcp_client.get_tools()
+
+        tools = self.predefined_tools + self.workflow_tools + mcp_tools
+        return tools
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
-        # TODO: Prepare all the components
-        model = init_chat_model(**self.model_settings)
-        match self.checkpointer:
-            case "memory":
-                checkpointer = InMemorySaver()
-            # TODO: Add sqlite and postgres checkpointer
-            # case "sqlite":
-            #     checkpointer = SqliteSaver()
-            # case "postgres":
-            #     checkpointer = PostgresSaver()
-            case None:
-                checkpointer = None  # type: ignore
-            case _:
-                raise ValueError(f"Invalid checkpointer: {self.checkpointer}")
+        tools = await self._prepare_tools()
 
-        if isinstance(self.structured_output, dict):
-            structured_output = StructuredOutput(**self.structured_output)
-        response_format = (
-            None
-            if self.structured_output is None
-            else structured_output.get_schema_type()
-        )
+        response_format_strategy = None
+        if self.response_format is not None:
+            response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
-        tools = self._prepare_tools()
-
-        agent = create_react_agent(
-            model.bind_tools(tools),
+        agent = create_agent(
+            self.model_name,
             tools=tools,
-            prompt=self.system_prompt,
-            response_format=response_format,
-            checkpointer=checkpointer,
+            system_prompt=self.system_prompt,
+            response_format=response_format_strategy,
         )
+        # TODO: for models that don't support ProviderStrategy, use ToolStrategy
 
         # Execute agent with state as input
-        result = await agent.ainvoke(state, config)
+        result = await agent.ainvoke(state, config)  # type: ignore[arg-type]
         return result

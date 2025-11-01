@@ -1900,6 +1900,7 @@ async def execute_node(
                 "messages": [],
                 "results": {},
                 "inputs": inputs,
+                "structured_response": None,
             }
 
             # Create config with optional workflow context for credentials

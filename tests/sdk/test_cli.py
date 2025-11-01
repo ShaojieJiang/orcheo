@@ -575,9 +575,9 @@ def test_credential_update_not_implemented(
 
 
 def test_node_show_displays_schema(runner: CliRunner, env: dict[str, str]) -> None:
-    result = runner.invoke(app, ["node", "show", "Agent"], env=env)
+    result = runner.invoke(app, ["node", "show", "AgentNode"], env=env)
     assert result.exit_code == 0
-    assert "Agent" in result.stdout
+    assert "AgentNode" in result.stdout
 
 
 def test_node_list_with_tag_filter(runner: CliRunner, env: dict[str, str]) -> None:
