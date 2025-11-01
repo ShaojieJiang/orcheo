@@ -118,3 +118,167 @@ async def test_prepare_tools(
     mock_create_agent.assert_called_once()
     call_kwargs = mock_create_agent.call_args[1]
     assert len(call_kwargs["tools"]) == 2  # 1 predefined + 1 mcp
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.ai.tool_registry")
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_prepare_tools_with_base_tool_instance(
+    mock_mcp_client_class,
+    mock_create_agent,
+    mock_tool_registry,
+    agent,
+    mock_agent,
+    mock_mcp_client,
+):
+    """Test tool preparation when tool registry returns a BaseTool instance."""
+    mock_mcp_client_class.return_value = mock_mcp_client
+    mock_mcp_client.get_tools.return_value = []
+    mock_create_agent.return_value = mock_agent
+
+    # Mock the tool registry to return a BaseTool instance directly
+    mock_tool = MagicMock(spec=BaseTool)
+    mock_tool_registry.get_tool.return_value = mock_tool
+
+    agent.predefined_tools = ["tool1"]
+    agent.workflow_tools = []
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
+    config = RunnableConfig()
+
+    await agent.run(state, config)
+
+    mock_create_agent.assert_called_once()
+    call_kwargs = mock_create_agent.call_args[1]
+    # Should have 1 tool (the BaseTool instance)
+    assert len(call_kwargs["tools"]) == 1
+    assert call_kwargs["tools"][0] is mock_tool
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.ai.tool_registry")
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_prepare_tools_with_none_tool(
+    mock_mcp_client_class,
+    mock_create_agent,
+    mock_tool_registry,
+    agent,
+    mock_agent,
+    mock_mcp_client,
+):
+    """Test tool preparation when tool registry returns None."""
+    mock_mcp_client_class.return_value = mock_mcp_client
+    mock_mcp_client.get_tools.return_value = []
+    mock_create_agent.return_value = mock_agent
+
+    # Mock the tool registry to return None (tool not found)
+    mock_tool_registry.get_tool.return_value = None
+
+    agent.predefined_tools = ["nonexistent_tool"]
+    agent.workflow_tools = []
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
+    config = RunnableConfig()
+
+    await agent.run(state, config)
+
+    mock_create_agent.assert_called_once()
+    call_kwargs = mock_create_agent.call_args[1]
+    # Should have 0 tools since the tool was not found
+    assert len(call_kwargs["tools"]) == 0
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_prepare_tools_with_workflow_tools(
+    mock_mcp_client_class, mock_create_agent, agent, mock_agent, mock_mcp_client
+):
+    """Test tool preparation with workflow tools."""
+    from langgraph.graph import StateGraph
+    from orcheo.nodes.ai import WorkflowTool
+
+    mock_mcp_client_class.return_value = mock_mcp_client
+    mock_mcp_client.get_tools.return_value = []
+    mock_create_agent.return_value = mock_agent
+
+    # Create a simple workflow graph
+    workflow_graph = StateGraph(dict)
+
+    def simple_node(state):
+        return {"result": "workflow result"}
+
+    workflow_graph.add_node("start", simple_node)
+    workflow_graph.set_entry_point("start")
+    workflow_graph.set_finish_point("start")
+
+    # Create a WorkflowTool
+    class WorkflowArgs(BaseModel):
+        input_value: str
+
+    workflow_tool = WorkflowTool(
+        name="test_workflow",
+        description="A test workflow tool",
+        graph=workflow_graph,
+        args_schema=WorkflowArgs,
+    )
+
+    agent.predefined_tools = []
+    agent.workflow_tools = [workflow_tool]
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
+    config = RunnableConfig()
+
+    await agent.run(state, config)
+
+    mock_create_agent.assert_called_once()
+    call_kwargs = mock_create_agent.call_args[1]
+    # Should have 1 tool (the workflow tool)
+    assert len(call_kwargs["tools"]) == 1
+    assert call_kwargs["tools"][0].name == "test_workflow"
+    assert call_kwargs["tools"][0].description == "A test workflow tool"
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.ai.create_agent")
+@patch("orcheo.nodes.ai.MultiServerMCPClient")
+async def test_prepare_tools_with_workflow_tools_no_args_schema(
+    mock_mcp_client_class, mock_create_agent, agent, mock_agent, mock_mcp_client
+):
+    """Test tool preparation with workflow tools without args_schema."""
+    from langgraph.graph import StateGraph
+    from orcheo.nodes.ai import WorkflowTool
+
+    mock_mcp_client_class.return_value = mock_mcp_client
+    mock_mcp_client.get_tools.return_value = []
+    mock_create_agent.return_value = mock_agent
+
+    # Create a simple workflow graph
+    workflow_graph = StateGraph(dict)
+
+    def simple_node(state):
+        return {"result": "workflow result"}
+
+    workflow_graph.add_node("start", simple_node)
+    workflow_graph.set_entry_point("start")
+    workflow_graph.set_finish_point("start")
+
+    # Create a WorkflowTool without args_schema
+    workflow_tool = WorkflowTool(
+        name="test_workflow_no_schema",
+        description="A test workflow tool without schema",
+        graph=workflow_graph,
+        args_schema=None,
+    )
+
+    agent.predefined_tools = []
+    agent.workflow_tools = [workflow_tool]
+    state: State = {"messages": [{"role": "user", "content": "test"}]}
+    config = RunnableConfig()
+
+    await agent.run(state, config)
+
+    mock_create_agent.assert_called_once()
+    call_kwargs = mock_create_agent.call_args[1]
+    # Should have 1 tool (the workflow tool)
+    assert len(call_kwargs["tools"]) == 1
+    assert call_kwargs["tools"][0].name == "test_workflow_no_schema"
