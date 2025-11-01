@@ -9,6 +9,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
+from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
 
@@ -41,12 +42,31 @@ class AgentNode(AINode):
 
     async def _prepare_tools(self) -> list[BaseTool]:
         """Prepare the tools for the agent."""
-        # TODO: get tool definitions from predefined_tools and workflow_tools
+        tools: list[BaseTool] = []
 
+        # Resolve predefined tools from the tool registry
+        for tool_name in self.predefined_tools:
+            tool = tool_registry.get_tool(tool_name)
+            if tool is not None:
+                # If it's already a BaseTool instance (e.g., from @tool
+                # decorator), use it directly
+                if isinstance(tool, BaseTool):
+                    tools.append(tool)
+                # Otherwise, assume it's a factory and call it
+                else:
+                    tool_instance = tool()
+                    tools.append(tool_instance)
+            else:
+                # TODO: Log warning or raise error for unknown tool
+                pass
+
+        # TODO: get tool definitions from workflow_tools
+
+        # Get MCP tools
         mcp_client = MultiServerMCPClient(connections=self.mcp_servers)
         mcp_tools = await mcp_client.get_tools()
+        tools.extend(mcp_tools)
 
-        tools = self.predefined_tools + self.workflow_tools + mcp_tools
         return tools
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:

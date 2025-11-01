@@ -12,7 +12,7 @@ from orcheo.nodes.ai import AgentNode
 load_dotenv()
 
 
-class WeatherResponse(BaseModel):
+class StructuredResponse(BaseModel):
     """Response model."""
 
     reply: str
@@ -25,7 +25,8 @@ def build_graph() -> StateGraph:
     agent_node = AgentNode(
         name="agent",
         model_name="openai:gpt-4o-mini",
-        response_format=WeatherResponse,
+        predefined_tools=["greet_user"],
+        response_format=StructuredResponse,
     )
     graph.add_node("agent", agent_node)
     graph.add_edge(START, "agent")
@@ -39,7 +40,14 @@ if __name__ == "__main__":
     config = {"configurable": {"thread_id": "123"}}
     result = asyncio.run(
         workflow.ainvoke(
-            {"messages": [{"role": "user", "content": "What is the weather?"}]},
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Greet user John Doe!",
+                    }
+                ]
+            },
             config,
         )
     )
