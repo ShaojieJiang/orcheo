@@ -67,10 +67,7 @@ async def test_ai_node_call():
     result = await node(state, config)
 
     # Assert
-    assert result == {
-        "messages": {"result": "test_value"},
-        "results": {"test_ai": {"result": "test_value"}},
-    }
+    assert result == {"messages": {"result": "test_value"}}
 
 
 def test_task_node_tool_run():

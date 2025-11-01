@@ -58,8 +58,8 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Design and implement ChatKit integration across demo frontend, backend endpoint, LangGraph workflow, and SQLite persistence (see [ChatKit Integration Design](./chatkit_integration_design.md)).
 - [x] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, Merge) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [x] Add utility nodes (Python/JavaScript execution sandbox, Debug, Sub-workflow orchestration) with tests, docs, and templates.
-- [ ] Implement AI/LLM nodes (OpenAI, Anthropic, Custom Agent, Text Processing) with prompt management, MCP server connectivity, and latency guardrails.
-- [ ] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting.
+- [x] Implement AgentNode with prompt management, MCP server connectivity, and latency guardrails.
+- [x] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting. (Plan dropped in favour of combining AgentNode with IfElseNode. Will be implemented in a future milestone.)
 
 ### Milestone 6 – Observability, Testing & Launch Prep
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.

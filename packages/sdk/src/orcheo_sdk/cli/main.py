@@ -7,6 +7,7 @@ from typing import Annotated
 import click
 import typer
 from rich.console import Console
+from orcheo_sdk.cli.agent_tool import agent_tool_app
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
@@ -23,6 +24,7 @@ app.add_typer(node_app, name="node")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")
+app.add_typer(agent_tool_app, name="agent-tool")
 
 
 @app.callback()

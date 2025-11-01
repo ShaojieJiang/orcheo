@@ -23,7 +23,7 @@ from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.ai import Agent
+from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.code import PythonCode
 from orcheo.nodes.telegram import MessageTelegram
 
@@ -57,7 +57,7 @@ so_config = {
     "schema_str": so_schema,
 }
 
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     structured_output=so_config,
@@ -93,7 +93,7 @@ so_config = {
     "schema_str": so_schema,
 }
 
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     structured_output=so_config,
@@ -123,7 +123,7 @@ so_config = {
     "schema_str": so_schema,
 }
 
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     structured_output=so_config,
@@ -153,7 +153,7 @@ so_config = {
     "schema_str": so_schema,
 }
 
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     structured_output=so_config,
@@ -181,7 +181,7 @@ telegram_node = MessageTelegram(
     token=os.getenv("TELEGRAM_TOKEN"),
 )
 
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     tools=[telegram_node],
@@ -239,7 +239,7 @@ tools = await client.get_tools()  # noqa: F704, PLE1142
 # ### Pass the tools to the agent
 
 # %%
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     tools=tools,
@@ -317,7 +317,7 @@ def greet(name: str) -> dict:
 # ### Use the tool in an agent
 
 # %%
-agent_node = Agent(
+agent_node = AgentNode(
     name="agent",
     model_settings=model_settings,
     tools=[greet],
