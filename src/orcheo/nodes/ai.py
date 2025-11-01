@@ -45,7 +45,7 @@ class AgentNode(AINode):
     model_name: str
     """Model name for the agent."""
     model_settings: dict | None = None
-    """Model settings for the agent."""
+    """TODO: Implement model settings for the agent."""
     system_prompt: str | None = None
     """System prompt for the agent."""
     predefined_tools: list[str] = Field(default_factory=list)
