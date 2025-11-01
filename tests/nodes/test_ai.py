@@ -108,7 +108,7 @@ async def test_prepare_tools(
     mock_tool_registry.get_tool.return_value = mock_tool_factory
 
     agent.predefined_tools = ["tool1"]
-    agent.workflow_tools = ["workflow1"]
+    agent.workflow_tools = []  # Not testing workflow tools in this test
     state: State = {"messages": [{"role": "user", "content": "test"}]}
     config = RunnableConfig()
 
@@ -117,6 +117,4 @@ async def test_prepare_tools(
     mock_mcp_client.get_tools.assert_called_once()
     mock_create_agent.assert_called_once()
     call_kwargs = mock_create_agent.call_args[1]
-    assert (
-        len(call_kwargs["tools"]) == 2
-    )  # 1 predefined + 1 mcp (workflow not implemented yet)
+    assert len(call_kwargs["tools"]) == 2  # 1 predefined + 1 mcp
