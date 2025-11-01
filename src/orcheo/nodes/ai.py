@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 import asyncio
+import logging
 from typing import Any
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph
@@ -15,6 +16,47 @@ from orcheo.graph.state import State
 from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+logger = logging.getLogger(__name__)
+
+
+def _create_workflow_tool_func(
+    compiled_graph: Runnable,
+    name: str,
+    description: str,
+    args_schema: type[BaseModel] | None,
+) -> StructuredTool:
+    """Create a StructuredTool from a compiled workflow graph.
+
+    This factory function properly binds the compiled_graph to avoid
+    closure issues in loops.
+
+    Args:
+        compiled_graph: Compiled LangGraph runnable
+        name: Tool name
+        description: Tool description
+        args_schema: Optional Pydantic model for tool arguments
+
+    Returns:
+        StructuredTool instance wrapping the workflow
+    """
+
+    async def workflow_coroutine(**kwargs: Any) -> Any:
+        """Execute the workflow graph asynchronously."""
+        return await compiled_graph.ainvoke(kwargs)
+
+    def workflow_sync(**kwargs: Any) -> Any:
+        """Execute the workflow graph synchronously."""
+        return asyncio.run(compiled_graph.ainvoke(kwargs))
+
+    return StructuredTool.from_function(
+        func=workflow_sync,
+        coroutine=workflow_coroutine,
+        name=name,
+        description=description,
+        args_schema=args_schema,
+    )
 
 
 class WorkflowTool(BaseModel):
@@ -30,6 +72,18 @@ class WorkflowTool(BaseModel):
     """Workflow to be used as tool."""
     args_schema: type[BaseModel] | None = None
     """Input schema for the tool."""
+    _compiled_graph: SkipJsonSchema[Runnable | None] = None
+    """Cached compiled graph to avoid recompilation."""
+
+    def get_compiled_graph(self) -> Runnable:
+        """Get or compile the graph, caching the result.
+
+        Returns:
+            Compiled graph runnable
+        """
+        if self._compiled_graph is None:
+            self._compiled_graph = self.graph.compile()
+        return self._compiled_graph
 
 
 @registry.register(
@@ -65,41 +119,53 @@ class AgentNode(AINode):
         # Resolve predefined tools from the tool registry
         for tool_name in self.predefined_tools:
             tool = tool_registry.get_tool(tool_name)
-            if tool is not None:
-                # If it's already a BaseTool instance (e.g., from @tool
-                # decorator), use it directly
-                if isinstance(tool, BaseTool):
-                    tools.append(tool)
-                # Otherwise, assume it's a factory and call it
-                else:
+            if tool is None:
+                logger.warning("Tool '%s' not found in registry, skipping", tool_name)
+                continue
+
+            # If it's already a BaseTool instance (e.g., from @tool
+            # decorator), use it directly
+            if isinstance(tool, BaseTool):
+                tools.append(tool)
+            # Otherwise, check if it's a callable factory
+            elif callable(tool):
+                try:
                     tool_instance = tool()
+                    if not isinstance(tool_instance, BaseTool):
+                        logger.error(
+                            "Tool factory '%s' did not return a BaseTool instance, "
+                            "got %s",
+                            tool_name,
+                            type(tool_instance).__name__,
+                        )
+                        continue
                     tools.append(tool_instance)
+                except Exception as e:
+                    logger.error(
+                        "Failed to instantiate tool '%s': %s", tool_name, str(e)
+                    )
+                    continue
             else:
-                # TODO: Log warning or raise error for unknown tool
-                pass
+                logger.error(
+                    "Tool '%s' is neither a BaseTool instance nor a callable factory, "
+                    "got %s",
+                    tool_name,
+                    type(tool).__name__,
+                )
+                continue
 
         for wf_tool_def in self.workflow_tools:
-            name = wf_tool_def.name
-            graph = wf_tool_def.graph.compile()
-            description = wf_tool_def.description
-            args_schema = wf_tool_def.args_schema
+            # Use cached compiled graph to avoid recompilation on every run
+            compiled_graph = wf_tool_def.get_compiled_graph()
 
-            # Create closure to capture variables for this iteration
-            def make_tool(
-                g: Any = graph,
-                n: str = name,
-                d: str = description,
-                s: type[BaseModel] | None = args_schema,
-            ) -> StructuredTool:
-                return StructuredTool.from_function(
-                    lambda **kwargs: asyncio.run(g.ainvoke(kwargs)),
-                    coroutine=lambda **kwargs: g.ainvoke(kwargs),
-                    name=n,
-                    description=d,
-                    args_schema=s,
-                )
-
-            tool = make_tool()
+            # Create tool using factory function to properly bind variables
+            # and avoid closure memory leak issues
+            tool = _create_workflow_tool_func(
+                compiled_graph=compiled_graph,
+                name=wf_tool_def.name,
+                description=wf_tool_def.description,
+                args_schema=wf_tool_def.args_schema,
+            )
             tools.append(tool)
 
         # Get MCP tools
