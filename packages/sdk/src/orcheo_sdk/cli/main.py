@@ -63,7 +63,7 @@ def main(
     """Configure shared CLI state and validate configuration."""
     # Skip expensive initialization during shell completion
     if _is_completion_mode():
-        return
+        return  # pragma: no cover
 
     console = Console()
     try:
