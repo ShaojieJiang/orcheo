@@ -466,7 +466,7 @@ class ServiceTokenManager:
         overlap_expiry = now + timedelta(seconds=overlap_seconds)
         if record.expires_at is None:
             return overlap_expiry
-        return max(record.expires_at, overlap_expiry)
+        return min(record.expires_at, overlap_expiry)
 
 
 class JWKSCache:
