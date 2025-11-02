@@ -1339,6 +1339,60 @@ def test_code_template_includes_next_steps(
     assert "Upload to Orcheo" in result.stdout
 
 
+def test_code_template_fails_when_output_is_directory(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that template command fails when output path is a directory."""
+    output_dir = tmp_path / "my_dir"
+    output_dir.mkdir()
+
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_dir)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "is a directory" in str(result.exception)
+    assert "provide a file path" in str(result.exception)
+
+
+def test_code_template_fails_when_parent_is_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that template command fails when parent path is a file."""
+    parent_file = tmp_path / "parent.txt"
+    parent_file.write_text("I am a file")
+    output_path = parent_file / "workflow.py"
+
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_path)],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "is not a directory" in str(result.exception)
+
+
+def test_code_template_creates_parent_directories(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that template command creates parent directories if they don't exist."""
+    output_file = tmp_path / "nested" / "dirs" / "workflow.py"
+
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file)],
+        env=env,
+    )
+    assert result.exit_code == 0
+    assert output_file.exists()
+    assert output_file.parent.is_dir()
+    content = output_file.read_text()
+    assert "from langgraph.graph import END, START, StateGraph" in content
+
+
 def test_api_client_without_token() -> None:
     """Test that ApiClient works without a token."""
     client = ApiClient(base_url="http://test.com", token=None)
