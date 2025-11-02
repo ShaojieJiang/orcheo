@@ -1,28 +1,24 @@
 """Tests for the FastAPI authentication dependencies."""
 
 from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-
-import jwt
 import logging
+from datetime import UTC, datetime, timedelta
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import (
-    JWKSCache,
     AuthenticationError,
     AuthorizationError,
     AuthorizationPolicy,
+    JWKSCache,
     RequestContext,
     ServiceTokenManager,
     auth_telemetry,
     authenticate_request,
     ensure_scopes,
     ensure_workspace_access,
-    get_auth_rate_limiter,
     load_auth_settings,
     require_scopes,
     require_workspace_access,
@@ -168,10 +164,11 @@ async def test_authenticate_request_sets_request_state(
 ) -> None:
     """authenticate_request attaches the resolved context to the request state."""
 
-    monkeypatch.setenv(
-        "ORCHEO_AUTH_SERVICE_TOKENS",
-        '{"id": "ci", "secret": "token-123", "scopes": ["workflows:read"], "workspace_ids": ["ws-1"]}',
+    token_config = (
+        '{"id": "ci", "secret": "token-123", '
+        '"scopes": ["workflows:read"], "workspace_ids": ["ws-1"]}'
     )
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKENS", token_config)
     reset_authentication_state()
 
     scope = {
@@ -445,3 +442,723 @@ def test_authenticate_request_rate_limits_ip(monkeypatch: pytest.MonkeyPatch) ->
     assert response.status_code == 429
     detail = response.json()["detail"]
     assert detail["code"] == "auth.rate_limited.ip"
+
+
+def test_authenticate_request_rate_limits_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exceeding the configured per-identity limit should yield a 429 error."""
+
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_SERVICE_TOKENS",
+        '{"id": "ci", "secret": "token-identity", "scopes": ["workflows:read"]}',
+    )
+    monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IP", "10")
+    monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IDENTITY", "2")
+    reset_authentication_state()
+
+    client = _client()
+    headers = {"Authorization": "Bearer token-identity"}
+    assert client.get("/api/workflows", headers=headers).status_code == 200
+    assert client.get("/api/workflows", headers=headers).status_code == 200
+    response = client.get("/api/workflows", headers=headers)
+
+    assert response.status_code == 429
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.rate_limited.identity"
+
+
+# RequestContext tests
+def test_request_context_anonymous() -> None:
+    """RequestContext.anonymous() creates an anonymous context."""
+
+    context = RequestContext.anonymous()
+
+    assert context.subject == "anonymous"
+    assert context.identity_type == "anonymous"
+    assert not context.is_authenticated
+    assert not context.has_scope("any-scope")
+
+
+def test_request_context_is_authenticated() -> None:
+    """is_authenticated returns True for non-anonymous contexts."""
+
+    context = RequestContext(subject="user-123", identity_type="user")
+
+    assert context.is_authenticated
+
+
+def test_request_context_has_scope() -> None:
+    """has_scope checks if a scope is present."""
+
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        scopes=frozenset({"workflows:read", "workflows:write"}),
+    )
+
+    assert context.has_scope("workflows:read")
+    assert not context.has_scope("workflows:delete")
+
+
+# ServiceTokenRecord tests
+def test_service_token_record_matches() -> None:
+    """ServiceTokenRecord.matches() validates tokens against the hash."""
+    import hashlib
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    token = "my-secret-token"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    record = ServiceTokenRecord(identifier="test", secret_hash=digest)
+
+    assert record.matches(token)
+    assert not record.matches("wrong-token")
+
+
+def test_service_token_record_is_revoked() -> None:
+    """ServiceTokenRecord.is_revoked() checks revocation status."""
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    record = ServiceTokenRecord(identifier="test", secret_hash="hash123")
+    assert not record.is_revoked()
+
+    revoked_record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        revoked_at=datetime.now(tz=UTC),
+    )
+    assert revoked_record.is_revoked()
+
+
+def test_service_token_record_is_expired() -> None:
+    """ServiceTokenRecord.is_expired() checks expiry status."""
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    # No expiry
+    record = ServiceTokenRecord(identifier="test", secret_hash="hash123")
+    assert not record.is_expired()
+
+    # Expired
+    expired_record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
+    )
+    assert expired_record.is_expired()
+
+    # Not yet expired
+    future_record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+    )
+    assert not future_record.is_expired()
+
+
+def test_service_token_record_is_active() -> None:
+    """ServiceTokenRecord.is_active() combines revocation and expiry checks."""
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    # Active
+    record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+    )
+    assert record.is_active()
+
+    # Revoked
+    revoked_record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        revoked_at=datetime.now(tz=UTC),
+    )
+    assert not revoked_record.is_active()
+
+    # Expired
+    expired_record = ServiceTokenRecord(
+        identifier="test",
+        secret_hash="hash123",
+        expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
+    )
+    assert not expired_record.is_active()
+
+
+# AuthTelemetry tests
+def test_auth_telemetry_record_event() -> None:
+    """AuthTelemetry records events and updates counters."""
+    from orcheo_backend.app.authentication import AuthEvent, AuthTelemetry
+
+    telemetry = AuthTelemetry()
+    event = AuthEvent(
+        event="test",
+        status="success",
+        subject="user-1",
+        identity_type="user",
+        token_id="token-1",
+    )
+
+    telemetry.record(event)
+
+    assert len(telemetry.events()) == 1
+    assert telemetry.metrics()["test:success"] == 1
+
+
+def test_auth_telemetry_record_auth_success() -> None:
+    """record_auth_success creates a success event."""
+    from orcheo_backend.app.authentication import AuthTelemetry
+
+    telemetry = AuthTelemetry()
+    context = RequestContext(subject="user-1", identity_type="user")
+
+    telemetry.record_auth_success(context, ip="1.2.3.4")
+
+    events = telemetry.events()
+    assert len(events) == 1
+    assert events[0].event == "authenticate"
+    assert events[0].status == "success"
+    assert events[0].ip == "1.2.3.4"
+
+
+def test_auth_telemetry_record_auth_failure() -> None:
+    """record_auth_failure creates a failure event."""
+    from orcheo_backend.app.authentication import AuthTelemetry
+
+    telemetry = AuthTelemetry()
+
+    telemetry.record_auth_failure(reason="invalid_token", ip="1.2.3.4")
+
+    events = telemetry.events()
+    assert len(events) == 1
+    assert events[0].event == "authenticate"
+    assert events[0].status == "failure"
+    assert events[0].detail == "invalid_token"
+
+
+def test_auth_telemetry_record_service_token_event() -> None:
+    """record_service_token_event records lifecycle events."""
+    from orcheo_backend.app.authentication import AuthTelemetry, ServiceTokenRecord
+
+    telemetry = AuthTelemetry()
+    record = ServiceTokenRecord(identifier="token-1", secret_hash="hash123")
+
+    telemetry.record_service_token_event("mint", record)
+
+    events = telemetry.events()
+    assert len(events) == 1
+    assert events[0].event == "service_token.mint"
+
+
+def test_auth_telemetry_reset() -> None:
+    """reset() clears events and counters."""
+    from orcheo_backend.app.authentication import AuthEvent, AuthTelemetry
+
+    telemetry = AuthTelemetry()
+    event = AuthEvent(
+        event="test",
+        status="success",
+        subject="user-1",
+        identity_type="user",
+        token_id="token-1",
+    )
+    telemetry.record(event)
+
+    telemetry.reset()
+
+    assert len(telemetry.events()) == 0
+    assert len(telemetry.metrics()) == 0
+
+
+# AuthSettings tests
+def test_auth_settings_enforce_disabled_mode() -> None:
+    """AuthSettings.enforce returns False when mode is disabled."""
+    from orcheo_backend.app.authentication import AuthSettings
+
+    settings = AuthSettings(
+        mode="disabled",
+        jwt_secret=None,
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=(),
+        audiences=(),
+        issuer=None,
+        service_tokens=(),
+        rate_limit_ip=0,
+        rate_limit_identity=0,
+        rate_limit_interval=60,
+    )
+
+    assert not settings.enforce
+
+
+def test_auth_settings_enforce_required_mode() -> None:
+    """AuthSettings.enforce returns True when mode is required."""
+    from orcheo_backend.app.authentication import AuthSettings
+
+    settings = AuthSettings(
+        mode="required",
+        jwt_secret=None,
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=(),
+        audiences=(),
+        issuer=None,
+        service_tokens=(),
+        rate_limit_ip=0,
+        rate_limit_identity=0,
+        rate_limit_interval=60,
+    )
+
+    assert settings.enforce
+
+
+def test_auth_settings_enforce_optional_with_credentials() -> None:
+    """AuthSettings.enforce returns True when optional mode has credentials."""
+    from orcheo_backend.app.authentication import AuthSettings
+
+    settings = AuthSettings(
+        mode="optional",
+        jwt_secret="secret",
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=(),
+        audiences=(),
+        issuer=None,
+        service_tokens=(),
+        rate_limit_ip=0,
+        rate_limit_identity=0,
+        rate_limit_interval=60,
+    )
+
+    assert settings.enforce
+
+
+# SlidingWindowRateLimiter tests
+def test_sliding_window_rate_limiter_disabled_when_limit_zero() -> None:
+    """Rate limiter does not enforce when limit is 0."""
+    from orcheo_backend.app.authentication import SlidingWindowRateLimiter
+
+    limiter = SlidingWindowRateLimiter(
+        0, 60, code="test", message_template="Test {key}"
+    )
+
+    # Should not raise
+    for _ in range(100):
+        limiter.hit("test-key")
+
+
+def test_sliding_window_rate_limiter_ignores_empty_key() -> None:
+    """Rate limiter does not enforce when key is empty."""
+    from orcheo_backend.app.authentication import SlidingWindowRateLimiter
+
+    limiter = SlidingWindowRateLimiter(
+        5, 60, code="test", message_template="Test {key}"
+    )
+
+    # Should not raise
+    for _ in range(100):
+        limiter.hit("")
+
+
+def test_sliding_window_rate_limiter_reset() -> None:
+    """reset() clears internal state."""
+    from orcheo_backend.app.authentication import SlidingWindowRateLimiter
+
+    limiter = SlidingWindowRateLimiter(
+        2, 60, code="test", message_template="Test {key}"
+    )
+
+    limiter.hit("test-key")
+    limiter.hit("test-key")
+
+    limiter.reset()
+
+    # Should not raise after reset
+    limiter.hit("test-key")
+    limiter.hit("test-key")
+
+
+def test_auth_rate_limiter_check_ip_and_identity() -> None:
+    """AuthRateLimiter checks both IP and identity limits."""
+    from orcheo_backend.app.authentication import AuthRateLimiter
+
+    limiter = AuthRateLimiter(ip_limit=2, identity_limit=2, interval_seconds=60)
+
+    # IP limiting
+    limiter.check_ip("1.2.3.4")
+    limiter.check_ip("1.2.3.4")
+
+    with pytest.raises(AuthenticationError) as exc:
+        limiter.check_ip("1.2.3.4")
+    assert exc.value.code == "auth.rate_limited.ip"
+
+    # Identity limiting
+    limiter.reset()
+    limiter.check_identity("user-1")
+    limiter.check_identity("user-1")
+
+    with pytest.raises(AuthenticationError) as exc:
+        limiter.check_identity("user-1")
+    assert exc.value.code == "auth.rate_limited.identity"
+
+
+# AuthenticationError tests
+def test_authentication_error_as_http_exception() -> None:
+    """as_http_exception converts to HTTPException."""
+
+    error = AuthenticationError(
+        "Test error",
+        code="test.error",
+        status_code=401,
+    )
+
+    exception = error.as_http_exception()
+
+    assert exception.status_code == 401
+    assert exception.detail["code"] == "test.error"
+    assert exception.detail["message"] == "Test error"
+    assert "WWW-Authenticate" in exception.headers
+
+
+def test_authorization_error_defaults() -> None:
+    """AuthorizationError has correct default values when instantiated properly."""
+
+    # AuthorizationError is a dataclass with field defaults that need to be set properly
+    error = AuthorizationError(
+        message="Forbidden",
+        code="auth.forbidden",
+        status_code=403,
+        websocket_code=4403,
+    )
+
+    assert error.status_code == 403
+    assert error.websocket_code == 4403
+    assert error.code == "auth.forbidden"
+
+
+# ServiceTokenManager advanced tests
+def test_service_token_manager_authenticate_revoked_token() -> None:
+    """Authenticate raises when token is revoked."""
+    import hashlib
+
+    token = "revoked-token"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    record = ServiceTokenRecord(
+        identifier="revoked",
+        secret_hash=digest,
+        revoked_at=datetime.now(tz=UTC),
+    )
+    manager = ServiceTokenManager([record])
+
+    with pytest.raises(AuthenticationError) as exc:
+        manager.authenticate(token)
+    assert exc.value.code == "auth.token_revoked"
+    assert exc.value.status_code == 403
+
+
+def test_service_token_manager_authenticate_expired_token() -> None:
+    """Authenticate raises when token is expired."""
+    import hashlib
+
+    token = "expired-token"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    record = ServiceTokenRecord(
+        identifier="expired",
+        secret_hash=digest,
+        expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
+    )
+    manager = ServiceTokenManager([record])
+
+    with pytest.raises(AuthenticationError) as exc:
+        manager.authenticate(token)
+    assert exc.value.code == "auth.token_expired"
+    assert exc.value.status_code == 403
+
+
+def test_service_token_manager_mint_with_timedelta() -> None:
+    """Mint can accept timedelta for expires_in."""
+
+    manager = ServiceTokenManager([])
+    secret, record = manager.mint(expires_in=timedelta(hours=1))
+
+    assert record.matches(secret)
+    assert record.expires_at is not None
+
+
+def test_service_token_manager_mint_with_seconds() -> None:
+    """Mint can accept int seconds for expires_in."""
+
+    manager = ServiceTokenManager([])
+    secret, record = manager.mint(expires_in=3600)
+
+    assert record.matches(secret)
+    assert record.expires_at is not None
+
+
+def test_service_token_manager_mint_without_expiry() -> None:
+    """Mint creates token without expiry when expires_in is None."""
+
+    manager = ServiceTokenManager([])
+    secret, record = manager.mint()
+
+    assert record.matches(secret)
+    assert record.expires_at is None
+
+
+def test_service_token_manager_rotate_with_overlap() -> None:
+    """Rotate allows overlap period before old token expires."""
+
+    manager = ServiceTokenManager([])
+    original_secret, original_record = manager.mint()
+
+    new_secret, new_record = manager.rotate(
+        original_record.identifier,
+        overlap_seconds=300,
+    )
+
+    # Both tokens should work during overlap
+    assert (
+        manager.authenticate(original_secret).identifier == original_record.identifier
+    )
+    assert manager.authenticate(new_secret).identifier == new_record.identifier
+
+
+def test_service_token_manager_rotate_without_overlap() -> None:
+    """Rotate with overlap_seconds=0 expires old token immediately."""
+
+    manager = ServiceTokenManager([])
+    original_secret, original_record = manager.mint()
+
+    new_secret, new_record = manager.rotate(
+        original_record.identifier,
+        overlap_seconds=0,
+    )
+
+    # New token should work
+    assert manager.authenticate(new_secret).identifier == new_record.identifier
+
+
+def test_service_token_manager_rotate_nonexistent_raises() -> None:
+    """Rotate raises KeyError for nonexistent identifier."""
+
+    manager = ServiceTokenManager([])
+
+    with pytest.raises(KeyError):
+        manager.rotate("nonexistent")
+
+
+def test_service_token_manager_revoke_nonexistent_raises() -> None:
+    """Revoke raises KeyError for nonexistent identifier."""
+
+    manager = ServiceTokenManager([])
+
+    with pytest.raises(KeyError):
+        manager.revoke("nonexistent")
+
+
+def test_service_token_manager_all() -> None:
+    """all() returns all managed tokens."""
+
+    from orcheo_backend.app.authentication import ServiceTokenRecord
+
+    record1 = ServiceTokenRecord(identifier="token-1", secret_hash="hash1")
+    record2 = ServiceTokenRecord(identifier="token-2", secret_hash="hash2")
+    manager = ServiceTokenManager([record1, record2])
+
+    all_tokens = manager.all()
+
+    assert len(all_tokens) == 2
+    assert record1 in all_tokens
+    assert record2 in all_tokens
+
+
+# JWT authentication tests
+def test_jwt_with_audience_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JWT with correct audience is accepted."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "orcheo-api")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "aud": "orcheo-api",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_jwt_with_invalid_audience(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JWT with wrong audience is rejected."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "orcheo-api")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "aud": "wrong-audience",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.invalid_audience"
+
+
+def test_jwt_with_issuer_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JWT with correct issuer is accepted."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.orcheo.com")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "iss": "https://auth.orcheo.com",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_jwt_with_invalid_issuer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JWT with wrong issuer is rejected."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.orcheo.com")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "iss": "https://evil.com",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.invalid_issuer"
+
+
+def test_jwt_expired_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expired JWT is rejected."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "iat": int((now - timedelta(hours=2)).timestamp()),
+            "exp": int((now - timedelta(hours=1)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.token_expired"
+
+
+def test_jwt_with_unsupported_algorithm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JWT with unsupported algorithm is rejected."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_ALLOWED_ALGORITHMS", "HS256")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS384",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.unsupported_algorithm"

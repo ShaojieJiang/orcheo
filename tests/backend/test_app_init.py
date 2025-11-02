@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 from uuid import UUID, uuid4
-
 import jwt
 import pytest
 from fastapi import HTTPException, Request, status
@@ -64,6 +64,11 @@ from orcheo_backend.app import (
     validate_workflow_credentials,
 )
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+from orcheo_backend.app.chatkit_tokens import (
+    ChatKitSessionTokenIssuer,
+    ChatKitTokenConfigurationError,
+    ChatKitTokenSettings,
+)
 from orcheo_backend.app.history import RunHistoryRecord
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -74,11 +79,6 @@ from orcheo_backend.app.schemas import (
     CredentialValidationRequest,
     WorkflowCreateRequest,
     WorkflowUpdateRequest,
-)
-from orcheo_backend.app.chatkit_tokens import (
-    ChatKitSessionTokenIssuer,
-    ChatKitTokenConfigurationError,
-    ChatKitTokenSettings,
 )
 
 
@@ -3050,3 +3050,237 @@ def test_get_chatkit_store_returns_none_for_non_sqlite_store() -> None:
         assert store is None
     finally:
         _chatkit_server_ref["server"] = None
+
+
+@pytest.mark.asyncio()
+async def test_workflow_websocket_authentication_error() -> None:
+    """Websocket handler should return early on authentication errors."""
+    from unittest.mock import MagicMock
+    from orcheo_backend.app import workflow_websocket
+    from orcheo_backend.app.authentication import AuthenticationError
+
+    # Create a mock websocket
+    mock_websocket = MagicMock()
+
+    # Patch authenticate_websocket to raise AuthenticationError
+    with patch(
+        "orcheo_backend.app.authenticate_websocket",
+        side_effect=AuthenticationError("Unauthorized"),
+    ):
+        # Call the websocket handler - it should return without accepting
+        await workflow_websocket(mock_websocket, "test-workflow-id")
+
+    # Verify that websocket.accept() was never called
+    mock_websocket.accept.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_resolve_chatkit_workspace_id_from_metadata_keys() -> None:
+    """Resolve workspace ID from various metadata keys."""
+    from orcheo_backend.app import _resolve_chatkit_workspace_id
+    from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+    from orcheo_backend.app.schemas import ChatKitSessionRequest
+
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test",
+            identity_type="user",
+            scopes=frozenset(),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    # Test workspace_id key
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={"workspace_id": "ws-from-metadata"},
+    )
+    result = _resolve_chatkit_workspace_id(policy, request)
+    assert result == "ws-from-metadata"
+
+    # Test workspaceId key
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={"workspaceId": "ws-camelcase"},
+    )
+    result = _resolve_chatkit_workspace_id(policy, request)
+    assert result == "ws-camelcase"
+
+    # Test workspace key
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={"workspace": "ws-short"},
+    )
+    result = _resolve_chatkit_workspace_id(policy, request)
+    assert result == "ws-short"
+
+
+@pytest.mark.asyncio()
+async def test_resolve_chatkit_workspace_id_from_policy() -> None:
+    """Resolve workspace ID from policy when exactly one workspace."""
+    from orcheo_backend.app import _resolve_chatkit_workspace_id
+    from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+    from orcheo_backend.app.schemas import ChatKitSessionRequest
+
+    # Test with single workspace in policy
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test",
+            identity_type="user",
+            scopes=frozenset(),
+            workspace_ids=frozenset({"ws-single"}),
+        )
+    )
+
+    request = ChatKitSessionRequest(workflow_id=None, metadata={})
+    result = _resolve_chatkit_workspace_id(policy, request)
+    assert result == "ws-single"
+
+    # Test with multiple workspaces in policy (should return None)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test",
+            identity_type="user",
+            scopes=frozenset(),
+            workspace_ids=frozenset({"ws-1", "ws-2"}),
+        )
+    )
+
+    request = ChatKitSessionRequest(workflow_id=None, metadata={})
+    result = _resolve_chatkit_workspace_id(policy, request)
+    assert result is None
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_authentication_errors() -> None:
+    """ChatKit session endpoint handles authentication errors properly."""
+    from orcheo_backend.app import create_chatkit_session_endpoint
+    from orcheo_backend.app.authentication import (
+        AuthorizationPolicy,
+        RequestContext,
+    )
+    from orcheo_backend.app.chatkit_tokens import (
+        ChatKitSessionTokenIssuer,
+        ChatKitTokenSettings,
+    )
+    from orcheo_backend.app.schemas import ChatKitSessionRequest
+
+    issuer = ChatKitSessionTokenIssuer(
+        ChatKitTokenSettings(
+            signing_key="test-key",
+            issuer="test-issuer",
+            audience="test-audience",
+            ttl_seconds=120,
+        )
+    )
+
+    # Test unauthenticated request
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="",
+            identity_type="anonymous",
+            scopes=frozenset(),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    request = ChatKitSessionRequest(workflow_id=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_chatkit_session_endpoint(request, policy=policy, issuer=issuer)
+
+    assert exc_info.value.status_code in (401, 403)
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_workspace_error() -> None:
+    """ChatKit session endpoint handles workspace authorization errors."""
+    from orcheo_backend.app import create_chatkit_session_endpoint
+    from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+    from orcheo_backend.app.chatkit_tokens import (
+        ChatKitSessionTokenIssuer,
+        ChatKitTokenSettings,
+    )
+    from orcheo_backend.app.schemas import ChatKitSessionRequest
+
+    # Create policy with single workspace
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test-user",
+            identity_type="user",
+            scopes=frozenset({"chatkit:session"}),
+            workspace_ids=frozenset({"ws-allowed"}),
+        )
+    )
+
+    issuer = ChatKitSessionTokenIssuer(
+        ChatKitTokenSettings(
+            signing_key="test-key",
+            issuer="test-issuer",
+            audience="test-audience",
+            ttl_seconds=120,
+        )
+    )
+
+    # Request with a different workspace ID that triggers workspace check
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={"workspace_id": "ws-different"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_chatkit_session_endpoint(request, policy=policy, issuer=issuer)
+
+    assert exc_info.value.status_code in (401, 403)
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_with_current_client_secret() -> None:
+    """ChatKit session endpoint includes previous secret in extra payload."""
+    from orcheo_backend.app import create_chatkit_session_endpoint
+    from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+    from orcheo_backend.app.chatkit_tokens import (
+        ChatKitSessionTokenIssuer,
+        ChatKitTokenSettings,
+    )
+    from orcheo_backend.app.schemas import ChatKitSessionRequest
+
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test-user",
+            identity_type="user",
+            scopes=frozenset({"chatkit:session"}),
+            workspace_ids=frozenset({"ws-1"}),
+        )
+    )
+
+    issuer = ChatKitSessionTokenIssuer(
+        ChatKitTokenSettings(
+            signing_key="test-key",
+            issuer="test-issuer",
+            audience="test-audience",
+            ttl_seconds=120,
+        )
+    )
+
+    # Request with current_client_secret
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={},
+        current_client_secret="old-secret-token",
+    )
+
+    response = await create_chatkit_session_endpoint(
+        request, policy=policy, issuer=issuer
+    )
+
+    # Decode token to verify previous_secret is included
+    decoded = jwt.decode(
+        response.client_secret,
+        "test-key",
+        algorithms=["HS256"],
+        audience="test-audience",
+        issuer="test-issuer",
+    )
+    assert "previous_secret" in decoded["chatkit"]
+    assert decoded["chatkit"]["previous_secret"] == "old-secret-token"

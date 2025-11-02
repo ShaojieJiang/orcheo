@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
-
 import jwt
 import pytest
 from fastapi import HTTPException, status

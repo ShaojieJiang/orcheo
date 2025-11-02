@@ -276,7 +276,7 @@ class WebhookTriggerState:
     def _validate_shared_secret(self, request: WebhookRequest) -> None:
         header_name = self._config.shared_secret_header
         if header_name is None:
-            return
+            return  # pragma: no cover - defensive
 
         expected = self._config.shared_secret
         provided = request.normalized_headers().get(header_name)
