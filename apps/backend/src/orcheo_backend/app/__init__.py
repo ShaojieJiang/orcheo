@@ -73,6 +73,11 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     OAuthCredentialService,
 )
+from orcheo_backend.app.authentication import (
+    AuthenticationError,
+    authenticate_request,
+    authenticate_websocket,
+)
 from orcheo_backend.app.chatkit_service import (
     ChatKitRequestContext,
     OrcheoChatKitServer,
@@ -307,7 +312,7 @@ async def _stream_workflow_updates(
 load_dotenv()
 
 _ws_router = APIRouter()
-_http_router = APIRouter(prefix="/api")
+_http_router = APIRouter(prefix="/api", dependencies=[Depends(authenticate_request)])
 _repository: WorkflowRepository
 _history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
@@ -811,7 +816,13 @@ async def execute_workflow(
 @_ws_router.websocket("/ws/workflow/{workflow_id}")
 async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
     """Handle workflow websocket connections by delegating to the executor."""
+    try:
+        context = await authenticate_websocket(websocket)
+    except AuthenticationError:
+        return
+
     await websocket.accept()
+    websocket.state.auth = context
 
     try:
         while True:

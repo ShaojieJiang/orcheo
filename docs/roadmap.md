@@ -62,11 +62,11 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting. (Plan dropped in favour of combining AgentNode with IfElseNode. Will be implemented in a future milestone.)
 
 ### Milestone 6 – Observability, Testing & Launch Prep
+- [x] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
 - [ ] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
-- [ ] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
 
 ## Post v1.0 Outlook
 - [ ] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.
