@@ -1,6 +1,7 @@
 """Orcheo CLI entrypoint."""
 
 from __future__ import annotations
+import os
 import sys
 from datetime import timedelta
 from typing import Annotated
@@ -17,6 +18,14 @@ from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.workflow import workflow_app
+
+
+def _is_completion_mode() -> bool:
+    """Check if we're in shell completion mode."""
+    return any(
+        env_var.startswith("_TYPER_COMPLETE") or env_var.startswith("_ORCHEO_COMPLETE")
+        for env_var in os.environ
+    )
 
 
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
@@ -52,6 +61,10 @@ def main(
     ] = 24,
 ) -> None:
     """Configure shared CLI state and validate configuration."""
+    # Skip expensive initialization during shell completion
+    if _is_completion_mode():
+        return
+
     console = Console()
     try:
         settings = resolve_settings(

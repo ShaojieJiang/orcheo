@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 from importlib import import_module
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 import typer
 from rich.console import Console
-from orcheo.nodes.registry import NodeRegistry
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
+
+
+if TYPE_CHECKING:
+    from orcheo.nodes.registry import NodeRegistry
 
 
 node_app = typer.Typer(help="Inspect available nodes and their schemas.")
@@ -24,6 +27,9 @@ NameArgument = Annotated[
 
 
 def _load_registry() -> NodeRegistry:
+    """Load node registry lazily to avoid heavy dependencies on import."""
+    from orcheo.nodes.registry import NodeRegistry
+
     module = import_module("orcheo.nodes.registry")
     registry = getattr(module, "registry", None)
     if not isinstance(registry, NodeRegistry):  # pragma: no cover - defensive

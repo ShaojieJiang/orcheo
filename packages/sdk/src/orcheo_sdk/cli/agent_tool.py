@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 from importlib import import_module
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 import typer
 from rich.console import Console
-from orcheo.nodes.agent_tools.registry import ToolRegistry
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
+
+
+if TYPE_CHECKING:
+    from orcheo.nodes.agent_tools.registry import ToolRegistry
 
 
 agent_tool_app = typer.Typer(help="Inspect available agent tools and their schemas.")
@@ -25,6 +28,8 @@ NameArgument = Annotated[
 
 def _load_registry() -> ToolRegistry:
     """Load the global tool registry from orcheo.nodes.agent_tools.registry."""
+    from orcheo.nodes.agent_tools.registry import ToolRegistry
+
     # Import tools module to trigger registration
     import_module("orcheo.nodes.agent_tools.tools")
     # Get the global registry
