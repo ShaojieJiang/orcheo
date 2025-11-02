@@ -144,7 +144,11 @@ class JWKSCache:
             self._jwks = jwks
             effective_ttl = self._ttl
             if ttl is not None:
-                effective_ttl = max(effective_ttl, ttl)
+                header_ttl = max(ttl, 0)
+                if effective_ttl > 0:
+                    effective_ttl = min(effective_ttl, header_ttl)
+                else:
+                    effective_ttl = header_ttl
             if effective_ttl:
                 self._expires_at = now + timedelta(seconds=effective_ttl)
             else:
