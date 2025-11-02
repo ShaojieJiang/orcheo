@@ -4,10 +4,12 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
+from collections import Counter, deque
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, WebSocket, status
@@ -63,11 +65,120 @@ class ServiceTokenRecord:
     secret_hash: str
     scopes: frozenset[str] = field(default_factory=frozenset)
     workspace_ids: frozenset[str] = field(default_factory=frozenset)
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    rotation_expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    revocation_reason: str | None = None
+    rotated_to: str | None = None
 
     def matches(self, token: str) -> bool:
         """Return True when the provided token matches the stored hash."""
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
         return hmac.compare_digest(self.secret_hash, digest)
+
+    def is_revoked(self) -> bool:
+        """Return True when the token has been revoked."""
+        return self.revoked_at is not None
+
+    def is_expired(self, *, now: datetime | None = None) -> bool:
+        """Return True when the token has passed its expiry timestamp."""
+        if self.expires_at is None:
+            return False
+        reference = now or datetime.now(tz=UTC)
+        return reference >= self.expires_at
+
+    def is_active(self, *, now: datetime | None = None) -> bool:
+        """Return True when the token is neither expired nor revoked."""
+        return not self.is_revoked() and not self.is_expired(now=now)
+
+
+@dataclass(slots=True)
+class AuthEvent:
+    """Structured record describing an authentication-related event."""
+
+    event: str
+    status: Literal["success", "failure"]
+    subject: str | None
+    identity_type: str | None
+    token_id: str | None
+    ip: str | None = None
+    detail: str | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
+
+
+class AuthTelemetry:
+    """Collect authentication audit events and counters in-memory."""
+
+    def __init__(self, *, max_events: int = 512) -> None:
+        """Initialise the telemetry sink with bounded storage."""
+        self._events: deque[AuthEvent] = deque(maxlen=max_events)
+        self._counters: Counter[str] = Counter()
+
+    def record(self, event: AuthEvent) -> None:
+        """Append an event to the audit log and increment counters."""
+        self._events.append(event)
+        counter_key = f"{event.event}:{event.status}"
+        self._counters[counter_key] += 1
+
+    def record_auth_success(
+        self, context: RequestContext, *, ip: str | None = None
+    ) -> None:
+        """Record a successful authentication event."""
+        self.record(
+            AuthEvent(
+                event="authenticate",
+                status="success",
+                subject=context.subject,
+                identity_type=context.identity_type,
+                token_id=context.token_id,
+                ip=ip,
+            )
+        )
+
+    def record_auth_failure(self, *, reason: str, ip: str | None = None) -> None:
+        """Record a failed authentication attempt."""
+        self.record(
+            AuthEvent(
+                event="authenticate",
+                status="failure",
+                subject=None,
+                identity_type=None,
+                token_id=None,
+                ip=ip,
+                detail=reason,
+            )
+        )
+
+    def record_service_token_event(
+        self, action: str, record: ServiceTokenRecord
+    ) -> None:
+        """Record lifecycle activity for a managed service token."""
+        self.record(
+            AuthEvent(
+                event=f"service_token.{action}",
+                status="success",
+                subject=record.identifier,
+                identity_type="service",
+                token_id=record.identifier,
+            )
+        )
+
+    def metrics(self) -> dict[str, int]:
+        """Return a snapshot of aggregated counters."""
+        return dict(self._counters)
+
+    def events(self) -> tuple[AuthEvent, ...]:
+        """Return recent authentication events in chronological order."""
+        return tuple(self._events)
+
+    def reset(self) -> None:
+        """Clear stored events and counters."""
+        self._events.clear()
+        self._counters.clear()
+
+
+auth_telemetry = AuthTelemetry()
 
 
 @dataclass(frozen=True)
@@ -84,6 +195,9 @@ class AuthSettings:
     audiences: tuple[str, ...]
     issuer: str | None
     service_tokens: tuple[ServiceTokenRecord, ...]
+    rate_limit_ip: int
+    rate_limit_identity: int
+    rate_limit_interval: int
 
     @property
     def enforce(self) -> bool:
@@ -95,6 +209,91 @@ class AuthSettings:
         return bool(
             self.jwt_secret or self.jwks_url or self.jwks_static or self.service_tokens
         )
+
+
+class SlidingWindowRateLimiter:
+    """Maintain a sliding window rate limiter for authentication events."""
+
+    def __init__(
+        self,
+        limit: int,
+        interval_seconds: int,
+        *,
+        code: str,
+        message_template: str,
+    ) -> None:
+        self._limit = max(int(limit), 0)
+        self._interval = max(int(interval_seconds), 1)
+        self._code = code
+        self._message_template = message_template
+        self._events: dict[str, deque[datetime]] = {}
+
+    def hit(self, key: str, *, now: datetime | None = None) -> None:
+        """Record an attempt and raise when the limit is exceeded."""
+        if self._limit == 0 or not key:
+            return
+
+        timestamp = now or datetime.now(tz=UTC)
+        window_start = timestamp - timedelta(seconds=self._interval)
+        bucket = self._events.setdefault(key, deque())
+
+        while bucket and bucket[0] <= window_start:
+            bucket.popleft()
+
+        if len(bucket) >= self._limit:
+            message = self._message_template.format(
+                key=key, limit=self._limit, interval=self._interval
+            )
+            raise AuthenticationError(
+                message,
+                code=self._code,
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(self._interval)},
+            )
+
+        bucket.append(timestamp)
+
+    def reset(self) -> None:
+        """Clear stored rate limiting state."""
+        self._events.clear()
+
+
+class AuthRateLimiter:
+    """Aggregate rate limiting for per-IP and per-identity enforcement."""
+
+    def __init__(
+        self, *, ip_limit: int, identity_limit: int, interval_seconds: int
+    ) -> None:
+        """Configure rate limits for per-IP and per-identity buckets."""
+        self._ip = SlidingWindowRateLimiter(
+            ip_limit,
+            interval_seconds,
+            code="auth.rate_limited.ip",
+            message_template="Too many authentication attempts from IP {key}",
+        )
+        self._identity = SlidingWindowRateLimiter(
+            identity_limit,
+            interval_seconds,
+            code="auth.rate_limited.identity",
+            message_template="Too many authentication attempts for identity {key}",
+        )
+
+    def check_ip(self, ip: str | None, *, now: datetime | None = None) -> None:
+        """Enforce the configured rate limit for an IP address."""
+        if ip:
+            self._ip.hit(ip, now=now)
+
+    def check_identity(
+        self, identity: str | None, *, now: datetime | None = None
+    ) -> None:
+        """Enforce the configured rate limit for an authenticated identity."""
+        if identity:
+            self._identity.hit(identity, now=now)
+
+    def reset(self) -> None:
+        """Reset internal counters for both limiters."""
+        self._ip.reset()
+        self._identity.reset()
 
 
 @dataclass(eq=False)
@@ -126,6 +325,148 @@ class AuthorizationError(AuthenticationError):
     status_code: int = status.HTTP_403_FORBIDDEN
     code: str = "auth.forbidden"
     websocket_code: int = 4403
+
+
+class ServiceTokenManager:
+    """Manage lifecycle of service tokens and hashed representations."""
+
+    def __init__(
+        self,
+        records: Iterable[ServiceTokenRecord],
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        """Load service token records and prepare hash lookups."""
+        self._clock = clock or (lambda: datetime.now(tz=UTC))
+        self._records_by_id: dict[str, ServiceTokenRecord] = {}
+        self._records_by_hash: dict[str, list[str]] = {}
+        for record in records:
+            self._register(record)
+
+    def _register(self, record: ServiceTokenRecord) -> None:
+        self._records_by_id[record.identifier] = record
+        bucket = self._records_by_hash.setdefault(record.secret_hash, [])
+        if record.identifier not in bucket:
+            bucket.append(record.identifier)
+
+    def all(self) -> tuple[ServiceTokenRecord, ...]:
+        """Return all managed service token records."""
+        return tuple(self._records_by_id.values())
+
+    def authenticate(self, token: str) -> ServiceTokenRecord:
+        """Return the record for ``token`` or raise an AuthenticationError."""
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        candidates = self._records_by_hash.get(digest, [])
+        now = self._clock()
+        for identifier in candidates:
+            record = self._records_by_id.get(identifier)
+            if record is None or not record.matches(token):
+                continue
+            if record.is_revoked():
+                raise AuthenticationError(
+                    "Service token has been revoked",
+                    code="auth.token_revoked",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            if record.is_expired(now=now):
+                raise AuthenticationError(
+                    "Service token has expired",
+                    code="auth.token_expired",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            return record
+
+        raise AuthenticationError("Invalid bearer token", code="auth.invalid_token")
+
+    def mint(
+        self,
+        *,
+        identifier: str | None = None,
+        scopes: Iterable[str] = (),
+        workspace_ids: Iterable[str] = (),
+        expires_in: timedelta | int | None = None,
+    ) -> tuple[str, ServiceTokenRecord]:
+        """Mint a new service token and return the raw secret and record."""
+        secret = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+        now = self._clock()
+        if expires_in is None:
+            expires_at: datetime | None = None
+        elif isinstance(expires_in, timedelta):
+            expires_at = now + expires_in
+        else:
+            expires_at = now + timedelta(seconds=int(expires_in))
+
+        record = ServiceTokenRecord(
+            identifier=identifier or digest[:8],
+            secret_hash=digest,
+            scopes=frozenset(scopes),
+            workspace_ids=frozenset(workspace_ids),
+            issued_at=now,
+            expires_at=expires_at,
+        )
+        self._register(record)
+        auth_telemetry.record_service_token_event("mint", record)
+        return secret, record
+
+    def rotate(
+        self,
+        identifier: str,
+        *,
+        overlap_seconds: int = 300,
+        expires_in: timedelta | int | None = None,
+    ) -> tuple[str, ServiceTokenRecord]:
+        """Rotate ``identifier`` and return the replacement token."""
+        record = self._records_by_id.get(identifier)
+        if record is None:
+            raise KeyError(identifier)
+
+        now = self._clock()
+        overlap = max(int(overlap_seconds), 0)
+        secret, new_record = self.mint(
+            scopes=record.scopes,
+            workspace_ids=record.workspace_ids,
+            expires_in=expires_in,
+        )
+        rotation_expires_at = (
+            now + timedelta(seconds=overlap) if overlap else record.rotation_expires_at
+        )
+        updated = replace(
+            record,
+            rotation_expires_at=rotation_expires_at,
+            expires_at=self._calculate_rotation_expiry(record, now, overlap),
+            rotated_to=new_record.identifier,
+        )
+        self._register(updated)
+        auth_telemetry.record_service_token_event("rotate", updated)
+        return secret, new_record
+
+    def revoke(
+        self, identifier: str, *, reason: str | None = None
+    ) -> ServiceTokenRecord:
+        """Revoke ``identifier`` immediately and return the updated record."""
+        record = self._records_by_id.get(identifier)
+        if record is None:
+            raise KeyError(identifier)
+        updated = replace(
+            record,
+            revoked_at=self._clock(),
+            revocation_reason=reason,
+        )
+        self._register(updated)
+        auth_telemetry.record_service_token_event("revoke", updated)
+        return updated
+
+    @staticmethod
+    def _calculate_rotation_expiry(
+        record: ServiceTokenRecord, now: datetime, overlap_seconds: int
+    ) -> datetime | None:
+        if overlap_seconds == 0:
+            return record.expires_at
+        overlap_expiry = now + timedelta(seconds=overlap_seconds)
+        if record.expires_at is None:
+            return overlap_expiry
+        return min(record.expires_at, overlap_expiry)
 
 
 class JWKSCache:
@@ -186,11 +527,17 @@ class Authenticator:
             else:
                 algorithm_str = None
             self._static_jwks.append((jwk, algorithm_str))
+        self._token_manager = ServiceTokenManager(settings.service_tokens)
 
     @property
     def settings(self) -> AuthSettings:
         """Expose the resolved settings."""
         return self._settings
+
+    @property
+    def service_token_manager(self) -> ServiceTokenManager:
+        """Expose the service token manager for lifecycle operations."""
+        return self._token_manager
 
     async def authenticate(self, token: str) -> RequestContext:
         """Validate a bearer token and return the associated identity."""
@@ -212,26 +559,34 @@ class Authenticator:
 
     def _authenticate_service_token(self, token: str) -> RequestContext | None:
         """Return a RequestContext for a matching service token."""
-        if not self._settings.service_tokens:
+        if not self._token_manager.all():
             return None
 
-        for record in self._settings.service_tokens:
-            if record.matches(token):
-                claims = {
-                    "token_type": "service",
-                    "token_id": record.identifier,
-                    "scopes": sorted(record.scopes),
-                    "workspace_ids": sorted(record.workspace_ids),
-                }
-                return RequestContext(
-                    subject=record.identifier,
-                    identity_type="service",
-                    scopes=record.scopes,
-                    workspace_ids=record.workspace_ids,
-                    token_id=record.identifier,
-                    claims=claims,
-                )
-        return None
+        try:
+            record = self._token_manager.authenticate(token)
+        except AuthenticationError as exc:
+            if exc.code == "auth.invalid_token":
+                return None
+            raise
+
+        claims = {
+            "token_type": "service",
+            "token_id": record.identifier,
+            "scopes": sorted(record.scopes),
+            "workspace_ids": sorted(record.workspace_ids),
+            "rotated_to": record.rotated_to,
+            "revoked_at": record.revoked_at.isoformat() if record.revoked_at else None,
+        }
+        return RequestContext(
+            subject=record.identifier,
+            identity_type="service",
+            scopes=record.scopes,
+            workspace_ids=record.workspace_ids,
+            token_id=record.identifier,
+            issued_at=record.issued_at,
+            expires_at=record.expires_at,
+            claims=claims,
+        )
 
     async def _authenticate_jwt(self, token: str) -> RequestContext:
         """Validate a JWT and return an authenticated context."""
@@ -553,6 +908,12 @@ def _service_token_from_mapping(data: Mapping[str, Any]) -> ServiceTokenRecord |
     hashed_value = data.get("hash") or data.get("hashed") or data.get("secret_hash")
     scopes = frozenset(_coerce_str_items(data.get("scopes")))
     workspaces = frozenset(_coerce_str_items(data.get("workspace_ids")))
+    issued_at = _parse_timestamp(data.get("issued_at"))
+    expires_at = _parse_timestamp(data.get("expires_at"))
+    rotation_expires_at = _parse_timestamp(data.get("rotation_expires_at"))
+    revoked_at = _parse_timestamp(data.get("revoked_at"))
+    revocation_reason = _coerce_optional_str(data.get("revocation_reason"))
+    rotated_to = _coerce_optional_str(data.get("rotated_to"))
 
     if hashed_value:
         try:
@@ -565,6 +926,12 @@ def _service_token_from_mapping(data: Mapping[str, Any]) -> ServiceTokenRecord |
             secret_hash=token_hash,
             scopes=scopes,
             workspace_ids=workspaces,
+            issued_at=issued_at,
+            expires_at=expires_at,
+            rotation_expires_at=rotation_expires_at,
+            revoked_at=revoked_at,
+            revocation_reason=revocation_reason,
+            rotated_to=rotated_to,
         )
 
     if not secret_value:
@@ -582,6 +949,12 @@ def _service_token_from_mapping(data: Mapping[str, Any]) -> ServiceTokenRecord |
         secret_hash=token_hash,
         scopes=scopes,
         workspace_ids=workspaces,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        rotation_expires_at=rotation_expires_at,
+        revoked_at=revoked_at,
+        revocation_reason=revocation_reason,
+        rotated_to=rotated_to,
     )
 
 
@@ -716,6 +1089,10 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         _parse_service_tokens(settings.get("AUTH_SERVICE_TOKENS"))
     )
 
+    rate_limit_ip = _parse_int(settings.get("AUTH_RATE_LIMIT_IP"), 0)
+    rate_limit_identity = _parse_int(settings.get("AUTH_RATE_LIMIT_IDENTITY"), 0)
+    rate_limit_interval = _parse_int(settings.get("AUTH_RATE_LIMIT_INTERVAL"), 60)
+
     if mode == "required" and not (
         jwt_secret or jwks_url or jwks_static or service_token_records
     ):
@@ -735,6 +1112,9 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         audiences=tuple(audiences),
         issuer=issuer,
         service_tokens=service_token_records,
+        rate_limit_ip=rate_limit_ip,
+        rate_limit_identity=rate_limit_identity,
+        rate_limit_interval=rate_limit_interval,
     )
 
 
@@ -771,23 +1151,47 @@ def _normalize_jwk_list(value: Any) -> list[Mapping[str, Any]]:
 
 
 _authenticator_cache: dict[str, Authenticator | None] = {"authenticator": None}
+_auth_rate_limiter_cache: dict[str, AuthRateLimiter | None] = {"limiter": None}
 
 
 def get_authenticator(*, refresh: bool = False) -> Authenticator:
     """Return a cached Authenticator instance, reloading settings when required."""
     if refresh:
         _authenticator_cache["authenticator"] = None
+        _auth_rate_limiter_cache["limiter"] = None
     authenticator = _authenticator_cache.get("authenticator")
     if authenticator is None:
         settings = load_auth_settings(refresh=refresh)
         authenticator = Authenticator(settings)
         _authenticator_cache["authenticator"] = authenticator
+        _auth_rate_limiter_cache["limiter"] = AuthRateLimiter(
+            ip_limit=settings.rate_limit_ip,
+            identity_limit=settings.rate_limit_identity,
+            interval_seconds=settings.rate_limit_interval,
+        )
     return authenticator
+
+
+def get_auth_rate_limiter(*, refresh: bool = False) -> AuthRateLimiter:
+    """Return the configured authentication rate limiter."""
+    if refresh:
+        _auth_rate_limiter_cache["limiter"] = None
+    limiter = _auth_rate_limiter_cache.get("limiter")
+    if limiter is None:
+        settings = load_auth_settings(refresh=refresh)
+        limiter = AuthRateLimiter(
+            ip_limit=settings.rate_limit_ip,
+            identity_limit=settings.rate_limit_identity,
+            interval_seconds=settings.rate_limit_interval,
+        )
+        _auth_rate_limiter_cache["limiter"] = limiter
+    return limiter
 
 
 def reset_authentication_state() -> None:
     """Clear cached authentication state and refresh Dynaconf settings."""
     _authenticator_cache["authenticator"] = None
+    _auth_rate_limiter_cache["limiter"] = None
     get_settings(refresh=True)
 
 
@@ -814,12 +1218,26 @@ async def authenticate_request(request: Request) -> RequestContext:
         request.state.auth = context
         return context
 
+    limiter = get_auth_rate_limiter()
+    ip = request.client.host if request.client else None
+    now = datetime.now(tz=UTC)
+    try:
+        limiter.check_ip(ip, now=now)
+    except AuthenticationError as exc:
+        raise exc.as_http_exception() from exc
+
     try:
         token = _extract_bearer_token(request.headers.get("Authorization"))
         context = await authenticator.authenticate(token)
     except AuthenticationError as exc:
+        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
         raise exc.as_http_exception() from exc
 
+    try:
+        limiter.check_identity(context.token_id or context.subject, now=now)
+    except AuthenticationError as exc:
+        raise exc.as_http_exception() from exc
+    auth_telemetry.record_auth_success(context, ip=ip)
     request.state.auth = context
     return context
 
@@ -832,6 +1250,16 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:
         websocket.state.auth = context
         return context
 
+    limiter = get_auth_rate_limiter()
+    ip = websocket.client.host if websocket.client else None
+    now = datetime.now(tz=UTC)
+    try:
+        limiter.check_ip(ip, now=now)
+    except AuthenticationError as exc:
+        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
+        await websocket.close(code=exc.websocket_code, reason=exc.message)
+        raise
+
     header_value = websocket.headers.get("authorization")
     token: str | None = None
     try:
@@ -843,21 +1271,84 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:
             if token_param:
                 token = token_param
     except AuthenticationError as exc:
+        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
         await websocket.close(code=exc.websocket_code, reason=exc.message)
         raise
 
     if not token:
+        auth_telemetry.record_auth_failure(reason="auth.missing_token", ip=ip)
         await websocket.close(code=4401, reason="Missing bearer token")
         raise AuthenticationError("Missing bearer token", code="auth.missing_token")
 
     try:
         context = await authenticator.authenticate(token)
     except AuthenticationError as exc:
+        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
         await websocket.close(code=exc.websocket_code, reason=exc.message)
         raise
 
+    try:
+        limiter.check_identity(context.token_id or context.subject, now=now)
+    except AuthenticationError as exc:
+        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
+        await websocket.close(code=exc.websocket_code, reason=exc.message)
+        raise
+    auth_telemetry.record_auth_success(context, ip=ip)
     websocket.state.auth = context
     return context
+
+
+class AuthorizationPolicy:
+    """Evaluate authorization decisions based on a request context."""
+
+    def __init__(self, context: RequestContext) -> None:
+        """Bind the policy to the authenticated request context."""
+        self._context = context
+
+    @property
+    def context(self) -> RequestContext:
+        """Return the underlying request context."""
+        return self._context
+
+    def require_authenticated(self) -> RequestContext:
+        """Ensure the request is associated with an authenticated identity."""
+        if not self._context.is_authenticated:
+            raise AuthenticationError(
+                "Authentication required",
+                code="auth.authentication_required",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+        return self._context
+
+    def require_scopes(self, *scopes: str) -> RequestContext:
+        """Ensure the identity possesses the provided scopes."""
+        ensure_scopes(self._context, scopes)
+        return self._context
+
+    def require_workspace(self, workspace_id: str) -> RequestContext:
+        """Ensure the identity is authorised for the workspace."""
+        ensure_workspace_access(self._context, [workspace_id])
+        return self._context
+
+    def require_workspaces(self, workspace_ids: Iterable[str]) -> RequestContext:
+        """Ensure the identity can access all provided workspaces."""
+        ensure_workspace_access(self._context, workspace_ids)
+        return self._context
+
+
+async def get_request_context(request: Request) -> RequestContext:
+    """Retrieve the RequestContext associated with the current request."""
+    context = getattr(request.state, "auth", None)
+    if isinstance(context, RequestContext):
+        return context
+    return await authenticate_request(request)
+
+
+def get_authorization_policy(
+    context: RequestContext = Depends(get_request_context),  # noqa: B008
+) -> AuthorizationPolicy:
+    """Return an AuthorizationPolicy bound to the active request context."""
+    return AuthorizationPolicy(context)
 
 
 def ensure_scopes(context: RequestContext, scopes: Iterable[str]) -> None:
@@ -893,7 +1384,7 @@ def require_scopes(*scopes: str) -> Callable[..., Awaitable[RequestContext]]:
     """Return a FastAPI dependency that enforces required scopes."""
 
     async def dependency(
-        context: RequestContext = Depends(authenticate_request),  # noqa: B008
+        context: RequestContext = Depends(get_request_context),  # noqa: B008
     ) -> RequestContext:
         ensure_scopes(context, scopes)
         return context
@@ -907,7 +1398,7 @@ def require_workspace_access(
     """Return a dependency that ensures the caller may access the workspace."""
 
     async def dependency(
-        context: RequestContext = Depends(authenticate_request),  # noqa: B008
+        context: RequestContext = Depends(get_request_context),  # noqa: B008
     ) -> RequestContext:
         ensure_workspace_access(context, workspace_ids)
         return context
@@ -916,16 +1407,25 @@ def require_workspace_access(
 
 
 __all__ = [
+    "AuthEvent",
+    "AuthRateLimiter",
+    "AuthTelemetry",
     "AuthSettings",
     "AuthenticationError",
     "AuthorizationError",
+    "AuthorizationPolicy",
     "Authenticator",
     "RequestContext",
+    "ServiceTokenManager",
+    "auth_telemetry",
     "authenticate_request",
     "authenticate_websocket",
     "ensure_scopes",
     "ensure_workspace_access",
+    "get_authorization_policy",
+    "get_auth_rate_limiter",
     "get_authenticator",
+    "get_request_context",
     "load_auth_settings",
     "require_scopes",
     "require_workspace_access",

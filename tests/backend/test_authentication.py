@@ -13,11 +13,16 @@ from starlette.requests import Request
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import (
     JWKSCache,
+    AuthenticationError,
     AuthorizationError,
+    AuthorizationPolicy,
     RequestContext,
+    ServiceTokenManager,
+    auth_telemetry,
     authenticate_request,
     ensure_scopes,
     ensure_workspace_access,
+    get_auth_rate_limiter,
     load_auth_settings,
     require_scopes,
     require_workspace_access,
@@ -40,12 +45,17 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
         "ORCHEO_AUTH_JWKS_URL",
         "ORCHEO_AUTH_JWKS",
         "ORCHEO_SERVICE_TOKEN",
+        "ORCHEO_AUTH_RATE_LIMIT_IP",
+        "ORCHEO_AUTH_RATE_LIMIT_IDENTITY",
+        "ORCHEO_AUTH_RATE_LIMIT_INTERVAL",
     ):
         monkeypatch.delenv(key, raising=False)
     reset_authentication_state()
+    auth_telemetry.reset()
     yield
     monkeypatch.undo()
     reset_authentication_state()
+    auth_telemetry.reset()
 
 
 def _client() -> TestClient:
@@ -326,6 +336,42 @@ def test_ensure_workspace_access_raises_for_missing_workspace() -> None:
         ensure_workspace_access(context, ["ws-2"])
 
 
+def test_authorization_policy_enforces_scopes_and_workspaces() -> None:
+    """AuthorizationPolicy should gate scopes and workspace access."""
+
+    context = RequestContext(
+        subject="user-1",
+        identity_type="user",
+        scopes=frozenset({"chatkit:session"}),
+        workspace_ids=frozenset({"ws-1"}),
+    )
+    policy = AuthorizationPolicy(context)
+
+    assert policy.require_authenticated() is context
+    assert policy.require_scopes("chatkit:session") is context
+    assert policy.require_workspace("ws-1") is context
+
+    with pytest.raises(AuthorizationError):
+        policy.require_workspace("ws-2")
+
+
+def test_service_token_manager_mint_rotate_revoke() -> None:
+    """ServiceTokenManager should support rotation with overlap and revocation."""
+
+    manager = ServiceTokenManager([])
+    secret, record = manager.mint(scopes={"workflows:read"}, workspace_ids={"ws-1"})
+
+    assert record.matches(secret)
+    assert record.identifier in {item.identifier for item in manager.all()}
+
+    overlap_secret, rotated = manager.rotate(record.identifier, overlap_seconds=60)
+    assert manager.authenticate(secret).identifier == record.identifier
+
+    manager.revoke(rotated.identifier)
+    with pytest.raises(AuthenticationError):
+        manager.authenticate(overlap_secret)
+
+
 @pytest.mark.asyncio
 async def test_require_scopes_dependency_enforces_missing_scope() -> None:
     """require_scopes integrates with authenticate_request for FastAPI routes."""
@@ -355,3 +401,47 @@ async def test_require_workspace_access_dependency_allows_valid_context() -> Non
     result = await dependency(context)  # type: ignore[arg-type]
 
     assert result is context
+
+
+def test_authenticate_request_records_audit_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful authentication should emit audit telemetry events."""
+
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_SERVICE_TOKENS",
+        '{"id": "ci", "secret": "token-abc", "scopes": ["workflows:read"]}',
+    )
+    reset_authentication_state()
+    auth_telemetry.reset()
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": "Bearer token-abc"},
+    )
+    assert response.status_code == 200
+    events = auth_telemetry.events()
+    assert any(event.status == "success" for event in events)
+
+
+def test_authenticate_request_rate_limits_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exceeding the configured per-IP limit should yield a 429 error."""
+
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_SERVICE_TOKENS",
+        '{"id": "ci", "secret": "token-xyz", "scopes": ["workflows:read"]}',
+    )
+    monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IP", "2")
+    monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IDENTITY", "5")
+    reset_authentication_state()
+
+    client = _client()
+    headers = {"Authorization": "Bearer token-xyz"}
+    assert client.get("/api/workflows", headers=headers).status_code == 200
+    assert client.get("/api/workflows", headers=headers).status_code == 200
+    response = client.get("/api/workflows", headers=headers)
+
+    assert response.status_code == 429
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.rate_limited.ip"

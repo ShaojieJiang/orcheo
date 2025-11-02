@@ -75,8 +75,10 @@ from orcheo.vault.oauth import (
 )
 from orcheo_backend.app.authentication import (
     AuthenticationError,
+    AuthorizationPolicy,
     authenticate_request,
     authenticate_websocket,
+    get_authorization_policy,
 )
 from orcheo_backend.app.chatkit_service import (
     ChatKitRequestContext,
@@ -84,6 +86,11 @@ from orcheo_backend.app.chatkit_service import (
     create_chatkit_server,
 )
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
+from orcheo_backend.app.chatkit_tokens import (
+    ChatKitSessionTokenIssuer,
+    ChatKitTokenConfigurationError,
+    get_chatkit_token_issuer,
+)
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryNotFoundError,
@@ -170,6 +177,18 @@ _should_log_sensitive_debug = (
 
 _CHATKIT_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
 _chatkit_cleanup_task: dict[str, asyncio.Task | None] = {"task": None}
+
+
+def _resolve_chatkit_token_issuer() -> ChatKitSessionTokenIssuer:
+    """Return the configured ChatKit token issuer or raise a 503 error."""
+    try:
+        return get_chatkit_token_issuer()
+    except ChatKitTokenConfigurationError as exc:
+        detail = {
+            "message": "ChatKit session token signing key is not configured",
+            "code": "chatkit.signing_key_missing",
+        }
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail) from exc
 
 
 def _coerce_int(value: object, default: int) -> int:
@@ -905,6 +924,21 @@ async def chatkit_gateway(request: Request) -> Response:
     return JSONResponse(result)
 
 
+def _resolve_chatkit_workspace_id(
+    policy: AuthorizationPolicy, request: ChatKitSessionRequest
+) -> str | None:
+    """Determine the workspace identifier used to scope session tokens."""
+    metadata = request.metadata or {}
+    for key in ("workspace_id", "workspaceId", "workspace"):
+        value = metadata.get(key)
+        if value:
+            return str(value)
+    if policy.context.workspace_ids:
+        if len(policy.context.workspace_ids) == 1:
+            return next(iter(policy.context.workspace_ids))
+    return None
+
+
 @_http_router.post(
     "/chatkit/session",
     response_model=ChatKitSessionResponse,
@@ -912,30 +946,64 @@ async def chatkit_gateway(request: Request) -> Response:
 )
 async def create_chatkit_session_endpoint(
     request: ChatKitSessionRequest,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
+    issuer: ChatKitSessionTokenIssuer = Depends(_resolve_chatkit_token_issuer),  # noqa: B008
 ) -> ChatKitSessionResponse:
-    """Return a ChatKit client secret derived from environment configuration."""
-    candidate_keys: list[str] = []
-    if request.workflow_id:
-        workflow_key = str(request.workflow_id).replace("-", "").upper()
-        candidate_keys.append(f"CHATKIT_CLIENT_SECRET_{workflow_key}")
-    candidate_keys.append("CHATKIT_CLIENT_SECRET")
+    """Issue a signed ChatKit session token scoped to the caller."""
+    try:
+        policy.require_authenticated()
+        policy.require_scopes("chatkit:session")
+    except AuthenticationError as exc:
+        raise exc.as_http_exception() from exc
 
-    for env_key in candidate_keys:
-        secret = os.getenv(env_key)
-        if secret:
-            logger.info("Issuing ChatKit client secret via %s", env_key)
-            return ChatKitSessionResponse(client_secret=secret)
+    workspace_id = _resolve_chatkit_workspace_id(policy, request)
+    if workspace_id:
+        try:
+            policy.require_workspace(workspace_id)
+        except AuthenticationError as exc:
+            raise exc.as_http_exception() from exc
 
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail={
-            "message": "ChatKit client secret is not configured.",
-            "hint": (
-                "Set CHATKIT_CLIENT_SECRET or CHATKIT_CLIENT_SECRET_<WORKFLOW_ID> "
-                "in the backend environment to enable the ChatKit integration."
-            ),
-        },
+    context = policy.context
+    extra: dict[str, Any] = {}
+    if request.workflow_label:
+        extra["workflow_label"] = request.workflow_label
+    if request.current_client_secret:
+        extra["previous_secret"] = request.current_client_secret
+    extra_payload: dict[str, Any] | None = extra or None
+
+    try:
+        token, expires_at = issuer.mint_session(
+            subject=context.subject,
+            identity_type=context.identity_type,
+            token_id=context.token_id,
+            workspace_ids=context.workspace_ids,
+            primary_workspace_id=workspace_id,
+            workflow_id=request.workflow_id,
+            scopes=context.scopes,
+            metadata=request.metadata,
+            user=request.user,
+            assistant=request.assistant,
+            extra=extra_payload,
+        )
+    except ChatKitTokenConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": str(exc),
+                "hint": (
+                    "Set CHATKIT_TOKEN_SIGNING_KEY (or CHATKIT_CLIENT_SECRET) to "
+                    "enable ChatKit session issuance."
+                ),
+            },
+        ) from exc
+
+    logger.info(
+        "Issued ChatKit session token for subject %s workspace=%s workflow=%s",
+        context.subject,
+        workspace_id or "<unspecified>",
+        request.workflow_id or "<none>",
     )
+    return ChatKitSessionResponse(client_secret=token, expires_at=expires_at)
 
 
 @_http_router.post(
