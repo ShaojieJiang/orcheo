@@ -1,5 +1,9 @@
 from __future__ import annotations
+import hashlib
+import hmac
+import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 import pytest
 from pydantic import ValidationError
 from orcheo.triggers.webhook import (
@@ -32,6 +36,37 @@ def _extract_inner_error(exc: ValidationError) -> WebhookValidationError:
     inner = exc.errors()[0]["ctx"]["error"]
     assert isinstance(inner, WebhookValidationError)
     return inner
+
+
+def _sign_payload(
+    payload: Any,
+    *,
+    secret: str,
+    algorithm: str = "sha256",
+    timestamp: datetime | None = None,
+) -> tuple[str, str | None]:
+    """Return a signature matching the webhook validation logic."""
+
+    if timestamp is None:
+        timestamp = datetime.now(tz=UTC)
+    if isinstance(payload, bytes):
+        payload_bytes = payload
+    elif isinstance(payload, str):
+        payload_bytes = payload.encode("utf-8")
+    else:
+        canonical_payload = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        payload_bytes = canonical_payload.encode("utf-8")
+    parts: list[bytes] = []
+    if timestamp:
+        parts.append(str(int(timestamp.timestamp())).encode("utf-8"))
+    parts.append(payload_bytes)
+    message = b".".join(parts)
+    digest = hmac.new(secret.encode("utf-8"), message, getattr(hashlib, algorithm))
+    return digest.hexdigest(), str(int(timestamp.timestamp()))
 
 
 def test_webhook_config_rejects_empty_methods() -> None:
@@ -185,3 +220,155 @@ def test_webhook_rate_limit_exceeded() -> None:
 
     with pytest.raises(RateLimitExceededError):
         state.validate(make_request())
+
+
+def test_webhook_validates_hmac_signature() -> None:
+    """Valid HMAC signatures should be accepted."""
+
+    secret = "super-secret"
+    algorithm = "sha256"
+    payload = {"foo": "bar", "count": 3}
+    timestamp = datetime.now(tz=UTC)
+    signature, ts_value = _sign_payload(
+        payload,
+        secret=secret,
+        algorithm=algorithm,
+        timestamp=timestamp,
+    )
+
+    config = WebhookTriggerConfig(
+        hmac_header="x-signature",
+        hmac_secret=secret,
+        hmac_algorithm=algorithm,
+        hmac_timestamp_header="x-signature-ts",
+        hmac_tolerance_seconds=600,
+    )
+    state = WebhookTriggerState(config)
+
+    state.validate(
+        make_request(
+            payload=payload,
+            headers={
+                "x-signature": signature,
+                "x-signature-ts": ts_value,
+            },
+        )
+    )
+
+
+def test_webhook_rejects_invalid_hmac_signature() -> None:
+    """Invalid HMAC signatures should be rejected with 401."""
+
+    secret = "super-secret"
+    payload = {"foo": "bar"}
+    timestamp = datetime.now(tz=UTC)
+    signature, ts_value = _sign_payload(
+        payload,
+        secret=secret,
+        timestamp=timestamp,
+    )
+
+    config = WebhookTriggerConfig(
+        hmac_header="x-signature",
+        hmac_secret=secret,
+        hmac_timestamp_header="x-signature-ts",
+        hmac_tolerance_seconds=600,
+    )
+    state = WebhookTriggerState(config)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(
+            make_request(
+                payload=payload,
+                headers={
+                    "x-signature": signature[:-1] + "0",
+                    "x-signature-ts": ts_value,
+                },
+            )
+        )
+
+
+def test_webhook_hmac_requires_timestamp_when_configured() -> None:
+    """Timestamp header must be present when configured for HMAC verification."""
+
+    secret = "super-secret"
+    payload = {"foo": "bar"}
+    signature, _ = _sign_payload(payload, secret=secret)
+
+    config = WebhookTriggerConfig(
+        hmac_header="x-signature",
+        hmac_secret=secret,
+        hmac_timestamp_header="x-signature-ts",
+    )
+    state = WebhookTriggerState(config)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(
+            make_request(payload=payload, headers={"x-signature": signature})
+        )
+
+
+def test_webhook_hmac_replay_protection() -> None:
+    """Replaying the same signature should trigger authentication failure."""
+
+    secret = "super-secret"
+    payload = {"foo": "bar"}
+    timestamp = datetime.now(tz=UTC)
+    signature, ts_value = _sign_payload(
+        payload,
+        secret=secret,
+        timestamp=timestamp,
+    )
+
+    config = WebhookTriggerConfig(
+        hmac_header="x-signature",
+        hmac_secret=secret,
+        hmac_timestamp_header="x-signature-ts",
+        hmac_tolerance_seconds=600,
+    )
+    state = WebhookTriggerState(config)
+
+    request = make_request(
+        payload=payload,
+        headers={
+            "x-signature": signature,
+            "x-signature-ts": ts_value,
+        },
+    )
+
+    state.validate(request)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(request)
+
+
+def test_webhook_hmac_timestamp_tolerance() -> None:
+    """Signatures outside the tolerance window should be rejected."""
+
+    secret = "super-secret"
+    payload = {"foo": "bar"}
+    old_timestamp = datetime.now(tz=UTC) - timedelta(seconds=1000)
+    signature, ts_value = _sign_payload(
+        payload,
+        secret=secret,
+        timestamp=old_timestamp,
+    )
+
+    config = WebhookTriggerConfig(
+        hmac_header="x-signature",
+        hmac_secret=secret,
+        hmac_timestamp_header="x-signature-ts",
+        hmac_tolerance_seconds=300,
+    )
+    state = WebhookTriggerState(config)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(
+            make_request(
+                payload=payload,
+                headers={
+                    "x-signature": signature,
+                    "x-signature-ts": ts_value,
+                },
+            )
+        )
