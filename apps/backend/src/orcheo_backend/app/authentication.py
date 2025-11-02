@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 import httpx
 import jwt
-from fastapi import HTTPException, Request, WebSocket, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
 from jwt import PyJWK, PyJWKError
 from jwt.exceptions import (
     ExpiredSignatureError,
@@ -118,6 +118,14 @@ class AuthenticationError(Exception):
             detail=detail,
             headers=headers,
         )
+
+
+class AuthorizationError(AuthenticationError):
+    """Raised when an authenticated identity lacks required permissions."""
+
+    status_code: int = status.HTTP_403_FORBIDDEN
+    code: str = "auth.forbidden"
+    websocket_code: int = 4403
 
 
 class JWKSCache:
@@ -562,6 +570,11 @@ def _service_token_from_mapping(data: Mapping[str, Any]) -> ServiceTokenRecord |
     if not secret_value:
         return None
 
+    logger.warning(
+        "Service token %s configured with a raw secret; provide a SHA256 hash via "
+        "AUTH_SERVICE_TOKENS for production deployments",
+        identifier or "<unnamed>",
+    )
     token_hash = hashlib.sha256(str(secret_value).encode("utf-8")).hexdigest()
     identifier = identifier or token_hash[:8]
     return ServiceTokenRecord(
@@ -703,6 +716,14 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         _parse_service_tokens(settings.get("AUTH_SERVICE_TOKENS"))
     )
 
+    if mode == "required" and not (
+        jwt_secret or jwks_url or jwks_static or service_token_records
+    ):
+        logger.warning(
+            "AUTH_MODE=required but no authentication credentials are configured; "
+            "all requests will be rejected",
+        )
+
     return AuthSettings(
         mode=mode,
         jwt_secret=jwt_secret,
@@ -839,14 +860,74 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:
     return context
 
 
+def ensure_scopes(context: RequestContext, scopes: Iterable[str]) -> None:
+    """Ensure the request context possesses all required scopes."""
+    missing = [scope for scope in scopes if scope and scope not in context.scopes]
+    if missing:
+        raise AuthorizationError(
+            "Missing required scopes: " + ", ".join(sorted(missing)),
+            code="auth.missing_scope",
+        )
+
+
+def ensure_workspace_access(
+    context: RequestContext, workspace_ids: Iterable[str]
+) -> None:
+    """Ensure the context is authorized for the requested workspace identifiers."""
+    required = {workspace_id for workspace_id in workspace_ids if workspace_id}
+    if not required:
+        return
+    if not context.workspace_ids:
+        raise AuthorizationError(
+            "Workspace access denied", code="auth.workspace_forbidden"
+        )
+    if not required.issubset(context.workspace_ids):
+        missing = sorted(required.difference(context.workspace_ids))
+        raise AuthorizationError(
+            "Workspace access denied for: " + ", ".join(missing),
+            code="auth.workspace_forbidden",
+        )
+
+
+def require_scopes(*scopes: str) -> Callable[..., Awaitable[RequestContext]]:
+    """Return a FastAPI dependency that enforces required scopes."""
+
+    async def dependency(
+        context: RequestContext = Depends(authenticate_request),  # noqa: B008
+    ) -> RequestContext:
+        ensure_scopes(context, scopes)
+        return context
+
+    return dependency
+
+
+def require_workspace_access(
+    *workspace_ids: str,
+) -> Callable[..., Awaitable[RequestContext]]:
+    """Return a dependency that ensures the caller may access the workspace."""
+
+    async def dependency(
+        context: RequestContext = Depends(authenticate_request),  # noqa: B008
+    ) -> RequestContext:
+        ensure_workspace_access(context, workspace_ids)
+        return context
+
+    return dependency
+
+
 __all__ = [
     "AuthSettings",
     "AuthenticationError",
+    "AuthorizationError",
     "Authenticator",
     "RequestContext",
     "authenticate_request",
     "authenticate_websocket",
+    "ensure_scopes",
+    "ensure_workspace_access",
     "get_authenticator",
     "load_auth_settings",
+    "require_scopes",
+    "require_workspace_access",
     "reset_authentication_state",
 ]

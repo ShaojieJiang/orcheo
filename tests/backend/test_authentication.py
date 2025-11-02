@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import logging
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -12,7 +13,14 @@ from starlette.requests import Request
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import (
     JWKSCache,
+    AuthorizationError,
+    RequestContext,
     authenticate_request,
+    ensure_scopes,
+    ensure_workspace_access,
+    load_auth_settings,
+    require_scopes,
+    require_workspace_access,
     reset_authentication_state,
 )
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
@@ -233,3 +241,117 @@ async def test_jwks_cache_refetches_when_header_disables_caching() -> None:
     await cache.keys()
 
     assert fetch_count == 2
+
+
+def test_raw_service_token_emits_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Using raw service token secrets emits an operator-facing warning."""
+
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_SERVICE_TOKENS",
+        '{"id": "ci", "secret": "raw-token"}',
+    )
+    caplog.set_level(logging.WARNING)
+
+    load_auth_settings(refresh=True)
+
+    assert any("raw secret" in record.message for record in caplog.records)
+
+
+def test_required_mode_without_credentials_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Enforcing authentication without credentials warns operators."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    caplog.set_level(logging.WARNING)
+
+    load_auth_settings(refresh=True)
+
+    assert any(
+        "no authentication credentials" in record.message for record in caplog.records
+    )
+
+
+def test_ensure_scopes_allows_present_scopes() -> None:
+    """ensure_scopes succeeds when all required scopes are present."""
+
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        scopes=frozenset({"workflows:read", "workflows:write"}),
+    )
+
+    ensure_scopes(context, ["workflows:read"])
+
+
+def test_ensure_scopes_raises_on_missing_scope() -> None:
+    """ensure_scopes raises AuthorizationError when scopes are missing."""
+
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        scopes=frozenset({"workflows:read"}),
+    )
+
+    with pytest.raises(AuthorizationError) as exc:
+        ensure_scopes(context, ["workflows:write"])
+
+    assert "Missing required scopes" in str(exc.value)
+
+
+def test_ensure_workspace_access_allows_subset() -> None:
+    """Callers with matching workspace IDs pass the authorization check."""
+
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        workspace_ids=frozenset({"ws-1", "ws-2"}),
+    )
+
+    ensure_workspace_access(context, ["ws-2"])
+
+
+def test_ensure_workspace_access_raises_for_missing_workspace() -> None:
+    """Missing workspace authorization raises AuthorizationError."""
+
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        workspace_ids=frozenset({"ws-1"}),
+    )
+
+    with pytest.raises(AuthorizationError):
+        ensure_workspace_access(context, ["ws-2"])
+
+
+@pytest.mark.asyncio
+async def test_require_scopes_dependency_enforces_missing_scope() -> None:
+    """require_scopes integrates with authenticate_request for FastAPI routes."""
+
+    dependency = require_scopes("workflows:write")
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        scopes=frozenset({"workflows:read"}),
+    )
+
+    with pytest.raises(AuthorizationError):
+        await dependency(context)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_require_workspace_access_dependency_allows_valid_context() -> None:
+    """require_workspace_access allows contexts authorized for the workspace."""
+
+    dependency = require_workspace_access("ws-1")
+    context = RequestContext(
+        subject="svc",
+        identity_type="service",
+        workspace_ids=frozenset({"ws-1", "ws-2"}),
+    )
+
+    result = await dependency(context)  # type: ignore[arg-type]
+
+    assert result is context
