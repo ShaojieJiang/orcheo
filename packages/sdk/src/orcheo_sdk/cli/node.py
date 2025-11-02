@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 from importlib import import_module
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 import typer
 from rich.console import Console
-from orcheo.nodes.registry import NodeRegistry
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
+
+
+if TYPE_CHECKING:
+    from orcheo.nodes.registry import NodeRegistry
 
 
 node_app = typer.Typer(help="Inspect available nodes and their schemas.")
@@ -24,10 +27,22 @@ NameArgument = Annotated[
 
 
 def _load_registry() -> NodeRegistry:
-    module = import_module("orcheo.nodes.registry")
+    """Load node registry lazily to avoid heavy dependencies on import."""
+    from orcheo.nodes.registry import NodeRegistry
+
+    try:
+        module = import_module("orcheo.nodes.registry")
+    except ModuleNotFoundError as exc:  # pragma: no cover - import error
+        msg = "Unable to import orcheo.nodes.registry"
+        raise CLIError(msg) from exc
+
     registry = getattr(module, "registry", None)
+    if registry is None:  # pragma: no cover - defensive
+        msg = "orcheo.nodes.registry does not expose a 'registry' attribute"
+        raise CLIError(msg)
+
     if not isinstance(registry, NodeRegistry):  # pragma: no cover - defensive
-        msg = "Unable to load node registry from orcheo.nodes.registry"
+        msg = "Loaded registry is not an instance of NodeRegistry"
         raise CLIError(msg)
     return registry
 

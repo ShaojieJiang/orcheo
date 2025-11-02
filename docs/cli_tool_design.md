@@ -37,21 +37,8 @@ aligned with the shared REST APIs and authentication flows.
 ## Command Surface
 
 The CLI adds a new `orcheo` entry point with the following high-level command
-groups:
-
-| Command | Description |
-|---------|-------------|
-| `orcheo node list [--tag ai]` | Return nodes with metadata (name, type, version, tags). |
-| `orcheo node show <node>` | Display node schema, inputs/outputs, credential requirements. |
-| `orcheo workflow list` | List workflows with owner, last run, and status. |
-| `orcheo workflow show <workflow>` | Print workflow summary, Mermaid graph, and latest runs. |
-| `orcheo workflow run <workflow>` | Trigger an execution and stream status to the console. |
-| `orcheo credential list` | Surface credential names, scopes, expiry, and health. |
-| `orcheo credential create <template>` | Provision a credential from a template with guided prompts. |
-| `orcheo credential update <cred>` | Rotate secrets or edit metadata for an existing credential. |
-| `orcheo credential delete <cred>` | Revoke a credential with confirmation safeguards. |
-| `orcheo credential reference <cred>` | Emit the `[[cred_name]]` snippet and usage guidance. |
-| `orcheo code scaffold <workflow>` | Generate Python snippets that invoke the workflow or nodes. |
+groups. For the complete list of available commands, see the
+[Available Commands](../README.md#available-commands) section in the README.
 
 Each command uses the existing REST APIs exposed by the backend. Shared helpers
 handle:
@@ -148,4 +135,3 @@ translation and presentation.
 - Owner: Developer tooling squad
 - Target milestone: Milestone 5 (Node Ecosystem & Integrations)
 - Status: In progress
-

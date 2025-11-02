@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 from importlib import import_module
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 import typer
 from rich.console import Console
-from orcheo.nodes.agent_tools.registry import ToolRegistry
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
+
+
+if TYPE_CHECKING:
+    from orcheo.nodes.agent_tools.registry import ToolRegistry
 
 
 agent_tool_app = typer.Typer(help="Inspect available agent tools and their schemas.")
@@ -25,13 +28,31 @@ NameArgument = Annotated[
 
 def _load_registry() -> ToolRegistry:
     """Load the global tool registry from orcheo.nodes.agent_tools.registry."""
-    # Import tools module to trigger registration
-    import_module("orcheo.nodes.agent_tools.tools")
-    # Get the global registry
-    module = import_module("orcheo.nodes.agent_tools.registry")
+    from orcheo.nodes.agent_tools.registry import ToolRegistry
+
+    try:
+        # Import tools module to trigger registration
+        import_module("orcheo.nodes.agent_tools.tools")
+    except ModuleNotFoundError as exc:  # pragma: no cover - import error
+        msg = "Unable to import orcheo.nodes.agent_tools.tools for registry population"
+        raise CLIError(msg) from exc
+
+    try:
+        module = import_module("orcheo.nodes.agent_tools.registry")
+    except ModuleNotFoundError as exc:  # pragma: no cover - import error
+        msg = "Unable to import orcheo.nodes.agent_tools.registry"
+        raise CLIError(msg) from exc
+
     registry = getattr(module, "tool_registry", None)
+    if registry is None:  # pragma: no cover - defensive
+        msg = (
+            "orcheo.nodes.agent_tools.registry does not expose "
+            "a 'tool_registry' attribute"
+        )
+        raise CLIError(msg)
+
     if not isinstance(registry, ToolRegistry):  # pragma: no cover - defensive
-        msg = "Unable to load tool registry from orcheo.nodes.agent_tools.registry"
+        msg = "Loaded registry is not an instance of ToolRegistry"
         raise CLIError(msg)
     return registry
 

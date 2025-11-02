@@ -8,43 +8,109 @@
 
 Orcheo is a tool for creating and running workflows.
 
-## Repository layout
+## For users
 
-- `src/orcheo/` – core orchestration engine and FastAPI implementation
-- `apps/backend/` – deployment wrapper exposing the FastAPI ASGI app
-- `packages/sdk/` – lightweight Python SDK for composing workflow requests
-- `apps/canvas/` – React + Vite scaffold for the visual workflow designer
-
-## Quick start
+### Quick start
 
 The project ships with everything needed to spin up the FastAPI runtime on
 SQLite for local development.
 
 1. **Install dependencies**
 
+   For development (from source):
    ```bash
    uv sync --all-groups
    ```
 
-2. **Seed environment variables**
-
+   Or install from PyPI:
    ```bash
-   uv run orcheo-seed-env
+   uv add orcheo orcheo-backend orcheo-sdk
    ```
 
-   Pass `-- --force` to overwrite an existing `.env` file.
+2. **Activate the virtual environment** (optional but recommended)
+
+   ```bash
+   source .venv/bin/activate  # On macOS/Linux
+   # or
+   .venv\Scripts\activate     # On Windows
+   ```
+
+   Once activated, you can run commands without the `uv run` prefix.
 
 3. **Run the API server**
 
    ```bash
-   uv run orcheo-dev-server
+   orcheo-dev-server
    ```
 
 4. **Verify the setup**
 
    ```bash
-   uv run orcheo-test
+   orcheo-test
    ```
+
+### CLI
+
+Orcheo ships with a LangGraph-friendly CLI for node discovery, workflow
+inspection, credential management, and reference code generation.
+
+### Getting Started
+
+After activating the virtual environment, get started with:
+
+```bash
+orcheo --help
+```
+
+### Shell Auto-Completion
+
+Enable fast shell auto-completion for commands and options:
+
+```bash
+orcheo --install-completion
+```
+
+This installs completion for your current shell (bash, zsh, fish, or PowerShell).
+After installation, restart your shell or source your shell configuration file.
+
+#### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `orcheo node list [--tag <tag>]` | List registered nodes with metadata (name, category, description). Filter by tag. |
+| `orcheo node show <node>` | Display detailed node schema, inputs/outputs, and credential requirements. |
+| `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
+| `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
+| `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
+| `orcheo workflow show <workflow>` | Print workflow summary, Mermaid graph, and latest runs. |
+| `orcheo workflow run <workflow> [--inputs <json>]` | Trigger a workflow execution and stream status to the console. |
+| `orcheo workflow upload <file> [--name <name>]` | Upload a workflow from Python or JSON file. |
+| `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
+| `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
+| `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
+| `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
+| `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
+| `orcheo credential reference <credential>` | Show the `[[cred_name]]` placeholder syntax for use in workflows. |
+| `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
+| `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
+
+#### Offline Mode
+
+Pass `--offline` to reuse cached metadata when disconnected:
+
+```bash
+orcheo node list --offline
+orcheo workflow show <workflow-id> --offline
+```
+
+## For developers
+
+### Repository layout
+
+- `src/orcheo/` – core orchestration engine and FastAPI implementation
+- `apps/backend/` – deployment wrapper exposing the FastAPI ASGI app
+- `packages/sdk/` – lightweight Python SDK for composing workflow requests
+- `apps/canvas/` – React + Vite scaffold for the visual workflow designer
 
 Opening the repository inside VS Code automatically offers to start the included
 dev container with uv and Node.js preinstalled. The new quickstart flows in
@@ -55,39 +121,27 @@ directly to the backend importer, execute it, and stream live updates.
 See [`docs/deployment.md`](docs/deployment.md) for Docker Compose and managed
 PostgreSQL deployment recipes.
 
-## CLI
+### Seed environment variables
 
-Orcheo ships with a LangGraph-friendly CLI for node discovery, workflow
-inspection, credential management, and reference code generation. Install the
-workspace dependencies and invoke the CLI via uv:
+To set up your development environment:
 
 ```bash
-uv run orcheo --help
+orcheo-seed-env
 ```
 
-Example commands:
+Pass `--force` to overwrite an existing `.env` file.
 
-- `uv run orcheo node list` – enumerate registered nodes and their metadata
-- `uv run orcheo workflow show <workflow-id>` – inspect workflows, graph
-  versions, and recent runs
-- `uv run orcheo credential create <name> --provider <provider> --secret <value>` –
-  manage vault credentials
-- `uv run orcheo code scaffold <workflow-id>` – generate Python snippets that
-  trigger workflows via the SDK
+### Configuration
 
-Pass `--offline` to reuse cached metadata when disconnected. See
-[`docs/cli_tool_design.md`](docs/cli_tool_design.md) for roadmap details and
-future MCP server integration plans.
+The CLI reads configuration from:
+- Environment variables: `ORCHEO_API_URL`, `ORCHEO_SERVICE_TOKEN`
+- Config file: `~/.config/orcheo/cli.toml` (profiles for multiple environments)
+- Command flags: `--api-url`, `--service-token`, `--profile`
 
-## Frontend experience plan
+See [`docs/cli_tool_design.md`](docs/cli_tool_design.md) for detailed design,
+roadmap, and future MCP server integration plans.
 
-The path to a production-quality canvas is captured in
-[`docs/frontend_plan.md`](docs/frontend_plan.md), outlining research, design
-system development, architectural refactors, and QA milestones for the React
-application. Start there when kicking off frontend workstreams so design and
-engineering stay aligned.
-
-## Workflow repository configuration
+### Workflow repository configuration
 
 The FastAPI backend now supports pluggable workflow repositories so local
 development can persist state without depending on Postgres. By default the app
@@ -101,9 +155,3 @@ following environment variables to switch behaviour:
 
 Refer to `.env.example` for sample values and to `docs/deployment.md` for
 deployment-specific guidance.
-
-## Releasing packages
-
-Follow [`docs/releasing.md`](docs/releasing.md) for the step-by-step guide to
-version, tag, and publish the `orcheo`, `orcheo-backend`, and `orcheo-sdk`
-packages independently via the automated CI workflows.
