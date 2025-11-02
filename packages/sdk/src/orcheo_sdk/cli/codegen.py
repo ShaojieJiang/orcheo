@@ -9,6 +9,10 @@ from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.utils import load_with_cache
+from orcheo_sdk.services import (
+    generate_workflow_scaffold_data,
+    generate_workflow_template_data,
+)
 
 
 code_app = typer.Typer(help="Generate workflow or node scaffolds.")
@@ -45,33 +49,16 @@ def scaffold_workflow(
         f"workflow:{workflow_id}:versions",
         lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
     )
-    if not versions:
-        raise typer.BadParameter("Workflow has no versions to scaffold.")
-    latest = max(versions, key=lambda entry: entry.get("version", 0))
-    version_id = latest.get("id")
-    if not version_id:
-        raise typer.BadParameter("Latest workflow version is missing an id field.")
+    data = generate_workflow_scaffold_data(
+        state.client,
+        workflow_id,
+        actor=actor,
+        workflow=workflow,
+        versions=versions,
+    )
+    state.console.print(data["code"])
 
-    snippet = f"""import os
-from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
-
-client = OrcheoClient(base_url=\"{state.client.base_url}\")
-executor = HttpWorkflowExecutor(
-    client,
-    auth_token=os.environ.get(\"ORCHEO_SERVICE_TOKEN\"),
-)
-
-result = executor.trigger_run(
-    \"{workflow_id}\",
-    workflow_version_id=\"{version_id}\",
-    triggered_by=\"{actor}\",
-    inputs={{}},
-)
-print(result)
-"""
-    state.console.print(snippet)
-
-    render_json(state.console, workflow, title="Workflow metadata")
+    render_json(state.console, data["workflow"], title="Workflow metadata")
     if workflow_cached or versions_cached:
         note = "[yellow]Using cached data[/yellow] for workflow scaffold"
         if workflow_stale or versions_stale:
@@ -130,51 +117,8 @@ def generate_template(
         raise CLIError(f"No write permission in directory {directory}")
 
     # Generate the template content
-    template = '''"""Minimal LangGraph workflow for Orcheo.
-
-This is a simple LangGraph workflow template demonstrating state access in Orcheo.
-You can customize the state definition, add more nodes, and define complex logic.
-
-Key features:
-- Use plain dict for state (StateGraph(dict))
-- Access inputs directly: state.get("param_name")
-- Define any custom state fields you need
-- No predefined "messages" or "results" fields
-- RestrictedPython limitations apply (no variables starting with "_")
-"""
-
-from langgraph.graph import END, START, StateGraph
-from orcheo.graph.state import State
-from orcheo.nodes.logic import SetVariableNode
-
-
-def build_graph():
-    """Build and return the LangGraph workflow."""
-    graph = StateGraph(State)
-    graph.add_node(
-        "set_variable",
-        SetVariableNode(
-            name="set_variable",
-            variables={
-                "output": "Hi there!",
-            },
-        ),
-    )
-    graph.add_edge(START, "set_variable")
-    graph.add_edge("set_variable", END)
-    return graph
-
-
-if __name__ == "__main__":
-    # Test the workflow locally
-    import asyncio
-
-    graph = build_graph().compile()
-    result = asyncio.run(graph.ainvoke({}))
-    print(result)
-    print(result["results"]["set_variable"]["output"])
-'''
-
+    template_data = generate_workflow_template_data()
+    template = template_data["code"]
     # Write the template to file
     try:
         output_path.write_text(template)

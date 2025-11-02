@@ -77,7 +77,9 @@ class ApiClient:
             return None
         return response.json()
 
-    def delete(self, path: str, *, params: Mapping[str, Any] | None = None) -> None:
+    def delete(
+        self, path: str, *, params: Mapping[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Issue a DELETE request."""
         url = f"{self._base_url}{path}"
         try:
@@ -93,6 +95,10 @@ class ApiClient:
             raise APICallError(message, status_code=exc.response.status_code) from exc
         except httpx.RequestError as exc:
             raise APICallError(f"Failed to reach {url}: {exc}") from exc
+
+        if response.status_code == httpx.codes.NO_CONTENT:
+            return None
+        return response.json()
 
     @staticmethod
     def _format_error(response: httpx.Response) -> str:

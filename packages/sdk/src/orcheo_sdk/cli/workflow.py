@@ -11,7 +11,15 @@ from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.utils import load_with_cache
-from orcheo_sdk.client import HttpWorkflowExecutor, OrcheoClient
+from orcheo_sdk.services import (
+    delete_workflow_data,
+    download_workflow_data,
+    get_latest_workflow_version_data,
+    list_workflows_data,
+    run_workflow_data,
+    show_workflow_data,
+    upload_workflow_data,
+)
 
 
 workflow_app = typer.Typer(help="Inspect and operate on workflows.")
@@ -435,6 +443,30 @@ def _normalise_vertex(value: Any, start: Any, end: Any) -> Any:
     return text
 
 
+def _resolve_run_inputs(
+    inputs: str | None,
+    inputs_file: str | None,
+) -> dict[str, Any]:
+    if inputs and inputs_file:
+        raise CLIError("Provide either --inputs or --inputs-file, not both.")
+    if inputs:
+        return dict(_load_inputs_from_string(inputs))
+    if inputs_file:
+        return dict(_load_inputs_from_path(inputs_file))
+    return {}
+
+
+def _prepare_streaming_graph(
+    state: CLIState,
+    workflow_id: str,
+) -> dict[str, Any] | None:
+    latest_version = get_latest_workflow_version_data(state.client, workflow_id)
+    graph_raw = latest_version.get("graph")
+    if isinstance(graph_raw, Mapping):
+        return dict(graph_raw)
+    return None
+
+
 @workflow_app.command("list")
 def list_workflows(
     ctx: typer.Context,
@@ -450,13 +482,10 @@ def list_workflows(
     Use --archived to include archived workflows.
     """
     state = _state(ctx)
-    url = "/api/workflows"
-    if archived:
-        url += "?include_archived=true"
     payload, from_cache, stale = load_with_cache(
         state,
-        "workflows",
-        lambda: state.client.get(url),
+        f"workflows:archived:{archived}",
+        lambda: list_workflows_data(state.client, archived=archived),
     )
     if from_cache:
         _cache_notice(state, "workflow catalog", stale)
@@ -493,15 +522,10 @@ def show_workflow(
     if workflow_cached:
         _cache_notice(state, f"workflow {workflow_id}", workflow_stale)
 
-    versions, versions_cached, versions_stale = load_with_cache(
+    versions, _, _ = load_with_cache(
         state,
         f"workflow:{workflow_id}:versions",
         lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
-    )
-    latest_version = max(
-        versions,
-        key=lambda entry: entry.get("version", 0),
-        default=None,
     )
 
     runs, runs_cached, runs_stale = load_with_cache(
@@ -512,22 +536,30 @@ def show_workflow(
     if runs_cached:
         _cache_notice(state, f"workflow {workflow_id} runs", runs_stale)
 
-    render_json(state.console, workflow, title="Workflow")
+    data = show_workflow_data(
+        state.client,
+        workflow_id,
+        workflow=workflow,
+        versions=versions,
+        runs=runs,
+    )
+
+    workflow_details = data["workflow"]
+    latest_version = data.get("latest_version")
+    recent_runs = data.get("recent_runs", [])
+
+    render_json(state.console, workflow_details, title="Workflow")
 
     if latest_version:
-        graph = latest_version.get("graph", {})
+        graph_raw = latest_version.get("graph", {})
+        graph = graph_raw if isinstance(graph_raw, Mapping) else {}
         mermaid = _mermaid_from_graph(graph)
         state.console.print("\n[bold]Latest version[/bold]")
         render_json(state.console, latest_version)
         state.console.print("\n[bold]Mermaid[/bold]")
         state.console.print(mermaid)
 
-    if runs:
-        recent = sorted(
-            runs,
-            key=lambda item: item.get("created_at", ""),
-            reverse=True,
-        )[:5]
+    if recent_runs:
         rows = [
             [
                 item.get("id"),
@@ -535,7 +567,7 @@ def show_workflow(
                 item.get("triggered_by"),
                 item.get("created_at"),
             ]
-            for item in recent
+            for item in recent_runs
         ]
         render_table(
             state.console,
@@ -568,28 +600,10 @@ def run_workflow(
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Workflow executions require network connectivity.")
-    versions = state.client.get(f"/api/workflows/{workflow_id}/versions")
-    if not versions:
-        raise CLIError("Workflow has no versions to execute.")
-    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    version_id = latest_version.get("id")
-    if not version_id:
-        raise CLIError("Latest workflow version is missing an id field.")
-    graph_config = latest_version.get("graph")
+    input_payload = _resolve_run_inputs(inputs, inputs_file)
+    graph_config = _prepare_streaming_graph(state, workflow_id) if stream else None
 
-    # Fall back to non-streaming if graph config is not available
-    can_stream = stream and graph_config is not None
-
-    payload_inputs: Mapping[str, Any] = {}
-    if inputs and inputs_file:
-        raise CLIError("Provide either --inputs or --inputs-file, not both.")
-    if inputs:
-        payload_inputs = _load_inputs_from_string(inputs)
-    elif inputs_file:
-        payload_inputs = _load_inputs_from_path(inputs_file)
-
-    if can_stream:
-        # Stream workflow execution via WebSocket
+    if graph_config is not None:
         import asyncio
 
         final_status = asyncio.run(
@@ -597,27 +611,22 @@ def run_workflow(
                 state,
                 workflow_id,
                 graph_config,
-                payload_inputs,
+                input_payload,
                 triggered_by=triggered_by,
             )
         )
         if final_status in {"error", "cancelled", "connection_error", "timeout"}:
             raise CLIError(f"Workflow execution failed with status: {final_status}")
-    else:
-        # Non-streaming: just trigger and return run ID
-        orcheo_client = OrcheoClient(base_url=state.client.base_url)
-        executor = HttpWorkflowExecutor(
-            orcheo_client,
-            auth_token=state.settings.service_token,
-            timeout=30.0,
-        )
-        result = executor.trigger_run(
-            workflow_id,
-            workflow_version_id=version_id,
-            triggered_by=triggered_by,
-            inputs=payload_inputs,
-        )
-        render_json(state.console, result, title="Run created")
+        return
+
+    result = run_workflow_data(
+        state.client,
+        workflow_id,
+        state.settings.service_token,
+        inputs=input_payload,
+        triggered_by=triggered_by,
+    )
+    render_json(state.console, result, title="Run created")
 
 
 @workflow_app.command("delete")
@@ -637,10 +646,13 @@ def delete_workflow(
             abort=True,
         )
 
-    state.client.delete(f"/api/workflows/{workflow_id}")
-    state.console.print(
-        f"[green]Workflow '{workflow_id}' deleted successfully.[/green]"
-    )
+    result = delete_workflow_data(state.client, workflow_id)
+    raw_message = result.get("message", "")
+    if raw_message and "deleted successfully" in raw_message.lower():
+        success_message = raw_message
+    else:
+        success_message = f"Workflow '{workflow_id}' deleted successfully."
+    state.console.print(f"[green]{success_message}[/green]")
 
 
 @workflow_app.command("upload")
@@ -684,48 +696,18 @@ def upload_workflow(
     if state.settings.offline:
         raise CLIError("Uploading workflows requires network connectivity.")
 
-    requested_name = _normalize_workflow_name(workflow_name)
-
-    path_obj = _validate_local_path(file_path, description="workflow")
-
-    file_extension = path_obj.suffix.lower()
-    if file_extension == ".py":
-        workflow_config = _load_workflow_from_python(path_obj)
-    elif file_extension == ".json":
-        workflow_config = _load_workflow_from_json(path_obj)
-    else:
-        raise CLIError(
-            f"Unsupported file type '{file_extension}'. Use .py or .json files."
-        )
-
-    # Check if this is a LangGraph script that needs ingestion
-    is_langgraph_script = workflow_config.get("_type") == "langgraph_script"
-
-    if is_langgraph_script:
-        # Override entrypoint if provided
-        if entrypoint:
-            workflow_config["entrypoint"] = entrypoint
-        result = _upload_langgraph_script(
-            state,
-            workflow_config,
-            workflow_id,
-            path_obj,
-            requested_name,
-        )
-    else:
-        if requested_name:
-            workflow_config["name"] = requested_name
-        if workflow_id:
-            url = f"/api/workflows/{workflow_id}"
-            success_message = (
-                f"[green]Workflow '{workflow_id}' updated successfully.[/green]"
-            )
-        else:
-            url = "/api/workflows"
-            success_message = "[green]Workflow created successfully.[/green]"
-        result = state.client.post(url, json_body=workflow_config)
-        state.console.print(success_message)
-
+    result = upload_workflow_data(
+        state.client,
+        file_path,
+        workflow_id=workflow_id,
+        workflow_name=workflow_name,
+        entrypoint=entrypoint,
+        console=state.console,
+    )
+    identifier = workflow_id or result.get("id") or "workflow"
+    action = "updated" if workflow_id else "uploaded"
+    success_message = f"[green]Workflow '{identifier}' {action} successfully.[/green]"
+    state.console.print(success_message)
     render_json(state.console, result, title="Workflow")
 
 
@@ -743,52 +725,21 @@ def download_workflow(
     others as JSON.
     """
     state = _state(ctx)
-    workflow, from_cache, stale = load_with_cache(
+    payload, from_cache, stale = load_with_cache(
         state,
-        f"workflow:{workflow_id}",
-        lambda: state.client.get(f"/api/workflows/{workflow_id}"),
+        f"workflow:{workflow_id}:download:{format_type}",
+        lambda: download_workflow_data(
+            state.client,
+            workflow_id,
+            output_path=None,
+            format_type=format_type,
+        ),
     )
     if from_cache:
         _cache_notice(state, f"workflow {workflow_id}", stale)
 
-    # Get the latest version
-    versions, _, _ = load_with_cache(
-        state,
-        f"workflow:{workflow_id}:versions",
-        lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
-    )
-    if not versions:
-        raise CLIError(f"Workflow '{workflow_id}' has no versions.")
+    content = payload["content"]
 
-    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    graph_raw = latest_version.get("graph")
-    graph: Mapping[str, Any]
-    if isinstance(graph_raw, Mapping):
-        graph = graph_raw
-    else:
-        graph = {}
-
-    # Auto-detect format if requested
-    resolved_format = format_type.lower()
-    if resolved_format == "auto":
-        # If workflow was uploaded as a LangGraph script, download as Python
-        # Otherwise, download as JSON
-        if graph.get("format") == "langgraph-script":
-            resolved_format = "python"
-        else:
-            resolved_format = "json"
-
-    # Format the output
-    if resolved_format == "json":
-        output_content = _format_workflow_as_json(workflow, graph)
-    elif resolved_format == "python":
-        output_content = _format_workflow_as_python(workflow, graph)
-    else:
-        raise CLIError(
-            f"Unsupported format '{format_type}'. Use 'auto', 'json', or 'python'."
-        )
-
-    # Write to file or stdout
     if output_path:
         output_file = _validate_local_path(
             output_path,
@@ -796,10 +747,10 @@ def download_workflow(
             must_exist=False,
             require_file=True,
         )
-        output_file.write_text(output_content, encoding="utf-8")
+        output_file.write_text(content, encoding="utf-8")
         state.console.print(f"[green]Workflow downloaded to '{output_path}'.[/green]")
     else:
-        state.console.print(output_content)
+        state.console.print(content)
 
 
 def _load_inputs_from_string(value: str) -> Mapping[str, Any]:

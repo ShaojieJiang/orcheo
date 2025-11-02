@@ -1,17 +1,12 @@
 """Node-related CLI commands."""
 
 from __future__ import annotations
-from importlib import import_module
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 import typer
 from rich.console import Console
-from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
-
-
-if TYPE_CHECKING:
-    from orcheo.nodes.registry import NodeRegistry
+from orcheo_sdk.services import list_nodes_data, show_node_data
 
 
 node_app = typer.Typer(help="Inspect available nodes and their schemas.")
@@ -26,27 +21,6 @@ NameArgument = Annotated[
 ]
 
 
-def _load_registry() -> NodeRegistry:
-    """Load node registry lazily to avoid heavy dependencies on import."""
-    from orcheo.nodes.registry import NodeRegistry
-
-    try:
-        module = import_module("orcheo.nodes.registry")
-    except ModuleNotFoundError as exc:  # pragma: no cover - import error
-        msg = "Unable to import orcheo.nodes.registry"
-        raise CLIError(msg) from exc
-
-    registry = getattr(module, "registry", None)
-    if registry is None:  # pragma: no cover - defensive
-        msg = "orcheo.nodes.registry does not expose a 'registry' attribute"
-        raise CLIError(msg)
-
-    if not isinstance(registry, NodeRegistry):  # pragma: no cover - defensive
-        msg = "Loaded registry is not an instance of NodeRegistry"
-        raise CLIError(msg)
-    return registry
-
-
 def _get_console(ctx: typer.Context) -> Console:
     state: CLIState = ctx.ensure_object(CLIState)
     return state.console
@@ -56,18 +30,15 @@ def _get_console(ctx: typer.Context) -> Console:
 def list_nodes(ctx: typer.Context, tag: TagOption = None) -> None:
     """List registered nodes with metadata."""
     console = _get_console(ctx)
-    registry = _load_registry()
-    entries = registry.list_metadata()
-
-    if tag:
-        lowered = tag.lower()
-        entries = [
-            item
-            for item in entries
-            if lowered in item.category.lower() or lowered in item.name.lower()
+    nodes = list_nodes_data(tag=tag)
+    rows = [
+        [
+            item.get("name"),
+            item.get("category"),
+            item.get("description"),
         ]
-
-    rows = [[item.name, item.category, item.description] for item in entries]
+        for item in nodes
+    ]
     render_table(
         console,
         title="Available Nodes",
@@ -80,18 +51,18 @@ def list_nodes(ctx: typer.Context, tag: TagOption = None) -> None:
 def show_node(ctx: typer.Context, name: NameArgument) -> None:
     """Display metadata and schema information for ``name``."""
     console = _get_console(ctx)
-    registry = _load_registry()
-    metadata = registry.get_metadata(name)
-    node_cls = registry.get_node(name)
-    if metadata is None or node_cls is None:
-        raise CLIError(f"Node '{name}' is not registered.")
+    data = show_node_data(name)
 
-    console.print(f"[bold]{metadata.name}[/bold] ({metadata.category})")
-    console.print(metadata.description)
+    console.print(f"[bold]{data['name']}[/bold] ({data['category']})")
+    console.print(data["description"])
 
-    if hasattr(node_cls, "model_json_schema"):
-        schema = node_cls.model_json_schema()
+    schema = data.get("schema")
+    if schema is not None:
         render_json(console, schema, title="Pydantic schema")
-    else:  # pragma: no cover - fallback for unexpected node implementations
-        attributes = list(getattr(node_cls, "__annotations__", {}).keys())
+        return
+
+    attributes = data.get("attributes")
+    if attributes:
         render_json(console, {"attributes": attributes})
+    else:  # pragma: no cover - fallback when neither schema nor attributes present
+        console.print("\n[dim]No schema information available[/dim]")

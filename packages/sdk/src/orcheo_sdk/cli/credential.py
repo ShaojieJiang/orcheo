@@ -1,10 +1,16 @@
 """Credential management commands for the CLI."""
 
 from __future__ import annotations
-from typing import Annotated, Any
+from typing import Annotated
 import typer
 from orcheo_sdk.cli.output import render_json, render_table
 from orcheo_sdk.cli.state import CLIState
+from orcheo_sdk.services import (
+    create_credential_data,
+    delete_credential_data,
+    get_credential_reference_data,
+    list_credentials_data,
+)
 
 
 credential_app = typer.Typer(help="Manage credentials stored in the Orcheo vault.")
@@ -46,8 +52,7 @@ def list_credentials(
 ) -> None:
     """List credentials visible to the caller."""
     state = _state(ctx)
-    params = {"workflow_id": workflow_id} if workflow_id else None
-    credentials = state.client.get("/api/credentials", params=params)
+    credentials = list_credentials_data(state.client, workflow_id=workflow_id)
     rows = [
         [
             item.get("id"),
@@ -87,18 +92,17 @@ def create_credential(
 ) -> None:
     """Create a credential via the vault API."""
     state = _state(ctx)
-    payload: dict[str, Any] = {
-        "name": name,
-        "provider": provider,
-        "secret": secret,
-        "actor": actor,
-        "access": access,
-        "scopes": scopes or [],
-        "kind": kind,
-    }
-    if workflow_id:
-        payload["workflow_id"] = workflow_id
-    response = state.client.post("/api/credentials", json_body=payload)
+    response = create_credential_data(
+        state.client,
+        name=name,
+        provider=provider,
+        secret=secret,
+        actor=actor,
+        access=access,
+        workflow_id=workflow_id,
+        scopes=scopes,
+        kind=kind,
+    )
     render_json(state.console, response, title="Credential created")
 
 
@@ -119,9 +123,12 @@ def delete_credential(
             "Are you sure you want to delete this credential?",
             abort=True,
         )
-    params = {"workflow_id": workflow_id} if workflow_id else None
-    state.client.delete(f"/api/credentials/{credential_id}", params=params)
-    state.console.print("Credential deleted.")
+    result = delete_credential_data(
+        state.client,
+        credential_id,
+        workflow_id=workflow_id,
+    )
+    state.console.print(result.get("message", "Credential deleted."))
 
 
 @credential_app.command("reference")
@@ -131,8 +138,10 @@ def credential_reference(
 ) -> None:
     """Print the credential reference string for use in nodes or workflows."""
     state = _state(ctx)
-    reference = f"[[{name}]]"
-    state.console.print(f"Use [bold]{reference}[/bold] in node configuration fields.")
+    reference_data = get_credential_reference_data(name)
+    state.console.print(
+        f"Use [bold]{reference_data['reference']}[/bold] in node configuration fields."
+    )
 
 
 @credential_app.command("update")

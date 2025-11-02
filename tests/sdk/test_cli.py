@@ -494,6 +494,43 @@ def test_workflow_delete_offline_error(runner: CliRunner, env: dict[str, str]) -
     assert "network connectivity" in str(result.exception)
 
 
+def test_workflow_delete_custom_message(runner: CliRunner, env: dict[str, str]) -> None:
+    """Workflow delete with message that doesn't include 'deleted successfully'."""
+    with respx.mock(assert_all_called=True) as router:
+        # Mock delete to return a response (even though it's 204)
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1", "--force"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    # Should show the default message since delete returns no content
+    assert "wf-1" in result.stdout
+
+
+def test_workflow_delete_with_success_message(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Workflow delete when API returns a message containing 'deleted successfully'."""
+    success_message = "Workflow 'wf-1' deleted successfully from system"
+
+    with respx.mock(assert_all_called=False) as router:
+        # Mock the delete API call to return a 200 with a message
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json={"message": success_message})
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1", "--force"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert success_message in result.stdout
+
+
 def test_credential_list_with_workflow_id(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
@@ -589,6 +626,70 @@ def test_node_list_with_tag_filter(runner: CliRunner, env: dict[str, str]) -> No
 def test_node_show_nonexistent_error(runner: CliRunner, env: dict[str, str]) -> None:
     result = runner.invoke(app, ["node", "show", "NonexistentNode"], env=env)
     assert result.exit_code != 0
+
+
+def test_node_show_no_schema_info(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test node show with node that has neither schema nor attributes."""
+    from orcheo.nodes.registry import NodeMetadata, registry
+
+    # Register a test node without model_json_schema and without annotations
+    test_meta = NodeMetadata(
+        name="TestNodeNoInfo",
+        description="Test node without schema",
+        category="test",
+    )
+
+    class TestNodeNoInfo:
+        """Node without model_json_schema and no annotations."""
+
+        pass
+
+    # Register the test node
+    registry._nodes["TestNodeNoInfo"] = TestNodeNoInfo
+    registry._metadata["TestNodeNoInfo"] = test_meta
+
+    try:
+        result = runner.invoke(app, ["node", "show", "TestNodeNoInfo"], env=env)
+        assert result.exit_code == 0
+        assert "TestNodeNoInfo" in result.stdout
+        assert "No schema information available" in result.stdout
+    finally:
+        # Clean up
+        registry._nodes.pop("TestNodeNoInfo", None)
+        registry._metadata.pop("TestNodeNoInfo", None)
+
+
+def test_node_show_with_attributes_only(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test node show with node that has attributes but no model_json_schema."""
+    from orcheo.nodes.registry import NodeMetadata, registry
+
+    # Register a test node with annotations but no model_json_schema
+    test_meta = NodeMetadata(
+        name="TestNodeWithAttrs",
+        description="Test node with attributes",
+        category="test",
+    )
+
+    class TestNodeWithAttrs:
+        """Node with annotations but no model_json_schema."""
+
+        test_attr: str
+        count: int
+
+    # Register the test node
+    registry._nodes["TestNodeWithAttrs"] = TestNodeWithAttrs
+    registry._metadata["TestNodeWithAttrs"] = test_meta
+
+    try:
+        result = runner.invoke(app, ["node", "show", "TestNodeWithAttrs"], env=env)
+        assert result.exit_code == 0
+        assert "TestNodeWithAttrs" in result.stdout
+        assert "test_attr" in result.stdout
+        assert "count" in result.stdout
+    finally:
+        # Clean up
+        registry._nodes.pop("TestNodeWithAttrs", None)
+        registry._metadata.pop("TestNodeWithAttrs", None)
 
 
 def test_main_config_error_handling(runner: CliRunner) -> None:
@@ -2115,7 +2216,7 @@ workflow = Workflow(name="TestWorkflow")
             env=env,
         )
     assert result.exit_code == 0
-    assert "created successfully" in result.stdout
+    assert "uploaded successfully" in result.stdout
 
 
 def test_workflow_upload_python_file_update_existing(
@@ -2233,7 +2334,7 @@ def test_workflow_upload_json_file_create_new(
             env=env,
         )
     assert result.exit_code == 0
-    assert "created successfully" in result.stdout
+    assert "uploaded successfully" in result.stdout
 
 
 def test_workflow_upload_json_file_update_existing(
