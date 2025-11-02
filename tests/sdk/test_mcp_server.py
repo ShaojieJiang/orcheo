@@ -48,7 +48,7 @@ def test_get_api_client_missing_url(monkeypatch: pytest.MonkeyPatch) -> None:
             get_api_client()
 
 
-def test_create_server() -> None:
+def test_create_server(mock_env: None) -> None:
     """Test MCP server creation."""
     from orcheo_sdk.mcp_server.main import create_server
 
@@ -70,7 +70,7 @@ def test_mcp_init_lazy_import() -> None:
         _ = orcheo_sdk.mcp_server.nonexistent_function
 
 
-def test_main_entry_point() -> None:
+def test_main_entry_point(mock_env: None) -> None:
     """Test main entry point function."""
     from unittest.mock import patch
     from orcheo_sdk.mcp_server.main import main

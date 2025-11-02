@@ -4,6 +4,7 @@ Pure business logic for workflow operations, shared by CLI and MCP interfaces.
 """
 
 from __future__ import annotations
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from orcheo_sdk.cli.errors import CLIError
@@ -176,6 +177,68 @@ def delete_workflow_data(
     return {"status": "success", "message": f"Workflow '{workflow_id}' deleted"}
 
 
+def _load_workflow_config_from_path(
+    path_obj: Path,
+    *,
+    load_python: Callable[[Path], dict[str, Any]],
+    load_json: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    """Load workflow configuration from a local file path."""
+    file_extension = path_obj.suffix.lower()
+    if file_extension not in {".py", ".json"}:
+        raise CLIError(
+            f"Unsupported file type '{file_extension}'. Use .py or .json files."
+        )
+
+    try:
+        if file_extension == ".py":
+            return load_python(path_obj)
+        return load_json(path_obj)
+    except CLIError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive error context
+        raise CLIError(
+            f"Failed to load workflow definition from '{path_obj}'."
+        ) from exc
+
+
+def _upload_langgraph_workflow(
+    state: Any,
+    workflow_config: dict[str, Any],
+    workflow_id: str | None,
+    path_obj: Path,
+    requested_name: str | None,
+    *,
+    uploader: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    """Upload a LangGraph workflow script via CLI helper."""
+    try:
+        return uploader(
+            state,
+            workflow_config,
+            workflow_id,
+            path_obj,
+            requested_name,
+        )
+    except CLIError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive error context
+        raise CLIError("Failed to upload LangGraph workflow script via API.") from exc
+
+
+def _submit_workflow_configuration(
+    client: ApiClient,
+    workflow_config: dict[str, Any],
+    workflow_id: str | None,
+) -> dict[str, Any]:
+    """Submit workflow configuration to Orcheo."""
+    url = f"/api/workflows/{workflow_id}" if workflow_id else "/api/workflows"
+    try:
+        return client.post(url, json_body=workflow_config)
+    except Exception as exc:  # pragma: no cover - http errors handled upstream
+        raise CLIError("Failed to upload workflow configuration to Orcheo.") from exc
+
+
 def upload_workflow_data(
     client: ApiClient,
     file_path: str | Path,
@@ -223,37 +286,31 @@ def upload_workflow_data(
     requested_name = _normalize_workflow_name(workflow_name)
     path_obj = _validate_local_path(file_path, description="workflow")
 
-    # Load workflow based on file type
-    file_extension = path_obj.suffix.lower()
-    if file_extension == ".py":
-        workflow_config = _load_workflow_from_python(path_obj)
-    elif file_extension == ".json":
-        workflow_config = _load_workflow_from_json(path_obj)
-    else:
-        raise CLIError(
-            f"Unsupported file type '{file_extension}'. Use .py or .json files."
-        )
+    workflow_config = _load_workflow_config_from_path(
+        path_obj,
+        load_python=_load_workflow_from_python,
+        load_json=_load_workflow_from_json,
+    )
 
-    # Handle LangGraph scripts
-    is_langgraph_script = workflow_config.get("_type") == "langgraph_script"
-    if is_langgraph_script:
+    if workflow_config.get("_type") == "langgraph_script":
         if entrypoint:
             workflow_config["entrypoint"] = entrypoint
-        result = _upload_langgraph_script(
+        result = _upload_langgraph_workflow(
             state,  # type: ignore[arg-type]
             workflow_config,
             workflow_id,
             path_obj,
             requested_name,
+            uploader=_upload_langgraph_script,
         )
     else:
         if requested_name:
             workflow_config["name"] = requested_name
-        if workflow_id:
-            url = f"/api/workflows/{workflow_id}"
-        else:
-            url = "/api/workflows"
-        result = client.post(url, json_body=workflow_config)
+        result = _submit_workflow_configuration(
+            client,
+            workflow_config,
+            workflow_id,
+        )
 
     return result
 
@@ -314,7 +371,12 @@ def download_workflow_data(
 
     # Write to file if path provided
     if output_path:
-        Path(output_path).write_text(output_content, encoding="utf-8")
+        try:
+            Path(output_path).write_text(output_content, encoding="utf-8")
+        except OSError as exc:  # pragma: no cover - filesystem errors
+            raise CLIError(
+                f"Failed to write workflow output to '{output_path}'."
+            ) from exc
         return {
             "status": "success",
             "message": f"Workflow downloaded to '{output_path}'",

@@ -7,6 +7,7 @@ workflows programmatically.
 
 from fastmcp import FastMCP
 from orcheo_sdk.mcp_server import tools
+from orcheo_sdk.mcp_server.config import validate_server_configuration
 
 
 # Create MCP server instance
@@ -19,6 +20,7 @@ def create_server() -> FastMCP:
     Returns:
         Configured FastMCP server instance
     """
+    validate_server_configuration()
     return mcp
 
 
@@ -380,6 +382,7 @@ def main() -> None:
 
     This is the main entry point for the orcheo-mcp command.
     """
+    validate_server_configuration()
     mcp.run()
 
 

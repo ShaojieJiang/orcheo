@@ -5,6 +5,9 @@ available to AI agents via the Model Context Protocol.
 """
 
 from __future__ import annotations
+import logging
+from functools import lru_cache
+from importlib import import_module, util
 from typing import Any
 from orcheo_sdk.mcp_server.config import get_api_client
 from orcheo_sdk.services import (
@@ -23,6 +26,37 @@ from orcheo_sdk.services import (
     show_workflow_data,
     upload_workflow_data,
 )
+
+
+# ==============================================================================
+# Module setup
+# ==============================================================================
+
+
+logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _ensure_agent_tools_registered() -> None:
+    """Import agent tool modules so they register with the catalog."""
+    module_name = "orcheo.nodes.agent_tools.tools"
+
+    spec = util.find_spec(module_name)
+    if spec is None:
+        logger.warning(
+            "Optional agent tools module '%s' could not be found. "
+            "Install orcheo agent tool plugins to enable additional tools.",
+            module_name,
+        )
+        return
+
+    try:
+        import_module(module_name)
+    except Exception:  # pragma: no cover - defensive logging
+        logger.exception(
+            "Failed to import optional agent tools module '%s'.",
+            module_name,
+        )
 
 
 # ==============================================================================
@@ -345,11 +379,7 @@ def list_agent_tools(category: str | None = None) -> list[dict[str, Any]]:
     """
     from orcheo.nodes.agent_tools.registry import tool_registry
 
-    # Ensure tools are registered
-    try:
-        import orcheo.nodes.agent_tools.tools  # noqa: F401
-    except ImportError:
-        pass
+    _ensure_agent_tools_registered()
 
     entries = tool_registry.list_metadata()
 
@@ -383,11 +413,7 @@ def show_agent_tool(name: str) -> dict[str, Any]:
     from orcheo.nodes.agent_tools.registry import tool_registry
     from orcheo_sdk.cli.errors import CLIError
 
-    # Ensure tools are registered
-    try:
-        import orcheo.nodes.agent_tools.tools  # noqa: F401
-    except ImportError:
-        pass
+    _ensure_agent_tools_registered()
 
     metadata = tool_registry.get_metadata(name)
     tool = tool_registry.get_tool(name)
