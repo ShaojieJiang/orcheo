@@ -30,10 +30,19 @@ def _load_registry() -> NodeRegistry:
     """Load node registry lazily to avoid heavy dependencies on import."""
     from orcheo.nodes.registry import NodeRegistry
 
-    module = import_module("orcheo.nodes.registry")
+    try:
+        module = import_module("orcheo.nodes.registry")
+    except ModuleNotFoundError as exc:  # pragma: no cover - import error
+        msg = "Unable to import orcheo.nodes.registry"
+        raise CLIError(msg) from exc
+
     registry = getattr(module, "registry", None)
+    if registry is None:  # pragma: no cover - defensive
+        msg = "orcheo.nodes.registry does not expose a 'registry' attribute"
+        raise CLIError(msg)
+
     if not isinstance(registry, NodeRegistry):  # pragma: no cover - defensive
-        msg = "Unable to load node registry from orcheo.nodes.registry"
+        msg = "Loaded registry is not an instance of NodeRegistry"
         raise CLIError(msg)
     return registry
 

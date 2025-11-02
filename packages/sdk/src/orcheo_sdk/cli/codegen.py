@@ -1,9 +1,11 @@
 """Reference code generation commands."""
 
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Annotated
 import typer
+from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import render_json
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.utils import load_with_cache
@@ -102,12 +104,30 @@ def generate_template(
     output_path = Path(output or "workflow.py")
 
     # Check if file exists and handle overwrite
-    if output_path.exists() and not overwrite:
-        state.console.print(
-            f"[yellow]File {output_path} already exists. "
-            "Use --force to overwrite.[/yellow]"
-        )
-        raise typer.Exit(code=1)
+    if output_path.exists():
+        if output_path.is_dir():
+            raise CLIError(f"{output_path} is a directory; provide a file path")
+        if not overwrite:
+            state.console.print(
+                f"[yellow]File {output_path} already exists. "
+                "Use --force to overwrite.[/yellow]"
+            )
+            raise typer.Exit(code=1)
+
+    parent = output_path.parent
+    if parent.exists() and not parent.is_dir():
+        raise CLIError(f"Parent path {parent} is not a directory")
+
+    if not parent.exists():
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - filesystem error
+            msg = f"Unable to create parent directory for {output_path}: {exc}".rstrip()
+            raise CLIError(msg) from exc
+
+    directory = parent if str(parent) else Path.cwd()
+    if not os.access(directory, os.W_OK):  # pragma: no cover - permission
+        raise CLIError(f"No write permission in directory {directory}")
 
     # Generate the template content
     template = '''"""Minimal LangGraph workflow for Orcheo.
@@ -156,7 +176,11 @@ if __name__ == "__main__":
 '''
 
     # Write the template to file
-    output_path.write_text(template)
+    try:
+        output_path.write_text(template)
+    except OSError as exc:  # pragma: no cover - filesystem error
+        msg = f"Unable to write workflow template to {output_path}: {exc}".rstrip()
+        raise CLIError(msg) from exc
     state.console.print(f"[green]Created workflow template: {output_path}[/green]")
     state.console.print("\nNext steps:")
     state.console.print(
