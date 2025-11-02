@@ -103,6 +103,58 @@ orcheo node list --offline
 orcheo workflow show <workflow-id> --offline
 ```
 
+#### MCP (Model Context Protocol)
+
+Orcheo SDK includes an MCP server that allows AI assistants like Claude to interact with your workflows.
+
+##### Claude Desktop
+To configure it in Claude Desktop, add the following to your `claude_desktop_config.json`:
+
+```json
+"Orcheo": {
+  "command": "/path/to/uvx",
+  "args": ["--from", "orcheo-sdk@latest", "orcheo-mcp"],
+  "env": {
+    "ORCHEO_API_URL": "http://localhost:8000"
+  }
+}
+```
+
+**Note:** This configuration requires the Orcheo development backend to be running locally (see [Run the API server](#quick-start)).
+
+##### Claude CLI
+
+To configure the MCP server in Claude CLI:
+
+```bash
+claude mcp add-json Orcheo --scope user '{
+  "command": "/path/to/uvx",
+  "args": [
+    "--from",
+    "orcheo-sdk@latest",
+    "orcheo-mcp"
+  ],
+  "env": {
+    "ORCHEO_API_URL": "http://localhost:8000"
+  }
+}'
+```
+
+**Note:** Replace `/path/to/uvx` with your actual `uvx` binary path (find it with `which uvx`).
+
+##### Codex CLI
+
+To configure the MCP server in Codex CLI:
+
+```bash
+codex add server Orcheo \
+  /path/to/uvx \
+  --from orcheo-sdk@latest orcheo-mcp \
+  --env ORCHEO_API_URL=http://localhost:8000
+```
+
+**Note:** Replace `/path/to/uvx` with your actual `uvx` binary path (find it with `which uvx`).
+
 ## For developers
 
 ### Repository layout
