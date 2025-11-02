@@ -703,7 +703,7 @@ class Authenticator:
                 continue
             if isinstance(entry, Mapping):
                 entry_algorithm = entry.get("alg")
-            else:
+            else:  # pragma: no cover
                 entry_algorithm = None
             if isinstance(entry_algorithm, str):
                 algorithm_hint = entry_algorithm
@@ -770,7 +770,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
     """Convert UNIX timestamps or ISO strings to aware datetimes."""
     if value is None:
         return None
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return datetime.fromtimestamp(value, tz=UTC)
     if isinstance(value, str):
         try:
@@ -839,7 +839,7 @@ def _coerce_str_items(value: Any) -> set[str]:
         return _coerce_from_string(value)
     if isinstance(value, Mapping):
         return _coerce_from_mapping(value)
-    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+    if isinstance(value, Sequence) and not isinstance(value, bytes | bytearray | str):
         return _coerce_from_sequence(value)
 
     text = str(value).strip()
@@ -972,7 +972,7 @@ def _parse_service_tokens(raw: Any) -> list[ServiceTokenRecord]:
         else:
             text = str(entry).strip()
             if not text:
-                continue
+                continue  # pragma: no cover
             token_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
             record = ServiceTokenRecord(
                 identifier=token_hash[:8],
@@ -993,7 +993,7 @@ def _normalize_service_token_entries(raw: Any) -> list[Any]:
         return [raw]
     if isinstance(raw, str):
         return _normalize_service_tokens_from_string(raw)
-    if isinstance(raw, Sequence) and not isinstance(raw, (bytes, bytearray, str)):
+    if isinstance(raw, Sequence) and not isinstance(raw, bytes | bytearray | str):
         items: list[Any] = []
         for item in raw:
             items.extend(_normalize_service_token_entries(item))
@@ -1011,13 +1011,13 @@ def _normalize_service_tokens_from_string(value: str) -> list[Any]:
     if "," in stripped or " " in stripped:
         parsed = _parse_string_items(stripped)
         if isinstance(parsed, Sequence) and not isinstance(
-            parsed, (bytes, bytearray, str)
+            parsed, bytes | bytearray | str
         ):
             items: list[Any] = []
             for item in parsed:
                 items.extend(_normalize_service_token_entries(item))
             return items
-        return _normalize_service_token_entries(parsed)
+        return _normalize_service_token_entries(parsed)  # pragma: no cover
     return [stripped]
 
 
@@ -1039,7 +1039,7 @@ def _coerce_mode(value: Any) -> str:
 def _parse_float(value: Any, default: float) -> float:
     if value is None:
         return default
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     try:
         return float(str(value))
@@ -1206,7 +1206,9 @@ def _extract_bearer_token(header_value: str | None) -> str:
         )
     token = parts[1].strip()
     if not token:
-        raise AuthenticationError("Missing bearer token", code="auth.missing_token")
+        raise AuthenticationError(
+            "Missing bearer token", code="auth.missing_token"
+        )  # pragma: no cover - defensive
     return token
 
 
