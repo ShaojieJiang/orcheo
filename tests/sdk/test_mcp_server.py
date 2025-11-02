@@ -716,6 +716,44 @@ def test_generate_workflow_template() -> None:
 # ==============================================================================
 
 
+def test_ensure_agent_tools_registered_success(mock_env: None) -> None:
+    """Test _ensure_agent_tools_registered when module is found."""
+    from unittest.mock import MagicMock
+    from orcheo_sdk.mcp_server.tools import _ensure_agent_tools_registered
+
+    # Clear the lru_cache to ensure fresh execution
+    _ensure_agent_tools_registered.cache_clear()
+
+    # Mock find_spec to return a valid spec
+    mock_spec = MagicMock()
+    mock_spec.name = "orcheo.nodes.agent_tools.tools"
+
+    with patch("orcheo_sdk.mcp_server.tools.util.find_spec", return_value=mock_spec):
+        with patch("orcheo_sdk.mcp_server.tools.import_module") as mock_import:
+            # Call the function - should successfully import
+            _ensure_agent_tools_registered()
+            # Verify import_module was called with the correct module name
+            mock_import.assert_called_once_with("orcheo.nodes.agent_tools.tools")
+
+
+def test_ensure_agent_tools_registered_not_found(mock_env: None) -> None:
+    """Test _ensure_agent_tools_registered when module is not found."""
+    from orcheo_sdk.mcp_server.tools import _ensure_agent_tools_registered
+
+    # Clear the lru_cache to ensure fresh execution
+    _ensure_agent_tools_registered.cache_clear()
+
+    with patch("orcheo_sdk.mcp_server.tools.util.find_spec", return_value=None):
+        with patch("orcheo_sdk.mcp_server.tools.logger") as mock_logger:
+            # Call the function - should log warning and return early
+            _ensure_agent_tools_registered()
+            # Verify logger.warning was called
+            mock_logger.warning.assert_called_once()
+            # Verify the warning message mentions the module name
+            call_args = mock_logger.warning.call_args
+            assert "orcheo.nodes.agent_tools.tools" in call_args[0][1]
+
+
 def test_list_agent_tools_import_error(mock_env: None) -> None:
     """Test list_agent_tools handles ImportError gracefully."""
     import sys
