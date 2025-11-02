@@ -128,12 +128,6 @@ from orcheo.graph.state import State
 from orcheo.nodes.logic import SetVariableNode
 
 
-def process_input(state):
-    """Process the input and generate a result."""
-    input_value = state.get("input", "")
-    return {"output": f"Processed: {input_value}"}
-
-
 def build_graph():
     """Build and return the LangGraph workflow."""
     graph = StateGraph(State)

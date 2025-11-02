@@ -1271,7 +1271,6 @@ def test_code_template_creates_workflow_file(
     content = output_file.read_text()
     assert "from langgraph.graph import END, START, StateGraph" in content
     assert "def build_graph():" in content
-    assert "def process_input(state):" in content
     assert "Created workflow template" in result.stdout
 
 
