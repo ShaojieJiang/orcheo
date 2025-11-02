@@ -91,7 +91,8 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
 | `orcheo credential reference <credential>` | Show the `[[cred_name]]` placeholder syntax for use in workflows. |
-| `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke the workflow. |
+| `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
+| `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
 #### Offline Mode
 

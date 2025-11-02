@@ -1256,6 +1256,90 @@ def test_code_scaffold_with_both_stale_caches(
     assert "older than TTL" in result.stdout
 
 
+def test_code_template_creates_workflow_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that code template command creates a workflow file."""
+    output_file = tmp_path / "test_workflow.py"
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file)],
+        env=env,
+    )
+    assert result.exit_code == 0
+    assert output_file.exists()
+    content = output_file.read_text()
+    assert "from langgraph.graph import END, START, StateGraph" in content
+    assert "def build_graph():" in content
+    assert "def process_input(state):" in content
+    assert "Created workflow template" in result.stdout
+
+
+def test_code_template_uses_default_filename(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that code template uses default workflow.py filename."""
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(app, ["code", "template"], env=env)
+        assert result.exit_code == 0
+        assert Path("workflow.py").exists()
+        assert "Created workflow template: workflow.py" in result.stdout
+
+
+def test_code_template_prevents_overwrite_without_force(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test template prevents overwriting existing files without --force."""
+    output_file = tmp_path / "existing.py"
+    output_file.write_text("# existing content")
+
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file)],
+        env=env,
+    )
+    assert result.exit_code == 1
+    assert "already exists" in result.stdout
+    assert "--force" in result.stdout
+    # Original content should be preserved
+    assert output_file.read_text() == "# existing content"
+
+
+def test_code_template_overwrites_with_force(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that template command overwrites with --force flag."""
+    output_file = tmp_path / "existing.py"
+    output_file.write_text("# existing content")
+
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file), "--force"],
+        env=env,
+    )
+    assert result.exit_code == 0
+    content = output_file.read_text()
+    assert "# existing content" not in content
+    assert "from langgraph.graph import END, START, StateGraph" in content
+
+
+def test_code_template_includes_next_steps(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test that template command shows next steps to user."""
+    output_file = tmp_path / "workflow.py"
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file)],
+        env=env,
+    )
+    assert result.exit_code == 0
+    assert "Next steps:" in result.stdout
+    assert "Edit" in result.stdout
+    assert "Test locally" in result.stdout
+    assert "Upload to Orcheo" in result.stdout
+
+
 def test_api_client_without_token() -> None:
     """Test that ApiClient works without a token."""
     client = ApiClient(base_url="http://test.com", token=None)
