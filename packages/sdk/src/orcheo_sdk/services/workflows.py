@@ -32,21 +32,32 @@ def list_workflows_data(
 def show_workflow_data(
     client: ApiClient,
     workflow_id: str,
+    *,
+    include_runs: bool = True,
+    workflow: dict[str, Any] | None = None,
+    versions: list[dict[str, Any]] | None = None,
+    runs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Get workflow details including versions and runs.
 
     Args:
         client: API client instance
         workflow_id: Workflow identifier
+        include_runs: Include recent runs in the response
+        workflow: Optional pre-fetched workflow metadata
+        versions: Optional pre-fetched versions list
+        runs: Optional pre-fetched runs list
 
     Returns:
         Dictionary with workflow, latest_version, and recent_runs
     """
     # Get workflow details
-    workflow = client.get(f"/api/workflows/{workflow_id}")
+    if workflow is None:
+        workflow = client.get(f"/api/workflows/{workflow_id}")
 
     # Get versions
-    versions = client.get(f"/api/workflows/{workflow_id}/versions")
+    if versions is None:
+        versions = client.get(f"/api/workflows/{workflow_id}/versions")
     latest_version = None
     if versions:
         latest_version = max(
@@ -55,20 +66,49 @@ def show_workflow_data(
         )
 
     # Get runs
-    runs = client.get(f"/api/workflows/{workflow_id}/runs")
     recent_runs = []
-    if runs:
-        recent_runs = sorted(
-            runs,
-            key=lambda item: item.get("created_at", ""),
-            reverse=True,
-        )[:5]
+    if include_runs:
+        if runs is None:
+            runs = client.get(f"/api/workflows/{workflow_id}/runs")
+        if runs:
+            recent_runs = sorted(
+                runs,
+                key=lambda item: item.get("created_at", ""),
+                reverse=True,
+            )[:5]
 
     return {
         "workflow": workflow,
         "latest_version": latest_version,
         "recent_runs": recent_runs,
     }
+
+
+def get_latest_workflow_version_data(
+    client: ApiClient,
+    workflow_id: str,
+) -> dict[str, Any]:
+    """Return the latest workflow version metadata.
+
+    Args:
+        client: API client instance
+        workflow_id: Workflow identifier
+
+    Returns:
+        Latest workflow version object
+
+    Raises:
+        CLIError: If no versions exist or latest version lacks an id field
+    """
+    versions = client.get(f"/api/workflows/{workflow_id}/versions")
+    if not versions:
+        raise CLIError("Workflow has no versions to execute.")
+
+    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
+    version_id = latest_version.get("id")
+    if not version_id:
+        raise CLIError("Latest workflow version is missing an id field.")
+    return latest_version
 
 
 def run_workflow_data(
@@ -96,14 +136,8 @@ def run_workflow_data(
     from orcheo_sdk.client import HttpWorkflowExecutor, OrcheoClient
 
     # Get latest version
-    versions = client.get(f"/api/workflows/{workflow_id}/versions")
-    if not versions:
-        raise CLIError("Workflow has no versions to execute.")
-
-    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    version_id = latest_version.get("id")
-    if not version_id:
-        raise CLIError("Latest workflow version is missing an id field.")
+    latest_version = get_latest_workflow_version_data(client, workflow_id)
+    version_id = latest_version["id"]
 
     # Execute workflow
     orcheo_client = OrcheoClient(base_url=client.base_url)
@@ -136,7 +170,9 @@ def delete_workflow_data(
     Returns:
         Success message
     """
-    client.delete(f"/api/workflows/{workflow_id}")
+    response = client.delete(f"/api/workflows/{workflow_id}")
+    if response and "message" in response:
+        return {"status": "success", "message": response["message"]}
     return {"status": "success", "message": f"Workflow '{workflow_id}' deleted"}
 
 
@@ -145,6 +181,8 @@ def upload_workflow_data(
     file_path: str | Path,
     workflow_id: str | None = None,
     workflow_name: str | None = None,
+    entrypoint: str | None = None,
+    console: Any | None = None,
 ) -> dict[str, Any]:
     """Upload workflow from file.
 
@@ -153,6 +191,8 @@ def upload_workflow_data(
         file_path: Path to workflow file
         workflow_id: Optional workflow ID for updates
         workflow_name: Optional workflow name override
+        entrypoint: Optional LangGraph entrypoint override
+        console: Optional console for status output
 
     Returns:
         Created or updated workflow object
@@ -170,15 +210,15 @@ def upload_workflow_data(
 
     # Create minimal state for upload functions
     class MinimalState:
-        def __init__(self, client_obj: Any) -> None:
+        def __init__(self, client_obj: Any, console_obj: Any | None) -> None:
             self.client = client_obj
-            self.console = _FakeConsole()
+            self.console = console_obj or _FakeConsole()
 
     class _FakeConsole:
         def print(self, *args: Any, **kwargs: Any) -> None:
             pass  # Suppress output
 
-    state = MinimalState(client)
+    state = MinimalState(client, console)
 
     requested_name = _normalize_workflow_name(workflow_name)
     path_obj = _validate_local_path(file_path, description="workflow")
@@ -197,6 +237,8 @@ def upload_workflow_data(
     # Handle LangGraph scripts
     is_langgraph_script = workflow_config.get("_type") == "langgraph_script"
     if is_langgraph_script:
+        if entrypoint:
+            workflow_config["entrypoint"] = entrypoint
         result = _upload_langgraph_script(
             state,  # type: ignore[arg-type]
             workflow_config,

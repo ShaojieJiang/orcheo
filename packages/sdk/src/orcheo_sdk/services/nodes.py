@@ -67,5 +67,9 @@ def show_node_data(name: str) -> dict[str, Any]:
 
     if hasattr(node_cls, "model_json_schema"):
         result["schema"] = node_cls.model_json_schema()
+    else:
+        annotations = getattr(node_cls, "__annotations__", {})
+        if annotations:
+            result["attributes"] = list(annotations.keys())
 
     return result

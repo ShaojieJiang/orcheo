@@ -13,6 +13,8 @@ def generate_workflow_scaffold_data(
     client: ApiClient,
     workflow_id: str,
     actor: str = "api",
+    workflow: dict[str, Any] | None = None,
+    versions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Generate workflow trigger code.
 
@@ -20,15 +22,19 @@ def generate_workflow_scaffold_data(
         client: API client instance
         workflow_id: Workflow identifier
         actor: Actor used in generated code
+        workflow: Optional pre-fetched workflow metadata
+        versions: Optional pre-fetched workflow versions
 
     Returns:
-        Dictionary with code and workflow metadata
+        Dictionary with code, workflow metadata, and versions
 
     Raises:
         CLIError: If workflow has no versions
     """
-    workflow = client.get(f"/api/workflows/{workflow_id}")
-    versions = client.get(f"/api/workflows/{workflow_id}/versions")
+    if workflow is None:
+        workflow = client.get(f"/api/workflows/{workflow_id}")
+    if versions is None:
+        versions = client.get(f"/api/workflows/{workflow_id}/versions")
 
     if not versions:
         raise CLIError("Workflow has no versions to scaffold.")
@@ -60,6 +66,7 @@ print(result)
     return {
         "code": snippet,
         "workflow": workflow,
+        "versions": versions,
     }
 
 
