@@ -91,6 +91,11 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
 | `orcheo credential reference <credential>` | Show the `[[cred_name]]` placeholder syntax for use in workflows. |
+| `orcheo token create [--id <id>] [--scope <scope>]` | Create a service token for CLI/API authentication. |
+| `orcheo token list` | List all service tokens with their scopes and status. |
+| `orcheo token show <token-id>` | Show detailed information for a specific service token. |
+| `orcheo token rotate <token-id> [--overlap <seconds>]` | Rotate a service token with grace period overlap. |
+| `orcheo token revoke <token-id> [--reason <reason>]` | Immediately invalidate a service token. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
@@ -103,11 +108,80 @@ orcheo node list --offline
 orcheo workflow show <workflow-id> --offline
 ```
 
-#### MCP (Model Context Protocol)
+### Authentication
+
+Orcheo supports flexible authentication to protect your workflows and API endpoints.
+
+#### Authentication Modes
+
+Configure via the `ORCHEO_AUTH_MODE` environment variable:
+
+- **disabled**: No authentication (development only)
+- **optional**: Validates tokens when provided but not required
+- **required**: All requests must include valid credentials (recommended for production)
+
+```bash
+export ORCHEO_AUTH_MODE=required
+```
+
+#### Service Tokens
+
+Service tokens are ideal for CLI usage, CI/CD pipelines, and automated integrations.
+
+**Create a token:**
+```bash
+# Basic token
+orcheo token create
+
+# Token with scopes and workspace access
+orcheo token create --id my-ci-token \
+  --scope workflows:read \
+  --scope workflows:execute \
+  --workspace ws-production
+```
+
+**Use with CLI:**
+```bash
+export ORCHEO_SERVICE_TOKEN="your-token-secret-here"
+orcheo workflow list
+```
+
+**Use with Python SDK:**
+```python
+from orcheo_sdk import OrcheoClient
+
+client = OrcheoClient(
+    api_url="https://orcheo.example.com",
+    token=os.environ["ORCHEO_SERVICE_TOKEN"]
+)
+```
+
+**Rotate tokens:**
+```bash
+orcheo token rotate my-ci-token --overlap 300
+```
+
+#### JWT Authentication
+
+For production deployments with Identity Providers (Auth0, Okta, Keycloak):
+
+```bash
+# Symmetric key (HS256)
+export ORCHEO_AUTH_JWT_SECRET="your-secure-secret-key"
+
+# Asymmetric key (RS256) with JWKS
+export ORCHEO_AUTH_JWKS_URL="https://your-idp.com/.well-known/jwks.json"
+export ORCHEO_AUTH_AUDIENCE="orcheo-production"
+export ORCHEO_AUTH_ISSUER="https://your-idp.com/"
+```
+
+For detailed configuration, security best practices, and troubleshooting, see [docs/authentication_guide.md](docs/authentication_guide.md).
+
+### MCP (Model Context Protocol)
 
 Orcheo SDK includes an MCP server that allows AI assistants like Claude to interact with your workflows.
 
-##### Claude Desktop
+#### Claude Desktop
 To configure it in Claude Desktop, add the following to your `claude_desktop_config.json`:
 
 ```json
@@ -122,7 +196,7 @@ To configure it in Claude Desktop, add the following to your `claude_desktop_con
 
 **Note:** This configuration requires the Orcheo development backend to be running locally (see [Run the API server](#quick-start)).
 
-##### Claude CLI
+#### Claude CLI
 
 To configure the MCP server in Claude CLI:
 
@@ -142,7 +216,7 @@ claude mcp add-json Orcheo --scope user '{
 
 **Note:** Replace `/path/to/uvx` with your actual `uvx` binary path (find it with `which uvx`).
 
-##### Codex CLI
+#### Codex CLI
 
 To configure the MCP server in Codex CLI:
 
