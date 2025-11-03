@@ -1,8 +1,11 @@
 """Tests for the FastAPI authentication dependencies."""
 
 from __future__ import annotations
+import hashlib
 import logging
+import tempfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +18,7 @@ from orcheo_backend.app.authentication import (
     JWKSCache,
     RequestContext,
     ServiceTokenManager,
+    ServiceTokenRecord,
     auth_telemetry,
     authenticate_request,
     ensure_scopes,
@@ -25,6 +29,10 @@ from orcheo_backend.app.authentication import (
     reset_authentication_state,
 )
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.service_token_repository import (
+    InMemoryServiceTokenRepository,
+    SqliteServiceTokenRepository,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +52,7 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
         "ORCHEO_AUTH_RATE_LIMIT_IP",
         "ORCHEO_AUTH_RATE_LIMIT_IDENTITY",
         "ORCHEO_AUTH_RATE_LIMIT_INTERVAL",
+        "ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH",
     ):
         monkeypatch.delenv(key, raising=False)
     reset_authentication_state()
@@ -59,6 +68,69 @@ def _client() -> TestClient:
     return TestClient(create_app(repository=repository))
 
 
+def _setup_service_token(
+    monkeypatch: pytest.MonkeyPatch,
+    token_secret: str,
+    *,
+    identifier: str | None = None,
+    scopes: list[str] | None = None,
+    workspace_ids: list[str] | None = None,
+    expires_at: datetime | None = None,
+) -> tuple[str, str]:
+    """Set up a service token for testing.
+
+    Returns (db_path, token_secret) for use in tests.
+    """
+    # Create temporary database
+    temp_dir = tempfile.mkdtemp()
+    db_path = str(Path(temp_dir) / "test_tokens.sqlite")
+
+    # Set up the database path env var
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", db_path)
+
+    # Create repository to ensure schema exists
+    _ = SqliteServiceTokenRepository(db_path)
+
+    # Create the token record
+    token_hash = hashlib.sha256(token_secret.encode("utf-8")).hexdigest()
+    record = ServiceTokenRecord(
+        identifier=identifier or "test-token",
+        secret_hash=token_hash,
+        scopes=frozenset(scopes or []),
+        workspace_ids=frozenset(workspace_ids or []),
+        issued_at=datetime.now(tz=UTC),
+        expires_at=expires_at,
+    )
+
+    # Store the token synchronously via direct SQLite access
+    import json
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO service_tokens (
+            identifier, secret_hash, scopes, workspace_ids,
+            created_at, issued_at, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.identifier,
+            record.secret_hash,
+            json.dumps(sorted(record.scopes)) if record.scopes else None,
+            json.dumps(sorted(record.workspace_ids)) if record.workspace_ids else None,
+            datetime.now(tz=UTC).isoformat(),
+            record.issued_at.isoformat() if record.issued_at else None,
+            record.expires_at.isoformat() if record.expires_at else None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    return db_path, token_secret
+
+
 def test_requests_allowed_when_auth_disabled() -> None:
     """Requests succeed when no authentication configuration is provided."""
 
@@ -72,7 +144,7 @@ def test_service_token_required_when_configured(
 ) -> None:
     """Missing Authorization header yields 401 when service tokens are configured."""
 
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKENS", '["secret-token"]')
+    _setup_service_token(monkeypatch, "secret-token")
     reset_authentication_state()
 
     client = _client()
@@ -87,7 +159,7 @@ def test_service_token_required_when_configured(
 def test_valid_service_token_allows_request(monkeypatch: pytest.MonkeyPatch) -> None:
     """Providing a valid service token authorizes the request."""
 
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKENS", '["ci-token"]')
+    _setup_service_token(monkeypatch, "ci-token", identifier="ci")
     reset_authentication_state()
 
     client = _client()
@@ -102,7 +174,7 @@ def test_valid_service_token_allows_request(monkeypatch: pytest.MonkeyPatch) -> 
 def test_invalid_service_token_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """Incorrect service tokens result in a 401 response."""
 
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKENS", '["ci-token"]')
+    _setup_service_token(monkeypatch, "ci-token", identifier="ci")
     reset_authentication_state()
 
     client = _client()
@@ -164,11 +236,13 @@ async def test_authenticate_request_sets_request_state(
 ) -> None:
     """authenticate_request attaches the resolved context to the request state."""
 
-    token_config = (
-        '{"id": "ci", "secret": "token-123", '
-        '"scopes": ["workflows:read"], "workspace_ids": ["ws-1"]}'
+    _setup_service_token(
+        monkeypatch,
+        "token-123",
+        identifier="ci",
+        scopes=["workflows:read"],
+        workspace_ids=["ws-1"],
     )
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKENS", token_config)
     reset_authentication_state()
 
     scope = {
@@ -253,17 +327,20 @@ async def test_jwks_cache_refetches_when_header_disables_caching() -> None:
 def test_raw_service_token_emits_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Using raw service token secrets emits an operator-facing warning."""
+    """Using raw service token secrets emits an operator-facing warning.
 
-    monkeypatch.setenv(
-        "ORCHEO_AUTH_SERVICE_TOKENS",
-        '{"id": "ci", "secret": "raw-token"}',
-    )
+    NOTE: This test is no longer relevant with database-backed tokens,
+    but kept for backwards compatibility. The warning is now only relevant
+    when creating tokens via the API.
+    """
+    # With database-backed tokens, there's no concept of raw tokens in config
+    # This test now verifies that loading auth settings without tokens works fine
     caplog.set_level(logging.WARNING)
 
     load_auth_settings(refresh=True)
 
-    assert any("raw secret" in record.message for record in caplog.records)
+    # No warnings should be emitted for missing tokens (this is valid config)
+    assert not any("raw secret" in record.message for record in caplog.records)
 
 
 def test_required_mode_without_credentials_warns(
@@ -352,21 +429,29 @@ def test_authorization_policy_enforces_scopes_and_workspaces() -> None:
         policy.require_workspace("ws-2")
 
 
-def test_service_token_manager_mint_rotate_revoke() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_mint_rotate_revoke() -> None:
     """ServiceTokenManager should support rotation with overlap and revocation."""
 
-    manager = ServiceTokenManager([])
-    secret, record = manager.mint(scopes={"workflows:read"}, workspace_ids={"ws-1"})
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    secret, record = await manager.mint(
+        scopes={"workflows:read"}, workspace_ids={"ws-1"}
+    )
 
     assert record.matches(secret)
-    assert record.identifier in {item.identifier for item in manager.all()}
+    all_tokens = await manager.all()
+    assert record.identifier in {item.identifier for item in all_tokens}
 
-    overlap_secret, rotated = manager.rotate(record.identifier, overlap_seconds=60)
-    assert manager.authenticate(secret).identifier == record.identifier
+    overlap_secret, rotated = await manager.rotate(
+        record.identifier, overlap_seconds=60
+    )
+    authenticated = await manager.authenticate(secret)
+    assert authenticated.identifier == record.identifier
 
-    manager.revoke(rotated.identifier)
+    await manager.revoke(rotated.identifier, reason="test")
     with pytest.raises(AuthenticationError):
-        manager.authenticate(overlap_secret)
+        await manager.authenticate(overlap_secret)
 
 
 @pytest.mark.asyncio
@@ -405,9 +490,11 @@ def test_authenticate_request_records_audit_events(
 ) -> None:
     """Successful authentication should emit audit telemetry events."""
 
-    monkeypatch.setenv(
-        "ORCHEO_AUTH_SERVICE_TOKENS",
-        '{"id": "ci", "secret": "token-abc", "scopes": ["workflows:read"]}',
+    _setup_service_token(
+        monkeypatch,
+        "token-abc",
+        identifier="ci",
+        scopes=["workflows:read"],
     )
     reset_authentication_state()
     auth_telemetry.reset()
@@ -425,9 +512,11 @@ def test_authenticate_request_records_audit_events(
 def test_authenticate_request_rate_limits_ip(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exceeding the configured per-IP limit should yield a 429 error."""
 
-    monkeypatch.setenv(
-        "ORCHEO_AUTH_SERVICE_TOKENS",
-        '{"id": "ci", "secret": "token-xyz", "scopes": ["workflows:read"]}',
+    _setup_service_token(
+        monkeypatch,
+        "token-xyz",
+        identifier="ci",
+        scopes=["workflows:read"],
     )
     monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IP", "2")
     monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IDENTITY", "5")
@@ -449,9 +538,11 @@ def test_authenticate_request_rate_limits_identity(
 ) -> None:
     """Exceeding the configured per-identity limit should yield a 429 error."""
 
-    monkeypatch.setenv(
-        "ORCHEO_AUTH_SERVICE_TOKENS",
-        '{"id": "ci", "secret": "token-identity", "scopes": ["workflows:read"]}',
+    _setup_service_token(
+        monkeypatch,
+        "token-identity",
+        identifier="ci",
+        scopes=["workflows:read"],
     )
     monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IP", "10")
     monkeypatch.setenv("ORCHEO_AUTH_RATE_LIMIT_IDENTITY", "2")
@@ -684,7 +775,7 @@ def test_auth_settings_enforce_disabled_mode() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_tokens=(),
+        service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -707,7 +798,7 @@ def test_auth_settings_enforce_required_mode() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_tokens=(),
+        service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -730,7 +821,7 @@ def test_auth_settings_enforce_optional_with_credentials() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_tokens=(),
+        service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -843,145 +934,163 @@ def test_authorization_error_defaults() -> None:
 
 
 # ServiceTokenManager advanced tests
-def test_service_token_manager_authenticate_revoked_token() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_authenticate_revoked_token() -> None:
     """Authenticate raises when token is revoked."""
-    import hashlib
 
     token = "revoked-token"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-    from orcheo_backend.app.authentication import ServiceTokenRecord
 
     record = ServiceTokenRecord(
         identifier="revoked",
         secret_hash=digest,
         revoked_at=datetime.now(tz=UTC),
     )
-    manager = ServiceTokenManager([record])
+    repository = InMemoryServiceTokenRepository()
+    await repository.create(record)
+    manager = ServiceTokenManager(repository)
 
     with pytest.raises(AuthenticationError) as exc:
-        manager.authenticate(token)
+        await manager.authenticate(token)
     assert exc.value.code == "auth.token_revoked"
     assert exc.value.status_code == 403
 
 
-def test_service_token_manager_authenticate_expired_token() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_authenticate_expired_token() -> None:
     """Authenticate raises when token is expired."""
-    import hashlib
 
     token = "expired-token"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-    from orcheo_backend.app.authentication import ServiceTokenRecord
 
     record = ServiceTokenRecord(
         identifier="expired",
         secret_hash=digest,
         expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
     )
-    manager = ServiceTokenManager([record])
+    repository = InMemoryServiceTokenRepository()
+    await repository.create(record)
+    manager = ServiceTokenManager(repository)
 
     with pytest.raises(AuthenticationError) as exc:
-        manager.authenticate(token)
+        await manager.authenticate(token)
     assert exc.value.code == "auth.token_expired"
     assert exc.value.status_code == 403
 
 
-def test_service_token_manager_mint_with_timedelta() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_mint_with_timedelta() -> None:
     """Mint can accept timedelta for expires_in."""
 
-    manager = ServiceTokenManager([])
-    secret, record = manager.mint(expires_in=timedelta(hours=1))
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    secret, record = await manager.mint(expires_in=timedelta(hours=1))
 
     assert record.matches(secret)
     assert record.expires_at is not None
 
 
-def test_service_token_manager_mint_with_seconds() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_mint_with_seconds() -> None:
     """Mint can accept int seconds for expires_in."""
 
-    manager = ServiceTokenManager([])
-    secret, record = manager.mint(expires_in=3600)
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    secret, record = await manager.mint(expires_in=3600)
 
     assert record.matches(secret)
     assert record.expires_at is not None
 
 
-def test_service_token_manager_mint_without_expiry() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_mint_without_expiry() -> None:
     """Mint creates token without expiry when expires_in is None."""
 
-    manager = ServiceTokenManager([])
-    secret, record = manager.mint()
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    secret, record = await manager.mint()
 
     assert record.matches(secret)
     assert record.expires_at is None
 
 
-def test_service_token_manager_rotate_with_overlap() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_rotate_with_overlap() -> None:
     """Rotate allows overlap period before old token expires."""
 
-    manager = ServiceTokenManager([])
-    original_secret, original_record = manager.mint()
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    original_secret, original_record = await manager.mint()
 
-    new_secret, new_record = manager.rotate(
+    new_secret, new_record = await manager.rotate(
         original_record.identifier,
         overlap_seconds=300,
     )
 
     # Both tokens should work during overlap
-    assert (
-        manager.authenticate(original_secret).identifier == original_record.identifier
-    )
-    assert manager.authenticate(new_secret).identifier == new_record.identifier
+    authenticated_original = await manager.authenticate(original_secret)
+    assert authenticated_original.identifier == original_record.identifier
+    authenticated_new = await manager.authenticate(new_secret)
+    assert authenticated_new.identifier == new_record.identifier
 
 
-def test_service_token_manager_rotate_without_overlap() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_rotate_without_overlap() -> None:
     """Rotate with overlap_seconds=0 expires old token immediately."""
 
-    manager = ServiceTokenManager([])
-    original_secret, original_record = manager.mint()
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    original_secret, original_record = await manager.mint()
 
-    new_secret, new_record = manager.rotate(
+    new_secret, new_record = await manager.rotate(
         original_record.identifier,
         overlap_seconds=0,
     )
 
     # New token should work
-    assert manager.authenticate(new_secret).identifier == new_record.identifier
+    authenticated = await manager.authenticate(new_secret)
+    assert authenticated.identifier == new_record.identifier
 
 
-def test_service_token_manager_rotate_nonexistent_raises() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_rotate_nonexistent_raises() -> None:
     """Rotate raises KeyError for nonexistent identifier."""
 
-    manager = ServiceTokenManager([])
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
 
     with pytest.raises(KeyError):
-        manager.rotate("nonexistent")
+        await manager.rotate("nonexistent")
 
 
-def test_service_token_manager_revoke_nonexistent_raises() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_revoke_nonexistent_raises() -> None:
     """Revoke raises KeyError for nonexistent identifier."""
 
-    manager = ServiceTokenManager([])
+    repository = InMemoryServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
 
     with pytest.raises(KeyError):
-        manager.revoke("nonexistent")
+        await manager.revoke("nonexistent", reason="test")
 
 
-def test_service_token_manager_all() -> None:
+@pytest.mark.asyncio
+async def test_service_token_manager_all() -> None:
     """all() returns all managed tokens."""
-
-    from orcheo_backend.app.authentication import ServiceTokenRecord
 
     record1 = ServiceTokenRecord(identifier="token-1", secret_hash="hash1")
     record2 = ServiceTokenRecord(identifier="token-2", secret_hash="hash2")
-    manager = ServiceTokenManager([record1, record2])
+    repository = InMemoryServiceTokenRepository()
+    await repository.create(record1)
+    await repository.create(record2)
+    manager = ServiceTokenManager(repository)
 
-    all_tokens = manager.all()
+    all_tokens = await manager.all()
 
     assert len(all_tokens) == 2
-    assert record1 in all_tokens
-    assert record2 in all_tokens
+    identifiers = {token.identifier for token in all_tokens}
+    assert "token-1" in identifiers
+    assert "token-2" in identifiers
 
 
 # JWT authentication tests

@@ -1,6 +1,7 @@
 """Output helpers for rendering data in the CLI."""
 
 from __future__ import annotations
+from datetime import datetime
 from typing import Any
 from rich.console import Console
 from rich.pretty import Pretty
@@ -29,3 +30,24 @@ def render_json(console: Console, payload: Any, *, title: str | None = None) -> 
     if title:
         console.print(Text(title, style="bold"))
     console.print(Pretty(payload, indent_guides=True))
+
+
+def format_datetime(iso_string: str) -> str:
+    """Format an ISO datetime string for display."""
+    try:
+        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (ValueError, AttributeError):
+        return iso_string
+
+
+def success(message: str) -> None:
+    """Print a success message."""
+    console = Console()
+    console.print(f"[green]✓ {message}[/green]")
+
+
+def warning(message: str) -> None:
+    """Print a warning message."""
+    console = Console()
+    console.print(f"[yellow]⚠ {message}[/yellow]")

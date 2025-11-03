@@ -16,6 +16,7 @@ from orcheo_sdk.cli.credential import credential_app
 from orcheo_sdk.cli.errors import CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
+from orcheo_sdk.cli.service_token import app as service_token_app
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.workflow import workflow_app
 
@@ -34,6 +35,7 @@ app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")
 app.add_typer(agent_tool_app, name="agent-tool")
+app.add_typer(service_token_app, name="token")
 
 
 @app.callback()
