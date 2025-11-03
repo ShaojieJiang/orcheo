@@ -78,17 +78,33 @@ class ApiClient:
         return response.json()
 
     def delete(
-        self, path: str, *, params: Mapping[str, Any] | None = None
+        self,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        json_body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """Issue a DELETE request."""
         url = f"{self._base_url}{path}"
         try:
-            response = httpx.delete(
-                url,
-                params=params,
-                headers=self._headers(),
-                timeout=self._timeout,
-            )
+            # Use httpx.request for DELETE with JSON body
+            # (httpx.delete doesn't support JSON bodies)
+            if json_body is not None:
+                response = httpx.request(
+                    "DELETE",
+                    url,
+                    params=params,
+                    json=json_body,
+                    headers=self._headers(),
+                    timeout=self._timeout,
+                )
+            else:
+                response = httpx.delete(
+                    url,
+                    params=params,
+                    headers=self._headers(),
+                    timeout=self._timeout,
+                )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             message = self._format_error(exc.response)
