@@ -43,6 +43,14 @@ SQLite for local development.
    orcheo-dev-server
    ```
 
+   If you enable authentication during this step, export a bootstrap token first:
+
+   ```bash
+   export ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN="your-secure-random-token"
+   export ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT="2024-05-01T12:00:00Z"  # optional expiry
+   export ORCHEO_AUTH_MODE=required
+   ```
+
 4. **Verify the setup**
 
    ```bash

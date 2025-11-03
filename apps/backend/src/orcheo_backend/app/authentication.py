@@ -200,6 +200,9 @@ class AuthSettings:
     rate_limit_identity: int
     rate_limit_interval: int
     service_token_db_path: str | None
+    bootstrap_service_token: str | None = None
+    bootstrap_token_scopes: frozenset[str] = field(default_factory=frozenset)
+    bootstrap_token_expires_at: datetime | None = None
 
     @property
     def enforce(self) -> bool:
@@ -213,6 +216,7 @@ class AuthSettings:
             or self.jwks_url
             or self.jwks_static
             or self.service_token_db_path
+            or self.bootstrap_service_token
         )
 
 
@@ -594,35 +598,85 @@ class Authenticator:
 
     async def _authenticate_service_token(self, token: str) -> RequestContext | None:
         """Return a RequestContext for a matching service token."""
+        # First check database-persisted tokens
         all_tokens = await self._token_manager.all()
-        if not all_tokens:
-            return None
+        if all_tokens:
+            try:
+                record = await self._token_manager.authenticate(token)
+                claims = {
+                    "token_type": "service",
+                    "token_id": record.identifier,
+                    "scopes": sorted(record.scopes),
+                    "workspace_ids": sorted(record.workspace_ids),
+                    "rotated_to": record.rotated_to,
+                    "revoked_at": record.revoked_at.isoformat()
+                    if record.revoked_at
+                    else None,
+                }
+                return RequestContext(
+                    subject=record.identifier,
+                    identity_type="service",
+                    scopes=record.scopes,
+                    workspace_ids=record.workspace_ids,
+                    token_id=record.identifier,
+                    issued_at=record.issued_at,
+                    expires_at=record.expires_at,
+                    claims=claims,
+                )
+            except AuthenticationError as exc:
+                if exc.code == "auth.invalid_token":
+                    pass  # Fall through to check bootstrap token
+                else:
+                    raise
 
-        try:
-            record = await self._token_manager.authenticate(token)
-        except AuthenticationError as exc:
-            if exc.code == "auth.invalid_token":
-                return None
-            raise
+        # Check bootstrap service token from environment
+        bootstrap_token = self._settings.bootstrap_service_token
+        if bootstrap_token and hmac.compare_digest(token, bootstrap_token):
+            expires_at = self._settings.bootstrap_token_expires_at
+            if expires_at and datetime.now(tz=UTC) >= expires_at:
+                logger.warning(
+                    "Bootstrap service token has expired and will be rejected",
+                )
+                auth_telemetry.record_auth_failure(
+                    reason="bootstrap_service_token_expired"
+                )
+                raise AuthenticationError(
+                    "Bootstrap service token has expired",
+                    code="auth.token_expired",
+                )
+            logger.info(
+                "Bootstrap service token authenticated. "
+                "Consider creating persistent tokens and removing the bootstrap token."
+            )
+            auth_telemetry.record(
+                AuthEvent(
+                    event="authenticate",
+                    status="success",
+                    subject="bootstrap",
+                    identity_type="bootstrap_service",
+                    token_id="bootstrap",
+                    detail="Bootstrap service token used",
+                )
+            )
+            claims = {
+                "token_type": "bootstrap_service",
+                "token_id": "bootstrap",
+                "scopes": sorted(self._settings.bootstrap_token_scopes),
+            }
+            if expires_at:
+                claims["expires_at"] = expires_at.isoformat()
+            return RequestContext(
+                subject="bootstrap",
+                identity_type="service",
+                scopes=self._settings.bootstrap_token_scopes,
+                workspace_ids=frozenset(),  # No workspace restrictions for bootstrap
+                token_id="bootstrap",
+                issued_at=None,
+                expires_at=expires_at,
+                claims=claims,
+            )
 
-        claims = {
-            "token_type": "service",
-            "token_id": record.identifier,
-            "scopes": sorted(record.scopes),
-            "workspace_ids": sorted(record.workspace_ids),
-            "rotated_to": record.rotated_to,
-            "revoked_at": record.revoked_at.isoformat() if record.revoked_at else None,
-        }
-        return RequestContext(
-            subject=record.identifier,
-            identity_type="service",
-            scopes=record.scopes,
-            workspace_ids=record.workspace_ids,
-            token_id=record.identifier,
-            issued_at=record.issued_at,
-            expires_at=record.expires_at,
-            claims=claims,
-        )
+        return None
 
     async def _authenticate_jwt(self, token: str) -> RequestContext:
         """Validate a JWT and return an authenticated context."""
@@ -806,16 +860,23 @@ def _parse_timestamp(value: Any) -> datetime | None:
     """Convert UNIX timestamps or ISO strings to aware datetimes."""
     if value is None:
         return None
-    if isinstance(value, int | float):
-        return datetime.fromtimestamp(value, tz=UTC)
-    if isinstance(value, str):
+    result: datetime | None = None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            result = value.replace(tzinfo=UTC)
+        else:
+            result = value.astimezone(UTC)
+    elif isinstance(value, int | float):
+        result = datetime.fromtimestamp(value, tz=UTC)
+    elif isinstance(value, str):
         try:
             if value.isdigit():
-                return datetime.fromtimestamp(int(value), tz=UTC)
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                result = datetime.fromtimestamp(int(value), tz=UTC)
+            else:
+                result = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:  # pragma: no cover - defensive
-            return None
-    return None
+            result = None
+    return result
 
 
 def _infer_identity_type(claims: Mapping[str, Any]) -> str:
@@ -1004,8 +1065,49 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     rate_limit_identity = _parse_int(settings.get("AUTH_RATE_LIMIT_IDENTITY"), 0)
     rate_limit_interval = _parse_int(settings.get("AUTH_RATE_LIMIT_INTERVAL"), 60)
 
+    # Bootstrap service token for initial token creation
+    bootstrap_service_token = _coerce_optional_str(
+        settings.get("AUTH_BOOTSTRAP_SERVICE_TOKEN")
+    )
+    bootstrap_token_scopes_raw = settings.get("AUTH_BOOTSTRAP_TOKEN_SCOPES")
+    if bootstrap_token_scopes_raw:
+        bootstrap_token_scopes = frozenset(
+            _parse_str_sequence(bootstrap_token_scopes_raw)
+        )
+    else:
+        # Default to full admin access for bootstrap token
+        bootstrap_token_scopes = frozenset(
+            [
+                "admin:tokens:read",
+                "admin:tokens:write",
+                "workflows:read",
+                "workflows:write",
+                "workflows:execute",
+                "vault:read",
+                "vault:write",
+            ]
+        )
+
+    bootstrap_token_expires_at_raw = settings.get("AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT")
+    bootstrap_token_expires_at = _parse_timestamp(bootstrap_token_expires_at_raw)
+    if bootstrap_token_expires_at_raw and bootstrap_token_expires_at is None:
+        logger.warning(
+            "AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT could not be parsed; expected ISO 8601 or "
+            "UNIX timestamp"
+        )
+
+    if bootstrap_service_token:
+        logger.warning(
+            "Bootstrap service token is configured. This should only be used for "
+            "initial setup and should be removed after creating persistent tokens."
+        )
+
     if mode == "required" and not (
-        jwt_secret or jwks_url or jwks_static or service_token_db_path
+        jwt_secret
+        or jwks_url
+        or jwks_static
+        or service_token_db_path
+        or bootstrap_service_token
     ):
         logger.warning(
             "AUTH_MODE=required but no authentication credentials are configured; "
@@ -1023,6 +1125,9 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         audiences=tuple(audiences),
         issuer=issuer,
         service_token_db_path=service_token_db_path,
+        bootstrap_service_token=bootstrap_service_token,
+        bootstrap_token_scopes=bootstrap_token_scopes,
+        bootstrap_token_expires_at=bootstrap_token_expires_at,
         rate_limit_ip=rate_limit_ip,
         rate_limit_identity=rate_limit_identity,
         rate_limit_interval=rate_limit_interval,

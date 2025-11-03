@@ -58,6 +58,84 @@ export ORCHEO_AUTH_MODE=required
 
 Service tokens are ideal for CLI usage, CI/CD pipelines, and automated service integrations. They are long-lived, can be scoped to specific workspaces, and support rotation and revocation.
 
+### Bootstrap Token for Initial Setup
+
+When first deploying Orcheo with authentication enabled, you need a way to create your first service token without already having credentials. The **bootstrap service token** solves this "chicken and egg" problem.
+
+#### What is a Bootstrap Token?
+
+A bootstrap token is a special service token configured via the `ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN` environment variable. Unlike regular service tokens:
+
+- **Not stored in the database**: Read directly from the environment
+- **Full admin access by default**: Can create other tokens and manage all resources (scopes are configurable)
+- **Optional expiration**: Set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` to enforce an automated cut-off
+- **Intended for initial setup only**: Should be removed after creating persistent tokens
+
+#### Setting Up a Bootstrap Token
+
+1. **Generate a secure random token**:
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. **Configure the environment**:
+   ```bash
+   export ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN="your-secure-random-token"
+   export ORCHEO_AUTH_MODE=required
+   ```
+   Optional: set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` (ISO 8601 or UNIX epoch) to automatically disable the bootstrap token after a deadline, for example `2024-05-01T12:00:00Z`.
+
+3. **Start the server**:
+   ```bash
+   orcheo-dev-server
+   ```
+
+4. **Create your first persistent token**:
+   ```bash
+   export ORCHEO_SERVICE_TOKEN="your-secure-random-token"
+   orcheo token create --id production-token \
+     --scope workflows:read \
+     --scope workflows:write \
+     --scope workflows:execute
+   ```
+
+5. **Update your environment to use the persistent token**:
+   ```bash
+   export ORCHEO_SERVICE_TOKEN="<new-token-from-step-4>"
+   unset ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN  # Remove bootstrap token
+   ```
+
+6. **Restart the server** without the bootstrap token for production use.
+
+#### Bootstrap Token Scopes
+
+By default, the bootstrap token grants all admin scopes. You can restrict this with `ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES`:
+
+```bash
+export ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES="admin:tokens:write,workflows:read"
+```
+
+#### Bootstrap Token Expiration
+
+To prevent long-lived secrets, set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` to either an ISO 8601 timestamp (`2024-05-01T12:00:00Z`) or a UNIX epoch (`1714564800`). Once the timestamp passes, Orcheo rejects the bootstrap token with `auth.token_expired` and records a failed authentication event. Renew the value before it expires if you still need the bootstrap token.
+
+#### Security Considerations
+
+- **Use only during initial setup**: The bootstrap token should be temporary
+- **Remove after creating persistent tokens**: Don't leave it configured in production
+- **Rotate if exposed**: Generate a new random token if the bootstrap token is compromised
+- **Monitor usage**: Check logs for bootstrap token authentication events
+- **Use secret managers**: Store the bootstrap token in AWS Secrets Manager, Vault, etc.
+
+#### Bootstrap Token vs. Disabled Auth Mode
+
+| Approach | Use Case | Security |
+|----------|----------|----------|
+| **Bootstrap Token** | Production deployments with `AUTH_MODE=required` | ✅ Secure - authentication always enforced |
+| **Disabled Auth Mode** | Local development only | ⚠️ Insecure - no authentication at all |
+
+**Recommendation**: Always use the bootstrap token approach for production deployments.
+
 ### Managing Service Tokens
 
 All service token management is done through the CLI or API. Tokens are stored in a SQLite database with SHA256-hashed secrets.
