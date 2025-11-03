@@ -142,6 +142,9 @@ from orcheo_backend.app.schemas import (
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
 )
+from orcheo_backend.app.service_token_endpoints import (
+    router as service_token_router,
+)
 
 
 # Configure logging for the backend module once on import.
@@ -332,6 +335,7 @@ load_dotenv()
 
 _ws_router = APIRouter()
 _http_router = APIRouter(prefix="/api", dependencies=[Depends(authenticate_request)])
+_http_router.include_router(service_token_router)
 _repository: WorkflowRepository
 _history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}

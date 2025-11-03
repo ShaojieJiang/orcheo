@@ -194,10 +194,10 @@ class AuthSettings:
     allowed_algorithms: tuple[str, ...]
     audiences: tuple[str, ...]
     issuer: str | None
-    service_tokens: tuple[ServiceTokenRecord, ...]
     rate_limit_ip: int
     rate_limit_identity: int
     rate_limit_interval: int
+    service_token_db_path: str | None
 
     @property
     def enforce(self) -> bool:
@@ -207,7 +207,10 @@ class AuthSettings:
         if self.mode == "required":
             return True
         return bool(
-            self.jwt_secret or self.jwks_url or self.jwks_static or self.service_tokens
+            self.jwt_secret
+            or self.jwks_url
+            or self.jwks_static
+            or self.service_token_db_path
         )
 
 
@@ -328,57 +331,67 @@ class AuthorizationError(AuthenticationError):
 
 
 class ServiceTokenManager:
-    """Manage lifecycle of service tokens and hashed representations."""
+    """Manage lifecycle of service tokens with database persistence."""
 
     def __init__(
         self,
-        records: Iterable[ServiceTokenRecord],
+        repository: Any,  # ServiceTokenRepository protocol
         *,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        """Load service token records and prepare hash lookups."""
+        """Initialize the manager with a token repository."""
+        self._repository = repository
         self._clock = clock or (lambda: datetime.now(tz=UTC))
-        self._records_by_id: dict[str, ServiceTokenRecord] = {}
-        self._records_by_hash: dict[str, list[str]] = {}
-        for record in records:
-            self._register(record)
+        self._cache: dict[str, ServiceTokenRecord] = {}
+        self._cache_expires_at: datetime | None = None
+        self._cache_ttl = timedelta(seconds=30)
 
-    def _register(self, record: ServiceTokenRecord) -> None:
-        self._records_by_id[record.identifier] = record
-        bucket = self._records_by_hash.setdefault(record.secret_hash, [])
-        if record.identifier not in bucket:
-            bucket.append(record.identifier)
+    async def _get_cache(self) -> dict[str, ServiceTokenRecord]:
+        """Return cached active tokens, refreshing if stale."""
+        now = self._clock()
+        if self._cache and self._cache_expires_at and now < self._cache_expires_at:
+            return self._cache
 
-    def all(self) -> tuple[ServiceTokenRecord, ...]:
-        """Return all managed service token records."""
-        return tuple(self._records_by_id.values())
+        active_records = await self._repository.list_active(now=now)
+        self._cache = {record.identifier: record for record in active_records}
+        self._cache_expires_at = now + self._cache_ttl
+        return self._cache
 
-    def authenticate(self, token: str) -> ServiceTokenRecord:
+    def _invalidate_cache(self) -> None:
+        """Clear the token cache to force reload."""
+        self._cache.clear()
+        self._cache_expires_at = None
+
+    async def all(self) -> tuple[ServiceTokenRecord, ...]:
+        """Return all active service token records."""
+        cache = await self._get_cache()
+        return tuple(cache.values())
+
+    async def authenticate(self, token: str) -> ServiceTokenRecord:
         """Return the record for ``token`` or raise an AuthenticationError."""
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        candidates = self._records_by_hash.get(digest, [])
+        record = await self._repository.find_by_hash(digest)
+
+        if record is None or not record.matches(token):
+            raise AuthenticationError("Invalid bearer token", code="auth.invalid_token")
+
         now = self._clock()
-        for identifier in candidates:
-            record = self._records_by_id.get(identifier)
-            if record is None or not record.matches(token):
-                continue
-            if record.is_revoked():
-                raise AuthenticationError(
-                    "Service token has been revoked",
-                    code="auth.token_revoked",
-                    status_code=status.HTTP_403_FORBIDDEN,
-                )
-            if record.is_expired(now=now):
-                raise AuthenticationError(
-                    "Service token has expired",
-                    code="auth.token_expired",
-                    status_code=status.HTTP_403_FORBIDDEN,
-                )
-            return record
+        if record.is_revoked():
+            raise AuthenticationError(
+                "Service token has been revoked",
+                code="auth.token_revoked",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        if record.is_expired(now=now):
+            raise AuthenticationError(
+                "Service token has expired",
+                code="auth.token_expired",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
 
-        raise AuthenticationError("Invalid bearer token", code="auth.invalid_token")
+        return record
 
-    def mint(
+    async def mint(
         self,
         *,
         identifier: str | None = None,
@@ -405,11 +418,13 @@ class ServiceTokenManager:
             issued_at=now,
             expires_at=expires_at,
         )
-        self._register(record)
+        await self._repository.create(record)
+        await self._repository.record_audit_event(record.identifier, "created")
+        self._invalidate_cache()
         auth_telemetry.record_service_token_event("mint", record)
         return secret, record
 
-    def rotate(
+    async def rotate(
         self,
         identifier: str,
         *,
@@ -417,13 +432,13 @@ class ServiceTokenManager:
         expires_in: timedelta | int | None = None,
     ) -> tuple[str, ServiceTokenRecord]:
         """Rotate ``identifier`` and return the replacement token."""
-        record = self._records_by_id.get(identifier)
+        record = await self._repository.find_by_id(identifier)
         if record is None:
             raise KeyError(identifier)
 
         now = self._clock()
         overlap = max(int(overlap_seconds), 0)
-        secret, new_record = self.mint(
+        secret, new_record = await self.mint(
             scopes=record.scopes,
             workspace_ids=record.workspace_ids,
             expires_in=expires_in,
@@ -437,15 +452,17 @@ class ServiceTokenManager:
             expires_at=self._calculate_rotation_expiry(record, now, overlap),
             rotated_to=new_record.identifier,
         )
-        self._register(updated)
+        await self._repository.update(updated)
+        await self._repository.record_audit_event(identifier, "rotated")
+        self._invalidate_cache()
         auth_telemetry.record_service_token_event("rotate", updated)
         return secret, new_record
 
-    def revoke(
+    async def revoke(
         self, identifier: str, *, reason: str | None = None
     ) -> ServiceTokenRecord:
         """Revoke ``identifier`` immediately and return the updated record."""
-        record = self._records_by_id.get(identifier)
+        record = await self._repository.find_by_id(identifier)
         if record is None:
             raise KeyError(identifier)
         updated = replace(
@@ -453,7 +470,11 @@ class ServiceTokenManager:
             revoked_at=self._clock(),
             revocation_reason=reason,
         )
-        self._register(updated)
+        await self._repository.update(updated)
+        await self._repository.record_audit_event(
+            identifier, "revoked", details={"reason": reason} if reason else None
+        )
+        self._invalidate_cache()
         auth_telemetry.record_service_token_event("revoke", updated)
         return updated
 
@@ -508,9 +529,12 @@ class JWKSCache:
 class Authenticator:
     """Validate bearer tokens against service tokens or JWT configuration."""
 
-    def __init__(self, settings: AuthSettings) -> None:
+    def __init__(
+        self, settings: AuthSettings, token_manager: ServiceTokenManager
+    ) -> None:
         """Create the authenticator using resolved configuration."""
         self._settings = settings
+        self._token_manager = token_manager
         self._jwks_cache: JWKSCache | None = None
         if settings.jwks_url:
             self._jwks_cache = JWKSCache(self._fetch_jwks, settings.jwks_cache_ttl)
@@ -527,7 +551,6 @@ class Authenticator:
             else:
                 algorithm_str = None
             self._static_jwks.append((jwk, algorithm_str))
-        self._token_manager = ServiceTokenManager(settings.service_tokens)
 
     @property
     def settings(self) -> AuthSettings:
@@ -544,7 +567,7 @@ class Authenticator:
         if not token:
             raise AuthenticationError("Missing bearer token", code="auth.missing_token")
 
-        identity = self._authenticate_service_token(token)
+        identity = await self._authenticate_service_token(token)
         if identity is not None:
             return identity
 
@@ -557,13 +580,14 @@ class Authenticator:
 
         raise AuthenticationError("Invalid bearer token", code="auth.invalid_token")
 
-    def _authenticate_service_token(self, token: str) -> RequestContext | None:
+    async def _authenticate_service_token(self, token: str) -> RequestContext | None:
         """Return a RequestContext for a matching service token."""
-        if not self._token_manager.all():
+        all_tokens = await self._token_manager.all()
+        if not all_tokens:
             return None
 
         try:
-            record = self._token_manager.authenticate(token)
+            record = await self._token_manager.authenticate(token)
         except AuthenticationError as exc:
             if exc.code == "auth.invalid_token":
                 return None
@@ -887,140 +911,6 @@ def _coerce_from_sequence(values: Sequence[Any]) -> set[str]:
     return items
 
 
-def _normalize_token_hash(value: str) -> str:
-    """Normalize hashes stored with common prefixes."""
-    candidate = value.strip()
-    if not candidate:
-        raise ValueError("Service token hash must not be empty")
-    lowered = candidate.lower()
-    if lowered.startswith("sha256:"):
-        candidate = candidate.split(":", 1)[1]
-    elif lowered.startswith("sha256$"):
-        candidate = candidate.split("$", 1)[1]
-    return candidate.lower()
-
-
-def _service_token_from_mapping(data: Mapping[str, Any]) -> ServiceTokenRecord | None:
-    """Create a ServiceTokenRecord from a mapping configuration entry."""
-    raw_identifier = data.get("id") or data.get("identifier") or data.get("name") or ""
-    identifier = str(raw_identifier).strip()
-    secret_value = data.get("secret") or data.get("token") or data.get("value")
-    hashed_value = data.get("hash") or data.get("hashed") or data.get("secret_hash")
-    scopes = frozenset(_coerce_str_items(data.get("scopes")))
-    workspaces = frozenset(_coerce_str_items(data.get("workspace_ids")))
-    issued_at = _parse_timestamp(data.get("issued_at"))
-    expires_at = _parse_timestamp(data.get("expires_at"))
-    rotation_expires_at = _parse_timestamp(data.get("rotation_expires_at"))
-    revoked_at = _parse_timestamp(data.get("revoked_at"))
-    revocation_reason = _coerce_optional_str(data.get("revocation_reason"))
-    rotated_to = _coerce_optional_str(data.get("rotated_to"))
-
-    if hashed_value:
-        try:
-            token_hash = _normalize_token_hash(str(hashed_value))
-        except ValueError:
-            return None
-        identifier = identifier or token_hash[:8]
-        return ServiceTokenRecord(
-            identifier=identifier,
-            secret_hash=token_hash,
-            scopes=scopes,
-            workspace_ids=workspaces,
-            issued_at=issued_at,
-            expires_at=expires_at,
-            rotation_expires_at=rotation_expires_at,
-            revoked_at=revoked_at,
-            revocation_reason=revocation_reason,
-            rotated_to=rotated_to,
-        )
-
-    if not secret_value:
-        return None
-
-    logger.warning(
-        "Service token %s configured with a raw secret; provide a SHA256 hash via "
-        "AUTH_SERVICE_TOKENS for production deployments",
-        identifier or "<unnamed>",
-    )
-    token_hash = hashlib.sha256(str(secret_value).encode("utf-8")).hexdigest()
-    identifier = identifier or token_hash[:8]
-    return ServiceTokenRecord(
-        identifier=identifier,
-        secret_hash=token_hash,
-        scopes=scopes,
-        workspace_ids=workspaces,
-        issued_at=issued_at,
-        expires_at=expires_at,
-        rotation_expires_at=rotation_expires_at,
-        revoked_at=revoked_at,
-        revocation_reason=revocation_reason,
-        rotated_to=rotated_to,
-    )
-
-
-def _parse_service_tokens(raw: Any) -> list[ServiceTokenRecord]:
-    """Parse service token configuration representations into records."""
-    entries = _normalize_service_token_entries(raw)
-    records: list[ServiceTokenRecord] = []
-    for entry in entries:
-        if isinstance(entry, ServiceTokenRecord):
-            records.append(entry)
-            continue
-        record: ServiceTokenRecord | None
-        if isinstance(entry, Mapping):
-            record = _service_token_from_mapping(entry)
-        else:
-            text = str(entry).strip()
-            if not text:
-                continue  # pragma: no cover
-            token_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-            record = ServiceTokenRecord(
-                identifier=token_hash[:8],
-                secret_hash=token_hash,
-            )
-        if record is not None:
-            records.append(record)
-    return records
-
-
-def _normalize_service_token_entries(raw: Any) -> list[Any]:
-    """Return a list of raw token entries derived from configuration values."""
-    if raw is None:
-        return []
-    if isinstance(raw, ServiceTokenRecord):
-        return [raw]
-    if isinstance(raw, Mapping):
-        return [raw]
-    if isinstance(raw, str):
-        return _normalize_service_tokens_from_string(raw)
-    if isinstance(raw, Sequence) and not isinstance(raw, bytes | bytearray | str):
-        items: list[Any] = []
-        for item in raw:
-            items.extend(_normalize_service_token_entries(item))
-        return items
-    return [raw]
-
-
-def _normalize_service_tokens_from_string(value: str) -> list[Any]:
-    stripped = value.strip()
-    if not stripped:
-        return []
-    if stripped.startswith(("[", "{")):
-        parsed = _parse_string_items(stripped)
-        return _normalize_service_token_entries(parsed)
-    if "," in stripped or " " in stripped:
-        parsed = _parse_string_items(stripped)
-        if isinstance(parsed, Sequence) and not isinstance(
-            parsed, bytes | bytearray | str
-        ):
-            items: list[Any] = []
-            for item in parsed:
-                items.extend(_normalize_service_token_entries(item))
-            return items
-        return _normalize_service_token_entries(parsed)  # pragma: no cover
-    return [stripped]
-
-
 def _coerce_optional_str(value: Any) -> str | None:
     if value is None:
         return None
@@ -1085,16 +975,25 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     audiences = _parse_str_sequence(settings.get("AUTH_AUDIENCE"))
     issuer = _coerce_optional_str(settings.get("AUTH_ISSUER"))
 
-    service_token_records = tuple(
-        _parse_service_tokens(settings.get("AUTH_SERVICE_TOKENS"))
+    # Service tokens are now stored in database
+    service_token_db_path = _coerce_optional_str(
+        settings.get("AUTH_SERVICE_TOKEN_DB_PATH")
     )
+    if not service_token_db_path:
+        # Default to same directory as workflow repository
+        repo_path = settings.get("ORCHEO_REPOSITORY_SQLITE_PATH")
+        if repo_path:
+            from pathlib import Path
+
+            db_path = Path(repo_path).expanduser()
+            service_token_db_path = str(db_path.parent / "service_tokens.sqlite")
 
     rate_limit_ip = _parse_int(settings.get("AUTH_RATE_LIMIT_IP"), 0)
     rate_limit_identity = _parse_int(settings.get("AUTH_RATE_LIMIT_IDENTITY"), 0)
     rate_limit_interval = _parse_int(settings.get("AUTH_RATE_LIMIT_INTERVAL"), 60)
 
     if mode == "required" and not (
-        jwt_secret or jwks_url or jwks_static or service_token_records
+        jwt_secret or jwks_url or jwks_static or service_token_db_path
     ):
         logger.warning(
             "AUTH_MODE=required but no authentication credentials are configured; "
@@ -1111,7 +1010,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         allowed_algorithms=tuple(allowed_algorithms),
         audiences=tuple(audiences),
         issuer=issuer,
-        service_tokens=service_token_records,
+        service_token_db_path=service_token_db_path,
         rate_limit_ip=rate_limit_ip,
         rate_limit_identity=rate_limit_identity,
         rate_limit_interval=rate_limit_interval,
@@ -1152,6 +1051,7 @@ def _normalize_jwk_list(value: Any) -> list[Mapping[str, Any]]:
 
 _authenticator_cache: dict[str, Authenticator | None] = {"authenticator": None}
 _auth_rate_limiter_cache: dict[str, AuthRateLimiter | None] = {"limiter": None}
+_token_manager_cache: dict[str, ServiceTokenManager | None] = {"manager": None}
 
 
 def get_authenticator(*, refresh: bool = False) -> Authenticator:
@@ -1159,10 +1059,31 @@ def get_authenticator(*, refresh: bool = False) -> Authenticator:
     if refresh:
         _authenticator_cache["authenticator"] = None
         _auth_rate_limiter_cache["limiter"] = None
+        _token_manager_cache["manager"] = None
     authenticator = _authenticator_cache.get("authenticator")
     if authenticator is None:
         settings = load_auth_settings(refresh=refresh)
-        authenticator = Authenticator(settings)
+
+        # Import here to avoid circular dependency
+        from orcheo_backend.app.service_token_repository import (
+            InMemoryServiceTokenRepository,
+            SqliteServiceTokenRepository,
+        )
+
+        # Create repository based on configuration
+        if settings.service_token_db_path:
+            repository: Any = SqliteServiceTokenRepository(
+                settings.service_token_db_path
+            )
+        else:
+            repository = InMemoryServiceTokenRepository()
+
+        # Create token manager with repository
+        token_manager = ServiceTokenManager(repository)
+        _token_manager_cache["manager"] = token_manager
+
+        # Create authenticator with settings and token manager
+        authenticator = Authenticator(settings, token_manager)
         _authenticator_cache["authenticator"] = authenticator
         _auth_rate_limiter_cache["limiter"] = AuthRateLimiter(
             ip_limit=settings.rate_limit_ip,
@@ -1170,6 +1091,18 @@ def get_authenticator(*, refresh: bool = False) -> Authenticator:
             interval_seconds=settings.rate_limit_interval,
         )
     return authenticator
+
+
+def get_service_token_manager(*, refresh: bool = False) -> ServiceTokenManager:
+    """Return the cached ServiceTokenManager instance."""
+    if refresh:
+        _token_manager_cache["manager"] = None
+    # Ensure authenticator is initialized (which initializes token manager)
+    get_authenticator(refresh=refresh)
+    manager = _token_manager_cache.get("manager")
+    if manager is None:
+        raise RuntimeError("ServiceTokenManager not initialized")
+    return manager
 
 
 def get_auth_rate_limiter(*, refresh: bool = False) -> AuthRateLimiter:
@@ -1419,6 +1352,7 @@ __all__ = [
     "Authenticator",
     "RequestContext",
     "ServiceTokenManager",
+    "ServiceTokenRecord",
     "auth_telemetry",
     "authenticate_request",
     "authenticate_websocket",
@@ -1428,6 +1362,7 @@ __all__ = [
     "get_auth_rate_limiter",
     "get_authenticator",
     "get_request_context",
+    "get_service_token_manager",
     "load_auth_settings",
     "require_scopes",
     "require_workspace_access",
