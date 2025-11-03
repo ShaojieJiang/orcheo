@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -357,6 +358,8 @@ class SqliteServiceTokenRepository:
             revoked_at=self._parse_timestamp(row["revoked_at"]),
             revocation_reason=row["revocation_reason"],
             rotated_to=row["rotated_to"],
+            last_used_at=self._parse_timestamp(row["last_used_at"]),
+            use_count=int(row["use_count"]) if row["use_count"] is not None else 0,
         )
 
     @staticmethod
@@ -423,13 +426,21 @@ class InMemoryServiceTokenRepository:
         user_agent: str | None = None,
     ) -> None:
         """Track token usage."""
+        now = datetime.now(tz=UTC)
+        record = self._tokens.get(token_id)
+        if record is not None:
+            self._tokens[token_id] = replace(
+                record,
+                last_used_at=now,
+                use_count=record.use_count + 1,
+            )
         self._audit_log.append(
             {
                 "token_id": token_id,
                 "action": "used",
                 "ip_address": ip,
                 "user_agent": user_agent,
-                "timestamp": datetime.now(tz=UTC).isoformat(),
+                "timestamp": now.isoformat(),
             }
         )
 

@@ -100,8 +100,8 @@ def _record_to_response(
         workspace_ids=sorted(record.workspace_ids),
         issued_at=record.issued_at,
         expires_at=record.expires_at,
-        last_used_at=None,  # Will be populated from audit log if needed
-        use_count=None,
+        last_used_at=record.last_used_at,
+        use_count=record.use_count,
         revoked_at=record.revoked_at,
         revocation_reason=record.revocation_reason,
         rotated_to=record.rotated_to,

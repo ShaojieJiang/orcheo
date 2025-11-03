@@ -71,6 +71,8 @@ class ServiceTokenRecord:
     revoked_at: datetime | None = None
     revocation_reason: str | None = None
     rotated_to: str | None = None
+    last_used_at: datetime | None = None
+    use_count: int = 0
 
     def matches(self, token: str) -> bool:
         """Return True when the provided token matches the stored hash."""
@@ -375,21 +377,31 @@ class ServiceTokenManager:
         if record is None or not record.matches(token):
             raise AuthenticationError("Invalid bearer token", code="auth.invalid_token")
 
-        now = self._clock()
+        check_time = self._clock()
         if record.is_revoked():
             raise AuthenticationError(
                 "Service token has been revoked",
                 code="auth.token_revoked",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
-        if record.is_expired(now=now):
+        if record.is_expired(now=check_time):
             raise AuthenticationError(
                 "Service token has expired",
                 code="auth.token_expired",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
 
-        return record
+        await self._repository.record_usage(record.identifier)
+        usage_time = self._clock()
+        updated_record = replace(
+            record,
+            last_used_at=usage_time,
+            use_count=record.use_count + 1,
+        )
+        if record.identifier in self._cache:
+            self._cache[record.identifier] = updated_record
+
+        return updated_record
 
     async def mint(
         self,
