@@ -15,33 +15,33 @@ class ServiceTokenRepository(Protocol):
 
     async def list_all(self) -> list[ServiceTokenRecord]:
         """Return all service token records (including revoked/expired)."""
-        ...
+        ...  # pragma: no cover
 
     async def list_active(
         self, *, now: datetime | None = None
     ) -> list[ServiceTokenRecord]:
         """Return all active (non-revoked, non-expired) service token records."""
-        ...
+        ...  # pragma: no cover
 
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by its identifier."""
-        ...
+        ...  # pragma: no cover
 
     async def find_by_hash(self, secret_hash: str) -> ServiceTokenRecord | None:
         """Look up a service token by its SHA256 hash."""
-        ...
+        ...  # pragma: no cover
 
     async def create(self, record: ServiceTokenRecord) -> ServiceTokenRecord:
         """Store a new service token record."""
-        ...
+        ...  # pragma: no cover
 
     async def update(self, record: ServiceTokenRecord) -> ServiceTokenRecord:
         """Update an existing service token record."""
-        ...
+        ...  # pragma: no cover
 
     async def delete(self, identifier: str) -> None:
         """Remove a service token record from storage."""
-        ...
+        ...  # pragma: no cover
 
     async def record_usage(
         self,
@@ -51,13 +51,13 @@ class ServiceTokenRepository(Protocol):
         user_agent: str | None = None,
     ) -> None:
         """Track token usage for analytics and audit."""
-        ...
+        ...  # pragma: no cover
 
     async def get_audit_log(
         self, token_id: str, *, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Retrieve audit log entries for a token."""
-        ...
+        ...  # pragma: no cover
 
 
 class SqliteServiceTokenRepository:
