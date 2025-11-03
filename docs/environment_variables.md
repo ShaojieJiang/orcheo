@@ -43,10 +43,19 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_AUTH_ALLOWED_ALGORITHMS` | `RS256, HS256` | Restricts acceptable JWT algorithms; defaults to both RS256 and HS256. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_AUDIENCE` | _none_ | Expected JWT audience values (comma or JSON-delimited). See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | Expected JWT issuer claim used during validation. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
-| `ORCHEO_AUTH_SERVICE_TOKENS` | _none_ | JSON, comma-delimited, or plaintext list of service token secrets/hashes for machine access. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
+| `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | `~/.orcheo/service_tokens.sqlite` | Path to the SQLite database storing service tokens. Defaults to the same directory as `ORCHEO_REPOSITORY_SQLITE_PATH`. Service tokens are now managed via the CLI (`orcheo token`) or API endpoints (`/api/admin/service-tokens`) and stored in the database with full audit logging. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py) and [service_token_repository.py](../apps/backend/src/orcheo_backend/app/service_token_repository.py). |
 | `ORCHEO_AUTH_RATE_LIMIT_IP` | `0` | Maximum authentication failures per IP before temporary blocking (0 disables the limit). See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_RATE_LIMIT_IDENTITY` | `0` | Maximum failures per identity before rate limiting (0 disables the limit). See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_RATE_LIMIT_INTERVAL` | `60` | Sliding-window interval (seconds) for rate-limit counters. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
+
+### Service token management
+
+Service tokens are no longer configured via environment variables. Instead, they are managed dynamically through:
+
+- **CLI commands**: `orcheo token create`, `orcheo token list`, `orcheo token rotate`, `orcheo token revoke`
+- **API endpoints**: `/api/admin/service-tokens` (requires `admin:tokens:read` or `admin:tokens:write` scopes)
+
+All service tokens are stored in a SQLite database with SHA256-hashed secrets, never plaintext. The database includes full audit logging of token creation, usage, rotation, and revocation events. See [service_token_endpoints.py](../apps/backend/src/orcheo_backend/app/service_token_endpoints.py) for API details and [cli/service_token.py](../packages/sdk/src/orcheo_sdk/cli/service_token.py) for CLI usage.
 
 ## ChatKit session tokens
 
@@ -83,4 +92,3 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `LOG_LEVEL` | `INFO` | Controls the log level applied to FastAPI, Uvicorn, and Orcheo loggers. See [apps/backend/app/__init__.py](../apps/backend/src/orcheo_backend/app/__init__.py). |
 | `ORCHEO_ENV` / `ENVIRONMENT` / `NODE_ENV` | `production` | Determine whether the backend treats the environment as development for sensitive debugging output. See [apps/backend/app/__init__.py](../apps/backend/src/orcheo_backend/app/__init__.py). |
 | `LOG_SENSITIVE_DEBUG` | `0` | When set to `1`, enables detailed debug logging even outside development environments. See [apps/backend/app/__init__.py](../apps/backend/src/orcheo_backend/app/__init__.py). |
-
