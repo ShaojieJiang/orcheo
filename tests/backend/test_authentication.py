@@ -53,6 +53,9 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
         "ORCHEO_AUTH_RATE_LIMIT_IDENTITY",
         "ORCHEO_AUTH_RATE_LIMIT_INTERVAL",
         "ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH",
+        "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN",
+        "ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES",
+        "ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT",
     ):
         monkeypatch.delenv(key, raising=False)
     reset_authentication_state()
@@ -776,6 +779,8 @@ def test_auth_settings_enforce_disabled_mode() -> None:
         audiences=(),
         issuer=None,
         service_token_db_path=None,
+        bootstrap_service_token=None,
+        bootstrap_token_scopes=frozenset(),
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -799,6 +804,8 @@ def test_auth_settings_enforce_required_mode() -> None:
         audiences=(),
         issuer=None,
         service_token_db_path=None,
+        bootstrap_service_token=None,
+        bootstrap_token_scopes=frozenset(),
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -822,6 +829,8 @@ def test_auth_settings_enforce_optional_with_credentials() -> None:
         audiences=(),
         issuer=None,
         service_token_db_path=None,
+        bootstrap_service_token=None,
+        bootstrap_token_scopes=frozenset(),
         rate_limit_ip=0,
         rate_limit_identity=0,
         rate_limit_interval=60,
@@ -1271,3 +1280,307 @@ def test_jwt_with_unsupported_algorithm(monkeypatch: pytest.MonkeyPatch) -> None
     assert response.status_code == 401
     detail = response.json()["detail"]
     assert detail["code"] == "auth.unsupported_algorithm"
+
+
+# Bootstrap service token tests
+def test_bootstrap_token_allows_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bootstrap service token from environment authenticates requests."""
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {bootstrap_token}"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_bootstrap_token_rejects_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid bootstrap token is rejected."""
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.invalid_token"
+
+
+def test_bootstrap_token_grants_default_admin_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token has default admin scopes."""
+    from orcheo_backend.app.authentication import get_authenticator
+
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    reset_authentication_state()
+
+    authenticator = get_authenticator()
+    context = None
+
+    async def _authenticate() -> None:
+        nonlocal context
+        context = await authenticator.authenticate(bootstrap_token)
+
+    import asyncio
+
+    asyncio.run(_authenticate())
+
+    assert context is not None
+    assert context.subject == "bootstrap"
+    assert context.identity_type == "service"
+    assert context.token_id == "bootstrap"
+    assert "admin:tokens:read" in context.scopes
+    assert "admin:tokens:write" in context.scopes
+    assert "workflows:read" in context.scopes
+    assert "workflows:write" in context.scopes
+    assert "workflows:execute" in context.scopes
+    assert "vault:read" in context.scopes
+    assert "vault:write" in context.scopes
+
+
+def test_bootstrap_token_respects_custom_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token can have custom scopes configured."""
+    from orcheo_backend.app.authentication import get_authenticator
+
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES", "workflows:read,workflows:write"
+    )
+    reset_authentication_state()
+
+    authenticator = get_authenticator()
+    context = None
+
+    async def _authenticate() -> None:
+        nonlocal context
+        context = await authenticator.authenticate(bootstrap_token)
+
+    import asyncio
+
+    asyncio.run(_authenticate())
+
+    assert context is not None
+    assert context.scopes == frozenset(["workflows:read", "workflows:write"])
+    assert "admin:tokens:write" not in context.scopes
+
+
+def test_bootstrap_token_has_no_workspace_restrictions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token has no workspace restrictions."""
+    from orcheo_backend.app.authentication import get_authenticator
+
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    reset_authentication_state()
+
+    authenticator = get_authenticator()
+    context = None
+
+    async def _authenticate() -> None:
+        nonlocal context
+        context = await authenticator.authenticate(bootstrap_token)
+
+    import asyncio
+
+    asyncio.run(_authenticate())
+
+    assert context is not None
+    assert context.workspace_ids == frozenset()
+
+
+def test_bootstrap_token_defaults_to_no_expiration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token does not expire when no expiry is configured."""
+    from orcheo_backend.app.authentication import get_authenticator
+
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    reset_authentication_state()
+
+    authenticator = get_authenticator()
+    context = None
+
+    async def _authenticate() -> None:
+        nonlocal context
+        context = await authenticator.authenticate(bootstrap_token)
+
+    import asyncio
+
+    asyncio.run(_authenticate())
+
+    assert context is not None
+    assert context.expires_at is None
+    assert context.issued_at is None
+
+
+def test_bootstrap_token_honours_future_expiration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token returns configured expiry when still valid."""
+    from orcheo_backend.app.authentication import get_authenticator
+
+    bootstrap_token = "bootstrap-secret-token"
+    expires_at = datetime.now(tz=UTC) + timedelta(minutes=10)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT", expires_at.isoformat())
+    reset_authentication_state()
+
+    authenticator = get_authenticator()
+    context = None
+
+    async def _authenticate() -> None:
+        nonlocal context
+        context = await authenticator.authenticate(bootstrap_token)
+
+    import asyncio
+
+    asyncio.run(_authenticate())
+
+    assert context is not None
+    assert context.expires_at == expires_at
+    assert context.claims.get("expires_at") == expires_at.isoformat()
+
+
+def test_bootstrap_token_is_rejected_when_expired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expired bootstrap token produces an authentication error."""
+    bootstrap_token = "bootstrap-secret-token"
+    expires_at = datetime.now(tz=UTC) - timedelta(minutes=1)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT", expires_at.isoformat())
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {bootstrap_token}"},
+    )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth.token_expired"
+    assert "expired" in detail["message"]
+
+
+def test_bootstrap_token_logs_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bootstrap token usage is logged to telemetry."""
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+
+    client = _client()
+    response = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {bootstrap_token}"},
+    )
+
+    assert response.status_code == 200
+
+    # Check telemetry recorded the bootstrap token usage
+    events = auth_telemetry.events()
+    bootstrap_events = [e for e in events if e.identity_type == "bootstrap_service"]
+    assert len(bootstrap_events) >= 1
+    assert bootstrap_events[0].status == "success"
+    assert bootstrap_events[0].subject == "bootstrap"
+    assert bootstrap_events[0].token_id == "bootstrap"
+
+
+def test_bootstrap_token_with_database_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bootstrap token works alongside database-persisted tokens."""
+    # Set up both bootstrap token and database token
+    bootstrap_token = "bootstrap-secret-token"
+    db_token = "database-token"
+
+    _setup_service_token(
+        monkeypatch,
+        db_token,
+        identifier="db-token",
+        scopes=["workflows:read"],
+    )
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    reset_authentication_state()
+
+    client = _client()
+
+    # Test bootstrap token works
+    response1 = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {bootstrap_token}"},
+    )
+    assert response1.status_code == 200
+
+    # Test database token works
+    response2 = client.get(
+        "/api/workflows",
+        headers={"Authorization": f"Bearer {db_token}"},
+    )
+    assert response2.status_code == 200
+
+
+def test_bootstrap_token_enforces_authentication_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token enables enforce mode when AUTH_MODE is optional."""
+    bootstrap_token = "bootstrap-secret-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
+    reset_authentication_state()
+
+    settings = load_auth_settings()
+    assert settings.enforce is True
+    assert settings.bootstrap_service_token == bootstrap_token
+
+
+def test_load_auth_settings_includes_bootstrap_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_auth_settings correctly parses bootstrap token configuration."""
+    bootstrap_token = "my-bootstrap-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv(
+        "ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES", "workflows:read,vault:write"
+    )
+    reset_authentication_state()
+
+    settings = load_auth_settings()
+    assert settings.bootstrap_service_token == bootstrap_token
+    assert settings.bootstrap_token_scopes == frozenset(
+        ["workflows:read", "vault:write"]
+    )
+    assert settings.bootstrap_token_expires_at is None
+
+
+def test_load_auth_settings_parses_bootstrap_token_expiration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap token expiration is parsed into an aware datetime."""
+    bootstrap_token = "my-bootstrap-token"
+    expires_at = datetime.now(tz=UTC) + timedelta(hours=1)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT", expires_at.isoformat())
+    reset_authentication_state()
+
+    settings = load_auth_settings()
+    assert settings.bootstrap_service_token == bootstrap_token
+    assert settings.bootstrap_token_expires_at == expires_at

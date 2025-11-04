@@ -1168,17 +1168,20 @@ def test_load_with_cache_online_mode_error_no_cache(tmp_path: Path) -> None:
 
 
 # Main CLI tests
-def test_run_cli_error_handling(monkeypatch: pytest.MonkeyPatch) -> None:
-    import typer
-
+def test_run_cli_error_handling(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     def mock_app(*args: object, **kwargs: object) -> None:
         raise CLIError("Test error")
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(SystemExit) as exc_info:
         run()
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Error: Test error" in captured.out
 
 
 def test_run_usage_error_handling(
@@ -1228,6 +1231,65 @@ def test_run_usage_error_without_context(
     captured = capsys.readouterr()
     assert "Invalid option." in captured.out
     assert "--help" not in captured.out
+
+
+def test_run_authentication_error_401(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that 401 errors show helpful authentication hints."""
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        raise APICallError("Invalid bearer token", status_code=401)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Error: Invalid bearer token" in captured.out
+    assert "Hint:" in captured.out
+    assert "ORCHEO_SERVICE_TOKEN" in captured.out
+
+
+def test_run_authentication_error_403(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that 403 errors show helpful permission hints."""
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        raise APICallError("Missing required scopes: workflows:write", status_code=403)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Error: Missing required scopes: workflows:write" in captured.out
+    assert "Hint:" in captured.out
+    assert "permissions" in captured.out
+
+
+def test_run_api_error_without_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test that non-auth API errors don't show hints."""
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        raise APICallError("Server error", status_code=500)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Error: Server error" in captured.out
+    assert "Hint:" not in captured.out
 
 
 def test_workflow_show_with_cache_notice(

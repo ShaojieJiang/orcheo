@@ -13,7 +13,7 @@ from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
 from orcheo_sdk.cli.credential import credential_app
-from orcheo_sdk.cli.errors import CLIConfigurationError, CLIError
+from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
 from orcheo_sdk.cli.service_token import app as service_token_app
@@ -87,6 +87,30 @@ def main(
     ctx.obj = CLIState(settings=settings, client=client, cache=cache, console=console)
 
 
+def _print_cli_error(console: Console, exc: CLIError) -> None:
+    """Print a concise, user-friendly error message for CLI errors."""
+    error_msg = str(exc)
+
+    # For authentication errors, provide helpful hints
+    if isinstance(exc, APICallError):
+        if exc.status_code == 401:
+            console.print(f"[red]Error:[/red] {error_msg}")
+            console.print(
+                "\n[yellow]Hint:[/yellow] Authentication failed. "
+                "Set ORCHEO_SERVICE_TOKEN environment variable or configure a profile with 'orcheo config'."
+            )
+            return
+        elif exc.status_code == 403:
+            console.print(f"[red]Error:[/red] {error_msg}")
+            console.print(
+                "\n[yellow]Hint:[/yellow] Your token lacks the required permissions."
+            )
+            return
+
+    # Default: just print the error message without stack trace
+    console.print(f"[red]Error:[/red] {error_msg}")
+
+
 def run() -> None:
     """Entry point used by console scripts."""
     console = Console()
@@ -99,5 +123,5 @@ def run() -> None:
             console.print(f"\nRun '[cyan]{help_cmd}[/cyan]' for usage information.")
         sys.exit(1)
     except CLIError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from exc
+        _print_cli_error(console, exc)
+        sys.exit(1)
