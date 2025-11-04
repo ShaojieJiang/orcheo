@@ -187,14 +187,6 @@ def test_credential_create_and_delete(runner: CliRunner, env: dict[str, str]) ->
     assert delete_result.exit_code == 0
 
 
-def test_credential_reference_outputs_snippet(
-    runner: CliRunner, env: dict[str, str]
-) -> None:
-    result = runner.invoke(app, ["credential", "reference", "Canvas"], env=env)
-    assert result.exit_code == 0
-    assert "[[Canvas]]" in result.stdout
-
-
 def test_code_scaffold_uses_cache_offline(
     runner: CliRunner, env: dict[str, str]
 ) -> None:

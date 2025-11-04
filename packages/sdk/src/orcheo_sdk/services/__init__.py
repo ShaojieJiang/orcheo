@@ -17,7 +17,6 @@ from orcheo_sdk.services.codegen import (
 from orcheo_sdk.services.credentials import (
     create_credential_data,
     delete_credential_data,
-    get_credential_reference_data,
     list_credentials_data,
 )
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
@@ -55,7 +54,6 @@ __all__ = [
     "list_credentials_data",
     "create_credential_data",
     "delete_credential_data",
-    "get_credential_reference_data",
     # Code generation
     "generate_workflow_scaffold_data",
     "generate_workflow_template_data",

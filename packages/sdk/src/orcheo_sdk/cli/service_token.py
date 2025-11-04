@@ -97,9 +97,6 @@ def list_tokens(ctx: typer.Context) -> None:
     data = list_service_tokens_data(state.client)
 
     tokens = data.get("tokens", [])
-    if not tokens:
-        state.console.print("No service tokens found.")
-        return
 
     table = Table(title=f"Service Tokens ({data['total']} total)")
     table.add_column("ID", style="cyan")

@@ -189,7 +189,9 @@ def test_token_list_empty(runner: CliRunner, env: dict[str, str]) -> None:
         result = runner.invoke(app, ["token", "list"], env=env)
 
     assert result.exit_code == 0
-    assert "No service tokens found" in result.stdout
+    assert "Service Tokens (0 total)" in result.stdout
+    assert "ID" in result.stdout
+    assert "Scopes" in result.stdout
 
 
 def test_token_list_with_tokens(runner: CliRunner, env: dict[str, str]) -> None:

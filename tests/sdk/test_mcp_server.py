@@ -644,15 +644,6 @@ def test_delete_credential_success(mock_env: None) -> None:
     assert result["status"] == "success"
 
 
-def test_get_credential_reference() -> None:
-    """Test getting credential reference string."""
-    from orcheo_sdk.mcp_server import tools
-
-    result = tools.get_credential_reference("my-cred")
-    assert result["reference"] == "[[my-cred]]"
-    assert "usage" in result
-
-
 # ==============================================================================
 # Code Generation Tools Tests
 # ==============================================================================
@@ -1233,14 +1224,6 @@ def test_mcp_delete_credential(mock_env: None) -> None:
         result = main_module.delete_credential.fn("cred-1")
 
     assert result["status"] == "success"
-
-
-def test_mcp_get_credential_reference() -> None:
-    """Test get_credential_reference MCP tool wrapper to cover return statement."""
-    import orcheo_sdk.mcp_server.main as main_module
-
-    result = main_module.get_credential_reference.fn("my-cred")
-    assert result["reference"] == "[[my-cred]]"
 
 
 def test_mcp_generate_workflow_scaffold(mock_env: None) -> None:

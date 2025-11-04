@@ -85,19 +85,3 @@ def delete_credential_data(
     params = {"workflow_id": workflow_id} if workflow_id else None
     client.delete(f"/api/credentials/{credential_id}", params=params)
     return {"status": "success", "message": "Credential deleted"}
-
-
-def get_credential_reference_data(name: str) -> dict[str, str]:
-    """Get credential reference string.
-
-    Args:
-        name: Credential name
-
-    Returns:
-        Dictionary with reference string and usage info
-    """
-    reference = f"[[{name}]]"
-    return {
-        "reference": reference,
-        "usage": f"Use '{reference}' in node configuration fields",
-    }

@@ -292,19 +292,6 @@ def delete_credential(
     )
 
 
-@mcp.tool()
-def get_credential_reference(name: str) -> dict:
-    """Get the credential reference string for use in nodes or workflows.
-
-    Args:
-        name: Credential name
-
-    Returns:
-        Dictionary with reference string like '[[credential_name]]'
-    """
-    return tools.get_credential_reference(name=name)
-
-
 # ==============================================================================
 # Code Generation Tools
 # ==============================================================================

@@ -43,12 +43,42 @@ SQLite for local development.
    orcheo-dev-server
    ```
 
-   If you enable authentication during this step, export a bootstrap token first:
+   If you enable authentication, configure a bootstrap token first to create your initial service tokens:
 
    ```bash
+   # Generate a secure random token
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+   # Configure bootstrap token and authentication
    export ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN="your-secure-random-token"
-   export ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT="2024-05-01T12:00:00Z"  # optional expiry
+   export ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT="2025-05-01T12:00:00Z"  # optional expiry
    export ORCHEO_AUTH_MODE=required
+
+   # Start the server
+   orcheo-dev-server
+   ```
+
+   **Bootstrap tokens** are special environment-based service tokens for initial setup only:
+   - Not stored in the database - read directly from environment
+   - Full admin access by default (configurable with `ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES`)
+   - Optional expiration via `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT`
+   - Should be removed after creating persistent tokens
+
+   After the server starts, use the bootstrap token to create persistent service tokens:
+
+   ```bash
+   export ORCHEO_SERVICE_TOKEN="your-secure-random-token"  # Use bootstrap token
+   orcheo token create --id production-token \
+     --scope workflows:read \
+     --scope workflows:write \
+     --scope workflows:execute
+   ```
+
+   Then switch to the new persistent token and remove the bootstrap token:
+
+   ```bash
+   export ORCHEO_SERVICE_TOKEN="<new-token-from-previous-command>"
+   unset ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN
    ```
 
 4. **Verify the setup**
@@ -98,7 +128,6 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
-| `orcheo credential reference <credential>` | Show the `[[cred_name]]` placeholder syntax for use in workflows. |
 | `orcheo token create [--id <id>] [--scope <scope>]` | Create a service token for CLI/API authentication. |
 | `orcheo token list` | List all service tokens with their scopes and status. |
 | `orcheo token show <token-id>` | Show detailed information for a specific service token. |

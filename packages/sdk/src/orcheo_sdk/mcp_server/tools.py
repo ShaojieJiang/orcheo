@@ -18,7 +18,6 @@ from orcheo_sdk.services import (
     download_workflow_data,
     generate_workflow_scaffold_data,
     generate_workflow_template_data,
-    get_credential_reference_data,
     list_credentials_data,
     list_nodes_data,
     list_service_tokens_data,
@@ -324,18 +323,6 @@ def delete_credential(
     """
     client, _ = get_api_client(profile=profile)
     return delete_credential_data(client, credential_id, workflow_id=workflow_id)
-
-
-def get_credential_reference(name: str) -> dict[str, str]:
-    """Get the credential reference string for use in nodes or workflows.
-
-    Args:
-        name: Credential name
-
-    Returns:
-        Dictionary with reference string
-    """
-    return get_credential_reference_data(name)
 
 
 # ==============================================================================

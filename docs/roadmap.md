@@ -54,7 +54,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
 - [x] Build basic nodes and utilities (If/Else, Switch, While, Set Variable, Delay, Sticky Note) with tests, docs, and templates.
 - [x] Add single-node execution API endpoint and frontend integration for testing individual nodes in isolation (includes backend endpoint, frontend API client, and Node Inspector UI integration).
-- [x] Launch LangGraph-aligned CLI tooling covering node discovery, workflow inspection with Mermaid output, credential status, and `[[cred_name]]` reference generation (future MCP server reuse). See [CLI Tool Design](./cli_tool_design.md) for the full plan.
+- [x] Launch LangGraph-aligned CLI tooling covering node discovery, workflow inspection with Mermaid output, and credential management (future MCP server reuse). See [CLI Tool Design](./cli_tool_design.md) for the full plan.
 - [x] Design and implement ChatKit integration across demo frontend, backend endpoint, LangGraph workflow, and SQLite persistence (see [ChatKit Integration Design](./chatkit_integration_design.md)).
 - [x] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, Merge) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [x] Add utility nodes (Python/JavaScript execution sandbox, Debug, Sub-workflow orchestration) with tests, docs, and templates.
