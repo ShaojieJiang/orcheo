@@ -12,6 +12,7 @@ from typing import Any
 from orcheo_sdk.mcp_server.config import get_api_client
 from orcheo_sdk.services import (
     create_credential_data,
+    create_service_token_data,
     delete_credential_data,
     delete_workflow_data,
     download_workflow_data,
@@ -20,9 +21,13 @@ from orcheo_sdk.services import (
     get_credential_reference_data,
     list_credentials_data,
     list_nodes_data,
+    list_service_tokens_data,
     list_workflows_data,
+    revoke_service_token_data,
+    rotate_service_token_data,
     run_workflow_data,
     show_node_data,
+    show_service_token_data,
     show_workflow_data,
     upload_workflow_data,
 )
@@ -148,20 +153,22 @@ def upload_workflow(
     file_path: str,
     workflow_id: str | None = None,
     workflow_name: str | None = None,
+    entrypoint: str | None = None,
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Upload a workflow from a Python or JSON file.
 
-    For Python files, supports two formats:
+    Supports two Python formats:
     1. SDK Workflow: File defines a 'workflow' variable with Workflow instance
     2. LangGraph script: Raw LangGraph code (auto-detected if no 'workflow' var)
 
     For JSON files, must contain valid workflow config with 'name' and 'graph'.
 
     Args:
-        file_path: Path to workflow file (Python or JSON)
+        file_path: Path to workflow file (.py or .json)
         workflow_id: Workflow ID for updates (creates new if omitted)
         workflow_name: Optional workflow name override
+        entrypoint: Optional entrypoint function/variable for LangGraph scripts
         profile: CLI profile to use for configuration
 
     Returns:
@@ -173,6 +180,7 @@ def upload_workflow(
         file_path,
         workflow_id=workflow_id,
         workflow_name=workflow_name,
+        entrypoint=entrypoint,
     )
 
 
@@ -439,3 +447,121 @@ def show_agent_tool(name: str) -> dict[str, Any]:
         result["schema"] = schema_data
 
     return result
+
+
+# ==============================================================================
+# Service Token Tools
+# ==============================================================================
+
+
+def list_service_tokens(
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """List all service tokens.
+
+    Args:
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Dictionary with tokens list and total count
+    """
+    client, _ = get_api_client(profile=profile)
+    return list_service_tokens_data(client)
+
+
+def show_service_token(
+    token_id: str,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Display details for a specific service token.
+
+    Args:
+        token_id: Token identifier
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Service token details
+    """
+    client, _ = get_api_client(profile=profile)
+    return show_service_token_data(client, token_id)
+
+
+def create_service_token(
+    identifier: str | None = None,
+    scopes: list[str] | None = None,
+    workspace_ids: list[str] | None = None,
+    expires_in_seconds: int | None = None,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Create a new service token.
+
+    The token secret is displayed once and cannot be retrieved later.
+    Store it securely.
+
+    Args:
+        identifier: Optional identifier for the token
+        scopes: Optional list of scopes to grant
+        workspace_ids: Optional list of workspace IDs the token can access
+        expires_in_seconds: Optional expiration time in seconds (minimum 60)
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Created token with identifier and secret
+    """
+    client, _ = get_api_client(profile=profile)
+    return create_service_token_data(
+        client,
+        identifier=identifier,
+        scopes=scopes,
+        workspace_ids=workspace_ids,
+        expires_in_seconds=expires_in_seconds,
+    )
+
+
+def rotate_service_token(
+    token_id: str,
+    overlap_seconds: int = 300,
+    expires_in_seconds: int | None = None,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Rotate a service token, generating a new secret.
+
+    The old token remains valid during the overlap period.
+
+    Args:
+        token_id: Token identifier to rotate
+        overlap_seconds: Grace period in seconds where both tokens are valid
+            (default: 300)
+        expires_in_seconds: Optional expiration time for new token in seconds
+            (minimum 60)
+        profile: CLI profile to use for configuration
+
+    Returns:
+        New token with identifier and secret
+    """
+    client, _ = get_api_client(profile=profile)
+    return rotate_service_token_data(
+        client,
+        token_id,
+        overlap_seconds=overlap_seconds,
+        expires_in_seconds=expires_in_seconds,
+    )
+
+
+def revoke_service_token(
+    token_id: str,
+    reason: str,
+    profile: str | None = None,
+) -> dict[str, str]:
+    """Revoke a service token immediately.
+
+    Args:
+        token_id: Token identifier to revoke
+        reason: Reason for revocation
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Success message
+    """
+    client, _ = get_api_client(profile=profile)
+    return revoke_service_token_data(client, token_id, reason)

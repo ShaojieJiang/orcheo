@@ -1584,3 +1584,21 @@ def test_load_auth_settings_parses_bootstrap_token_expiration(
     settings = load_auth_settings()
     assert settings.bootstrap_service_token == bootstrap_token
     assert settings.bootstrap_token_expires_at == expires_at
+
+
+def test_parse_timestamp_with_naive_datetime() -> None:
+    """_parse_timestamp converts naive datetime to aware datetime."""
+    from orcheo_backend.app.authentication import _parse_timestamp
+
+    # Test with naive datetime (no timezone info)
+    naive_dt = datetime(2024, 11, 4, 12, 0, 0)
+    result = _parse_timestamp(naive_dt)
+
+    assert result is not None
+    assert result.tzinfo == UTC
+    assert result.year == 2024
+    assert result.month == 11
+    assert result.day == 4
+    assert result.hour == 12
+    assert result.minute == 0
+    assert result.second == 0

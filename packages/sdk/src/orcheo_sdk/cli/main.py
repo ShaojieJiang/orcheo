@@ -97,7 +97,8 @@ def _print_cli_error(console: Console, exc: CLIError) -> None:
             console.print(f"[red]Error:[/red] {error_msg}")
             console.print(
                 "\n[yellow]Hint:[/yellow] Authentication failed. "
-                "Set ORCHEO_SERVICE_TOKEN environment variable or configure a profile with 'orcheo config'."
+                "Set ORCHEO_SERVICE_TOKEN environment variable or "
+                "configure a profile with 'orcheo config'."
             )
             return
         elif exc.status_code == 403:
