@@ -54,7 +54,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
 - [x] Build basic nodes and utilities (If/Else, Switch, While, Set Variable, Delay, Sticky Note) with tests, docs, and templates.
 - [x] Add single-node execution API endpoint and frontend integration for testing individual nodes in isolation (includes backend endpoint, frontend API client, and Node Inspector UI integration).
-- [x] Launch LangGraph-aligned CLI tooling covering node discovery, workflow inspection with Mermaid output, credential status, and `[[cred_name]]` reference generation (future MCP server reuse). See [CLI Tool Design](./cli_tool_design.md) for the full plan.
+- [x] Launch LangGraph-aligned CLI tooling covering node discovery, workflow inspection with Mermaid output, and credential management (future MCP server reuse). See [CLI Tool Design](./cli_tool_design.md) for the full plan.
 - [x] Design and implement ChatKit integration across demo frontend, backend endpoint, LangGraph workflow, and SQLite persistence (see [ChatKit Integration Design](./chatkit_integration_design.md)).
 - [x] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, Merge) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [x] Add utility nodes (Python/JavaScript execution sandbox, Debug, Sub-workflow orchestration) with tests, docs, and templates.
@@ -62,11 +62,11 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Introduce a Guardrails node with workflow evaluation hooks for runtime quality checks and compliance reporting. (Plan dropped in favour of combining AgentNode with IfElseNode. Will be implemented in a future milestone.)
 
 ### Milestone 6 – Observability, Testing & Launch Prep
+- [x] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
 - [ ] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
-- [ ] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
 
 ## Post v1.0 Outlook
 - [ ] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.

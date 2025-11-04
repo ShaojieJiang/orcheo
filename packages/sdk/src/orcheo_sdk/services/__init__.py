@@ -17,10 +17,16 @@ from orcheo_sdk.services.codegen import (
 from orcheo_sdk.services.credentials import (
     create_credential_data,
     delete_credential_data,
-    get_credential_reference_data,
     list_credentials_data,
 )
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
+from orcheo_sdk.services.service_tokens import (
+    create_service_token_data,
+    list_service_tokens_data,
+    revoke_service_token_data,
+    rotate_service_token_data,
+    show_service_token_data,
+)
 from orcheo_sdk.services.workflows import (
     delete_workflow_data,
     download_workflow_data,
@@ -48,7 +54,6 @@ __all__ = [
     "list_credentials_data",
     "create_credential_data",
     "delete_credential_data",
-    "get_credential_reference_data",
     # Code generation
     "generate_workflow_scaffold_data",
     "generate_workflow_template_data",
@@ -56,4 +61,10 @@ __all__ = [
     "list_agent_tools_data",
     "show_agent_tool_data",
     "load_tool_registry",
+    # Service tokens
+    "list_service_tokens_data",
+    "show_service_token_data",
+    "create_service_token_data",
+    "rotate_service_token_data",
+    "revoke_service_token_data",
 ]

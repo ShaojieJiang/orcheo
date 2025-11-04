@@ -180,7 +180,6 @@ orcheo node show AINode
 | `orcheo credential list` | List accessible credentials | `--workflow-id` - Filter by workflow |
 | `orcheo credential create <name>` | Create a new credential | `--provider` - Provider identifier (required)<br>`--secret` - Secret value (required)<br>`--actor` - Actor name (default: "cli")<br>`--access` - Access level: private/shared/public<br>`--workflow-id` - Workflow scope<br>`--scope` - Scopes (repeatable)<br>`--kind` - Credential kind |
 | `orcheo credential delete <id>` | Delete a credential | `--workflow-id` - Workflow scope<br>`--force` - Skip confirmation |
-| `orcheo credential reference <name>` | Get credential reference string | - |
 
 **Examples:**
 
@@ -196,9 +195,6 @@ orcheo credential create my-api-key \
   --provider openai \
   --secret sk-xxx \
   --access private
-
-# Get reference string for use in workflows
-orcheo credential reference my-api-key
 
 # Delete a credential
 orcheo credential delete cred-id --force

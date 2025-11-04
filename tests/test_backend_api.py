@@ -1,11 +1,17 @@
 """End-to-end API tests for the Orcheo FastAPI backend."""
 
 from __future__ import annotations
+import hashlib
 import importlib
+import json
+import sqlite3
+import tempfile
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+import jwt
 import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
@@ -32,15 +38,64 @@ from orcheo.vault.oauth import (
     OAuthValidationResult,
 )
 from orcheo_backend.app import create_app
+from orcheo_backend.app.authentication import (
+    ServiceTokenRecord,
+    reset_authentication_state,
+)
+from orcheo_backend.app.chatkit_tokens import reset_chatkit_token_state
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.schemas import (
     CredentialIssuancePolicyPayload,
     CredentialScopePayload,
     OAuthTokenRequest,
 )
+from orcheo_backend.app.service_token_repository import SqliteServiceTokenRepository
 
 
 backend_app = importlib.import_module("orcheo_backend.app")
+
+
+def _setup_service_token(
+    monkeypatch: pytest.MonkeyPatch,
+    token_secret: str,
+    *,
+    identifier: str | None = None,
+    scopes: list[str] | None = None,
+) -> None:
+    """Set up a service token for testing."""
+    temp_dir = tempfile.mkdtemp()
+    db_path = str(Path(temp_dir) / "test_tokens.sqlite")
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", db_path)
+
+    _ = SqliteServiceTokenRepository(db_path)
+    token_hash = hashlib.sha256(token_secret.encode("utf-8")).hexdigest()
+    record = ServiceTokenRecord(
+        identifier=identifier or "test-token",
+        secret_hash=token_hash,
+        scopes=frozenset(scopes or []),
+        workspace_ids=frozenset(),
+        issued_at=datetime.now(tz=UTC),
+    )
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO service_tokens (
+            identifier, secret_hash, scopes, workspace_ids,
+            created_at, issued_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.identifier,
+            record.secret_hash,
+            json.dumps(sorted(record.scopes)) if record.scopes else None,
+            json.dumps(sorted(record.workspace_ids)) if record.workspace_ids else None,
+            datetime.now(tz=UTC).isoformat(),
+            record.issued_at.isoformat() if record.issued_at else None,
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 class StaticProvider(OAuthProvider):
@@ -71,8 +126,15 @@ class StaticProvider(OAuthProvider):
 
 
 @pytest.fixture()
-def api_client() -> Iterator[TestClient]:
+def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Yield a configured API client backed by a fresh repository."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKENS", raising=False)
+    monkeypatch.delenv("CHATKIT_TOKEN_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", raising=False)
+    reset_authentication_state()
+    reset_chatkit_token_state()
     cipher = AesGcmCredentialCipher(key="api-client-key")
     vault = InMemoryCredentialVault(cipher=cipher)
     service = OAuthCredentialService(vault, token_ttl_seconds=600, providers={})
@@ -171,50 +233,91 @@ def _format_scoped_chatkit_key(workflow_id: str) -> str:
 def test_chatkit_session_returns_configured_secret(
     monkeypatch: pytest.MonkeyPatch, api_client: TestClient
 ) -> None:
-    """The ChatKit session endpoint surfaces the configured secret."""
+    """The ChatKit session endpoint issues a signed token with metadata."""
 
-    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "canvas-secret")
+    _setup_service_token(
+        monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
+    )
+    monkeypatch.setenv("CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
+    monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+    reset_chatkit_token_state()
 
     response = api_client.post(
         "/api/chatkit/session",
+        headers={"Authorization": "Bearer session-token"},
         json={"user": {"id": "tester"}, "assistant": {"id": "orcheo"}},
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["client_secret"] == "canvas-secret"
+    token = response.json()["client_secret"]
+    decoded = jwt.decode(
+        token,
+        "api-signing-key",
+        algorithms=["HS256"],
+        audience="chatkit",
+        issuer="orcheo.chatkit",
+    )
+    assert decoded["chatkit"]["identity_type"] == "service"
 
 
 def test_chatkit_session_prefers_workflow_specific_secret(
     monkeypatch: pytest.MonkeyPatch, api_client: TestClient
 ) -> None:
-    """Workflow-scoped secrets take precedence over the global value."""
+    """Workflow identifiers should be embedded within the signed token."""
 
     workflow_id, _ = _create_workflow_with_version(api_client)
-    scoped_key = _format_scoped_chatkit_key(workflow_id)
-    monkeypatch.setenv(scoped_key, "scoped-secret")
-    monkeypatch.setenv("CHATKIT_CLIENT_SECRET", "global-secret")
+    _setup_service_token(
+        monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
+    )
+    monkeypatch.setenv("CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
+    monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+    reset_chatkit_token_state()
 
     response = api_client.post(
         "/api/chatkit/session",
+        headers={"Authorization": "Bearer session-token"},
         json={"workflowId": workflow_id, "currentClientSecret": None},
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["client_secret"] == "scoped-secret"
+    token = response.json()["client_secret"]
+    decoded = jwt.decode(
+        token,
+        "api-signing-key",
+        algorithms=["HS256"],
+        audience="chatkit",
+        issuer="orcheo.chatkit",
+    )
+    assert decoded["chatkit"]["workflow_id"] == workflow_id
 
 
 def test_chatkit_session_missing_secret_returns_service_unavailable(
     monkeypatch: pytest.MonkeyPatch, api_client: TestClient
 ) -> None:
-    """Missing ChatKit secrets surface a 503 to guide configuration."""
+    """Missing ChatKit signing key surfaces a configuration error."""
 
-    monkeypatch.delenv("CHATKIT_CLIENT_SECRET", raising=False)
+    _setup_service_token(
+        monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
+    )
+    monkeypatch.delenv("CHATKIT_TOKEN_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    reset_authentication_state()
+    reset_chatkit_token_state()
 
-    response = api_client.post("/api/chatkit/session", json={})
+    response = api_client.post(
+        "/api/chatkit/session",
+        headers={"Authorization": "Bearer session-token"},
+        json={},
+    )
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     detail = response.json()["detail"]
-    assert "client secret" in detail["message"].lower()
+    assert "signing key" in detail["message"].lower()
 
 
 def test_chatkit_workflow_trigger_dispatches_run(api_client: TestClient) -> None:

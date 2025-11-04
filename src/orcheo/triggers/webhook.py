@@ -1,7 +1,9 @@
 """Webhook trigger configuration and validation helpers."""
 
 from __future__ import annotations
+import hashlib
 import hmac
+import json
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -93,6 +95,27 @@ class WebhookTriggerConfig(BaseModel):
         default=None,
         description="Optional shared secret value used to authenticate requests.",
     )
+    hmac_header: str | None = Field(
+        default=None,
+        description="Header containing the HMAC signature for the payload.",
+    )
+    hmac_secret: str | None = Field(
+        default=None,
+        description="Secret used to compute the HMAC signature.",
+    )
+    hmac_algorithm: str = Field(
+        default="sha256",
+        description="Hash algorithm used when computing the HMAC signature.",
+    )
+    hmac_timestamp_header: str | None = Field(
+        default=None,
+        description="Optional header containing the signature timestamp.",
+    )
+    hmac_tolerance_seconds: int = Field(
+        default=300,
+        ge=0,
+        description="Maximum age for HMAC signatures in seconds.",
+    )
     rate_limit: RateLimitConfig | None = Field(
         default=None,
         description="Optional rate limit configuration for inbound requests.",
@@ -123,6 +146,26 @@ class WebhookTriggerConfig(BaseModel):
     def _normalize_secret_header(cls, value: str | None) -> str | None:
         return value if value is None else value.lower()
 
+    @field_validator("hmac_header")
+    @classmethod
+    def _normalize_hmac_header(cls, value: str | None) -> str | None:
+        return value if value is None else value.lower()
+
+    @field_validator("hmac_timestamp_header")
+    @classmethod
+    def _normalize_timestamp_header(cls, value: str | None) -> str | None:
+        return value if value is None else value.lower()
+
+    @field_validator("hmac_algorithm")
+    @classmethod
+    def _validate_algorithm(cls, value: str) -> str:
+        candidate = value.strip().lower()
+        if candidate not in hashlib.algorithms_available:
+            raise WebhookValidationError(
+                f"Unsupported HMAC algorithm: {value}", status_code=400
+            )
+        return candidate
+
     @model_validator(mode="after")
     def _validate_secret_configuration(self) -> WebhookTriggerConfig:
         if self.shared_secret_header and not self.shared_secret:
@@ -133,6 +176,13 @@ class WebhookTriggerConfig(BaseModel):
         if self.shared_secret and not self.shared_secret_header:
             raise WebhookValidationError(
                 "shared_secret_header is required when shared_secret is provided",
+                status_code=400,
+            )
+        if (self.hmac_header and not self.hmac_secret) or (
+            self.hmac_secret and not self.hmac_header
+        ):
+            raise WebhookValidationError(
+                "hmac_header and hmac_secret must be configured together",
                 status_code=400,
             )
         return self
@@ -168,6 +218,8 @@ class WebhookTriggerState:
         """Initialize state with an optional configuration instance."""
         self._config = (config or WebhookTriggerConfig()).model_copy(deep=True)
         self._recent_invocations: deque[datetime] = deque()
+        self._recent_signatures: deque[tuple[str, datetime]] = deque()
+        self._signature_cache: set[str] = set()
 
     @property
     def config(self) -> WebhookTriggerConfig:
@@ -178,6 +230,8 @@ class WebhookTriggerState:
         """Replace the configuration and reset rate limiting state."""
         self._config = config.model_copy(deep=True)
         self._recent_invocations.clear()
+        self._recent_signatures.clear()
+        self._signature_cache.clear()
 
     def validate(self, request: WebhookRequest) -> None:
         """Validate the inbound request against the configured rules."""
@@ -200,6 +254,9 @@ class WebhookTriggerState:
         secret_header = self._config.shared_secret_header
         if secret_header:
             sanitized.pop(secret_header, None)
+        signature_header = self._config.hmac_header
+        if signature_header:
+            sanitized.pop(signature_header, None)
         return sanitized
 
     # Internal helpers -------------------------------------------------
@@ -211,9 +268,15 @@ class WebhookTriggerState:
             raise MethodNotAllowedError(method, allowed)
 
     def _validate_authentication(self, request: WebhookRequest) -> None:
+        if self._config.hmac_secret:
+            self._validate_hmac_signature(request)
+        if self._config.shared_secret:
+            self._validate_shared_secret(request)
+
+    def _validate_shared_secret(self, request: WebhookRequest) -> None:
         header_name = self._config.shared_secret_header
         if header_name is None:
-            return
+            return  # pragma: no cover - defensive
 
         expected = self._config.shared_secret
         provided = request.normalized_headers().get(header_name)
@@ -221,6 +284,101 @@ class WebhookTriggerState:
             raise WebhookAuthenticationError()
         if not hmac.compare_digest(provided, expected):
             raise WebhookAuthenticationError()
+
+    def _validate_hmac_signature(self, request: WebhookRequest) -> None:
+        header_name = self._config.hmac_header
+        secret = self._config.hmac_secret
+        if header_name is None or not secret:
+            return
+
+        headers = request.normalized_headers()
+        provided_raw = headers.get(header_name)
+        if not provided_raw:
+            raise WebhookAuthenticationError()
+        signature = self._extract_hmac_signature(provided_raw)
+
+        timestamp_header = self._config.hmac_timestamp_header
+        if timestamp_header:
+            timestamp_value = headers.get(timestamp_header)
+            if not timestamp_value:
+                raise WebhookAuthenticationError()
+            timestamp = self._parse_signature_timestamp(timestamp_value)
+        else:
+            timestamp = None
+
+        payload_bytes = self._canonical_payload_bytes(request.payload)
+        components: list[bytes] = []
+        if timestamp is not None:
+            components.append(str(int(timestamp.timestamp())).encode("utf-8"))
+        components.append(payload_bytes)
+        message = b".".join(components)
+
+        hasher = getattr(hashlib, self._config.hmac_algorithm)
+        expected = hmac.new(secret.encode("utf-8"), message, hasher).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise WebhookAuthenticationError()
+
+        self._enforce_signature_replay(signature, timestamp)
+
+    def _canonical_payload_bytes(self, payload: Any) -> bytes:
+        if payload is None:
+            return b""
+        if isinstance(payload, bytes):
+            return payload
+        if isinstance(payload, str):
+            return payload.encode("utf-8")
+        try:
+            serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            serialized = str(payload)
+        return serialized.encode("utf-8")
+
+    def _extract_hmac_signature(self, raw: str) -> str:
+        candidate = raw.strip()
+        if not candidate:
+            raise WebhookAuthenticationError()
+        for segment in candidate.split(","):
+            part = segment.strip()
+            if "=" in part:
+                key, value = part.split("=", 1)
+                if key.lower() in {"sha256", "sha512", "v1", "signature"}:
+                    candidate = value.strip()
+        if not candidate:
+            raise WebhookAuthenticationError()
+        return candidate
+
+    def _parse_signature_timestamp(self, value: str) -> datetime:
+        stripped = value.strip()
+        if not stripped:
+            raise WebhookAuthenticationError()
+        if stripped.isdigit():
+            timestamp = datetime.fromtimestamp(int(stripped), tz=UTC)
+        else:
+            try:
+                timestamp = datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+            except ValueError as exc:  # pragma: no cover - defensive
+                raise WebhookAuthenticationError() from exc
+
+        tolerance = self._config.hmac_tolerance_seconds
+        if tolerance:
+            now = datetime.now(tz=UTC)
+            if abs((now - timestamp).total_seconds()) > tolerance:
+                raise WebhookAuthenticationError()
+        return timestamp
+
+    def _enforce_signature_replay(
+        self, signature: str, timestamp: datetime | None
+    ) -> None:
+        tolerance = max(self._config.hmac_tolerance_seconds, 1)
+        now = datetime.now(tz=UTC)
+        cutoff = now - timedelta(seconds=tolerance)
+        while self._recent_signatures and self._recent_signatures[0][1] < cutoff:
+            old_signature, _ = self._recent_signatures.popleft()
+            self._signature_cache.discard(old_signature)
+        if signature in self._signature_cache:
+            raise WebhookAuthenticationError()
+        self._signature_cache.add(signature)
+        self._recent_signatures.append((signature, timestamp or now))
 
     def _validate_required_headers(self, request: WebhookRequest) -> None:
         expected = self._config.required_headers

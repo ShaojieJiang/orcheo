@@ -8,7 +8,6 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services import (
     create_credential_data,
     delete_credential_data,
-    get_credential_reference_data,
     list_credentials_data,
 )
 
@@ -129,19 +128,6 @@ def delete_credential(
         workflow_id=workflow_id,
     )
     state.console.print(result.get("message", "Credential deleted."))
-
-
-@credential_app.command("reference")
-def credential_reference(
-    ctx: typer.Context,
-    name: CredentialNameArgument,
-) -> None:
-    """Print the credential reference string for use in nodes or workflows."""
-    state = _state(ctx)
-    reference_data = get_credential_reference_data(name)
-    state.console.print(
-        f"Use [bold]{reference_data['reference']}[/bold] in node configuration fields."
-    )
 
 
 @credential_app.command("update")
