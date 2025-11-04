@@ -85,6 +85,9 @@ A bootstrap token is a special service token configured via the `ORCHEO_AUTH_BOO
    ```
    Optional: set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` (ISO 8601 or UNIX epoch) to automatically disable the bootstrap token after a deadline, for example `2024-05-01T12:00:00Z`.
 
+   ⚠️ **Security Note**: Bootstrap tokens should be treated as root credentials. 
+   Store them in secure secret management systems, not in plain text files.
+
 3. **Start the server**:
    ```bash
    orcheo-dev-server

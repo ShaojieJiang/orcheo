@@ -1061,6 +1061,10 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
             db_path = Path(repo_path).expanduser()
             service_token_db_path = str(db_path.parent / "service_tokens.sqlite")
 
+    # Rate limiting configuration - defaults documented in authentication_guide.md
+    # IP: max failures per IP address (0 disables), default: disabled
+    # Identity: max failures per authenticated identity (0 disables), default: disabled  
+    # Interval: sliding window in seconds, default: 60 seconds
     rate_limit_ip = _parse_int(settings.get("AUTH_RATE_LIMIT_IP"), 0)
     rate_limit_identity = _parse_int(settings.get("AUTH_RATE_LIMIT_IDENTITY"), 0)
     rate_limit_interval = _parse_int(settings.get("AUTH_RATE_LIMIT_INTERVAL"), 60)
