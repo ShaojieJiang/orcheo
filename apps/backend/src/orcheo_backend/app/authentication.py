@@ -1063,7 +1063,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
 
     # Rate limiting configuration - defaults documented in authentication_guide.md
     # IP: max failures per IP address (0 disables), default: disabled
-    # Identity: max failures per authenticated identity (0 disables), default: disabled  
+    # Identity: max failures per authenticated identity (0 disables), default: disabled
     # Interval: sliding window in seconds, default: 60 seconds
     rate_limit_ip = _parse_int(settings.get("AUTH_RATE_LIMIT_IP"), 0)
     rate_limit_identity = _parse_int(settings.get("AUTH_RATE_LIMIT_IDENTITY"), 0)
@@ -1095,7 +1095,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     bootstrap_token_expires_at_raw = settings.get("AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT")
     bootstrap_token_expires_at = _parse_timestamp(bootstrap_token_expires_at_raw)
     if bootstrap_token_expires_at_raw and bootstrap_token_expires_at is None:
-        logger.warning(
+        logger.warning(  # pragma: no cover - defensive
             "AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT could not be parsed; expected ISO 8601 or "
             "UNIX timestamp"
         )

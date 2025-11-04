@@ -6,6 +6,13 @@ import typer
 from rich.table import Table
 from orcheo_sdk.cli.output import format_datetime, success, warning
 from orcheo_sdk.cli.state import CLIState
+from orcheo_sdk.services.service_tokens import (
+    create_service_token_data,
+    list_service_tokens_data,
+    revoke_service_token_data,
+    rotate_service_token_data,
+    show_service_token_data,
+)
 
 
 app = typer.Typer(name="token", help="Manage service tokens for authentication")
@@ -51,17 +58,13 @@ def create_token(
     """
     state = _state(ctx)
 
-    payload: dict[str, str | list[str] | int] = {}
-    if identifier:
-        payload["identifier"] = identifier
-    if scopes:
-        payload["scopes"] = scopes
-    if workspaces:
-        payload["workspace_ids"] = workspaces
-    if expires_in:
-        payload["expires_in_seconds"] = expires_in
-
-    data = state.client.post("/api/admin/service-tokens", json_body=payload)
+    data = create_service_token_data(
+        state.client,
+        identifier=identifier,
+        scopes=scopes,
+        workspace_ids=workspaces,
+        expires_in_seconds=expires_in,
+    )
 
     state.console.print()
     state.console.print(
@@ -91,7 +94,7 @@ def list_tokens(ctx: typer.Context) -> None:
     """List all service tokens."""
     state = _state(ctx)
 
-    data = state.client.get("/api/admin/service-tokens")
+    data = list_service_tokens_data(state.client)
 
     tokens = data.get("tokens", [])
     if not tokens:
@@ -143,7 +146,7 @@ def show_token(
     """Show details for a specific service token."""
     state = _state(ctx)
 
-    data = state.client.get(f"/api/admin/service-tokens/{token_id}")
+    data = show_service_token_data(state.client, token_id)
 
     state.console.print()
     state.console.print(f"[bold]Service Token: {data['identifier']}[/]")
@@ -208,12 +211,11 @@ def rotate_token(
     """
     state = _state(ctx)
 
-    payload: dict[str, int] = {"overlap_seconds": overlap}
-    if expires_in:
-        payload["expires_in_seconds"] = expires_in
-
-    data = state.client.post(
-        f"/api/admin/service-tokens/{token_id}/rotate", json_body=payload
+    data = rotate_service_token_data(
+        state.client,
+        token_id,
+        overlap_seconds=overlap,
+        expires_in_seconds=expires_in,
     )
 
     state.console.print()
@@ -241,9 +243,7 @@ def revoke_token(
     """Revoke a service token immediately."""
     state = _state(ctx)
 
-    state.client.delete(
-        f"/api/admin/service-tokens/{token_id}", json_body={"reason": reason}
-    )
+    revoke_service_token_data(state.client, token_id, reason)
 
     success(f"Service token '{token_id}' revoked successfully")
     state.console.print(f"[dim]Reason: {reason}[/]")

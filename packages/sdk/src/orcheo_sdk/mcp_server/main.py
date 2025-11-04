@@ -114,6 +114,7 @@ def upload_workflow(
     file_path: str,
     workflow_id: str | None = None,
     workflow_name: str | None = None,
+    entrypoint: str | None = None,
     profile: str | None = None,
 ) -> dict:
     """Upload a workflow from a Python or JSON file.
@@ -128,6 +129,7 @@ def upload_workflow(
         file_path: Path to workflow file (.py or .json)
         workflow_id: Workflow ID for updates (creates new if omitted)
         workflow_name: Optional workflow name override
+        entrypoint: Optional entrypoint function/variable for LangGraph scripts
         profile: CLI profile to use for configuration
 
     Returns:
@@ -137,6 +139,7 @@ def upload_workflow(
         file_path=file_path,
         workflow_id=workflow_id,
         workflow_name=workflow_name,
+        entrypoint=entrypoint,
         profile=profile,
     )
 
@@ -370,6 +373,126 @@ def show_agent_tool(name: str) -> dict:
         Dictionary with tool metadata and schema
     """
     return tools.show_agent_tool(name=name)
+
+
+# ==============================================================================
+# Service Token Tools
+# ==============================================================================
+
+
+@mcp.tool()
+def list_service_tokens(profile: str | None = None) -> dict:
+    """List all service tokens.
+
+    Args:
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Dictionary with tokens list and total count
+    """
+    return tools.list_service_tokens(profile=profile)
+
+
+@mcp.tool()
+def show_service_token(
+    token_id: str,
+    profile: str | None = None,
+) -> dict:
+    """Display details for a specific service token.
+
+    Args:
+        token_id: Token identifier
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Service token details
+    """
+    return tools.show_service_token(token_id=token_id, profile=profile)
+
+
+@mcp.tool()
+def create_service_token(
+    identifier: str | None = None,
+    scopes: list[str] | None = None,
+    workspace_ids: list[str] | None = None,
+    expires_in_seconds: int | None = None,
+    profile: str | None = None,
+) -> dict:
+    """Create a new service token.
+
+    The token secret is displayed once and cannot be retrieved later.
+    Store it securely.
+
+    Args:
+        identifier: Optional identifier for the token
+        scopes: Optional list of scopes to grant
+        workspace_ids: Optional list of workspace IDs the token can access
+        expires_in_seconds: Optional expiration time in seconds (minimum 60)
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Created token with identifier and secret
+    """
+    return tools.create_service_token(
+        identifier=identifier,
+        scopes=scopes,
+        workspace_ids=workspace_ids,
+        expires_in_seconds=expires_in_seconds,
+        profile=profile,
+    )
+
+
+@mcp.tool()
+def rotate_service_token(
+    token_id: str,
+    overlap_seconds: int = 300,
+    expires_in_seconds: int | None = None,
+    profile: str | None = None,
+) -> dict:
+    """Rotate a service token, generating a new secret.
+
+    The old token remains valid during the overlap period.
+
+    Args:
+        token_id: Token identifier to rotate
+        overlap_seconds: Grace period in seconds where both tokens are valid
+            (default: 300)
+        expires_in_seconds: Optional expiration time for new token in seconds
+            (minimum 60)
+        profile: CLI profile to use for configuration
+
+    Returns:
+        New token with identifier and secret
+    """
+    return tools.rotate_service_token(
+        token_id=token_id,
+        overlap_seconds=overlap_seconds,
+        expires_in_seconds=expires_in_seconds,
+        profile=profile,
+    )
+
+
+@mcp.tool()
+def revoke_service_token(
+    token_id: str,
+    reason: str,
+    profile: str | None = None,
+) -> dict:
+    """Revoke a service token immediately.
+
+    Args:
+        token_id: Token identifier to revoke
+        reason: Reason for revocation
+        profile: CLI profile to use for configuration
+
+    Returns:
+        Success message
+    """
+    return tools.revoke_service_token(
+        token_id=token_id,
+        reason=reason,
+        profile=profile,
+    )
 
 
 # ==============================================================================

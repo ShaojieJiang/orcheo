@@ -516,3 +516,27 @@ def test_token_revoke_security_breach(runner: CliRunner, env: dict[str, str]) ->
     assert result.exit_code == 0
     assert "revoked successfully" in result.stdout
     assert "Security breach detected" in result.stdout
+
+
+def test_revoke_service_token_data_with_message() -> None:
+    """Test revoke_service_token_data when response contains a message field."""
+    from orcheo_sdk.cli.http import ApiClient
+    from orcheo_sdk.services.service_tokens import revoke_service_token_data
+
+    with respx.mock:
+        # Mock a 200 response with a custom message
+        respx.delete("http://api.test/api/admin/service-tokens/token-123").mock(
+            return_value=httpx.Response(
+                200, json={"message": "Token revoked successfully"}
+            )
+        )
+
+        client = ApiClient(
+            base_url="http://api.test",
+            token="test-token",
+        )
+        result = revoke_service_token_data(client, "token-123", "test reason")
+
+        # Should use the message from the response
+        assert result["status"] == "success"
+        assert result["message"] == "Token revoked successfully"
