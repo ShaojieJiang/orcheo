@@ -4,7 +4,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 
 ## Refactoring Checklist (2025-11-06)
 
-- [ ] `apps/canvas/src/features/workflow/pages/workflow-canvas.tsx` — 4809 LOC
+- [x] `apps/canvas/src/features/workflow/pages/workflow-canvas.tsx` — 4809 LOC
 - [ ] `tests/sdk/test_cli.py` — 3954 LOC
 - [ ] `tests/backend/test_app_init.py` — 3286 LOC
 - [ ] `tests/backend/test_authentication_extended.py` — 2448 LOC
