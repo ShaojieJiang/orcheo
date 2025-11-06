@@ -8,7 +8,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/sdk/test_cli.py` — 3954 LOC
 - [x] `tests/backend/test_app_init.py` — 3286 LOC
 - [x] `tests/backend/test_authentication_extended.py` — 2448 LOC
-- [ ] `apps/backend/src/orcheo_backend/app/__init__.py` — 2089 LOC
+- [x] `apps/backend/src/orcheo_backend/app/__init__.py` — 2089 LOC
 - [ ] `tests/test_backend_api.py` — 1919 LOC
 - [ ] `tests/backend/test_authentication.py` — 1604 LOC
 - [ ] `tests/backend/test_repository.py` — 1509 LOC
