@@ -1,7 +1,4 @@
-import type {
-  NodeStatus,
-  WorkflowExecutionStatus,
-} from "./types";
+import type { NodeStatus, WorkflowExecutionStatus } from "./types";
 
 export const nodeStatusFromValue = (value?: string): NodeStatus => {
   const normalised = value?.toLowerCase();

@@ -8,9 +8,10 @@ import type {
 
 type UseWorkflowSearchArgs = {
   nodesRef: React.MutableRefObject<CanvasNode[]>;
-  reactFlowInstance: React.MutableRefObject<
-    ReactFlowInstance<CanvasNode, CanvasEdge> | null
-  >;
+  reactFlowInstance: React.MutableRefObject<ReactFlowInstance<
+    CanvasNode,
+    CanvasEdge
+  > | null>;
 };
 
 export const useWorkflowSearch = ({
@@ -21,10 +22,7 @@ export const useWorkflowSearch = ({
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
 
-  const searchMatchSet = useMemo(
-    () => new Set(searchMatches),
-    [searchMatches],
-  );
+  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
 
   const highlightMatch = useCallback(
     (index: number) => {
@@ -76,7 +74,9 @@ export const useWorkflowSearch = ({
       const matches = nodesRef.current
         .filter((node) => {
           const label = String(node.data?.label ?? "").toLowerCase();
-          const description = String(node.data?.description ?? "").toLowerCase();
+          const description = String(
+            node.data?.description ?? "",
+          ).toLowerCase();
           return (
             label.includes(normalized) ||
             description.includes(normalized) ||

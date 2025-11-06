@@ -1,21 +1,13 @@
-import type {
-  CanvasEdge,
-  CanvasNode,
-  WorkflowClipboardPayload,
-} from "./types";
-import {
-  toPersistedEdge,
-  toPersistedNode,
-} from "./transformers";
+import type { CanvasEdge, CanvasNode, WorkflowClipboardPayload } from "./types";
+import { toPersistedEdge, toPersistedNode } from "./transformers";
 
 export const WORKFLOW_CLIPBOARD_HEADER = "ORCHEO_WORKFLOW_CLIPBOARD_V1:";
 export const PASTE_BASE_OFFSET = 40;
 export const PASTE_OFFSET_INCREMENT = 24;
 export const PASTE_OFFSET_MAX_STEPS = 5;
 
-export const encodeClipboardPayload = (
-  payload: WorkflowClipboardPayload,
-) => `${WORKFLOW_CLIPBOARD_HEADER}${JSON.stringify(payload)}`;
+export const encodeClipboardPayload = (payload: WorkflowClipboardPayload) =>
+  `${WORKFLOW_CLIPBOARD_HEADER}${JSON.stringify(payload)}`;
 
 export const decodeClipboardPayloadString = (
   serialized: string,

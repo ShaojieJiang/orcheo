@@ -1,9 +1,5 @@
 import { useCallback } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
@@ -125,6 +121,11 @@ export function useWorkflowSaver(
     createSnapshot,
     currentWorkflowId,
     navigate,
+    setCurrentWorkflowId,
+    setWorkflowDescription,
+    setWorkflowName,
+    setWorkflowTags,
+    setWorkflowVersions,
     workflowDescription,
     workflowIdFromRoute,
     workflowName,

@@ -9,12 +9,7 @@ import type {
   WorkflowNode as PersistedWorkflowNode,
 } from "@features/workflow/data/workflow-data";
 
-import type {
-  CanvasEdge,
-  CanvasNode,
-  NodeData,
-  NodeStatus,
-} from "./types";
+import type { CanvasEdge, CanvasNode, NodeData, NodeStatus } from "./types";
 import { sanitizeNodeDataForPersist } from "./node-identity";
 
 export const defaultNodeStyle = {
@@ -26,9 +21,7 @@ export const defaultNodeStyle = {
   boxShadow: "none",
 } as const;
 
-export const toPersistedNode = (
-  node: CanvasNode,
-): PersistedWorkflowNode => ({
+export const toPersistedNode = (node: CanvasNode): PersistedWorkflowNode => ({
   id: node.id,
   type:
     typeof node.data?.type === "string"
@@ -41,9 +34,7 @@ export const toPersistedNode = (
   data: sanitizeNodeDataForPersist(node.data),
 });
 
-export const toPersistedEdge = (
-  edge: CanvasEdge,
-): PersistedWorkflowEdge => ({
+export const toPersistedEdge = (edge: CanvasEdge): PersistedWorkflowEdge => ({
   id: edge.id,
   source: edge.source,
   target: edge.target,
@@ -81,12 +72,9 @@ export const resolveReactFlowType = (
   return "default";
 };
 
-export const toCanvasNodeBase = (
-  node: PersistedWorkflowNode,
-): CanvasNode => {
+export const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
   const extraEntries = Object.entries(node.data ?? {}).filter(
-    ([key]) =>
-      !["label", "description", "type", "isDisabled"].includes(key),
+    ([key]) => !["label", "description", "type", "isDisabled"].includes(key),
   );
 
   const extraData = Object.fromEntries(extraEntries);
@@ -148,6 +136,5 @@ export const toCanvasEdge = (edge: PersistedWorkflowEdge): CanvasEdge => ({
   style: edge.style ?? { stroke: "#99a1b3", strokeWidth: 2 },
 });
 
-export const convertPersistedEdgesToCanvas = (
-  edges: PersistedWorkflowEdge[],
-) => edges.map(toCanvasEdge);
+export const convertPersistedEdgesToCanvas = (edges: PersistedWorkflowEdge[]) =>
+  edges.map(toCanvasEdge);

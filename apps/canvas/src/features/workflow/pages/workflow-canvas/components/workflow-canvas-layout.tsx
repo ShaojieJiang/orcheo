@@ -1,0 +1,172 @@
+import React from "react";
+import { Tabs, TabsContent } from "@/design-system/ui/tabs";
+import { getBackendBaseUrl } from "@/lib/config";
+
+import TopNavigation from "@features/shared/components/top-navigation";
+import ChatInterface from "@features/shared/components/chat-interface";
+import NodeInspector from "@features/workflow/components/panels/node-inspector";
+import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
+
+import type {
+  CanvasEdge,
+  CanvasNode,
+  NodeData,
+  NodeRuntimeCacheEntry,
+} from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { CanvasTabContentProps } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
+import type { ExecutionTabContentProps } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
+import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
+import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+
+import { CanvasTabContent } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
+import { ExecutionTabContent } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
+import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
+import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+
+interface NodeInspectorState {
+  selectedNode: CanvasNode | null;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  onClose: () => void;
+  onSave: (nodeId: string, data: Partial<NodeData>) => void;
+  runtimeCache: Record<string, NodeRuntimeCacheEntry>;
+  onCacheRuntime: (nodeId: string, runtime: NodeRuntimeCacheEntry) => void;
+}
+
+interface ChatState {
+  isChatOpen: boolean;
+  chatTitle: string;
+  user: {
+    id: string;
+    name: string;
+    avatar: string;
+  };
+  ai: {
+    id: string;
+    name: string;
+    avatar: string;
+  };
+  activeChatNodeId: string | null;
+  handleChatResponseStart: () => void;
+  handleChatResponseEnd: () => void;
+  handleChatClientTool: (tool: unknown) => void;
+}
+
+interface WorkflowCanvasLayoutProps {
+  topNavigationProps: React.ComponentProps<typeof TopNavigation>;
+  tabsProps: {
+    activeTab: string;
+    onTabChange: (value: string) => void;
+    readinessAlertCount: number;
+  };
+  canvasProps: CanvasTabContentProps;
+  executionProps: ExecutionTabContentProps;
+  readinessProps: ReadinessTabContentProps;
+  settingsProps: SettingsTabContentProps;
+  nodeInspector: NodeInspectorState | null;
+  chat: ChatState | null;
+}
+
+export function WorkflowCanvasLayout({
+  topNavigationProps,
+  tabsProps,
+  canvasProps,
+  executionProps,
+  readinessProps,
+  settingsProps,
+  nodeInspector,
+  chat,
+}: WorkflowCanvasLayoutProps) {
+  return (
+    <div className="flex flex-col h-screen overflow-hidden">
+      <TopNavigation {...topNavigationProps} />
+
+      <WorkflowTabs
+        activeTab={tabsProps.activeTab}
+        onTabChange={tabsProps.onTabChange}
+        readinessAlertCount={tabsProps.readinessAlertCount}
+      />
+
+      <div className="flex-1 flex flex-col min-h-0">
+        <Tabs
+          value={tabsProps.activeTab}
+          onValueChange={tabsProps.onTabChange}
+          className="w-full flex flex-col flex-1 min-h-0"
+        >
+          <TabsContent
+            value="canvas"
+            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
+          >
+            <CanvasTabContent {...canvasProps} />
+          </TabsContent>
+
+          <TabsContent
+            value="execution"
+            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
+          >
+            <ExecutionTabContent {...executionProps} />
+          </TabsContent>
+
+          <TabsContent value="readiness" className="m-0 p-4 overflow-auto">
+            <ReadinessTabContent {...readinessProps} />
+          </TabsContent>
+
+          <TabsContent value="settings" className="m-0 p-4 overflow-auto">
+            <SettingsTabContent {...settingsProps} />
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {nodeInspector?.selectedNode && (
+        <NodeInspector
+          node={{
+            id: nodeInspector.selectedNode.id,
+            type: nodeInspector.selectedNode.type || "default",
+            data: nodeInspector.selectedNode.data,
+          }}
+          nodes={nodeInspector.nodes}
+          edges={nodeInspector.edges}
+          onClose={nodeInspector.onClose}
+          onSave={nodeInspector.onSave}
+          runtimeCache={nodeInspector.runtimeCache}
+          onCacheRuntime={nodeInspector.onCacheRuntime}
+          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
+        />
+      )}
+
+      {chat?.isChatOpen && (
+        <ChatInterface
+          title={chat.chatTitle}
+          user={chat.user}
+          ai={chat.ai}
+          isClosable
+          position="bottom-right"
+          initialMessages={[
+            {
+              id: "welcome-msg",
+              content: `Welcome to the ${chat.chatTitle} interface. How can I help you today?`,
+              sender: {
+                ...chat.ai,
+                isAI: true,
+              },
+              timestamp: new Date(),
+            },
+          ]}
+          backendBaseUrl={getBackendBaseUrl()}
+          sessionPayload={{
+            workflowId: chat.activeChatNodeId,
+            workflowLabel: chat.chatTitle,
+          }}
+          onResponseStart={chat.handleChatResponseStart}
+          onResponseEnd={chat.handleChatResponseEnd}
+          chatkitOptions={{
+            composer: {
+              placeholder: `Send a message to ${chat.chatTitle}`,
+            },
+            onClientTool: chat.handleChatClientTool,
+          }}
+        />
+      )}
+    </div>
+  );
+}

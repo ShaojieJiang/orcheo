@@ -1,18 +1,12 @@
 import { useCallback } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
   cloneEdge,
   cloneNode,
 } from "@features/workflow/pages/workflow-canvas/helpers/clipboard";
-import {
-  createIdentityAllocator,
-} from "@features/workflow/pages/workflow-canvas/helpers/node-identity";
+import { createIdentityAllocator } from "@features/workflow/pages/workflow-canvas/helpers/node-identity";
 import type {
   CanvasEdge,
   CanvasNode,

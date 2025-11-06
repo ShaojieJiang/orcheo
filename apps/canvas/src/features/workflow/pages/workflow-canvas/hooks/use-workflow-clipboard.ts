@@ -1,9 +1,5 @@
 import { useCallback, useRef } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
@@ -30,10 +26,7 @@ interface WorkflowClipboardOptions {
   recordSnapshot: (options?: { force?: boolean }) => void;
   setNodesState: Dispatch<SetStateAction<CanvasNode[]>>;
   setEdgesState: Dispatch<SetStateAction<CanvasEdge[]>>;
-  deleteNodes: (
-    ids: string[],
-    options?: { suppressToast?: boolean },
-  ) => void;
+  deleteNodes: (ids: string[], options?: { suppressToast?: boolean }) => void;
   isRestoringRef: MutableRefObject<boolean>;
   convertPersistedNodesToCanvas: (
     nodes: PersistedWorkflowNode[],
@@ -138,7 +131,7 @@ export function useWorkflowClipboard(
         if (parsed) {
           payload = parsed;
         }
-      } catch (error) {
+      } catch {
         // Ignore read failures and rely on in-app clipboard.
       }
     }
@@ -202,8 +195,7 @@ export function useWorkflowClipboard(
         : "";
 
     toast({
-      title:
-        preparation.nodes.length === 1 ? "Node pasted" : "Nodes pasted",
+      title: preparation.nodes.length === 1 ? "Node pasted" : "Nodes pasted",
       description: `Added ${preparation.nodes.length} node${
         preparation.nodes.length === 1 ? "" : "s"
       }${connectionsNote}.`,

@@ -12,16 +12,13 @@ export const STICKY_NOTE_COLORS: StickyNoteColor[] = [
 ];
 
 export const DEFAULT_STICKY_NOTE_COLOR: StickyNoteColor = "yellow";
-export const DEFAULT_STICKY_NOTE_CONTENT =
-  "Leave a note for collaborators";
+export const DEFAULT_STICKY_NOTE_CONTENT = "Leave a note for collaborators";
 export const STICKY_NOTE_MIN_WIDTH = 180;
 export const STICKY_NOTE_MIN_HEIGHT = 150;
 export const DEFAULT_STICKY_NOTE_WIDTH = 240;
 export const DEFAULT_STICKY_NOTE_HEIGHT = 200;
 
-export const isStickyNoteColor = (
-  value: unknown,
-): value is StickyNoteColor => {
+export const isStickyNoteColor = (value: unknown): value is StickyNoteColor => {
   return (
     typeof value === "string" &&
     (STICKY_NOTE_COLORS as readonly string[]).includes(value)
@@ -49,9 +46,7 @@ export const sanitizeStickyNoteDimension = (
 };
 
 export const sanitizeStickyNoteContent = (value: unknown) => {
-  return typeof value === "string"
-    ? value
-    : DEFAULT_STICKY_NOTE_CONTENT;
+  return typeof value === "string" ? value : DEFAULT_STICKY_NOTE_CONTENT;
 };
 
 export type { StickyNoteColor, StickyNoteNodeData };

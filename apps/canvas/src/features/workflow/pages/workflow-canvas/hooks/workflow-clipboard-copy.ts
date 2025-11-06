@@ -46,8 +46,7 @@ export async function copySelectionToClipboard(
   const persistedNodes = nodesToCopy.map(toPersistedNode);
   const persistedEdges = edges
     .filter(
-      (edge) =>
-        selectedIds.has(edge.source) && selectedIds.has(edge.target),
+      (edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target),
     )
     .map(toPersistedEdge);
 

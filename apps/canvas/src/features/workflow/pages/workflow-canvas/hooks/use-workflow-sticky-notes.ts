@@ -1,9 +1,6 @@
 import { useCallback } from "react";
 
-import type {
-  StickyNoteColor,
-  StickyNoteNodeData,
-} from "@features/workflow/components/nodes/sticky-note-node";
+import type { StickyNoteNodeData } from "@features/workflow/components/nodes/sticky-note-node";
 import {
   DEFAULT_STICKY_NOTE_COLOR,
   DEFAULT_STICKY_NOTE_HEIGHT,

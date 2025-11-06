@@ -51,8 +51,7 @@ export function preparePasteSelection(
     return null;
   }
 
-  const offset =
-    PASTE_BASE_OFFSET + pasteStep * PASTE_OFFSET_INCREMENT;
+  const offset = PASTE_BASE_OFFSET + pasteStep * PASTE_OFFSET_INCREMENT;
   const nextStep = Math.min(pasteStep + 1, PASTE_OFFSET_MAX_STEPS);
   const idMap = new Map<string, string>();
   const allocateIdentity = createIdentityAllocator(existingNodes);

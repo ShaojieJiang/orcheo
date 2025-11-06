@@ -35,10 +35,9 @@ export const readRuntimeCacheFromSession = <
   return {} as TValue;
 };
 
-export const persistRuntimeCacheToSession = <TValue extends Record<
-  string,
-  unknown
->>(
+export const persistRuntimeCacheToSession = <
+  TValue extends Record<string, unknown>,
+>(
   key: string,
   cache: TValue,
 ) => {

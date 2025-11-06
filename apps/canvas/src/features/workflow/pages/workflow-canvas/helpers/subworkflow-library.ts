@@ -3,10 +3,7 @@ import { customerOnboardingSubworkflow } from "./subworkflows/customer-onboardin
 import { incidentResponseSubworkflow } from "./subworkflows/incident-response";
 import type { SubworkflowStructure } from "./subworkflows/types";
 
-export const SUBWORKFLOW_LIBRARY: Record<
-  string,
-  SubworkflowStructure
-> = {
+export const SUBWORKFLOW_LIBRARY: Record<string, SubworkflowStructure> = {
   "subflow-customer-onboarding": customerOnboardingSubworkflow,
   "subflow-incident-response": incidentResponseSubworkflow,
   "subflow-content-qa": contentQaSubworkflow,

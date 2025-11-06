@@ -18,9 +18,7 @@ type Getter<T> = () => T;
 type RunValidationDependencies = {
   getNodes: Getter<CanvasNode[]>;
   getEdges: Getter<CanvasEdge[]>;
-  setValidationErrors: React.Dispatch<
-    React.SetStateAction<ValidationError[]>
-  >;
+  setValidationErrors: React.Dispatch<React.SetStateAction<ValidationError[]>>;
   setIsValidating: React.Dispatch<React.SetStateAction<boolean>>;
   setLastValidationRun: React.Dispatch<React.SetStateAction<string | null>>;
 };
@@ -123,9 +121,7 @@ export const createRunPublishValidation =
   };
 
 type DismissValidationDependencies = {
-  setValidationErrors: React.Dispatch<
-    React.SetStateAction<ValidationError[]>
-  >;
+  setValidationErrors: React.Dispatch<React.SetStateAction<ValidationError[]>>;
 };
 
 export const createHandleDismissValidation =
@@ -138,9 +134,10 @@ type FixValidationDependencies = {
   getNodes: Getter<CanvasNode[]>;
   setActiveTab: React.Dispatch<React.SetStateAction<string>>;
   setSelectedNodeId: React.Dispatch<React.SetStateAction<string | null>>;
-  reactFlowInstance: React.MutableRefObject<
-    ReactFlowInstance<CanvasNode, CanvasEdge> | null
-  >;
+  reactFlowInstance: React.MutableRefObject<ReactFlowInstance<
+    CanvasNode,
+    CanvasEdge
+  > | null>;
 };
 
 export const createHandleFixValidation =

@@ -1,10 +1,7 @@
 import { useWorkflowNodeDeletion } from "./use-workflow-node-deletion";
 import { useWorkflowStickyNotes } from "./use-workflow-sticky-notes";
 import { useDecoratedNodes } from "./use-decorated-nodes";
-import type {
-  CanvasEdge,
-  CanvasNode,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { CanvasNode } from "@features/workflow/pages/workflow-canvas/helpers/types";
 import type { ValidationError } from "@features/workflow/components/canvas/connection-validator";
 
 type NodeRuntimeCacheEntry = Record<string, unknown>;
@@ -15,8 +12,6 @@ type UseWorkflowNodeStateArgs = {
   searchMatchSet: Set<string>;
   isSearchOpen: boolean;
   currentSearchIndex: number;
-  nodesRef: React.MutableRefObject<CanvasNode[]>;
-  edgesRef: React.MutableRefObject<CanvasEdge[]>;
   latestNodesRef: React.MutableRefObject<CanvasNode[]>;
   isRestoringRef: React.MutableRefObject<boolean>;
   setNodes: React.Dispatch<React.SetStateAction<CanvasNode[]>>;
@@ -40,8 +35,6 @@ export const useWorkflowNodeState = ({
   searchMatchSet,
   isSearchOpen,
   currentSearchIndex,
-  nodesRef,
-  edgesRef,
   latestNodesRef,
   isRestoringRef,
   setNodes,

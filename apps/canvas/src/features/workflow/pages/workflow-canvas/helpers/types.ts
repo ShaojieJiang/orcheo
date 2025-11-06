@@ -62,12 +62,7 @@ export type WorkflowExecutionStatus =
   | "failed"
   | "partial";
 
-export type NodeStatus =
-  | "idle"
-  | "running"
-  | "success"
-  | "error"
-  | "warning";
+export type NodeStatus = "idle" | "running" | "success" | "error" | "warning";
 
 export interface WorkflowExecutionNode {
   id: string;

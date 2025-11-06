@@ -24,16 +24,11 @@ type Getter<T> = () => T;
 
 type CreateSubworkflowHandlerArgs = {
   getSelectedNodes: Getter<CanvasNode[]>;
-  setSubworkflows: React.Dispatch<
-    React.SetStateAction<SubworkflowTemplate[]>
-  >;
+  setSubworkflows: React.Dispatch<React.SetStateAction<SubworkflowTemplate[]>>;
 };
 
 export const createHandleCreateSubworkflow =
-  ({
-    getSelectedNodes,
-    setSubworkflows,
-  }: CreateSubworkflowHandlerArgs) =>
+  ({ getSelectedNodes, setSubworkflows }: CreateSubworkflowHandlerArgs) =>
   () => {
     const selectedNodes = getSelectedNodes();
     const timestamp = new Date().toISOString();
@@ -73,9 +68,7 @@ export const createHandleCreateSubworkflow =
   };
 
 type DeleteSubworkflowHandlerArgs = {
-  setSubworkflows: React.Dispatch<
-    React.SetStateAction<SubworkflowTemplate[]>
-  >;
+  setSubworkflows: React.Dispatch<React.SetStateAction<SubworkflowTemplate[]>>;
 };
 
 export const createHandleDeleteSubworkflow =
@@ -95,9 +88,7 @@ type InsertSubworkflowHandlerArgs = {
   nodesRef: React.MutableRefObject<CanvasNode[]>;
   setNodes: React.Dispatch<React.SetStateAction<CanvasNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<CanvasEdge[]>>;
-  setSubworkflows: React.Dispatch<
-    React.SetStateAction<SubworkflowTemplate[]>
-  >;
+  setSubworkflows: React.Dispatch<React.SetStateAction<SubworkflowTemplate[]>>;
   convertPersistedNodesToCanvas: (
     nodes: PersistedWorkflowNode[],
   ) => CanvasNode[];
@@ -106,9 +97,10 @@ type InsertSubworkflowHandlerArgs = {
   ) => CanvasEdge[];
   setSelectedNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   setActiveTab: React.Dispatch<React.SetStateAction<string>>;
-  reactFlowInstance: React.MutableRefObject<
-    ReactFlowInstance<CanvasNode, CanvasEdge> | null
-  >;
+  reactFlowInstance: React.MutableRefObject<ReactFlowInstance<
+    CanvasNode,
+    CanvasEdge
+  > | null>;
 };
 
 export const createHandleInsertSubworkflow =
@@ -136,12 +128,8 @@ export const createHandleInsertSubworkflow =
       return;
     }
 
-    const templateXs = libraryEntry.nodes.map(
-      (node) => node.position?.x ?? 0,
-    );
-    const templateYs = libraryEntry.nodes.map(
-      (node) => node.position?.y ?? 0,
-    );
+    const templateXs = libraryEntry.nodes.map((node) => node.position?.x ?? 0);
+    const templateYs = libraryEntry.nodes.map((node) => node.position?.y ?? 0);
     const templateMinX = templateXs.length > 0 ? Math.min(...templateXs) : 0;
     const templateMinY = templateYs.length > 0 ? Math.min(...templateYs) : 0;
 
