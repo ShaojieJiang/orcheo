@@ -66,6 +66,7 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - Ruff for linting and formatting (line length 88)
 - 100% test coverage expected
 - No relative imports allowed
+- Keep each script under 250 LOC; only special cases may extend, but never beyond 300 LOC
 
 **CRITICAL**: After making any code changes:
 1. For Python code changes:

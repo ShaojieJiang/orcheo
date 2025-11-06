@@ -25,6 +25,7 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 - Import rules: no relative imports (TID252); always use absolute package paths (`from orcheo...`).
 - Naming: modules/files `snake_case.py`; classes `PascalCase`; functions/vars `snake_case`.
 - Keep functions focused; prefer small units with clear docstrings and types.
+- Target fewer than 250 LOC per script; special cases may extend but must stay under 300 LOC
 
 ## Testing Guidelines
 - Framework: `pytest` with `pytest-asyncio` and `pytest-cov`.

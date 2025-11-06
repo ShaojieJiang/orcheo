@@ -1,4 +1,4 @@
-# Repository Metrics
+# Refactor Large Scripts
 
 Each script should have fewer than 250 LOC; special cases may extend but must stay under 300 LOC.
 
@@ -110,4 +110,4 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 
 ## Wrap up
 
-- [ ] Tell coding agents to respect the LOC limit in future commits
+- [x] Tell coding agents to respect the LOC limit in future commits
