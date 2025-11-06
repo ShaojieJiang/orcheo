@@ -16,7 +16,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/backend/src/orcheo_backend/app/authentication.py` — 1491 LOC
 - [x] `tests/sdk/test_mcp_server.py` — 1488 LOC
 - [x] `tests/backend/test_chatkit_store_sqlite.py` — 1340 LOC
-- [ ] `apps/canvas/src/features/workflow/pages/workflow-gallery.tsx` — 1067 LOC
+- [x] `apps/canvas/src/features/workflow/pages/workflow-gallery.tsx` — 1067 LOC
 - [ ] `tests/test_vault.py` — 1058 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/node-inspector.tsx` — 1030 LOC
 - [ ] `apps/canvas/src/features/workflow/lib/node-schemas.ts` — 1005 LOC
