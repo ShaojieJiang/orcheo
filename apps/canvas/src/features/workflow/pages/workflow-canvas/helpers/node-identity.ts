@@ -7,7 +7,7 @@ const PERSISTED_NODE_FIELDS = new Set([
   "isDisabled",
 ]);
 
-const DEFAULT_NODE_LABEL = "New Node";
+export const DEFAULT_NODE_LABEL = "New Node";
 
 const normaliseLabelInput = (value: unknown): string => {
   if (typeof value !== "string") {

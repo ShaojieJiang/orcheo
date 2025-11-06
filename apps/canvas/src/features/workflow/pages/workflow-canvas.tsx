@@ -1,21 +1,11 @@
-import React, {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-} from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type {
   Connection,
-  Edge,
-  EdgeChange,
   Node,
-  NodeChange,
   ReactFlowInstance,
 } from "@xyflow/react";
-import { Panel, addEdge, useNodesState, useEdgesState } from "@xyflow/react";
+import { Panel, addEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
@@ -48,13 +38,21 @@ import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
 import { loadWorkflowExecutions } from "@features/workflow/lib/workflow-execution-storage";
 import ConnectionValidator, {
-  validateConnection,
-  validateNodeCredentials,
   type ValidationError,
 } from "@features/workflow/components/canvas/connection-validator";
 import WorkflowGovernancePanel, {
   type SubworkflowTemplate,
 } from "@features/workflow/components/panels/workflow-governance-panel";
+import {
+  createHandleCreateSubworkflow,
+  createHandleDeleteSubworkflow,
+  createHandleInsertSubworkflow,
+} from "@features/workflow/pages/workflow-canvas/handlers/subworkflows";
+import {
+  createHandleDismissValidation,
+  createHandleFixValidation,
+  createRunPublishValidation,
+} from "@features/workflow/pages/workflow-canvas/handlers/validation";
 import {
   SAMPLE_WORKFLOWS,
   type WorkflowEdge as PersistedWorkflowEdge,
@@ -91,7 +89,6 @@ import {
   sanitizeStickyNoteDimension,
 } from "@features/workflow/pages/workflow-canvas/helpers/sticky-notes";
 import {
-  SUBWORKFLOW_LIBRARY,
   type SubworkflowStructure,
 } from "@features/workflow/pages/workflow-canvas/helpers/subworkflow-library";
 import {
@@ -99,6 +96,7 @@ import {
   generateRandomId,
 } from "@features/workflow/pages/workflow-canvas/helpers/id";
 import {
+  DEFAULT_NODE_LABEL,
   createIdentityAllocator,
   sanitizeLabel,
 } from "@features/workflow/pages/workflow-canvas/helpers/node-identity";
@@ -130,6 +128,10 @@ import {
   validateWorkflowData,
 } from "@features/workflow/pages/workflow-canvas/helpers/validation";
 import { useWorkflowCredentials } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-credentials";
+import { useWorkflowCanvasHistory } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-canvas-history";
+import { useWorkflowChat } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
+import { useWorkflowSearch } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-search";
+import { useWorkflowNodeState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-node-state";
 import type {
   CanvasEdge,
   CanvasNode,
@@ -152,8 +154,6 @@ interface WorkflowCanvasProps {
   initialEdges?: CanvasEdge[];
 }
 
-const HISTORY_LIMIT = 50;
-
 export default function WorkflowCanvas({
   initialNodes = [],
   initialEdges = [],
@@ -161,11 +161,28 @@ export default function WorkflowCanvas({
   const { workflowId } = useParams<{ workflowId?: string }>();
   const navigate = useNavigate();
 
-  // Initialize with empty arrays instead of sample workflow
-  const [nodes, setNodesState, onNodesChangeState] =
-    useNodesState<CanvasNode>(initialNodes);
-  const [edges, setEdgesState, onEdgesChangeState] =
-    useEdgesState<CanvasEdge>(initialEdges);
+  const {
+    nodes,
+    edges,
+    nodesRef,
+    edgesRef,
+    latestNodesRef,
+    isRestoringRef,
+    onNodesChange: handleNodesChange,
+    onEdgesChange: handleEdgesChange,
+    setNodes,
+    setEdges,
+    setNodesState,
+    setEdgesState,
+    createSnapshot,
+    recordSnapshot,
+    applySnapshot,
+    handleUndo,
+    handleRedo,
+    canUndo,
+    canRedo,
+  } = useWorkflowCanvasHistory({ initialNodes, initialEdges });
+
   const [workflowName, setWorkflowName] = useState("New Workflow");
   const [workflowDescription, setWorkflowDescription] = useState("");
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(
@@ -223,23 +240,67 @@ export default function WorkflowCanvas({
   );
   const websocketRef = useRef<WebSocket | null>(null);
   const isMountedRef = useRef(true);
-  const latestNodesRef = useRef(nodes);
   const runtimeCacheKey = getRuntimeCacheStorageKey(workflowId ?? null);
   const [nodeRuntimeCache, setNodeRuntimeCache] = useState<
     Record<string, NodeRuntimeCacheEntry>
   >(() => readRuntimeCacheFromSession(runtimeCacheKey));
   const previousRuntimeCacheKeyRef = useRef(runtimeCacheKey);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const reactFlowInstance = useRef<ReactFlowInstance<
+    CanvasNode,
+    CanvasEdge
+  > | null>(null);
 
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("canvas");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchMatches, setSearchMatches] = useState<string[]>([]);
-  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const {
+    isSearchOpen,
+    setIsSearchOpen,
+    searchMatches,
+    setSearchMatches,
+    currentSearchIndex,
+    setCurrentSearchIndex,
+    searchMatchSet,
+    handleSearchNodes,
+    handleHighlightNext,
+    handleHighlightPrevious,
+    handleCloseSearch,
+    handleToggleSearch,
+  } = useWorkflowSearch({
+    nodesRef,
+    reactFlowInstance,
+  });
+  const {
+    decoratedNodes,
+    resolveNodeLabel,
+    deleteNodes,
+    handleDeleteNode,
+    handleUpdateStickyNoteNode,
+  } = useWorkflowNodeState({
+    nodes,
+    searchMatches,
+    searchMatchSet,
+    isSearchOpen,
+    currentSearchIndex,
+    nodesRef,
+    edgesRef,
+    latestNodesRef,
+    isRestoringRef,
+    setNodes,
+    setNodesState,
+    setEdgesState,
+    recordSnapshot,
+    setNodeRuntimeCache,
+    setValidationErrors,
+    setSearchMatches,
+    setSelectedNodeId,
+    setActiveChatNodeId,
+    setIsChatOpen,
+    activeChatNodeId,
+  });
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) {
@@ -248,10 +309,6 @@ export default function WorkflowCanvas({
     return nodes.find((node) => node.id === selectedNodeId) ?? null;
   }, [nodes, selectedNodeId]);
 
-  // Chat interface state
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
-  const [chatTitle, setChatTitle] = useState("Chat");
   const backendBaseUrl = getBackendBaseUrl();
   const user = useMemo(
     () => ({
@@ -261,6 +318,25 @@ export default function WorkflowCanvas({
     }),
     [],
   );
+  const {
+    isChatOpen,
+    setIsChatOpen,
+    activeChatNodeId,
+    setActiveChatNodeId,
+    chatTitle,
+    setChatTitle,
+    handleOpenChat,
+    handleChatResponseStart,
+    handleChatResponseEnd,
+    handleChatClientTool,
+    attachChatHandlerToNode,
+  } = useWorkflowChat({
+    nodesRef,
+    setNodes,
+    workflowId,
+    backendBaseUrl,
+    userName: user.name,
+  });
   const ai = useMemo(
     () => ({
       id: "ai-1",
@@ -306,18 +382,9 @@ export default function WorkflowCanvas({
     });
   }, [executions]);
 
-  const undoStackRef = useRef<WorkflowSnapshot[]>([]);
-  const redoStackRef = useRef<WorkflowSnapshot[]>([]);
-  const isRestoringRef = useRef(false);
-  const nodesRef = useRef<CanvasNode[]>(nodes);
-  const edgesRef = useRef<CanvasEdge[]>(edges);
   const clipboardRef = useRef<WorkflowClipboardPayload | null>(null);
   const pasteOffsetStepRef = useRef(0);
   const lastClipboardSignatureRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    latestNodesRef.current = nodes;
-  }, [nodes]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -358,446 +425,104 @@ export default function WorkflowCanvas({
     };
   }, [runtimeCacheKey]);
 
-  const handleCreateSubworkflow = useCallback(() => {
-    const selectedNodes = nodes.filter((node) => node.selected);
-    const timestamp = new Date().toISOString();
-    const inferredTags = Array.from(
-      new Set(
-        selectedNodes
-          .map((node) =>
-            typeof node.data.type === "string" ? node.data.type : "workflow",
-          )
-          .filter(Boolean),
-      ),
-    ).slice(0, 4);
-
-    const template: SubworkflowTemplate = {
-      id: generateRandomId("subflow"),
-      name:
-        selectedNodes.length > 0
-          ? `${selectedNodes.length}-step sub-workflow`
-          : "Draft sub-workflow",
-      description:
-        selectedNodes.length > 0
-          ? "Captured the selected nodes so the pattern can be reused across projects."
-          : "Start from an empty template and drag nodes into the canvas to define the steps.",
-      tags: inferredTags.length > 0 ? inferredTags : ["workflow"],
-      version: "0.1.0",
-      status: "beta",
-      usageCount: 0,
-      lastUpdated: timestamp,
-    };
-
-    setSubworkflows((prev) => [template, ...prev]);
-    toast({
-      title: "Sub-workflow draft created",
-      description:
-        "Find it in the Readiness tab to document, version, and share with your team.",
-    });
-  }, [nodes]);
-
-  const handleDeleteSubworkflow = useCallback((id: string) => {
-    setSubworkflows((prev) =>
-      prev.filter((subworkflow) => subworkflow.id !== id),
-    );
-    toast({
-      title: "Sub-workflow removed",
-      description:
-        "It will remain available in version history for audit purposes.",
-    });
-  }, []);
-
-  const runPublishValidation = useCallback(() => {
-    setIsValidating(true);
-
-    window.setTimeout(() => {
-      const normalizedNodes = nodes.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          label:
-            typeof node.data.label === "string"
-              ? node.data.label
-              : ((node.data as { label?: unknown; name?: unknown }).label ??
-                (node.data as { name?: unknown }).name ??
-                node.id),
-          credentials:
-            (node.data as { credentials?: { id?: string } | null })
-              .credentials ?? null,
-        },
-      }));
-
-      const evaluatedEdges: Edge<Record<string, unknown>>[] = [];
-      const connectionErrors = edges
-        .map((edge) => {
-          const error = validateConnection(
-            {
-              source: edge.source,
-              target: edge.target,
-              sourceHandle: edge.sourceHandle ?? null,
-              targetHandle: edge.targetHandle ?? null,
-            } as Connection,
-            normalizedNodes as unknown as Node<{
-              type?: string;
-              label?: string;
-              credentials?: { id?: string } | null;
-            }>[],
-            evaluatedEdges,
-          );
-
-          evaluatedEdges.push(edge as Edge<Record<string, unknown>>);
-
-          return error;
-        })
-        .filter((error): error is ValidationError => Boolean(error));
-
-      const credentialErrors = normalizedNodes
-        .map((node) =>
-          validateNodeCredentials(
-            node as unknown as Node<{
-              type?: string;
-              label?: string;
-              credentials?: { id?: string } | null;
-            }>,
-          ),
-        )
-        .filter((error): error is ValidationError => Boolean(error));
-
-      const readinessErrors = [...connectionErrors, ...credentialErrors];
-
-      if (nodes.length === 0) {
-        readinessErrors.push({
-          id: generateRandomId("validation"),
-          type: "node",
-          message: "Add at least one node before publishing the workflow.",
-        });
-      }
-
-      setValidationErrors(readinessErrors);
-      setIsValidating(false);
-      const completedAt = new Date().toISOString();
-      setLastValidationRun(completedAt);
-
-      toast({
-        title:
-          readinessErrors.length === 0
-            ? "Workflow passed all validation checks"
-            : `Validation found ${readinessErrors.length} issue${
-                readinessErrors.length === 1 ? "" : "s"
-              }`,
-        description:
-          readinessErrors.length === 0
-            ? "You can proceed to publish once final reviews are complete."
-            : "Resolve the flagged items from the Readiness tab or directly on the canvas.",
-      });
-    }, 250);
-  }, [edges, nodes]);
-
-  const handleDismissValidation = useCallback((id: string) => {
-    setValidationErrors((prev) => prev.filter((error) => error.id !== id));
-  }, []);
-
-  const handleFixValidation = useCallback(
-    (error: ValidationError) => {
-      setActiveTab("canvas");
-
-      if (error.nodeId) {
-        const nodeToFocus = nodes.find((node) => node.id === error.nodeId);
-        if (nodeToFocus) {
-          setSelectedNodeId(nodeToFocus.id);
-          requestAnimationFrame(() => {
-            reactFlowInstance.current?.setCenter(
-              nodeToFocus.position.x + (nodeToFocus.width ?? 0) / 2,
-              nodeToFocus.position.y + (nodeToFocus.height ?? 0) / 2,
-              { zoom: 1.15, duration: 400 },
-            );
-          });
-        }
-      } else if (error.sourceId && error.targetId) {
-        toast({
-          title: "Review the highlighted connection",
-          description: `${error.sourceId} → ${error.targetId} needs to be updated before publishing.`,
-        });
-      }
-    },
-    [nodes, setActiveTab, setSelectedNodeId],
+  const handleCreateSubworkflow = useMemo(
+    () =>
+      createHandleCreateSubworkflow({
+        getSelectedNodes: () =>
+          nodesRef.current.filter((node) => node.selected),
+        setSubworkflows,
+      }),
+    [nodesRef, setSubworkflows],
   );
 
-  const handleOpenChat = useCallback((nodeId: string) => {
-    const chatNode = nodesRef.current.find((node) => node.id === nodeId);
-    if (chatNode) {
-      setChatTitle(chatNode.data.label || "Chat");
-      setActiveChatNodeId(nodeId);
-      setIsChatOpen(true);
-    }
-  }, []);
+  const handleDeleteSubworkflow = useMemo(
+    () =>
+      createHandleDeleteSubworkflow({
+        setSubworkflows,
+      }),
+    [setSubworkflows],
+  );
+
+  const runPublishValidation = useMemo(
+    () =>
+      createRunPublishValidation({
+        getNodes: () => nodesRef.current,
+        getEdges: () => edgesRef.current,
+        setValidationErrors,
+        setIsValidating,
+        setLastValidationRun,
+      }),
+    [
+      nodesRef,
+      edgesRef,
+      setValidationErrors,
+      setIsValidating,
+      setLastValidationRun,
+    ],
+  );
+
+  const handleDismissValidation = useMemo(
+    () =>
+      createHandleDismissValidation({
+        setValidationErrors,
+      }),
+    [setValidationErrors],
+  );
+
+  const handleFixValidation = useMemo(
+    () =>
+      createHandleFixValidation({
+        getNodes: () => nodesRef.current,
+        setActiveTab,
+        setSelectedNodeId,
+        reactFlowInstance,
+      }),
+    [nodesRef, setActiveTab, setSelectedNodeId, reactFlowInstance],
+  );
 
   const convertPersistedNodesToCanvas = useCallback(
     (persistedNodes: PersistedWorkflowNode[]) =>
-      persistedNodes.map((node) => {
-        const canvasNode = toCanvasNodeBase(node);
-        if (canvasNode.type === "chatTrigger") {
-          return {
-            ...canvasNode,
-            data: {
-              ...canvasNode.data,
-              onOpenChat: () => handleOpenChat(canvasNode.id),
-            },
-          };
-        }
-        return canvasNode;
-      }),
-    [handleOpenChat],
+      persistedNodes
+        .map((node) => toCanvasNodeBase(node))
+        .map(attachChatHandlerToNode),
+    [attachChatHandlerToNode],
   );
 
-  // Refs
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const reactFlowInstance = useRef<ReactFlowInstance<
-    CanvasNode,
-    CanvasEdge
-  > | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
-
-  const createSnapshot = useCallback(
-    (): WorkflowSnapshot => ({
-      nodes: nodesRef.current.map(cloneNode),
-      edges: edgesRef.current.map(cloneEdge),
-    }),
-    [],
-  );
-
-  const recordSnapshot = useCallback(
-    (options?: { force?: boolean }) => {
-      if (isRestoringRef.current && !options?.force) {
-        return;
-      }
-      const snapshot = createSnapshot();
-      undoStackRef.current = [...undoStackRef.current, snapshot].slice(
-        -HISTORY_LIMIT,
-      );
-      redoStackRef.current = [];
-      setCanUndo(undoStackRef.current.length > 0);
-      setCanRedo(false);
-    },
-    [createSnapshot],
-  );
-
-  const applySnapshot = useCallback(
-    (snapshot: WorkflowSnapshot, { resetHistory = false } = {}) => {
-      isRestoringRef.current = true;
-      setNodesState(snapshot.nodes);
-      setEdgesState(snapshot.edges);
-      if (resetHistory) {
-        undoStackRef.current = [];
-        redoStackRef.current = [];
-        setCanUndo(false);
-        setCanRedo(false);
-      }
-    },
-    [setCanRedo, setCanUndo, setEdgesState, setNodesState],
-  );
-
-  useLayoutEffect(() => {
-    if (isRestoringRef.current) {
-      isRestoringRef.current = false;
-    }
-  }, [edges, nodes]);
-
-  useEffect(() => {
-    nodesRef.current = nodes;
-  }, [nodes]);
-
-  useEffect(() => {
-    edgesRef.current = edges;
-  }, [edges]);
   useEffect(() => {
     if (hoveredEdgeId && !edges.some((edge) => edge.id === hoveredEdgeId)) {
       setHoveredEdgeId(null);
     }
   }, [edges, hoveredEdgeId, setHoveredEdgeId]);
 
-  const setNodes = useCallback(
-    (updater: React.SetStateAction<CanvasNode[]>) => {
-      if (!isRestoringRef.current) {
-        recordSnapshot();
-      }
-      setNodesState((current) =>
-        typeof updater === "function"
-          ? (updater as (value: CanvasNode[]) => CanvasNode[])(current)
-          : updater,
-      );
-    },
-    [recordSnapshot, setNodesState],
-  );
 
-  const setEdges = useCallback(
-    (updater: React.SetStateAction<WorkflowEdge[]>) => {
-      if (!isRestoringRef.current) {
-        recordSnapshot();
-      }
-      setEdgesState((current) =>
-        typeof updater === "function"
-          ? (updater as (value: WorkflowEdge[]) => WorkflowEdge[])(current)
-          : updater,
-      );
-    },
-    [recordSnapshot, setEdgesState],
-  );
-
-  const handleInsertSubworkflow = useCallback(
-    (subworkflow: SubworkflowTemplate) => {
-      const libraryEntry = SUBWORKFLOW_LIBRARY[subworkflow.id];
-
-      if (!libraryEntry) {
-        toast({
-          title: "Template unavailable",
-          description:
-            "This sub-workflow doesn't have a canvas definition yet. Please try another template.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const templateXs = libraryEntry.nodes.map(
-        (node) => node.position?.x ?? 0,
-      );
-      const templateYs = libraryEntry.nodes.map(
-        (node) => node.position?.y ?? 0,
-      );
-      const templateMinX = templateXs.length > 0 ? Math.min(...templateXs) : 0;
-      const templateMinY = templateYs.length > 0 ? Math.min(...templateYs) : 0;
-
-      const existingNodes = nodesRef.current;
-      const existingMaxX = existingNodes.length
-        ? Math.max(...existingNodes.map((node) => node.position?.x ?? 0))
-        : 0;
-      const existingMinY = existingNodes.length
-        ? Math.min(...existingNodes.map((node) => node.position?.y ?? 0))
-        : 0;
-
-      const insertionX = existingNodes.length > 0 ? existingMaxX + 320 : 200;
-      const insertionY = existingNodes.length > 0 ? existingMinY : 200;
-
-      const idMap = new Map<string, string>();
-      const allocateIdentity = createIdentityAllocator(nodesRef.current);
-
-      const remappedNodes = libraryEntry.nodes.map((node) => {
-        const baseLabel =
-          typeof node.data?.label === "string" && node.data.label.length > 0
-            ? node.data.label
-            : typeof node.data?.type === "string" && node.data.type.length > 0
-              ? `${node.data.type} Node`
-              : DEFAULT_NODE_LABEL;
-        const { id: newId, label } = allocateIdentity(baseLabel);
-        idMap.set(node.id, newId);
-
-        return {
-          ...node,
-          id: newId,
-          position: {
-            x: insertionX + ((node.position?.x ?? 0) - templateMinX),
-            y: insertionY + ((node.position?.y ?? 0) - templateMinY),
-          },
-          data: {
-            ...node.data,
-            type: node.data?.type ?? node.type ?? "default",
-            status: "idle",
-            label,
-          },
-        };
-      });
-
-      const remappedEdges = libraryEntry.edges.map((edge) => ({
-        ...edge,
-        id: generateRandomId("edge"),
-        source: idMap.get(edge.source) ?? edge.source,
-        target: idMap.get(edge.target) ?? edge.target,
-      }));
-
-      const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
-      const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);
-
-      setNodes((current) => [...current, ...canvasNodes]);
-      setEdges((current) => [...current, ...canvasEdges]);
-
-      setSubworkflows((prev) =>
-        prev.map((template) =>
-          template.id === subworkflow.id
-            ? {
-                ...template,
-                usageCount: template.usageCount + 1,
-                lastUpdated: new Date().toISOString(),
-              }
-            : template,
-        ),
-      );
-
-      if (canvasNodes.length > 0) {
-        setSelectedNodeId(canvasNodes[0].id);
-        setActiveTab("canvas");
-
-        if (reactFlowInstance.current) {
-          const insertedXs = canvasNodes.map((node) => node.position.x);
-          const insertedYs = canvasNodes.map((node) => node.position.y);
-          const minX = Math.min(...insertedXs);
-          const maxX = Math.max(...insertedXs);
-          const minY = Math.min(...insertedYs);
-          const maxY = Math.max(...insertedYs);
-          const centerX = minX + (maxX - minX) / 2;
-          const centerY = minY + (maxY - minY) / 2;
-
-          reactFlowInstance.current.setCenter(centerX, centerY, {
-            zoom: 1.15,
-            duration: 400,
-          });
-        }
-      }
-
-      toast({
-        title: `${subworkflow.name} inserted`,
-        description: `Added ${canvasNodes.length} nodes and ${canvasEdges.length} connections to the canvas.`,
-      });
-    },
+  const handleInsertSubworkflow = useMemo(
+    () =>
+      createHandleInsertSubworkflow({
+        nodesRef,
+        setNodes,
+        setEdges,
+        setSubworkflows,
+        convertPersistedNodesToCanvas,
+        convertPersistedEdgesToCanvas,
+        setSelectedNodeId,
+        setActiveTab,
+        reactFlowInstance,
+      }),
     [
-      convertPersistedNodesToCanvas,
+      nodesRef,
       setNodes,
       setEdges,
       setSubworkflows,
+      convertPersistedNodesToCanvas,
+      convertPersistedEdgesToCanvas,
       setSelectedNodeId,
       setActiveTab,
+      reactFlowInstance,
     ],
   );
 
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<CanvasNode>[]) => {
-      const shouldRecord = changes.some((change) => {
-        if (change.type === "select") {
-          return false;
-        }
-        if (change.type === "position" && change.dragging) {
-          return false;
-        }
-        return true;
-      });
-      if (shouldRecord) {
-        recordSnapshot();
-      }
-      onNodesChangeState(changes);
-    },
-    [onNodesChangeState, recordSnapshot],
-  );
-
-  const handleEdgesChange = useCallback(
-    (changes: EdgeChange<WorkflowEdge>[]) => {
-      if (changes.some((change) => change.type !== "select")) {
-        recordSnapshot();
-      }
-      onEdgesChangeState(changes);
-    },
-    [onEdgesChangeState, recordSnapshot],
-  );
   const handleEdgeMouseEnter = useCallback(
     (_event: React.MouseEvent<Element>, edge: CanvasEdge) => {
       setHoveredEdgeId(edge.id);
@@ -818,247 +543,6 @@ export default function WorkflowCanvas({
     },
     [setHoveredEdgeId],
   );
-
-  const resolveNodeLabel = useCallback((canvasNodeId: string): string => {
-    const node = latestNodesRef.current.find(
-      (item) => item.id === canvasNodeId,
-    );
-    const label =
-      typeof node?.data?.label === "string" && node.data.label.trim()
-        ? node.data.label.trim()
-        : null;
-    return label ?? canvasNodeId;
-  }, []);
-
-  const deleteNodes = useCallback(
-    (nodeIds: string[], options?: { suppressToast?: boolean }) => {
-      const uniqueIds = Array.from(new Set(nodeIds)).filter(Boolean);
-      if (uniqueIds.length === 0) {
-        return;
-      }
-
-      const labels = uniqueIds.map((id) => resolveNodeLabel(id));
-
-      setNodeRuntimeCache((current) => {
-        if (Object.keys(current).length === 0) {
-          return current;
-        }
-
-        let modified = false;
-        const next = { ...current };
-        for (const id of uniqueIds) {
-          if (id in next) {
-            delete next[id];
-            modified = true;
-          }
-        }
-
-        return modified ? next : current;
-      });
-
-      isRestoringRef.current = true;
-      recordSnapshot({ force: true });
-      try {
-        setNodesState((current) =>
-          current.filter((node) => !uniqueIds.includes(node.id)),
-        );
-        setEdgesState((current) =>
-          current.filter(
-            (edge) =>
-              !uniqueIds.includes(edge.source) &&
-              !uniqueIds.includes(edge.target),
-          ),
-        );
-      } catch (error) {
-        isRestoringRef.current = false;
-        throw error;
-      }
-
-      setValidationErrors((errors) =>
-        errors.filter((error) => {
-          if (error.nodeId && uniqueIds.includes(error.nodeId)) {
-            return false;
-          }
-          if (error.sourceId && uniqueIds.includes(error.sourceId)) {
-            return false;
-          }
-          if (error.targetId && uniqueIds.includes(error.targetId)) {
-            return false;
-          }
-          return true;
-        }),
-      );
-
-      setSearchMatches((matches) =>
-        matches.filter((match) => !uniqueIds.includes(match)),
-      );
-
-      setSelectedNodeId((current) =>
-        current && uniqueIds.includes(current) ? null : current,
-      );
-
-      if (activeChatNodeId && uniqueIds.includes(activeChatNodeId)) {
-        setActiveChatNodeId(null);
-        setIsChatOpen(false);
-      }
-
-      if (!options?.suppressToast) {
-        toast({
-          title: uniqueIds.length === 1 ? "Node deleted" : "Nodes deleted",
-          description:
-            uniqueIds.length === 1
-              ? `Removed ${labels[0]}.`
-              : `Removed ${uniqueIds.length} nodes.`,
-        });
-      }
-    },
-    [
-      activeChatNodeId,
-      recordSnapshot,
-      resolveNodeLabel,
-      setNodeRuntimeCache,
-      setActiveChatNodeId,
-      setEdgesState,
-      setIsChatOpen,
-      setNodesState,
-      setSearchMatches,
-      setSelectedNodeId,
-      setValidationErrors,
-    ],
-  );
-
-  const handleDeleteNode = useCallback(
-    (nodeId: string) => {
-      deleteNodes([nodeId]);
-    },
-    [deleteNodes],
-  );
-
-  const handleUpdateStickyNoteNode = useCallback(
-    (
-      nodeId: string,
-      updates: Partial<
-        Pick<StickyNoteNodeData, "color" | "content" | "width" | "height">
-      >,
-    ) => {
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.id !== nodeId) {
-            return node;
-          }
-
-          const sanitizedUpdates: Record<string, unknown> = {};
-
-          if ("color" in updates) {
-            sanitizedUpdates.color = isStickyNoteColor(updates.color)
-              ? updates.color
-              : DEFAULT_STICKY_NOTE_COLOR;
-          }
-
-          if ("content" in updates && typeof updates.content === "string") {
-            sanitizedUpdates.content = updates.content;
-          }
-
-          if ("width" in updates && typeof updates.width === "number") {
-            sanitizedUpdates.width = clampStickyDimension(
-              updates.width,
-              STICKY_NOTE_MIN_WIDTH,
-            );
-          }
-
-          if ("height" in updates && typeof updates.height === "number") {
-            sanitizedUpdates.height = clampStickyDimension(
-              updates.height,
-              STICKY_NOTE_MIN_HEIGHT,
-            );
-          }
-
-          if (Object.keys(sanitizedUpdates).length === 0) {
-            return node;
-          }
-
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              ...sanitizedUpdates,
-            },
-          };
-        }),
-      );
-    },
-    [setNodes],
-  );
-
-  const decoratedNodes = useMemo(() => {
-    return nodes.map((node) => {
-      const isMatch = searchMatchSet.has(node.id);
-      const isActive =
-        isMatch &&
-        isSearchOpen &&
-        searchMatches[currentSearchIndex] === node.id;
-      const isStickyNoteNode = node.type === "stickyNote";
-
-      const baseData = {
-        ...node.data,
-        onDelete: handleDeleteNode,
-        ...(isStickyNoteNode
-          ? { onUpdateStickyNote: handleUpdateStickyNoteNode }
-          : {}),
-      } as NodeData & Record<string, unknown>;
-
-      const augmentedData = isStickyNoteNode
-        ? ({
-            ...baseData,
-            label:
-              typeof baseData.label === "string" && baseData.label.length > 0
-                ? baseData.label
-                : "Sticky Note",
-            color: isStickyNoteColor(baseData.color)
-              ? (baseData.color as StickyNoteColor)
-              : DEFAULT_STICKY_NOTE_COLOR,
-            content: sanitizeStickyNoteContent(baseData.content),
-            width: sanitizeStickyNoteDimension(
-              baseData.width,
-              DEFAULT_STICKY_NOTE_WIDTH,
-              STICKY_NOTE_MIN_WIDTH,
-            ),
-            height: sanitizeStickyNoteDimension(
-              baseData.height,
-              DEFAULT_STICKY_NOTE_HEIGHT,
-              STICKY_NOTE_MIN_HEIGHT,
-            ),
-            onUpdateStickyNote: handleUpdateStickyNoteNode,
-          } as NodeData)
-        : baseData;
-
-      const decoratedData = !isSearchOpen
-        ? {
-            ...augmentedData,
-            isSearchMatch: false,
-            isSearchActive: false,
-          }
-        : {
-            ...augmentedData,
-            isSearchMatch: isMatch,
-            isSearchActive: isActive,
-          };
-
-      return {
-        ...node,
-        data: decoratedData,
-        ...(isStickyNoteNode ? { connectable: false } : {}),
-      };
-    });
-  }, [
-    currentSearchIndex,
-    handleDeleteNode,
-    handleUpdateStickyNoteNode,
-    isSearchOpen,
-    nodes,
-    searchMatchSet,
-    searchMatches,
-  ]);
 
   const determineLogLevel = useCallback(
     (
@@ -1453,121 +937,6 @@ export default function WorkflowCanvas({
     ],
   );
 
-  const highlightMatch = useCallback(
-    (index: number) => {
-      const instance = reactFlowInstance.current;
-      if (!instance) {
-        return;
-      }
-
-      const nodeId = searchMatches[index];
-      if (!nodeId) {
-        return;
-      }
-
-      const node = instance.getNode(nodeId);
-      if (!node) {
-        return;
-      }
-
-      const position = node.positionAbsolute ?? node.position;
-      const width = node.measured?.width ?? node.width ?? 180;
-      const height = node.measured?.height ?? node.height ?? 120;
-
-      const centerX = (position?.x ?? 0) + width / 2;
-      const centerY = (position?.y ?? 0) + height / 2;
-
-      const zoomLevel =
-        typeof instance.getZoom === "function"
-          ? Math.max(instance.getZoom(), 1.2)
-          : 1.2;
-
-      instance.setCenter(centerX, centerY, {
-        zoom: zoomLevel,
-        duration: 300,
-      });
-    },
-    [searchMatches],
-  );
-
-  const handleSearchNodes = useCallback((query: string) => {
-    const normalized = query.trim().toLowerCase();
-
-    if (!normalized) {
-      setSearchMatches([]);
-      setCurrentSearchIndex(0);
-      return;
-    }
-
-    const matches = nodesRef.current
-      .filter((node) => {
-        const label = String(node.data?.label ?? "").toLowerCase();
-        const description = String(node.data?.description ?? "").toLowerCase();
-        return (
-          label.includes(normalized) ||
-          description.includes(normalized) ||
-          node.id.toLowerCase().includes(normalized)
-        );
-      })
-      .map((node) => node.id);
-
-    setSearchMatches(matches);
-    setCurrentSearchIndex(matches.length > 0 ? 0 : 0);
-  }, []);
-
-  const handleHighlightNext = useCallback(() => {
-    if (searchMatches.length === 0) {
-      return;
-    }
-    setCurrentSearchIndex((index) => (index + 1) % searchMatches.length);
-  }, [searchMatches]);
-
-  const handleHighlightPrevious = useCallback(() => {
-    if (searchMatches.length === 0) {
-      return;
-    }
-    setCurrentSearchIndex(
-      (index) => (index - 1 + searchMatches.length) % searchMatches.length,
-    );
-  }, [searchMatches]);
-
-  const handleCloseSearch = useCallback(() => {
-    setIsSearchOpen(false);
-    setSearchMatches([]);
-    setCurrentSearchIndex(0);
-  }, []);
-
-  const handleToggleSearch = useCallback(() => {
-    setIsSearchOpen((previous) => {
-      const next = !previous;
-      setSearchMatches([]);
-      setCurrentSearchIndex(0);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isSearchOpen) {
-      return;
-    }
-
-    if (searchMatches.length === 0) {
-      return;
-    }
-
-    const safeIndex = Math.min(
-      currentSearchIndex,
-      Math.max(searchMatches.length - 1, 0),
-    );
-
-    if (safeIndex !== currentSearchIndex) {
-      setCurrentSearchIndex(safeIndex);
-      return;
-    }
-
-    highlightMatch(safeIndex);
-  }, [currentSearchIndex, highlightMatch, isSearchOpen, searchMatches]);
-
   const handleDuplicateSelectedNodes = useCallback(() => {
     const selectedNodes = nodes.filter((node) => node.selected);
     if (selectedNodes.length === 0) {
@@ -1629,9 +998,9 @@ export default function WorkflowCanvas({
           source: sourceId,
           target: targetId,
           selected: false,
-        } as WorkflowEdge;
+        } as CanvasEdge;
       })
-      .filter(Boolean) as WorkflowEdge[];
+      .filter(Boolean) as CanvasEdge[];
 
     isRestoringRef.current = true;
     recordSnapshot({ force: true });
@@ -2454,102 +1823,6 @@ export default function WorkflowCanvas({
     [handleOpenChat, handleUpdateStickyNoteNode, setNodes],
   );
 
-  // Handle chat message sending
-  const handleChatResponseStart = useCallback(() => {
-    if (!activeChatNodeId) {
-      return;
-    }
-
-    setNodes((nds) =>
-      nds.map((node) =>
-        node.id === activeChatNodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                status: "running" as NodeStatus,
-              },
-            }
-          : node,
-      ),
-    );
-  }, [activeChatNodeId, setNodes]);
-
-  const handleChatResponseEnd = useCallback(() => {
-    if (!activeChatNodeId) {
-      return;
-    }
-
-    setNodes((nds) =>
-      nds.map((node) =>
-        node.id === activeChatNodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                status: "success" as NodeStatus,
-              },
-            }
-          : node,
-      ),
-    );
-  }, [activeChatNodeId, setNodes]);
-
-  const handleChatClientTool = useCallback(
-    async (toolCall: { name: string; params: Record<string, unknown> }) => {
-      if (!activeChatNodeId || toolCall.name !== "orcheo.run_workflow") {
-        return {};
-      }
-
-      if (!workflowId) {
-        throw new Error("Cannot trigger workflow without a workflow ID");
-      }
-
-      const params = toolCall.params ?? {};
-      const rawMessage =
-        typeof params.message === "string" ? params.message : "";
-      const threadId =
-        typeof params.threadId === "string"
-          ? params.threadId
-          : typeof params.thread_id === "string"
-            ? params.thread_id
-            : null;
-
-      const metadata = { ...(params as Record<string, unknown>) };
-      delete metadata.message;
-      delete metadata.threadId;
-      delete metadata.thread_id;
-
-      const response = await fetch(
-        buildBackendHttpUrl(
-          `/api/chatkit/workflows/${workflowId}/trigger`,
-          backendBaseUrl,
-        ),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: rawMessage,
-            actor: user.name,
-            client_thread_id: threadId,
-            metadata,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to trigger workflow via ChatKit client tool");
-      }
-
-      const result = await response.json();
-
-      return result;
-    },
-    [activeChatNodeId, backendBaseUrl, user.name, workflowId],
-  );
-
   // Handle workflow execution
   const handleRunWorkflow = useCallback(async () => {
     if (nodes.length === 0) {
@@ -2591,7 +1864,7 @@ export default function WorkflowCanvas({
         typeof node.data?.iconKey === "string" ? node.data.iconKey : undefined,
     }));
 
-    const executionEdges: WorkflowEdge[] = edges.map((edge) => ({
+    const executionEdges: CanvasEdge[] = edges.map((edge) => ({
       id: edge.id ?? generateRandomId("edge"),
       source: edge.source,
       target: edge.target,
@@ -2822,34 +2095,6 @@ export default function WorkflowCanvas({
       description: "Live updates disconnected. Resume to reconnect.",
     });
   }, [activeExecutionId, isRunning, setExecutions, setNodes]);
-
-  const handleUndo = useCallback(() => {
-    const previousSnapshot = undoStackRef.current.pop();
-    if (!previousSnapshot) {
-      return;
-    }
-    const currentSnapshot = createSnapshot();
-    redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(
-      -HISTORY_LIMIT,
-    );
-    applySnapshot(previousSnapshot);
-    setCanUndo(undoStackRef.current.length > 0);
-    setCanRedo(true);
-  }, [applySnapshot, createSnapshot]);
-
-  const handleRedo = useCallback(() => {
-    const nextSnapshot = redoStackRef.current.pop();
-    if (!nextSnapshot) {
-      return;
-    }
-    const currentSnapshot = createSnapshot();
-    undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(
-      -HISTORY_LIMIT,
-    );
-    applySnapshot(nextSnapshot);
-    setCanRedo(redoStackRef.current.length > 0);
-    setCanUndo(true);
-  }, [applySnapshot, createSnapshot]);
 
   useEffect(() => {
     const targetDocument =
@@ -3232,14 +2477,7 @@ export default function WorkflowCanvas({
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
       setExecutions([]);
-      if (nodesRef.current.length === 0 && edgesRef.current.length === 0) {
-        applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
-      } else {
-        undoStackRef.current = [];
-        redoStackRef.current = [];
-        setCanUndo(false);
-        setCanRedo(false);
-      }
+      applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
     };
 
     const loadWorkflow = async () => {
