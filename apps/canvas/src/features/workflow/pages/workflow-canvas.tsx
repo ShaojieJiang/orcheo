@@ -15,13 +15,7 @@ import type {
   NodeChange,
   ReactFlowInstance,
 } from "@xyflow/react";
-import {
-  Panel,
-  addEdge,
-  useNodesState,
-  useEdgesState,
-  MarkerType,
-} from "@xyflow/react";
+import { Panel, addEdge, useNodesState, useEdgesState } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
@@ -74,705 +68,84 @@ import {
   WORKFLOW_STORAGE_EVENT,
 } from "@features/workflow/lib/workflow-storage";
 import { toast } from "@/hooks/use-toast";
-import type {
-  Credential,
-  CredentialInput,
-  CredentialVaultEntryResponse,
-} from "@features/workflow/types/credential-vault";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
 import {
   getNodeIcon,
   inferNodeIconKey,
 } from "@features/workflow/lib/node-icons";
-
-// Add default style to remove ReactFlow node container
-const defaultNodeStyle = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  borderRadius: 0,
-  width: "auto",
-  boxShadow: "none",
-};
-
-const STICKY_NOTE_COLORS: StickyNoteColor[] = [
-  "yellow",
-  "pink",
-  "blue",
-  "green",
-  "purple",
-];
-const DEFAULT_STICKY_NOTE_COLOR: StickyNoteColor = "yellow";
-const DEFAULT_STICKY_NOTE_CONTENT = "Leave a note for collaborators";
-const STICKY_NOTE_MIN_WIDTH = 180;
-const STICKY_NOTE_MIN_HEIGHT = 150;
-const DEFAULT_STICKY_NOTE_WIDTH = 240;
-const DEFAULT_STICKY_NOTE_HEIGHT = 200;
-
-const isStickyNoteColor = (value: unknown): value is StickyNoteColor => {
-  return (
-    typeof value === "string" &&
-    (STICKY_NOTE_COLORS as readonly string[]).includes(value)
-  );
-};
-
-const clampStickyDimension = (value: number, minimum: number) => {
-  if (Number.isNaN(value) || !Number.isFinite(value)) {
-    return minimum;
-  }
-  return Math.max(minimum, Math.round(value));
-};
-
-const sanitizeStickyNoteDimension = (
-  value: unknown,
-  fallback: number,
-  minimum: number,
-) => {
-  if (typeof value === "number") {
-    return clampStickyDimension(value, minimum);
-  }
-  return clampStickyDimension(fallback, minimum);
-};
-
-const sanitizeStickyNoteContent = (value: unknown) => {
-  return typeof value === "string" ? value : DEFAULT_STICKY_NOTE_CONTENT;
-};
-
-const generateRandomId = (prefix: string) => {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    "randomUUID" in globalThis.crypto &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return `${prefix}-${globalThis.crypto.randomUUID()}`;
-  }
-
-  const timestamp = Date.now().toString(36);
-  const randomSuffix = Math.random().toString(36).slice(2, 8);
-  return `${prefix}-${timestamp}-${randomSuffix}`;
-};
-
-const generateNodeId = () => generateRandomId("node");
-
-type SubworkflowStructure = {
-  nodes: PersistedWorkflowNode[];
-  edges: PersistedWorkflowEdge[];
-};
-
-const NODE_RUNTIME_CACHE_PREFIX = "orcheo:workflow-runtime-cache:";
-
-const getRuntimeCacheStorageKey = (workflowId?: string | null) => {
-  return `${NODE_RUNTIME_CACHE_PREFIX}${workflowId ?? "unsaved"}`;
-};
-
-const readRuntimeCacheFromSession = (
-  key: string,
-): Record<string, NodeRuntimeCacheEntry> => {
-  if (typeof window === "undefined" || !window.sessionStorage) {
-    return {};
-  }
-
-  const raw = window.sessionStorage.getItem(key);
-  if (!raw) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, NodeRuntimeCacheEntry>;
-    }
-  } catch (error) {
-    console.warn(
-      "Failed to parse node runtime cache from sessionStorage",
-      error,
-    );
-  }
-
-  return {};
-};
-
-const persistRuntimeCacheToSession = (
-  key: string,
-  cache: Record<string, NodeRuntimeCacheEntry>,
-) => {
-  if (typeof window === "undefined" || !window.sessionStorage) {
-    return;
-  }
-
-  if (Object.keys(cache).length === 0) {
-    window.sessionStorage.removeItem(key);
-    return;
-  }
-
-  try {
-    const serialized = JSON.stringify(cache);
-    window.sessionStorage.setItem(key, serialized);
-  } catch (error) {
-    console.warn(
-      "Failed to persist node runtime cache to sessionStorage",
-      error,
-    );
-  }
-};
-
-const clearRuntimeCacheFromSession = (key: string) => {
-  if (typeof window === "undefined" || !window.sessionStorage) {
-    return;
-  }
-
-  window.sessionStorage.removeItem(key);
-};
-
-const SUBWORKFLOW_LIBRARY: Record<string, SubworkflowStructure> = {
-  "subflow-customer-onboarding": {
-    nodes: [
-      {
-        id: "capture-intake",
-        type: "trigger",
-        position: { x: 0, y: 0 },
-        data: {
-          type: "trigger",
-          label: "Capture intake request",
-          description: "Webhook triggered when a signup is submitted.",
-          status: "idle",
-        },
-      },
-      {
-        id: "enrich-profile",
-        type: "function",
-        position: { x: 260, y: 0 },
-        data: {
-          type: "function",
-          label: "Enrich CRM profile",
-          description: "Collect firmographic data for the new customer.",
-          status: "idle",
-        },
-      },
-      {
-        id: "provision-access",
-        type: "api",
-        position: { x: 520, y: 0 },
-        data: {
-          type: "api",
-          label: "Provision access",
-          description: "Create accounts across internal and SaaS tools.",
-          status: "idle",
-        },
-      },
-      {
-        id: "send-welcome",
-        type: "api",
-        position: { x: 780, y: 0 },
-        data: {
-          type: "api",
-          label: "Send welcome sequence",
-          description: "Kick off emails, docs, and success team handoff.",
-          status: "idle",
-        },
-      },
-    ],
-    edges: [
-      {
-        id: "edge-capture-enrich",
-        source: "capture-intake",
-        target: "enrich-profile",
-      },
-      {
-        id: "edge-enrich-provision",
-        source: "enrich-profile",
-        target: "provision-access",
-      },
-      {
-        id: "edge-provision-welcome",
-        source: "provision-access",
-        target: "send-welcome",
-      },
-    ],
-  },
-  "subflow-incident-response": {
-    nodes: [
-      {
-        id: "incident-raised",
-        type: "trigger",
-        position: { x: 0, y: 0 },
-        data: {
-          type: "trigger",
-          label: "PagerDuty incident raised",
-          description: "Triggered when a Sev1 alert fires.",
-          status: "idle",
-        },
-      },
-      {
-        id: "triage-severity",
-        type: "function",
-        position: { x: 260, y: 0 },
-        data: {
-          type: "function",
-          label: "Triage severity",
-          description: "Evaluate runbooks and required responders.",
-          status: "idle",
-        },
-      },
-      {
-        id: "notify-oncall",
-        type: "api",
-        position: { x: 520, y: -120 },
-        data: {
-          type: "api",
-          label: "Notify on-call",
-          description: "Post critical details into the on-call channel.",
-          status: "idle",
-        },
-      },
-      {
-        id: "escalate-leads",
-        type: "api",
-        position: { x: 520, y: 120 },
-        data: {
-          type: "api",
-          label: "Escalate to leads",
-          description: "Escalate if no acknowledgement within SLA.",
-          status: "idle",
-        },
-      },
-      {
-        id: "update-status",
-        type: "function",
-        position: { x: 780, y: 0 },
-        data: {
-          type: "function",
-          label: "Update status page",
-          description: "Publish current impact for stakeholders.",
-          status: "idle",
-        },
-      },
-    ],
-    edges: [
-      {
-        id: "edge-raised-triage",
-        source: "incident-raised",
-        target: "triage-severity",
-      },
-      {
-        id: "edge-triage-notify",
-        source: "triage-severity",
-        target: "notify-oncall",
-      },
-      {
-        id: "edge-triage-escalate",
-        source: "triage-severity",
-        target: "escalate-leads",
-      },
-      {
-        id: "edge-notify-update",
-        source: "notify-oncall",
-        target: "update-status",
-      },
-      {
-        id: "edge-escalate-update",
-        source: "escalate-leads",
-        target: "update-status",
-      },
-    ],
-  },
-  "subflow-content-qa": {
-    nodes: [
-      {
-        id: "draft-ready",
-        type: "trigger",
-        position: { x: 0, y: 0 },
-        data: {
-          type: "trigger",
-          label: "Draft ready for review",
-          description: "Start QA once an AI draft is submitted.",
-          status: "idle",
-        },
-      },
-      {
-        id: "score-quality",
-        type: "ai",
-        position: { x: 260, y: 0 },
-        data: {
-          type: "ai",
-          label: "Score quality",
-          description: "Use AI rubric to score voice, tone, and accuracy.",
-          status: "idle",
-        },
-      },
-      {
-        id: "collect-feedback",
-        type: "function",
-        position: { x: 520, y: -120 },
-        data: {
-          type: "function",
-          label: "Collect revisions",
-          description: "Request edits from stakeholders when needed.",
-          status: "idle",
-        },
-      },
-      {
-        id: "schedule-publish",
-        type: "api",
-        position: { x: 520, y: 120 },
-        data: {
-          type: "api",
-          label: "Schedule publish",
-          description: "Queue approved content in the CMS calendar.",
-          status: "idle",
-        },
-      },
-      {
-        id: "final-approval",
-        type: "function",
-        position: { x: 780, y: 0 },
-        data: {
-          type: "function",
-          label: "Finalize and log",
-          description: "Capture QA notes and mark the run complete.",
-          status: "idle",
-        },
-      },
-    ],
-    edges: [
-      {
-        id: "edge-draft-score",
-        source: "draft-ready",
-        target: "score-quality",
-      },
-      {
-        id: "edge-score-feedback",
-        source: "score-quality",
-        target: "collect-feedback",
-      },
-      {
-        id: "edge-score-schedule",
-        source: "score-quality",
-        target: "schedule-publish",
-      },
-      {
-        id: "edge-feedback-final",
-        source: "collect-feedback",
-        target: "final-approval",
-      },
-      {
-        id: "edge-schedule-final",
-        source: "schedule-publish",
-        target: "final-approval",
-      },
-    ],
-  },
-};
-
-interface NodeRuntimeData {
-  inputs?: unknown;
-  outputs?: unknown;
-  messages?: unknown;
-  raw?: unknown;
-  updatedAt: string;
-}
-
-interface NodeData {
-  type: string;
-  label: string;
-  description?: string;
-  status: "idle" | "running" | "success" | "error" | "warning";
-  iconKey?: string;
-  icon?: React.ReactNode;
-  onOpenChat?: () => void;
-  onDelete?: (id: string) => void;
-  isDisabled?: boolean;
-  runtime?: NodeRuntimeData;
-  code?: string;
-  [key: string]: unknown;
-}
-
-type CanvasNode = Node<NodeData>;
-type CanvasEdge = Edge<Record<string, unknown>>;
-
-const PERSISTED_NODE_FIELDS = new Set([
-  "label",
-  "description",
-  "type",
-  "isDisabled",
-]);
-
-const DEFAULT_NODE_LABEL = "New Node";
-
-const normaliseLabelInput = (value: unknown): string => {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim();
-};
-
-const sanitizeLabel = (
-  value: unknown,
-  fallback = DEFAULT_NODE_LABEL,
-): string => {
-  const normalised = normaliseLabelInput(value);
-  return normalised.length > 0 ? normalised : fallback;
-};
-
-const slugifyLabel = (label: string): string => {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-};
-
-const buildExistingNameSet = (
-  nodes: CanvasNode[],
-  excludeId?: string,
-): Set<string> => {
-  const names = new Set<string>();
-  for (const node of nodes) {
-    if (excludeId && node.id === excludeId) {
-      continue;
-    }
-    const label = sanitizeLabel(
-      (node.data?.label as string) ?? node.id ?? DEFAULT_NODE_LABEL,
-    );
-    names.add(label.toLowerCase());
-  }
-  return names;
-};
-
-const buildExistingIdSet = (
-  nodes: CanvasNode[],
-  excludeId?: string,
-): Set<string> => {
-  const ids = new Set<string>();
-  for (const node of nodes) {
-    if (excludeId && node.id === excludeId) {
-      continue;
-    }
-    ids.add(node.id);
-  }
-  return ids;
-};
-
-const assignUniqueIdentity = (
-  desiredLabel: string,
-  nameSet: Set<string>,
-  idSet: Set<string>,
-) => {
-  const baseLabel = sanitizeLabel(desiredLabel);
-  let candidateLabel = baseLabel;
-  let attempt = 2;
-  while (nameSet.has(candidateLabel.toLowerCase())) {
-    candidateLabel = `${baseLabel} (${attempt})`;
-    attempt += 1;
-  }
-  nameSet.add(candidateLabel.toLowerCase());
-
-  const baseSlug = slugifyLabel(candidateLabel) || "node";
-  let candidateId = baseSlug;
-  attempt = 2;
-  while (idSet.has(candidateId)) {
-    candidateId = `${baseSlug}-${attempt}`;
-    attempt += 1;
-  }
-  idSet.add(candidateId);
-
-  return { id: candidateId, label: candidateLabel };
-};
-
-const createIdentityAllocator = (
-  nodes: CanvasNode[],
-  options: { excludeId?: string } = {},
-) => {
-  const nameSet = buildExistingNameSet(nodes, options.excludeId);
-  const idSet = buildExistingIdSet(nodes, options.excludeId);
-  return (desiredLabel: string) =>
-    assignUniqueIdentity(desiredLabel, nameSet, idSet);
-};
-
-const sanitizeNodeDataForPersist = (
-  data?: NodeData,
-): PersistedWorkflowNode["data"] => {
-  const sanitized: PersistedWorkflowNode["data"] = {
-    label:
-      typeof data?.label === "string"
-        ? data.label
-        : data?.label !== undefined
-          ? String(data.label)
-          : "New Node",
-  };
-
-  if (typeof data?.description === "string") {
-    sanitized.description = data.description;
-  }
-
-  if (typeof data?.type === "string") {
-    sanitized.type = data.type;
-  }
-
-  if (typeof data?.isDisabled === "boolean") {
-    sanitized.isDisabled = data.isDisabled;
-  }
-
-  Object.entries(data ?? {}).forEach(([key, value]) => {
-    if (
-      PERSISTED_NODE_FIELDS.has(key) ||
-      key === "onOpenChat" ||
-      key === "icon" ||
-      key === "runtime" ||
-      key === "status"
-    ) {
-      return;
-    }
-
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      sanitized[key] = value;
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      sanitized[key] = value;
-      return;
-    }
-
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      !(value as { $$typeof?: unknown }).$$typeof
-    ) {
-      sanitized[key] = value;
-    }
-  });
-
-  return sanitized;
-};
-
-const toPersistedNode = (node: CanvasNode): PersistedWorkflowNode => ({
-  id: node.id,
-  type:
-    typeof node.data?.type === "string"
-      ? node.data.type
-      : (node.type ?? "default"),
-  position: {
-    x: node.position?.x ?? 0,
-    y: node.position?.y ?? 0,
-  },
-  data: sanitizeNodeDataForPersist(node.data),
-});
-
-const toPersistedEdge = (edge: CanvasEdge): PersistedWorkflowEdge => ({
-  id: edge.id,
-  source: edge.source,
-  target: edge.target,
-  sourceHandle: edge.sourceHandle,
-  targetHandle: edge.targetHandle,
-  label: edge.label,
-  type: edge.type,
-  animated: edge.animated,
-  style: edge.style,
-});
-
-const resolveReactFlowType = (
-  persistedType?: string,
-): "default" | "chatTrigger" | "startEnd" | "stickyNote" => {
-  if (!persistedType) {
-    return "default";
-  }
-
-  if (persistedType === "chatTrigger") {
-    return "chatTrigger";
-  }
-
-  if (persistedType === "stickyNote" || persistedType === "annotation") {
-    return "stickyNote";
-  }
-
-  if (
-    persistedType === "start" ||
-    persistedType === "end" ||
-    persistedType === "startEnd"
-  ) {
-    return "startEnd";
-  }
-
-  return "default";
-};
-
-const toCanvasNodeBase = (node: PersistedWorkflowNode): CanvasNode => {
-  const extraEntries = Object.entries(node.data ?? {}).filter(
-    ([key]) => !PERSISTED_NODE_FIELDS.has(key),
-  );
-
-  const extraData = Object.fromEntries(extraEntries);
-  const semanticType = node.data?.type ?? node.type ?? "default";
-  const extraDataRecord = { ...extraData } as Record<string, unknown>;
-  const storedIconKeyRaw = extraDataRecord.iconKey;
-  delete extraDataRecord.iconKey;
-  delete extraDataRecord.icon;
-  const otherExtraData = extraDataRecord;
-
-  const label =
-    typeof node.data?.label === "string" ? node.data.label : "New Node";
-  const description =
-    typeof node.data?.description === "string" ? node.data.description : "";
-
-  const storedIconKey =
-    typeof storedIconKeyRaw === "string" ? storedIconKeyRaw : undefined;
-  const resolvedIconKey =
-    inferNodeIconKey({
-      iconKey: storedIconKey,
-      label,
-      type: semanticType,
-    }) ?? storedIconKey;
-  const icon = getNodeIcon(resolvedIconKey);
-
-  return {
-    id: node.id,
-    type: resolveReactFlowType(node.type),
-    position: node.position ?? { x: 0, y: 0 },
-    style: defaultNodeStyle,
-    data: {
-      type: semanticType,
-      label,
-      description,
-      status: (node.data?.status ?? "idle") as NodeStatus,
-      isDisabled: node.data?.isDisabled,
-      iconKey: resolvedIconKey,
-      icon,
-      ...otherExtraData,
-    } as NodeData,
-    draggable: true,
-  };
-};
-
-const toCanvasEdge = (edge: PersistedWorkflowEdge): CanvasEdge => ({
-  id: edge.id ?? `edge-${edge.source}-${edge.target}`,
-  source: edge.source,
-  target: edge.target,
-  sourceHandle: edge.sourceHandle,
-  targetHandle: edge.targetHandle,
-  label: edge.label,
-  type: edge.type ?? "default",
-  animated: edge.animated ?? false,
-  markerEnd: {
-    type: MarkerType.ArrowClosed,
-    width: 12,
-    height: 12,
-  },
-  style: edge.style ?? { stroke: "#99a1b3", strokeWidth: 2 },
-});
-
-const convertPersistedEdgesToCanvas = (edges: PersistedWorkflowEdge[]) =>
-  edges.map(toCanvasEdge);
-
-interface WorkflowSnapshot {
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-}
+import {
+  clearRuntimeCacheFromSession,
+  getRuntimeCacheStorageKey,
+  persistRuntimeCacheToSession,
+  readRuntimeCacheFromSession,
+} from "@features/workflow/pages/workflow-canvas/helpers/runtime-cache";
+import {
+  DEFAULT_STICKY_NOTE_COLOR,
+  DEFAULT_STICKY_NOTE_CONTENT,
+  DEFAULT_STICKY_NOTE_HEIGHT,
+  DEFAULT_STICKY_NOTE_WIDTH,
+  STICKY_NOTE_MIN_HEIGHT,
+  STICKY_NOTE_MIN_WIDTH,
+  isStickyNoteColor,
+  sanitizeStickyNoteContent,
+  sanitizeStickyNoteDimension,
+} from "@features/workflow/pages/workflow-canvas/helpers/sticky-notes";
+import {
+  SUBWORKFLOW_LIBRARY,
+  type SubworkflowStructure,
+} from "@features/workflow/pages/workflow-canvas/helpers/subworkflow-library";
+import {
+  generateNodeId,
+  generateRandomId,
+} from "@features/workflow/pages/workflow-canvas/helpers/id";
+import {
+  createIdentityAllocator,
+  sanitizeLabel,
+} from "@features/workflow/pages/workflow-canvas/helpers/node-identity";
+import {
+  convertPersistedEdgesToCanvas,
+  defaultNodeStyle,
+  toCanvasNodeBase,
+  toPersistedEdge,
+  toPersistedNode,
+} from "@features/workflow/pages/workflow-canvas/helpers/transformers";
+import {
+  PASTE_BASE_OFFSET,
+  PASTE_OFFSET_INCREMENT,
+  PASTE_OFFSET_MAX_STEPS,
+  buildClipboardPayload,
+  cloneEdge,
+  cloneNode,
+  decodeClipboardPayloadString,
+  encodeClipboardPayload,
+  signatureFromClipboardPayload,
+} from "@features/workflow/pages/workflow-canvas/helpers/clipboard";
+import {
+  executionStatusFromValue,
+  nodeStatusFromValue,
+} from "@features/workflow/pages/workflow-canvas/helpers/execution";
+import {
+  determineNodeType,
+  isRecord,
+  validateWorkflowData,
+} from "@features/workflow/pages/workflow-canvas/helpers/validation";
+import { useWorkflowCredentials } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-credentials";
+import type {
+  CanvasEdge,
+  CanvasNode,
+  CopyClipboardOptions,
+  CopyClipboardResult,
+  NodeData,
+  NodeStatus,
+  RunHistoryResponse,
+  RunHistoryStep,
+  SidebarNodeDefinition,
+  WorkflowClipboardPayload,
+  WorkflowExecution,
+  WorkflowExecutionNode,
+  WorkflowExecutionStatus,
+  WorkflowSnapshot,
+} from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 interface WorkflowCanvasProps {
   initialNodes?: CanvasNode[];
@@ -780,259 +153,6 @@ interface WorkflowCanvasProps {
 }
 
 const HISTORY_LIMIT = 50;
-
-const WORKFLOW_CLIPBOARD_HEADER = "ORCHEO_WORKFLOW_CLIPBOARD_V1:";
-const PASTE_BASE_OFFSET = 40;
-const PASTE_OFFSET_INCREMENT = 24;
-const PASTE_OFFSET_MAX_STEPS = 5;
-
-type WorkflowClipboardPayload = {
-  version: 1;
-  type: "workflow-selection";
-  nodes: PersistedWorkflowNode[];
-  edges: PersistedWorkflowEdge[];
-  copiedAt?: number;
-};
-
-type CopyClipboardOptions = {
-  skipSuccessToast?: boolean;
-};
-
-type CopyClipboardResult = {
-  success: boolean;
-  nodeCount: number;
-  edgeCount: number;
-  usedFallback: boolean;
-};
-
-const encodeClipboardPayload = (payload: WorkflowClipboardPayload) =>
-  `${WORKFLOW_CLIPBOARD_HEADER}${JSON.stringify(payload)}`;
-
-const decodeClipboardPayloadString = (
-  serialized: string,
-): WorkflowClipboardPayload | null => {
-  if (typeof serialized !== "string") {
-    return null;
-  }
-  const trimmed = serialized.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  const payloadString = trimmed.startsWith(WORKFLOW_CLIPBOARD_HEADER)
-    ? trimmed.slice(WORKFLOW_CLIPBOARD_HEADER.length)
-    : trimmed;
-
-  try {
-    const parsed = JSON.parse(
-      payloadString,
-    ) as Partial<WorkflowClipboardPayload>;
-    if (
-      parsed &&
-      parsed.version === 1 &&
-      parsed.type === "workflow-selection" &&
-      Array.isArray(parsed.nodes) &&
-      Array.isArray(parsed.edges)
-    ) {
-      return {
-        version: 1,
-        type: "workflow-selection",
-        nodes: parsed.nodes as PersistedWorkflowNode[],
-        edges: parsed.edges as PersistedWorkflowEdge[],
-        copiedAt:
-          typeof parsed.copiedAt === "number" ? parsed.copiedAt : undefined,
-      };
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-};
-
-const buildClipboardPayload = (
-  nodesToPersist: PersistedWorkflowNode[],
-  edgesToPersist: PersistedWorkflowEdge[],
-): WorkflowClipboardPayload => ({
-  version: 1,
-  type: "workflow-selection",
-  nodes: nodesToPersist,
-  edges: edgesToPersist,
-  copiedAt: Date.now(),
-});
-
-const signatureFromClipboardPayload = (payload: WorkflowClipboardPayload) =>
-  typeof payload.copiedAt === "number"
-    ? `ts:${payload.copiedAt}`
-    : `ids:${payload.nodes
-        .map((node) => node.id)
-        .sort()
-        .join("|")}`;
-
-const cloneNode = (node: CanvasNode): CanvasNode => ({
-  ...node,
-  position: node.position ? { ...node.position } : node.position,
-  data: node.data ? { ...node.data } : node.data,
-});
-
-const cloneEdge = (edge: CanvasEdge): CanvasEdge => ({
-  ...edge,
-  data: edge.data ? { ...edge.data } : edge.data,
-});
-
-// Update the WorkflowExecution interface to match the component's expectations
-type WorkflowExecutionStatus = "running" | "success" | "failed" | "partial";
-type NodeStatus = "idle" | "running" | "success" | "error" | "warning";
-
-interface WorkflowExecutionNode {
-  id: string;
-  type: string;
-  name: string;
-  position: { x: number; y: number };
-  status: NodeStatus;
-  iconKey?: string;
-  details?: Record<string, unknown>;
-}
-
-interface WorkflowExecution {
-  id: string;
-  runId: string;
-  status: WorkflowExecutionStatus;
-  startTime: string;
-  endTime?: string;
-  duration: number;
-  issues: number;
-  nodes: WorkflowExecutionNode[];
-  edges: WorkflowEdge[];
-  logs: {
-    timestamp: string;
-    level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
-    message: string;
-  }[];
-  metadata?: {
-    graphToCanvas?: Record<string, string>;
-  };
-}
-
-interface RunHistoryStep {
-  index: number;
-  at: string;
-  payload: Record<string, unknown>;
-}
-
-interface RunHistoryResponse {
-  execution_id: string;
-  workflow_id: string;
-  status: string;
-  started_at: string;
-  completed_at?: string | null;
-  error?: string | null;
-  inputs?: Record<string, unknown>;
-  steps: RunHistoryStep[];
-}
-
-const nodeStatusFromValue = (value?: string): NodeStatus => {
-  const normalised = value?.toLowerCase();
-  switch (normalised) {
-    case "running":
-      return "running";
-    case "error":
-    case "failed":
-      return "error";
-    case "warning":
-    case "cancelled":
-    case "partial":
-      return "warning";
-    default:
-      return "success";
-  }
-};
-
-const executionStatusFromValue = (
-  value?: string,
-): WorkflowExecutionStatus | null => {
-  const normalised = value?.toLowerCase();
-  switch (normalised) {
-    case "running":
-      return "running";
-    case "completed":
-    case "success":
-      return "success";
-    case "error":
-    case "failed":
-      return "failed";
-    case "cancelled":
-    case "partial":
-      return "partial";
-    default:
-      return null;
-  }
-};
-
-interface SidebarNodeDefinition {
-  id?: string;
-  type?: string;
-  name?: string;
-  description?: string;
-  iconKey?: string;
-  icon?: React.ReactNode;
-  data?: Record<string, unknown>;
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
-};
-
-const determineNodeType = (nodeId?: string) => {
-  if (nodeId?.includes("chat-trigger")) {
-    return "chatTrigger" as const;
-  }
-  if (nodeId === "sticky-note") {
-    return "stickyNote" as const;
-  }
-  if (nodeId === "start-node" || nodeId === "end-node") {
-    return "startEnd" as const;
-  }
-  return "default" as const;
-};
-
-const validateWorkflowData = (data: unknown) => {
-  if (!isRecord(data)) {
-    throw new Error("Invalid workflow file structure.");
-  }
-
-  const { nodes, edges } = data;
-
-  if (!Array.isArray(nodes)) {
-    throw new Error("Invalid nodes array in workflow file.");
-  }
-
-  nodes.forEach((node, index) => {
-    if (!isRecord(node)) {
-      throw new Error(`Invalid node at index ${index}.`);
-    }
-    if (!isRecord(node.position)) {
-      throw new Error(`Node ${node.id ?? index} is missing position data.`);
-    }
-    const { x, y } = node.position as Record<string, unknown>;
-    if (typeof x !== "number" || typeof y !== "number") {
-      throw new Error(`Node ${node.id ?? index} has invalid coordinates.`);
-    }
-  });
-
-  if (!Array.isArray(edges)) {
-    throw new Error("Invalid edges array in workflow file.");
-  }
-
-  edges.forEach((edge, index) => {
-    if (!isRecord(edge)) {
-      throw new Error(`Invalid edge at index ${index}.`);
-    }
-    if (typeof edge.source !== "string" || typeof edge.target !== "string") {
-      throw new Error(`Edge ${edge.id ?? index} has invalid connections.`);
-    }
-  });
-};
 
 export default function WorkflowCanvas({
   initialNodes = [],
@@ -1055,8 +175,6 @@ export default function WorkflowCanvas({
     StoredWorkflow["versions"]
   >([]);
   const [workflowTags, setWorkflowTags] = useState<string[]>(["draft"]);
-  const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [isCredentialsLoading, setIsCredentialsLoading] = useState(true);
   const [subworkflows, setSubworkflows] = useState<SubworkflowTemplate[]>([
     {
       id: "subflow-customer-onboarding",
@@ -1112,87 +230,6 @@ export default function WorkflowCanvas({
   >(() => readRuntimeCacheFromSession(runtimeCacheKey));
   const previousRuntimeCacheKeyRef = useRef(runtimeCacheKey);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let isActive = true;
-
-    const fetchCredentials = async () => {
-      if (!isActive) {
-        return;
-      }
-
-      setIsCredentialsLoading(true);
-      try {
-        const url = new URL(buildBackendHttpUrl("/api/credentials"));
-        if (workflowId) {
-          url.searchParams.set("workflow_id", workflowId);
-        }
-
-        const response = await fetch(url.toString(), {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load credentials (status ${response.status})`,
-          );
-        }
-
-        const payload =
-          (await response.json()) as CredentialVaultEntryResponse[];
-
-        if (!isActive) {
-          return;
-        }
-
-        const mapped = payload.map<Credential>((entry) => ({
-          id: entry.id,
-          name: entry.name,
-          type: entry.provider ?? entry.kind,
-          createdAt: entry.created_at,
-          updatedAt: entry.updated_at,
-          owner: entry.owner ?? null,
-          access: entry.access,
-          secrets: entry.secret_preview
-            ? { secret: entry.secret_preview }
-            : undefined,
-          status: entry.status,
-        }));
-
-        setCredentials((previous) => {
-          const remoteIds = new Set(mapped.map((item) => item.id));
-          const localOnly = previous.filter((item) => !remoteIds.has(item.id));
-          return [...mapped, ...localOnly];
-        });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        console.error("Failed to load credential vault", error);
-        toast({
-          title: "Unable to load credentials",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred while loading credentials.",
-          variant: "destructive",
-        });
-      } finally {
-        if (isActive) {
-          setIsCredentialsLoading(false);
-        }
-      }
-    };
-
-    fetchCredentials();
-
-    return () => {
-      isActive = false;
-      controller.abort();
-    };
-  }, [workflowId]);
-
   // State for UI controls
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -1232,6 +269,17 @@ export default function WorkflowCanvas({
     }),
     [],
   );
+  const {
+    credentials,
+    isCredentialsLoading,
+    handleAddCredential,
+    handleDeleteCredential,
+  } = useWorkflowCredentials({
+    routeWorkflowId: workflowId,
+    currentWorkflowId,
+    backendBaseUrl,
+    userName: user.name,
+  });
   const setHoveredEdgeIdValue = useCallback(
     (edgeId: string | null) => {
       setHoveredEdgeId(edgeId);
@@ -1309,135 +357,6 @@ export default function WorkflowCanvas({
       clearRuntimeCacheFromSession(runtimeCacheKey);
     };
   }, [runtimeCacheKey]);
-
-  const handleAddCredential = useCallback(
-    async (credential: CredentialInput) => {
-      const secret = credential.secrets?.apiKey?.trim();
-      if (!secret) {
-        const message = "API key is required to save a credential.";
-        toast({
-          title: "Missing credential secret",
-          description: message,
-          variant: "destructive",
-        });
-        throw new Error(message);
-      }
-
-      const response = await fetch(
-        buildBackendHttpUrl("/api/credentials", backendBaseUrl),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: credential.name,
-            provider: credential.type ?? "custom", // default provider label
-            secret,
-            actor: user.name,
-            access: credential.access,
-            workflow_id: currentWorkflowId,
-            scopes: [],
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        let detail = `Failed to save credential (status ${response.status})`;
-        try {
-          const payload = (await response.json()) as { detail?: unknown };
-          if (typeof payload?.detail === "string") {
-            detail = payload.detail;
-          } else if (
-            payload?.detail &&
-            typeof (payload.detail as { message?: unknown }).message ===
-              "string"
-          ) {
-            detail = (payload.detail as { message?: string }).message as string;
-          }
-        } catch (error) {
-          console.warn("Failed to parse credential creation error", error);
-        }
-
-        toast({
-          title: "Unable to save credential",
-          description: detail,
-          variant: "destructive",
-        });
-        throw new Error(detail);
-      }
-
-      const payload = (await response.json()) as CredentialVaultEntryResponse;
-
-      const credentialRecord: Credential = {
-        id: payload.id,
-        name: payload.name,
-        type: payload.provider ?? payload.kind,
-        createdAt: payload.created_at,
-        updatedAt: payload.updated_at,
-        owner: payload.owner,
-        access: payload.access,
-        secrets: credential.secrets,
-        status: payload.status,
-      };
-
-      setCredentials((prev) => {
-        const withoutDuplicate = prev.filter(
-          (existing) => existing.id !== credentialRecord.id,
-        );
-        return [...withoutDuplicate, credentialRecord];
-      });
-
-      toast({
-        title: "Credential added to vault",
-        description: `${credentialRecord.name} is now available for nodes that require secure access.`,
-      });
-    },
-    [backendBaseUrl, currentWorkflowId, user.name],
-  );
-
-  const handleDeleteCredential = useCallback(
-    async (id: string) => {
-      const url = new URL(
-        buildBackendHttpUrl(`/api/credentials/${id}`, backendBaseUrl),
-      );
-      if (currentWorkflowId) {
-        url.searchParams.set("workflow_id", currentWorkflowId);
-      }
-
-      try {
-        const response = await fetch(url.toString(), {
-          method: "DELETE",
-        });
-
-        if (!response.ok && response.status !== 404) {
-          throw new Error(
-            `Failed to delete credential (status ${response.status})`,
-          );
-        }
-
-        setCredentials((prev) =>
-          prev.filter((credential) => credential.id !== id),
-        );
-        toast({
-          title: "Credential removed",
-          description:
-            "Nodes referencing this credential will require reconfiguration before publish.",
-        });
-      } catch (error) {
-        console.error("Failed to delete credential", error);
-        const message =
-          error instanceof Error ? error.message : "Credential removal failed.";
-        toast({
-          title: "Unable to delete credential",
-          description: message,
-          variant: "destructive",
-        });
-        return;
-      }
-    },
-    [backendBaseUrl, currentWorkflowId],
-  );
 
   const handleCreateSubworkflow = useCallback(() => {
     const selectedNodes = nodes.filter((node) => node.selected);
