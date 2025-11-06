@@ -9,10 +9,13 @@ from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 import pytest
+from fastapi.testclient import TestClient
+from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import (
     ServiceTokenRecord,
     reset_authentication_state,
 )
+from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.service_token_repository import (
     SqliteServiceTokenRepository,
 )
@@ -44,7 +47,14 @@ def reset_auth_state(
         yield
     finally:
         monkeypatch.undo()
-        reset_authentication_state()
+    reset_authentication_state()
+
+
+def create_test_client() -> TestClient:
+    """Build a FastAPI test client wired to the in-memory repository."""
+
+    repository = InMemoryWorkflowRepository()
+    return TestClient(create_app(repository=repository))
 
 
 def _setup_service_token(
@@ -100,4 +110,4 @@ def _setup_service_token(
     return db_path, token_secret
 
 
-__all__ = ["reset_auth_state", "_setup_service_token"]
+__all__ = ["reset_auth_state", "create_test_client", "_setup_service_token"]
