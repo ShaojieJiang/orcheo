@@ -1,0 +1,163 @@
+"""Tests for ChatKit server workflow execution pathways."""
+
+from __future__ import annotations
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+import pytest
+from chatkit.errors import CustomStreamError
+from chatkit.types import ThreadMetadata
+from pydantic import BaseModel
+from orcheo_backend.app.chatkit_service import OrcheoChatKitServer
+from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from tests.backend.chatkit_test_utils import (
+    create_chatkit_test_server,
+    create_workflow_with_graph,
+)
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_end_to_end() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    graph_config = {
+        "format": "langgraph-script",
+        "source": """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def respond(state):
+        message = state.get("message", "")
+        return {"reply": f"Echo: {message}"}
+
+    graph.add_node("respond", respond)
+    graph.add_edge(START, "respond")
+    graph.add_edge("respond", END)
+    return graph
+""",
+        "entrypoint": "build_graph",
+    }
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_config,
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_test_server(repository)
+    reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+
+    assert reply == "Echo: Test"
+    assert isinstance(state, dict)
+    assert run is not None
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_without_reply() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Test workflow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    graph_config = {
+        "format": "langgraph-script",
+        "source": """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def no_reply(state):
+        return {"output": "something else"}
+
+    graph.add_node("no_reply", no_reply)
+    graph.add_edge(START, "no_reply")
+    graph.add_edge("no_reply", END)
+    return graph
+""",
+        "entrypoint": "build_graph",
+    }
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_config,
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    server = create_chatkit_test_server(repository)
+
+    with pytest.raises(CustomStreamError, match="without producing a reply"):
+        await server._run_workflow(workflow.id, {})
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_with_basemodel_state() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+
+    server = create_chatkit_test_server(repository)
+
+    class TestState(BaseModel):
+        reply: str
+
+    mock_compiled = MagicMock()
+    mock_compiled.ainvoke = AsyncMock(return_value=TestState(reply="Test reply"))
+
+    with patch("orcheo_backend.app.chatkit_service.build_graph") as mock_build:
+        mock_graph = MagicMock()
+        mock_graph.compile.return_value = mock_compiled
+        mock_build.return_value = mock_graph
+
+        reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+
+    assert reply == "Test reply"
+    assert isinstance(state, dict)
+    assert run is not None
+
+
+def test_chatkit_server_records_run_metadata_without_run() -> None:
+    thread = ThreadMetadata(
+        id="thr_no_run",
+        created_at=datetime.now(UTC),
+        metadata={},
+    )
+
+    OrcheoChatKitServer._record_run_metadata(thread, None)
+
+    assert "last_run_at" in thread.metadata
+    assert "last_run_id" not in thread.metadata
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_run_workflow_with_repository_create_run_failure() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+
+    server = create_chatkit_test_server(repository)
+
+    original_create_run = server._repository.create_run
+    server._repository.create_run = AsyncMock(side_effect=Exception("DB error"))
+
+    reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+
+    assert reply == "Echo: Test"
+    assert isinstance(state, dict)
+    assert run is None
+
+    server._repository.create_run = original_create_run
