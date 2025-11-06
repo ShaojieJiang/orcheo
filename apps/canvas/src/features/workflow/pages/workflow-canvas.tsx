@@ -132,6 +132,10 @@ import { useWorkflowCanvasHistory } from "@features/workflow/pages/workflow-canv
 import { useWorkflowChat } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
 import { useWorkflowSearch } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-search";
 import { useWorkflowNodeState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-node-state";
+import { useWorkflowClipboard } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-clipboard";
+import { useWorkflowDuplicateNodes } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-duplicate-nodes";
+import { useWorkflowFileTransfer } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-file-transfer";
+import { useWorkflowSaver } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-saver";
 import type {
   CanvasEdge,
   CanvasNode,
@@ -382,10 +386,6 @@ export default function WorkflowCanvas({
     });
   }, [executions]);
 
-  const clipboardRef = useRef<WorkflowClipboardPayload | null>(null);
-  const pasteOffsetStepRef = useRef(0);
-  const lastClipboardSignatureRef = useRef<string | null>(null);
-
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -487,8 +487,6 @@ export default function WorkflowCanvas({
         .map(attachChatHandlerToNode),
     [attachChatHandlerToNode],
   );
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (hoveredEdgeId && !edges.some((edge) => edge.id === hoveredEdgeId)) {
@@ -937,579 +935,70 @@ export default function WorkflowCanvas({
     ],
   );
 
-  const handleDuplicateSelectedNodes = useCallback(() => {
-    const selectedNodes = nodes.filter((node) => node.selected);
-    if (selectedNodes.length === 0) {
-      toast({
-        title: "No nodes selected",
-        description: "Select at least one node to duplicate.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const idMap = new Map<string, string>();
-    const allocateIdentity = createIdentityAllocator(nodesRef.current);
-    const duplicatedNodes = selectedNodes.map((node) => {
-      const clonedNode = cloneNode(node);
-      const baseLabel =
-        typeof clonedNode.data?.label === "string" &&
-        clonedNode.data.label.trim().length > 0
-          ? `${clonedNode.data.label} Copy`
-          : `${clonedNode.id} Copy`;
-      const { id: newId, label } = allocateIdentity(baseLabel);
-      idMap.set(node.id, newId);
-      const duplicatedData: NodeData = {
-        ...(clonedNode.data as NodeData),
-        label,
-      };
-      if (clonedNode.type === "chatTrigger") {
-        duplicatedData.onOpenChat = () => handleOpenChat(newId);
-      }
-      return {
-        ...clonedNode,
-        id: newId,
-        position: {
-          x: (clonedNode.position?.x ?? 0) + 40,
-          y: (clonedNode.position?.y ?? 0) + 40,
-        },
-        selected: false,
-        data: duplicatedData,
-      } as CanvasNode;
-    });
-
-    const selectedIds = new Set(selectedNodes.map((node) => node.id));
-    const duplicatedEdges = edges
-      .filter(
-        (edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target),
-      )
-      .map((edge) => {
-        const sourceId = idMap.get(edge.source);
-        const targetId = idMap.get(edge.target);
-        if (!sourceId || !targetId) {
-          return null;
-        }
-        const clonedEdge = cloneEdge(edge);
-        return {
-          ...clonedEdge,
-          id: `edge-${sourceId}-${targetId}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`,
-          source: sourceId,
-          target: targetId,
-          selected: false,
-        } as CanvasEdge;
-      })
-      .filter(Boolean) as CanvasEdge[];
-
-    isRestoringRef.current = true;
-    recordSnapshot({ force: true });
-    try {
-      setNodesState((current) => [...current, ...duplicatedNodes]);
-      if (duplicatedEdges.length > 0) {
-        setEdgesState((current) => [...current, ...duplicatedEdges]);
-      }
-    } catch (error) {
-      isRestoringRef.current = false;
-      throw error;
-    }
-    toast({
-      title: "Nodes duplicated",
-      description: `${duplicatedNodes.length} node${
-        duplicatedNodes.length === 1 ? "" : "s"
-      } copied with their connections.`,
-    });
-  }, [
-    edges,
-    handleOpenChat,
+  const { handleDuplicateSelectedNodes } = useWorkflowDuplicateNodes({
     nodes,
+    edges,
+    nodesRef,
+    isRestoringRef,
     recordSnapshot,
-    setEdgesState,
     setNodesState,
-  ]);
-
-  const copyNodesToClipboard = useCallback(
-    async (
-      nodesToCopy: CanvasNode[],
-      options: CopyClipboardOptions = {},
-    ): Promise<CopyClipboardResult> => {
-      if (nodesToCopy.length === 0) {
-        toast({
-          title: "No nodes selected",
-          description: "Select at least one node to copy.",
-          variant: "destructive",
-        });
-        return {
-          success: false,
-          nodeCount: 0,
-          edgeCount: 0,
-          usedFallback: false,
-        };
-      }
-
-      const selectedIds = new Set(nodesToCopy.map((node) => node.id));
-      const persistedNodes = nodesToCopy.map(toPersistedNode);
-      const persistedEdges = edgesRef.current
-        .filter(
-          (edge) =>
-            selectedIds.has(edge.source) && selectedIds.has(edge.target),
-        )
-        .map(toPersistedEdge);
-
-      const payload = buildClipboardPayload(persistedNodes, persistedEdges);
-      clipboardRef.current = payload;
-      pasteOffsetStepRef.current = 0;
-      lastClipboardSignatureRef.current =
-        signatureFromClipboardPayload(payload);
-
-      let systemClipboardCopied = false;
-
-      if (
-        typeof navigator !== "undefined" &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function"
-      ) {
-        try {
-          await navigator.clipboard.writeText(encodeClipboardPayload(payload));
-          systemClipboardCopied = true;
-        } catch (error) {
-          console.warn(
-            "Failed to write workflow selection to clipboard",
-            error,
-          );
-        }
-      }
-
-      if (!options.skipSuccessToast) {
-        toast({
-          title: nodesToCopy.length === 1 ? "Node copied" : "Nodes copied",
-          description: `${nodesToCopy.length} node${
-            nodesToCopy.length === 1 ? "" : "s"
-          } copied${
-            systemClipboardCopied ? "" : " (available for in-app paste)"
-          }.`,
-        });
-      } else if (!systemClipboardCopied) {
-        toast({
-          title: "Nodes copied (in-app clipboard)",
-          description:
-            "System clipboard unavailable. Paste with Ctrl/Cmd+V in this tab.",
-        });
-      }
-
-      return {
-        success: true,
-        nodeCount: nodesToCopy.length,
-        edgeCount: persistedEdges.length,
-        usedFallback: !systemClipboardCopied,
-      };
-    },
-    [clipboardRef, edgesRef, lastClipboardSignatureRef, pasteOffsetStepRef],
-  );
-
-  const copySelectedNodes = useCallback(async () => {
-    const selectedNodes = nodesRef.current.filter((node) => node.selected);
-    return copyNodesToClipboard(selectedNodes);
-  }, [copyNodesToClipboard]);
-
-  const cutSelectedNodes = useCallback(async () => {
-    const selectedNodes = nodesRef.current.filter((node) => node.selected);
-    const nodeIds = selectedNodes.map((node) => node.id);
-    const result = await copyNodesToClipboard(selectedNodes, {
-      skipSuccessToast: true,
-    });
-
-    if (!result.success) {
-      return;
-    }
-
-    deleteNodes(nodeIds, { suppressToast: true });
-
-    const fallbackNote = result.usedFallback
-      ? "System clipboard unavailable. Paste with Ctrl/Cmd+V in this tab."
-      : "Paste with Ctrl/Cmd+V.";
-
-    toast({
-      title: nodeIds.length === 1 ? "Node cut" : "Nodes cut",
-      description: `${nodeIds.length} node${
-        nodeIds.length === 1 ? "" : "s"
-      } ready to paste. ${fallbackNote}`,
-    });
-  }, [copyNodesToClipboard, deleteNodes]);
-
-  const pasteNodes = useCallback(async () => {
-    let payload: WorkflowClipboardPayload | null = null;
-
-    if (
-      typeof navigator !== "undefined" &&
-      navigator.clipboard &&
-      typeof navigator.clipboard.readText === "function"
-    ) {
-      try {
-        const clipboardText = await navigator.clipboard.readText();
-        const parsed = decodeClipboardPayloadString(clipboardText);
-        if (parsed) {
-          payload = parsed;
-        }
-      } catch (error) {
-        console.warn("Failed to read workflow selection from clipboard", error);
-      }
-    }
-
-    if (!payload) {
-      payload = clipboardRef.current;
-    }
-
-    if (!payload || payload.nodes.length === 0) {
-      toast({
-        title: "Nothing to paste",
-        description: "Copy nodes before pasting.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const signature = signatureFromClipboardPayload(payload);
-    if (signature !== lastClipboardSignatureRef.current) {
-      pasteOffsetStepRef.current = 0;
-      lastClipboardSignatureRef.current = signature;
-    }
-
-    clipboardRef.current = payload;
-
-    const step = pasteOffsetStepRef.current;
-    const offset = PASTE_BASE_OFFSET + step * PASTE_OFFSET_INCREMENT;
-    pasteOffsetStepRef.current = Math.min(
-      pasteOffsetStepRef.current + 1,
-      PASTE_OFFSET_MAX_STEPS,
-    );
-
-    const idMap = new Map<string, string>();
-    const allocateIdentity = createIdentityAllocator(nodesRef.current);
-
-    const remappedNodes = payload.nodes.map((node) => {
-      const baseLabel =
-        typeof node.data?.label === "string" &&
-        node.data.label.trim().length > 0
-          ? node.data.label
-          : sanitizeLabel(node.id);
-      const { id: newId, label } = allocateIdentity(baseLabel);
-      idMap.set(node.id, newId);
-      const position = node.position ?? { x: 0, y: 0 };
-      return {
-        ...node,
-        id: newId,
-        position: {
-          x: position.x + offset,
-          y: position.y + offset,
-        },
-        data: {
-          ...node.data,
-          label,
-        },
-      };
-    });
-
-    const remappedEdges = payload.edges
-      .map((edge) => {
-        const sourceId = idMap.get(edge.source);
-        const targetId = idMap.get(edge.target);
-        if (!sourceId || !targetId) {
-          return null;
-        }
-        return {
-          ...edge,
-          id: generateRandomId("edge"),
-          source: sourceId,
-          target: targetId,
-        };
-      })
-      .filter(Boolean) as PersistedWorkflowEdge[];
-
-    const canvasNodes = convertPersistedNodesToCanvas(remappedNodes);
-    const canvasEdges = convertPersistedEdgesToCanvas(remappedEdges);
-
-    if (canvasNodes.length === 0) {
-      toast({
-        title: "Nothing to paste",
-        description: "Copied selection has no nodes.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    isRestoringRef.current = true;
-    recordSnapshot({ force: true });
-    try {
-      setNodesState((current) => [...current, ...canvasNodes]);
-      if (canvasEdges.length > 0) {
-        setEdgesState((current) => [...current, ...canvasEdges]);
-      }
-    } catch (error) {
-      isRestoringRef.current = false;
-      throw error;
-    }
-
-    const connectionsNote =
-      canvasEdges.length > 0
-        ? ` with ${canvasEdges.length} connection${
-            canvasEdges.length === 1 ? "" : "s"
-          }`
-        : "";
-
-    toast({
-      title: canvasNodes.length === 1 ? "Node pasted" : "Nodes pasted",
-      description: `Added ${canvasNodes.length} node${
-        canvasNodes.length === 1 ? "" : "s"
-      }${connectionsNote}.`,
-    });
-  }, [
-    clipboardRef,
-    convertPersistedNodesToCanvas,
-    lastClipboardSignatureRef,
-    pasteOffsetStepRef,
-    recordSnapshot,
     setEdgesState,
-    setNodesState,
-  ]);
+    handleOpenChat,
+  });
 
-  const handleExportWorkflow = useCallback(() => {
-    try {
-      const snapshot = createSnapshot();
-      const workflowData = {
-        name: workflowName,
-        description: workflowDescription,
-        nodes: snapshot.nodes.map(toPersistedNode),
-        edges: snapshot.edges.map(toPersistedEdge),
-      };
-      const serialized = JSON.stringify(workflowData, null, 2);
-      const blob = new Blob([serialized], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${
-        workflowName.replace(/\s+/g, "-").toLowerCase() || "workflow"
-      }.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      toast({
-        title: "Workflow exported",
-        description: "A JSON export has been downloaded.",
-      });
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description:
-          error instanceof Error ? error.message : "Unable to export workflow.",
-        variant: "destructive",
-      });
-    }
-  }, [createSnapshot, workflowDescription, workflowName]);
-
-  const handleImportWorkflow = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleWorkflowFileSelected = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const content =
-            typeof reader.result === "string" ? reader.result : "";
-          const parsed = JSON.parse(content);
-          validateWorkflowData(parsed);
-
-          const rawNodes = (parsed.nodes as PersistedWorkflowNode[]).map(
-            (node) => ({
-              ...node,
-              id: node.id ?? generateNodeId(),
-            }),
-          );
-          const rawEdges = (parsed.edges as PersistedWorkflowEdge[]).map(
-            (edge) => ({
-              ...edge,
-              id:
-                edge.id ??
-                `edge-${Math.random().toString(36).slice(2, 8)}-${Math.random()
-                  .toString(36)
-                  .slice(2, 8)}`,
-            }),
-          );
-
-          const importedNodes = convertPersistedNodesToCanvas(rawNodes);
-          const importedEdges = convertPersistedEdgesToCanvas(rawEdges);
-
-          isRestoringRef.current = true;
-          recordSnapshot({ force: true });
-          try {
-            setNodesState(importedNodes);
-            setEdgesState(importedEdges);
-            if (
-              typeof parsed.name === "string" &&
-              parsed.name.trim().length > 0
-            ) {
-              setWorkflowName(parsed.name);
-            }
-            if (typeof parsed.description === "string") {
-              setWorkflowDescription(parsed.description);
-            }
-            setCurrentWorkflowId(null);
-            setWorkflowVersions([]);
-            setWorkflowTags(["draft"]);
-          } catch (error) {
-            isRestoringRef.current = false;
-            throw error;
-          }
-
-          toast({
-            title: "Workflow imported",
-            description: `Loaded ${importedNodes.length} node${
-              importedNodes.length === 1 ? "" : "s"
-            } from file.`,
-          });
-        } catch (error) {
-          toast({
-            title: "Import failed",
-            description:
-              error instanceof Error ? error.message : "Invalid workflow file.",
-            variant: "destructive",
-          });
-        } finally {
-          event.target.value = "";
-        }
-      };
-      reader.onerror = () => {
-        toast({
-          title: "Import failed",
-          description: "Unable to read the selected file.",
-          variant: "destructive",
-        });
-        event.target.value = "";
-      };
-      reader.readAsText(file);
-    },
-    [
-      convertPersistedNodesToCanvas,
+  const { copySelectedNodes, cutSelectedNodes, pasteNodes } =
+    useWorkflowClipboard({
+      nodesRef,
+      edgesRef,
       recordSnapshot,
-      setEdgesState,
       setNodesState,
-      setWorkflowDescription,
-      setWorkflowName,
-    ],
-  );
+      setEdgesState,
+      deleteNodes,
+      isRestoringRef,
+      convertPersistedNodesToCanvas,
+      convertPersistedEdgesToCanvas,
+    });
 
-  const handleSaveWorkflow = useCallback(async () => {
-    const snapshot = createSnapshot();
-    const persistedNodes = snapshot.nodes.map(toPersistedNode);
-    const persistedEdges = snapshot.edges.map(toPersistedEdge);
-    const timestampLabel = new Date().toLocaleString();
-
-    const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
-
-    try {
-      const saved = await persistWorkflow(
-        {
-          id: currentWorkflowId ?? undefined,
-          name: workflowName.trim() || "Untitled Workflow",
-          description: workflowDescription.trim(),
-          tags: tagsToPersist,
-          nodes: persistedNodes,
-          edges: persistedEdges,
-        },
-        { versionMessage: `Manual save (${timestampLabel})` },
-      );
-
-      setCurrentWorkflowId(saved.id);
-      setWorkflowName(saved.name);
-      setWorkflowDescription(saved.description ?? "");
-      setWorkflowTags(saved.tags ?? tagsToPersist);
-      setWorkflowVersions(saved.versions ?? []);
-
-      toast({
-        title: "Workflow saved",
-        description: `"${saved.name}" has been updated.`,
-      });
-
-      if (!workflowId || workflowId !== saved.id) {
-        navigate(`/workflow-canvas/${saved.id}`, { replace: !!workflowId });
-      }
-    } catch (error) {
-      toast({
-        title: "Failed to save workflow",
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive",
-      });
-    }
-  }, [
+  const {
+    fileInputRef,
+    handleExportWorkflow,
+    handleImportWorkflow,
+    handleWorkflowFileSelected,
+  } = useWorkflowFileTransfer({
     createSnapshot,
-    currentWorkflowId,
-    navigate,
-    workflowDescription,
-    workflowId,
+    convertPersistedNodesToCanvas,
+    convertPersistedEdgesToCanvas,
+    setNodesState,
+    setEdgesState,
+    setWorkflowName,
+    setWorkflowDescription,
+    setCurrentWorkflowId,
+    setWorkflowVersions,
+    setWorkflowTags,
     workflowName,
-    workflowTags,
-  ]);
+    workflowDescription,
+    recordSnapshot,
+    isRestoringRef,
+  });
 
-  const handleTagsChange = useCallback((value: string) => {
-    const tags = value
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0);
-    setWorkflowTags(tags);
-  }, []);
-
-  const handleRestoreVersion = useCallback(
-    async (versionId: string) => {
-      if (!currentWorkflowId) {
-        toast({
-          title: "Save required",
-          description: "Save this workflow before restoring versions.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      try {
-        const snapshot = await getVersionSnapshot(currentWorkflowId, versionId);
-        if (!snapshot) {
-          toast({
-            title: "Version unavailable",
-            description: "We couldn't load that version. Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        const canvasNodes = convertPersistedNodesToCanvas(snapshot.nodes ?? []);
-        const canvasEdges = convertPersistedEdgesToCanvas(snapshot.edges ?? []);
-        applySnapshot(
-          { nodes: canvasNodes, edges: canvasEdges },
-          { resetHistory: true },
-        );
-        setWorkflowName(snapshot.name);
-        setWorkflowDescription(snapshot.description ?? "");
-        toast({
-          title: "Version loaded",
-          description: "Review the restored version and save to keep it.",
-        });
-      } catch (error) {
-        toast({
-          title: "Failed to restore version",
-          description:
-            error instanceof Error ? error.message : "Unknown error occurred",
-          variant: "destructive",
-        });
-      }
-    },
-    [applySnapshot, convertPersistedNodesToCanvas, currentWorkflowId],
-  );
+  const { handleSaveWorkflow, handleTagsChange, handleRestoreVersion } =
+    useWorkflowSaver({
+      createSnapshot,
+      convertPersistedNodesToCanvas,
+      convertPersistedEdgesToCanvas,
+      setWorkflowName,
+      setWorkflowDescription,
+      setCurrentWorkflowId,
+      setWorkflowVersions,
+      setWorkflowTags,
+      workflowName,
+      workflowDescription,
+      workflowTags,
+      currentWorkflowId,
+      workflowIdFromRoute: workflowId ?? undefined,
+      navigate,
+      applySnapshot,
+    });
 
   // Handle new connections between nodes
   const onConnect = useCallback(
