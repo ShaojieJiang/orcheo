@@ -24,3 +24,10 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "NO_COLOR": "1",
     }
+
+
+@pytest.fixture()
+def mock_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set up mock environment variables for SDK tests."""
+    monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
+    monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")

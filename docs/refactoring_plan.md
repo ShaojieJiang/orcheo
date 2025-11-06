@@ -14,7 +14,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/backend/test_repository.py` — 1509 LOC
 - [x] `tests/backend/test_chatkit_service.py` — 1503 LOC
 - [x] `apps/backend/src/orcheo_backend/app/authentication.py` — 1491 LOC
-- [ ] `tests/sdk/test_mcp_server.py` — 1488 LOC
+- [x] `tests/sdk/test_mcp_server.py` — 1488 LOC
 - [ ] `tests/backend/test_chatkit_store_sqlite.py` — 1340 LOC
 - [ ] `apps/canvas/src/features/workflow/pages/workflow-gallery.tsx` — 1067 LOC
 - [ ] `tests/test_vault.py` — 1058 LOC
