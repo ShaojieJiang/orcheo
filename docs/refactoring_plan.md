@@ -106,3 +106,8 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [ ] `src/orcheo/runtime/credentials.py` — 256 LOC
 - [ ] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
 - [ ] `apps/canvas/src/features/account/components/theme-settings.tsx` — 252 LOC
+
+
+## Wrap up
+
+- [ ] Tell coding agents to respect the LOC limit in future commits
