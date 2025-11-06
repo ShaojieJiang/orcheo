@@ -1,10 +1,10 @@
-# Repository Metrics
+# Refactor Large Scripts
 
 Each script should have fewer than 250 LOC; special cases may extend but must stay under 300 LOC.
 
 ## Refactoring Checklist (2025-11-06)
 
-- [ ] `apps/canvas/src/features/workflow/pages/workflow-canvas.tsx` — 4809 LOC
+- [x] `apps/canvas/src/features/workflow/pages/workflow-canvas.tsx` — 4809 LOC
 - [ ] `tests/sdk/test_cli.py` — 3954 LOC
 - [ ] `tests/backend/test_app_init.py` — 3286 LOC
 - [ ] `tests/backend/test_authentication_extended.py` — 2448 LOC
@@ -110,4 +110,4 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 
 ## Wrap up
 
-- [ ] Tell coding agents to respect the LOC limit in future commits
+- [x] Tell coding agents to respect the LOC limit in future commits
