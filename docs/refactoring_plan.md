@@ -55,7 +55,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/nodes/test_ai.py` — 517 LOC
 - [x] `tests/nodes/test_mongodb.py` — 507 LOC
 - [x] `apps/canvas/src/features/workflow/components/dialogs/credentials-vault.tsx` — 503 LOC
-- [ ] `packages/sdk/src/orcheo_sdk/mcp_server/main.py` — 500 LOC
+- [x] `packages/sdk/src/orcheo_sdk/mcp_server/main.py` — 500 LOC
 - [ ] `src/orcheo/nodes/logic.py` — 492 LOC
 - [ ] `apps/backend/src/orcheo_backend/app/service_token_repository.py` — 480 LOC
 - [ ] `tests/graph/test_builder.py` — 473 LOC
