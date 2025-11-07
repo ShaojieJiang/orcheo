@@ -1,4 +1,4 @@
-"""Webhook trigger configuration and validation helpers."""
+"""Webhook trigger state management and validation logic."""
 
 from __future__ import annotations
 import hashlib
@@ -6,209 +6,16 @@ import hmac
 import json
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-
-class WebhookValidationError(ValueError):
-    """Base error raised when webhook requests fail validation."""
-
-    def __init__(self, message: str, *, status_code: int) -> None:
-        """Store the error message alongside the HTTP status code."""
-        super().__init__(message)
-        self.status_code = status_code
-
-
-class MethodNotAllowedError(WebhookValidationError):
-    """Raised when the inbound request method is not permitted."""
-
-    def __init__(self, method: str, allowed: set[str]) -> None:
-        """Initialize the error with the offending method and allowed set."""
-        allowed_methods = ", ".join(sorted(allowed)) or "none"
-        message = f"Method {method} not allowed. Allowed methods: {allowed_methods}"
-        super().__init__(message, status_code=405)
-
-
-class WebhookAuthenticationError(WebhookValidationError):
-    """Raised when the request fails shared secret validation."""
-
-    def __init__(self) -> None:
-        """Construct the error using a fixed authentication failure message."""
-        super().__init__("Invalid webhook authentication credentials", status_code=401)
-
-
-class RateLimitExceededError(WebhookValidationError):
-    """Raised when requests exceed the configured rate limit."""
-
-    def __init__(self, limit: int, interval_seconds: int) -> None:
-        """Include the configured limit and interval in the error message."""
-        message = (
-            "Webhook rate limit exceeded. "
-            f"Limit: {limit} requests per {interval_seconds} seconds"
-        )
-        super().__init__(message, status_code=429)
-
-
-class RateLimitConfig(BaseModel):
-    """Configuration describing webhook rate limiting behaviour."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    limit: int = Field(
-        default=60,
-        ge=1,
-        description="Maximum number of requests allowed in the configured interval.",
-    )
-    interval_seconds: int = Field(
-        default=60,
-        ge=1,
-        description="Time window in seconds over which the limit is applied.",
-    )
-
-
-class WebhookTriggerConfig(BaseModel):
-    """Configuration defining webhook trigger validation rules."""
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    allowed_methods: list[str] = Field(
-        default_factory=lambda: ["POST"],
-        description="Set of HTTP methods that are permitted for the webhook.",
-    )
-    required_headers: dict[str, str] = Field(
-        default_factory=dict,
-        description="Headers that must be present with specific values.",
-    )
-    required_query_params: dict[str, str] = Field(
-        default_factory=dict,
-        description="Query parameters that must match expected values.",
-    )
-    shared_secret_header: str | None = Field(
-        default=None,
-        alias="secret_header",
-        serialization_alias="secret_header",
-        description="Optional HTTP header used to supply a shared secret.",
-    )
-    shared_secret: str | None = Field(
-        default=None,
-        description="Optional shared secret value used to authenticate requests.",
-    )
-    hmac_header: str | None = Field(
-        default=None,
-        description="Header containing the HMAC signature for the payload.",
-    )
-    hmac_secret: str | None = Field(
-        default=None,
-        description="Secret used to compute the HMAC signature.",
-    )
-    hmac_algorithm: str = Field(
-        default="sha256",
-        description="Hash algorithm used when computing the HMAC signature.",
-    )
-    hmac_timestamp_header: str | None = Field(
-        default=None,
-        description="Optional header containing the signature timestamp.",
-    )
-    hmac_tolerance_seconds: int = Field(
-        default=300,
-        ge=0,
-        description="Maximum age for HMAC signatures in seconds.",
-    )
-    rate_limit: RateLimitConfig | None = Field(
-        default=None,
-        description="Optional rate limit configuration for inbound requests.",
-    )
-
-    @field_validator("allowed_methods", mode="after")
-    @classmethod
-    def _normalize_methods(cls, value: list[str]) -> list[str]:
-        methods = sorted({method.upper() for method in value})
-        if not methods:
-            raise WebhookValidationError(
-                "At least one HTTP method must be allowed", status_code=400
-            )
-        return methods
-
-    @field_validator("required_headers", mode="after")
-    @classmethod
-    def _normalize_required_headers(cls, value: dict[str, str]) -> dict[str, str]:
-        return {key.lower(): str(val) for key, val in value.items()}
-
-    @field_validator("required_query_params", mode="after")
-    @classmethod
-    def _normalize_required_query(cls, value: dict[str, str]) -> dict[str, str]:
-        return {str(key): str(val) for key, val in value.items()}
-
-    @field_validator("shared_secret_header")
-    @classmethod
-    def _normalize_secret_header(cls, value: str | None) -> str | None:
-        return value if value is None else value.lower()
-
-    @field_validator("hmac_header")
-    @classmethod
-    def _normalize_hmac_header(cls, value: str | None) -> str | None:
-        return value if value is None else value.lower()
-
-    @field_validator("hmac_timestamp_header")
-    @classmethod
-    def _normalize_timestamp_header(cls, value: str | None) -> str | None:
-        return value if value is None else value.lower()
-
-    @field_validator("hmac_algorithm")
-    @classmethod
-    def _validate_algorithm(cls, value: str) -> str:
-        candidate = value.strip().lower()
-        if candidate not in hashlib.algorithms_available:
-            raise WebhookValidationError(
-                f"Unsupported HMAC algorithm: {value}", status_code=400
-            )
-        return candidate
-
-    @model_validator(mode="after")
-    def _validate_secret_configuration(self) -> WebhookTriggerConfig:
-        if self.shared_secret_header and not self.shared_secret:
-            raise WebhookValidationError(
-                "shared_secret must be provided when shared_secret_header is set",
-                status_code=400,
-            )
-        if self.shared_secret and not self.shared_secret_header:
-            raise WebhookValidationError(
-                "shared_secret_header is required when shared_secret is provided",
-                status_code=400,
-            )
-        if (self.hmac_header and not self.hmac_secret) or (
-            self.hmac_secret and not self.hmac_header
-        ):
-            raise WebhookValidationError(
-                "hmac_header and hmac_secret must be configured together",
-                status_code=400,
-            )
-        return self
-
-
-@dataclass(slots=True)
-class WebhookRequest:
-    """Normalized representation of an inbound webhook request."""
-
-    method: str
-    headers: Mapping[str, str]
-    query_params: Mapping[str, str]
-    payload: Any
-    source_ip: str | None = None
-
-    def normalized_method(self) -> str:
-        """Return the uppercase HTTP method."""
-        return self.method.upper()
-
-    def normalized_headers(self) -> dict[str, str]:
-        """Return headers normalized to lowercase keys."""
-        return {key.lower(): value for key, value in self.headers.items()}
-
-    def normalized_query(self) -> dict[str, str]:
-        """Return a shallow copy of the query parameters."""
-        return dict(self.query_params)
+from orcheo.triggers.webhook.config import WebhookTriggerConfig
+from orcheo.triggers.webhook.errors import (
+    MethodNotAllowedError,
+    RateLimitExceededError,
+    WebhookAuthenticationError,
+    WebhookValidationError,
+)
+from orcheo.triggers.webhook.request import WebhookRequest
 
 
 class WebhookTriggerState:
@@ -417,3 +224,6 @@ class WebhookTriggerState:
             raise RateLimitExceededError(config.limit, config.interval_seconds)
 
         self._recent_invocations.append(now)
+
+
+__all__ = ["WebhookTriggerState"]

@@ -63,49 +63,49 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `src/orcheo/vault/oauth.py` — 465 LOC
 - [x] `src/orcheo/triggers/layer.py` — 462 LOC
 - [x] `tests/test_workflow_models.py` — 460 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
 - [x] `tests/nodes/test_storage_nodes.py` — 454 LOC
 - [x] `tests/backend/test_history.py` — 452 LOC
 - [x] `tests/graph/test_ingestion.py` — 451 LOC
-- [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
 - [x] `src/orcheo/graph/ingestion.py` — 432 LOC
-- [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
-- [ ] `src/orcheo/triggers/webhook.py` — 419 LOC
-- [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
-- [ ] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
-- [ ] `src/orcheo/nodes/utility.py` — 390 LOC
-- [ ] `packages/sdk/src/orcheo_sdk/services/workflows.py` — 389 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/variable-inspector.tsx` — 381 LOC
 - [x] `tests/backend/test_app_integration.py` — 380 LOC
-- [ ] `apps/canvas/src/setupTests.ts` — 367 LOC
-- [ ] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
-- [ ] `apps/backend/src/orcheo_backend/app/schemas.py` — 357 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-node-gallery.tsx` — 354 LOC
-- [ ] `examples/agent_example.py` — 341 LOC
-- [ ] `apps/canvas/src/features/workflow/components/dialogs/command-palette.tsx` — 336 LOC
-- [ ] `apps/canvas/src/features/workflow/components/nodes/workflow-node.tsx` — 336 LOC
-- [ ] `src/orcheo/config.py` — 336 LOC
 - [x] `tests/test_vault_oauth_service.py` — 334 LOC
 - [x] `tests/runtime/test_credentials.py` — 332 LOC
-- [ ] `apps/canvas/src/features/workflow/lib/graph-config.integration.test.ts` — 328 LOC
 - [x] `tests/test_triggers_manual.py` — 313 LOC
+- [x] `tests/nodes/test_base.py` — 294 LOC
+- [x] `src/orcheo/triggers/webhook.py` — 419 LOC
+- [ ] `src/orcheo/nodes/utility.py` — 390 LOC
+- [ ] `packages/sdk/src/orcheo_sdk/services/workflows.py` — 389 LOC
+- [ ] `apps/backend/src/orcheo_backend/app/schemas.py` — 357 LOC
+- [ ] `examples/agent_example.py` — 341 LOC
+- [ ] `src/orcheo/config.py` — 336 LOC
+- [ ] `packages/sdk/src/orcheo_sdk/client.py` — 287 LOC
+- [ ] `src/orcheo/graph/builder.py` — 262 LOC
+- [ ] `apps/backend/src/orcheo_backend/app/service_token_endpoints.py` — 256 LOC
+- [ ] `src/orcheo/runtime/credentials.py` — 256 LOC
+- [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
+- [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
+- [ ] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
+- [ ] `apps/canvas/src/features/workflow/components/panels/variable-inspector.tsx` — 381 LOC
+- [ ] `apps/canvas/src/setupTests.ts` — 367 LOC
+- [ ] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
+- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-node-gallery.tsx` — 354 LOC
+- [ ] `apps/canvas/src/features/workflow/components/dialogs/command-palette.tsx` — 336 LOC
+- [ ] `apps/canvas/src/features/workflow/components/nodes/workflow-node.tsx` — 336 LOC
+- [ ] `apps/canvas/src/features/workflow/lib/graph-config.integration.test.ts` — 328 LOC
 - [ ] `apps/canvas/src/features/workflow/lib/workflow-storage.test.ts` — 309 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-interface.tsx` — 308 LOC
 - [ ] `apps/canvas/src/features/workflow/lib/workflow-execution-storage.ts` — 307 LOC
 - [ ] `apps/canvas/src/features/account/pages/profile.tsx` — 306 LOC
 - [ ] `apps/canvas/src/features/workflow/components/canvas/workflow-controls.tsx` — 300 LOC
 - [ ] `apps/canvas/src/features/workflow/components/canvas/annotations-layer.tsx` — 299 LOC
-- [x] `tests/nodes/test_base.py` — 294 LOC
-- [ ] `packages/sdk/src/orcheo_sdk/client.py` — 287 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/workflow-governance-panel.tsx` — 283 LOC
 - [ ] `apps/canvas/src/design-system/ui/carousel.tsx` — 262 LOC
-- [ ] `src/orcheo/graph/builder.py` — 262 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-message.tsx` — 260 LOC
-- [ ] `apps/backend/src/orcheo_backend/app/service_token_endpoints.py` — 256 LOC
 - [ ] `apps/canvas/src/design-system/ui/menubar.tsx` — 256 LOC
-- [ ] `src/orcheo/runtime/credentials.py` — 256 LOC
 - [ ] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
 - [ ] `apps/canvas/src/features/account/components/theme-settings.tsx` — 252 LOC
+- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
+- [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
 
 
 ## Wrap up
