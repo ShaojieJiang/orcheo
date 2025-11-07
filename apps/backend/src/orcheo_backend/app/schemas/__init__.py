@@ -43,6 +43,13 @@ from orcheo_backend.app.schemas.runs import (  # noqa: F401
     RunReplayRequest,
     RunSucceedRequest,
 )
+from orcheo_backend.app.schemas.service_tokens import (  # noqa: F401
+    CreateServiceTokenRequest,
+    RevokeServiceTokenRequest,
+    RotateServiceTokenRequest,
+    ServiceTokenListResponse,
+    ServiceTokenResponse,
+)
 from orcheo_backend.app.schemas.workflows import (  # noqa: F401
     WorkflowCreateRequest,
     WorkflowRunCreateRequest,
@@ -76,6 +83,11 @@ __all__ = [
     "NodeExecutionRequest",
     "NodeExecutionResponse",
     "OAuthTokenRequest",
+    "CreateServiceTokenRequest",
+    "ServiceTokenListResponse",
+    "ServiceTokenResponse",
+    "RevokeServiceTokenRequest",
+    "RotateServiceTokenRequest",
     "RunActionRequest",
     "RunCancelRequest",
     "RunFailRequest",
