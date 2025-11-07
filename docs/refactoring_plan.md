@@ -32,7 +32,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/canvas/src/features/workflow/components/panels/sidebar-panel.tsx` — 756 LOC
 - [x] `tests/test_triggers_webhook.py` — 752 LOC
 - [x] `tests/sdk/test_workflow_cli_helpers.py` — 741 LOC
-- [ ] `apps/backend/src/orcheo_backend/app/chatkit_store_sqlite.py` — 727 LOC
+- [x] `apps/backend/src/orcheo_backend/app/chatkit_store_sqlite.py` — 727 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/workflow-execution-history.tsx` — 679 LOC
 - [ ] `tests/test_triggers_layer.py` — 679 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/rjsf-theme.tsx` — 627 LOC
