@@ -5,10 +5,6 @@ import httpx
 from .authenticator import (
     Authenticator,
     JWKSFetcher,
-    _extract_scopes,
-    _extract_workspace_ids,
-    _infer_identity_type,
-    _parse_max_age,
 )
 from .context import RequestContext
 from .dependencies import (
@@ -26,6 +22,14 @@ from .dependencies import (
 )
 from .errors import AuthenticationError, AuthorizationError
 from .jwks import JWKSCache
+from .jwt_authenticator import JWTAuthenticator
+from .jwt_helpers import (
+    _extract_scopes,
+    _extract_workspace_ids,
+    _infer_identity_type,
+    _parse_max_age,
+    claims_to_context,
+)
 from .policy import (
     AuthorizationPolicy,
     ensure_scopes,
@@ -73,6 +77,7 @@ __all__ = [
     "Authenticator",
     "JWKSCache",
     "JWKSFetcher",
+    "JWTAuthenticator",
     "RequestContext",
     "ServiceTokenManager",
     "ServiceTokenRecord",
@@ -98,6 +103,7 @@ __all__ = [
     "_parse_timestamp",
     "_normalize_jwk_list",
     "_token_manager_cache",
+    "claims_to_context",
     "auth_telemetry",
     "authenticate_request",
     "authenticate_websocket",
