@@ -3,7 +3,11 @@
 from __future__ import annotations
 from datetime import UTC, datetime
 import pytest
-from orcheo_backend.app.authentication import ServiceTokenRecord
+from orcheo_backend.app.authentication import (
+    AuthorizationPolicy,
+    RequestContext,
+    ServiceTokenRecord,
+)
 
 
 @pytest.fixture
@@ -45,3 +49,19 @@ def sample_revoked_token() -> ServiceTokenRecord:
         revoked_at=datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC),
         revocation_reason="Security breach",
     )
+
+
+@pytest.fixture
+def authenticated_context() -> RequestContext:
+    """Provide an authenticated context with admin token scopes."""
+    return RequestContext(
+        subject="admin-user",
+        identity_type="user",
+        scopes=frozenset(["admin:tokens:read", "admin:tokens:write"]),
+    )
+
+
+@pytest.fixture
+def admin_policy(authenticated_context: RequestContext) -> AuthorizationPolicy:
+    """Return an authorization policy granting admin token scopes."""
+    return AuthorizationPolicy(authenticated_context)
