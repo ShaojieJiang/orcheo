@@ -26,7 +26,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/nodes/test_utility_nodes.py` — 880 LOC
 - [x] `apps/canvas/src/features/workflow/lib/graph-config.ts` — 861 LOC
 - [x] `src/orcheo/models/workflow.py` — 856 LOC
-- [ ] `apps/backend/src/orcheo_backend/app/repository.py` — 835 LOC
+- [x] `apps/backend/src/orcheo_backend/app/repository.py` — 835 LOC
 - [ ] `apps/canvas/src/design-system/ui/sidebar.tsx` — 787 LOC
 - [ ] `tests/backend/test_service_token_repository.py` — 785 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/sidebar-panel.tsx` — 756 LOC
