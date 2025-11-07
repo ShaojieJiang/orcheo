@@ -58,7 +58,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `packages/sdk/src/orcheo_sdk/mcp_server/main.py` — 500 LOC
 - [x] `src/orcheo/nodes/logic.py` — 492 LOC
 - [x] `apps/backend/src/orcheo_backend/app/service_token_repository.py` — 480 LOC
-- [ ] `tests/graph/test_builder.py` — 473 LOC
+- [x] `tests/graph/test_builder.py` — 473 LOC
 - [ ] `src/orcheo/nodes/data.py` — 468 LOC
 - [ ] `src/orcheo/vault/oauth.py` — 465 LOC
 - [ ] `src/orcheo/triggers/layer.py` — 462 LOC
