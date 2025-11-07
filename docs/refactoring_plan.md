@@ -101,10 +101,10 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/canvas/src/features/workflow/components/canvas/annotations-layer.tsx` — 299 LOC
 - [x] `apps/canvas/src/features/workflow/components/panels/workflow-governance-panel.tsx` — 283 LOC
 - [x] `apps/canvas/src/design-system/ui/carousel.tsx` — 262 LOC
-- [ ] `apps/canvas/src/features/shared/components/chat-message.tsx` — 260 LOC
-- [ ] `apps/canvas/src/design-system/ui/menubar.tsx` — 256 LOC
-- [ ] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
-- [ ] `apps/canvas/src/features/account/components/theme-settings.tsx` — 252 LOC
+- [x] `apps/canvas/src/features/shared/components/chat-message.tsx` — 260 LOC
+- [x] `apps/canvas/src/design-system/ui/menubar.tsx` — 256 LOC
+- [x] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
+- [x] `apps/canvas/src/features/account/components/theme-settings.tsx` — 252 LOC
 
 
 ## Wrap up
