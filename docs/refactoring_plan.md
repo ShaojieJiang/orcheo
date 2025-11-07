@@ -44,7 +44,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/backend/src/orcheo_backend/app/chatkit_service.py` — 571 LOC
 - [x] `apps/canvas/src/features/workflow/data/workflow-data.ts` — 569 LOC
 - [x] `tests/backend/test_chatkit_tokens.py` — 567 LOC
-- [ ] `tests/nodes/test_logic_nodes.py` — 560 LOC
+- [x] `tests/nodes/test_logic_nodes.py` — 560 LOC
 - [ ] `apps/canvas/src/features/workflow/components/dialogs/notification-settings.tsx` — 559 LOC
 - [ ] `tests/nodes/test_data_nodes.py` — 556 LOC
 - [ ] `packages/sdk/src/orcheo_sdk/mcp_server/tools.py` — 554 LOC
