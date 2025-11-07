@@ -47,7 +47,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/nodes/test_logic_nodes.py` — 560 LOC
 - [x] `apps/canvas/src/features/workflow/components/dialogs/notification-settings.tsx` — 559 LOC
 - [x] `tests/nodes/test_data_nodes.py` — 556 LOC
-- [ ] `packages/sdk/src/orcheo_sdk/mcp_server/tools.py` — 554 LOC
+- [x] `packages/sdk/src/orcheo_sdk/mcp_server/tools.py` — 554 LOC
 - [ ] `tests/sdk/test_cli_service_token.py` — 544 LOC
 - [ ] `tests/test_app.py` — 542 LOC
 - [ ] `tests/test_backend_coverage.py` — 537 LOC

@@ -66,12 +66,15 @@ def test_webhook_rejects_invalid_hmac_signature() -> None:
     )
     state = WebhookTriggerState(config)
 
+    # Ensure mutated signature is always different so the test is deterministic.
+    invalid_signature = signature[:-1] + ("0" if signature[-1] != "0" else "1")
+
     with pytest.raises(WebhookAuthenticationError):
         state.validate(
             make_request(
                 payload=payload,
                 headers={
-                    "x-signature": signature[:-1] + "0",
+                    "x-signature": invalid_signature,
                     "x-signature-ts": ts_value,
                 },
             )
