@@ -8,6 +8,15 @@ from orcheo_backend.app.authentication import (
     RequestContext,
     ServiceTokenRecord,
 )
+from tests.backend.app_integration_fixtures import (
+    client as integration_client,
+)
+from tests.backend.app_integration_fixtures import (
+    history_store as integration_history_store,
+)
+from tests.backend.app_integration_fixtures import (
+    repository as integration_repository,
+)
 
 
 @pytest.fixture
@@ -65,3 +74,9 @@ def authenticated_context() -> RequestContext:
 def admin_policy(authenticated_context: RequestContext) -> AuthorizationPolicy:
     """Return an authorization policy granting admin token scopes."""
     return AuthorizationPolicy(authenticated_context)
+
+
+# Re-export integration fixtures so dependent tests can resolve them.
+client = integration_client
+history_store = integration_history_store
+repository = integration_repository
