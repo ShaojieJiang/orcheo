@@ -1,0 +1,166 @@
+from __future__ import annotations
+from datetime import UTC, datetime, timedelta
+import pytest
+from orcheo.triggers.webhook import (
+    RateLimitConfig,
+    RateLimitExceededError,
+    WebhookAuthenticationError,
+    WebhookTriggerConfig,
+    WebhookTriggerState,
+    WebhookValidationError,
+)
+from tests.triggers_webhook_helpers import make_request
+
+
+def test_webhook_authentication_error_includes_status_code() -> None:
+    """Invalid authentication should raise the dedicated error."""
+
+    config = WebhookTriggerConfig(
+        secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+
+    request = make_request(headers={"x-secret": "invalid"})
+
+    with pytest.raises(WebhookAuthenticationError) as exc:
+        state.validate(request)
+
+    assert exc.value.status_code == 401
+
+
+def test_webhook_missing_secret_header_is_rejected() -> None:
+    """Requests omitting the shared secret header should be denied."""
+
+    config = WebhookTriggerConfig(
+        secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+
+    with pytest.raises(WebhookAuthenticationError):
+        state.validate(make_request(headers={}))
+
+
+def test_webhook_state_scrubs_shared_secret_header() -> None:
+    """Shared secret headers should be removed before persisting metadata."""
+
+    config = WebhookTriggerConfig(
+        secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+    sanitized = state.scrub_headers_for_storage(
+        {"x-secret": "expected", "content-type": "application/json"}
+    )
+
+    assert "x-secret" not in sanitized
+    assert sanitized["content-type"] == "application/json"
+
+
+def test_webhook_required_headers_validation() -> None:
+    """Missing required headers should fail validation with status 400."""
+
+    config = WebhookTriggerConfig(required_headers={"X-Custom": "expected"})
+    state = WebhookTriggerState(config)
+
+    request = make_request(headers={})
+
+    with pytest.raises(WebhookValidationError) as exc:
+        state.validate(request)
+
+    assert exc.value.status_code == 400
+    assert "header" in str(exc.value)
+
+
+def test_webhook_required_headers_success() -> None:
+    """Requests with all required headers should succeed."""
+
+    config = WebhookTriggerConfig(required_headers={"X-Custom": "expected"})
+    state = WebhookTriggerState(config)
+
+    state.validate(make_request(headers={"X-Custom": "expected"}))
+
+
+def test_webhook_required_query_validation() -> None:
+    """Missing required query parameters should fail validation."""
+
+    config = WebhookTriggerConfig(required_query_params={"token": "abc"})
+    state = WebhookTriggerState(config)
+
+    request = make_request(query_params={})
+
+    with pytest.raises(WebhookValidationError) as exc:
+        state.validate(request)
+
+    assert exc.value.status_code == 400
+    assert "query" in str(exc.value)
+
+
+def test_webhook_required_query_success() -> None:
+    """Requests containing required query parameters should validate."""
+
+    config = WebhookTriggerConfig(required_query_params={"token": "abc"})
+    state = WebhookTriggerState(config)
+
+    state.validate(make_request(query_params={"token": "abc"}))
+
+
+def test_webhook_rate_limit_purges_outdated_entries() -> None:
+    """Rate limit enforcement should drop invocations outside the window."""
+
+    config = WebhookTriggerConfig(
+        rate_limit=RateLimitConfig(limit=2, interval_seconds=1)
+    )
+    state = WebhookTriggerState(config)
+
+    stale_time = datetime.now(tz=UTC) - timedelta(seconds=5)
+    state._recent_invocations.append(stale_time)
+
+    state.validate(make_request())
+
+    assert len(state._recent_invocations) == 1
+    assert state._recent_invocations[0] >= stale_time
+
+
+def test_webhook_rate_limit_exceeded() -> None:
+    """Exceeding the configured rate limit should raise an error."""
+
+    config = WebhookTriggerConfig(
+        rate_limit=RateLimitConfig(limit=1, interval_seconds=60)
+    )
+    state = WebhookTriggerState(config)
+
+    state.validate(make_request())
+
+    with pytest.raises(RateLimitExceededError):
+        state.validate(make_request())
+
+
+def test_webhook_shared_secret_validation_with_none_secret() -> None:
+    """Shared secret validation should handle None secret gracefully."""
+
+    config = WebhookTriggerConfig()
+    state = WebhookTriggerState(config)
+    state._config.shared_secret_header = "x-secret"
+    state._config.shared_secret = None
+
+    request = make_request(headers={"x-secret": "some-value"})
+
+    with pytest.raises(WebhookAuthenticationError):
+        state._validate_shared_secret(request)
+
+
+def test_webhook_shared_secret_validation_missing_header() -> None:
+    """Shared secret validation should handle missing provided header."""
+
+    config = WebhookTriggerConfig(
+        secret_header="x-secret",
+        shared_secret="expected",
+    )
+    state = WebhookTriggerState(config)
+
+    request = make_request(headers={})
+
+    with pytest.raises(WebhookAuthenticationError):
+        state._validate_shared_secret(request)
