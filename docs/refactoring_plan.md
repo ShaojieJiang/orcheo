@@ -91,16 +91,16 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
 - [x] `apps/canvas/src/features/workflow/components/panels/workflow-node-gallery.tsx` — 354 LOC
 - [x] `apps/canvas/src/features/workflow/components/dialogs/command-palette.tsx` — 336 LOC
-- [ ] `apps/canvas/src/features/workflow/components/nodes/workflow-node.tsx` — 336 LOC
-- [ ] `apps/canvas/src/features/workflow/lib/graph-config.integration.test.ts` — 328 LOC
-- [ ] `apps/canvas/src/features/workflow/lib/workflow-storage.test.ts` — 309 LOC
-- [ ] `apps/canvas/src/features/shared/components/chat-interface.tsx` — 308 LOC
-- [ ] `apps/canvas/src/features/workflow/lib/workflow-execution-storage.ts` — 307 LOC
-- [ ] `apps/canvas/src/features/account/pages/profile.tsx` — 306 LOC
-- [ ] `apps/canvas/src/features/workflow/components/canvas/workflow-controls.tsx` — 300 LOC
-- [ ] `apps/canvas/src/features/workflow/components/canvas/annotations-layer.tsx` — 299 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-governance-panel.tsx` — 283 LOC
-- [ ] `apps/canvas/src/design-system/ui/carousel.tsx` — 262 LOC
+- [x] `apps/canvas/src/features/workflow/components/nodes/workflow-node.tsx` — 336 LOC
+- [x] `apps/canvas/src/features/workflow/lib/graph-config.integration.test.ts` — 328 LOC
+- [x] `apps/canvas/src/features/workflow/lib/workflow-storage.test.ts` — 309 LOC
+- [x] `apps/canvas/src/features/shared/components/chat-interface.tsx` — 308 LOC
+- [x] `apps/canvas/src/features/workflow/lib/workflow-execution-storage.ts` — 307 LOC
+- [x] `apps/canvas/src/features/account/pages/profile.tsx` — 306 LOC
+- [x] `apps/canvas/src/features/workflow/components/canvas/workflow-controls.tsx` — 300 LOC
+- [x] `apps/canvas/src/features/workflow/components/canvas/annotations-layer.tsx` — 299 LOC
+- [x] `apps/canvas/src/features/workflow/components/panels/workflow-governance-panel.tsx` — 283 LOC
+- [x] `apps/canvas/src/design-system/ui/carousel.tsx` — 262 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-message.tsx` — 260 LOC
 - [ ] `apps/canvas/src/design-system/ui/menubar.tsx` — 256 LOC
 - [ ] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
