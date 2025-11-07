@@ -82,7 +82,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/backend/src/orcheo_backend/app/service_token_endpoints.py` — 256 LOC
 - [x] `src/orcheo/runtime/credentials.py` — 256 LOC
 - [x] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
-- [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
+- [x] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
 - [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
 - [ ] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
