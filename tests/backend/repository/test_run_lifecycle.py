@@ -1,0 +1,145 @@
+from __future__ import annotations
+from uuid import uuid4
+import pytest
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowRepository,
+    WorkflowRunNotFoundError,
+    WorkflowVersionNotFoundError,
+)
+
+
+@pytest.mark.asyncio()
+async def test_run_lifecycle(repository: WorkflowRepository) -> None:
+    """Runs can transition through success, failure, and cancellation."""
+
+    workflow = await repository.create_workflow(
+        name="Runnable",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={"payload": True},
+    )
+    started = await repository.mark_run_started(run.id, actor="runner")
+    assert started.status == "running"
+    succeeded = await repository.mark_run_succeeded(
+        run.id, actor="runner", output={"result": "ok"}
+    )
+    assert succeeded.status == "succeeded"
+    assert succeeded.output_payload == {"result": "ok"}
+
+    failed_run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={},
+    )
+    failed = await repository.mark_run_failed(
+        failed_run.id, actor="runner", error="boom"
+    )
+    assert failed.status == "failed"
+    assert failed.error == "boom"
+
+    cancelled_run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={},
+    )
+    cancelled = await repository.mark_run_cancelled(
+        cancelled_run.id, actor="runner", reason="stop"
+    )
+    assert cancelled.status == "cancelled"
+    assert cancelled.error == "stop"
+
+    runs = await repository.list_runs_for_workflow(workflow.id)
+    assert {run.status for run in runs} == {"succeeded", "failed", "cancelled"}
+
+
+@pytest.mark.asyncio()
+async def test_run_error_paths(repository: WorkflowRepository) -> None:
+    """All run error branches raise the correct exceptions."""
+
+    missing_workflow_id = uuid4()
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.create_run(
+            missing_workflow_id,
+            workflow_version_id=uuid4(),
+            triggered_by="actor",
+            input_payload={},
+        )
+
+    workflow = await repository.create_workflow(
+        name="Run Errors",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    _ = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.create_run(
+            workflow.id,
+            workflow_version_id=uuid4(),
+            triggered_by="actor",
+            input_payload={},
+        )
+
+    other_workflow = await repository.create_workflow(
+        name="Other",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    mismatched_version = await repository.create_version(
+        other_workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.create_run(
+            workflow.id,
+            workflow_version_id=mismatched_version.id,
+            triggered_by="actor",
+            input_payload={},
+        )
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.get_run(uuid4())
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.mark_run_started(uuid4(), actor="actor")
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.mark_run_succeeded(uuid4(), actor="actor", output=None)
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.mark_run_failed(uuid4(), actor="actor", error="err")
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repository.mark_run_cancelled(uuid4(), actor="actor", reason=None)

@@ -1,0 +1,182 @@
+"""Tests for workflow version retrieval and diff endpoints."""
+
+from __future__ import annotations
+from datetime import UTC, datetime
+from uuid import uuid4
+import pytest
+from fastapi import HTTPException
+from orcheo.models.workflow import WorkflowVersion
+from orcheo_backend.app import (
+    diff_workflow_versions,
+    get_workflow_version,
+    list_workflow_versions,
+)
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_versions_success() -> None:
+    """List workflow versions endpoint returns versions."""
+
+    workflow_id = uuid4()
+    version1_id = uuid4()
+    version2_id = uuid4()
+
+    class Repository:
+        async def list_versions(self, wf_id):
+            return [
+                WorkflowVersion(
+                    id=version1_id,
+                    workflow_id=wf_id,
+                    version=1,
+                    graph={},
+                    created_by="admin",
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                WorkflowVersion(
+                    id=version2_id,
+                    workflow_id=wf_id,
+                    version=2,
+                    graph={},
+                    created_by="admin",
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    result = await list_workflow_versions(workflow_id, Repository())
+
+    assert len(result) == 2
+    assert result[0].id == version1_id
+    assert result[1].id == version2_id
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_versions_not_found() -> None:
+    """List workflow versions raises 404 for missing workflow."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def list_versions(self, wf_id):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await list_workflow_versions(workflow_id, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_success() -> None:
+    """Get workflow version endpoint returns specific version."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=version_number,
+                graph={},
+                created_by="admin",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    result = await get_workflow_version(workflow_id, 1, Repository())
+
+    assert result.id == version_id
+    assert result.version == 1
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_workflow_not_found() -> None:
+    """Get workflow version raises 404 for missing workflow."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version(workflow_id, 1, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_version_not_found() -> None:
+    """Get workflow version raises 404 for missing version."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowVersionNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version(workflow_id, 1, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_success() -> None:
+    """Diff workflow versions endpoint returns diff."""
+
+    workflow_id = uuid4()
+
+    class Diff:
+        base_version = 1
+        target_version = 2
+        diff = ["+ node1", "- node2"]
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            return Diff()
+
+    result = await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert result.base_version == 1
+    assert result.target_version == 2
+    assert result.diff == ["+ node1", "- node2"]
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_workflow_not_found() -> None:
+    """Diff workflow versions raises 404 for missing workflow."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            raise WorkflowNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_diff_workflow_versions_version_not_found() -> None:
+    """Diff workflow versions raises 404 for missing version."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def diff_versions(self, wf_id, base, target):
+            raise WorkflowVersionNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await diff_workflow_versions(workflow_id, 1, 2, Repository())
+
+    assert exc_info.value.status_code == 404

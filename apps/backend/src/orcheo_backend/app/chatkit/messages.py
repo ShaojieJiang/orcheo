@@ -1,0 +1,148 @@
+"""Utility helpers for manipulating ChatKit message threads."""
+
+from __future__ import annotations
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
+from chatkit.errors import CustomStreamError
+from chatkit.store import Store
+from chatkit.types import (
+    AssistantMessageContent,
+    AssistantMessageItem,
+    ThreadMetadata,
+    UserMessageItem,
+)
+from orcheo_backend.app.chatkit.context import ChatKitRequestContext
+from orcheo_backend.app.chatkit.message_utils import (
+    collect_text_from_assistant_content,
+    collect_text_from_user_content,
+)
+from orcheo_backend.app.repository import WorkflowRun
+
+
+async def build_history(
+    store: Store[ChatKitRequestContext],
+    thread: ThreadMetadata,
+    context: ChatKitRequestContext,
+) -> list[dict[str, str]]:
+    """Return a ChatML-style history from stored thread items."""
+    history: list[dict[str, str]] = []
+    page = await store.load_thread_items(
+        thread.id,
+        after=None,
+        limit=200,
+        order="asc",
+        context=context,
+    )
+    for item in page.data:
+        if isinstance(item, UserMessageItem):
+            history.append(
+                {
+                    "role": "user",
+                    "content": collect_text_from_user_content(item.content),
+                }
+            )
+        elif isinstance(item, AssistantMessageItem):
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": collect_text_from_assistant_content(item.content),
+                }
+            )
+    return history
+
+
+def require_workflow_id(thread: ThreadMetadata) -> UUID:
+    """Return the workflow identifier stored on ``thread``."""
+    workflow_value = thread.metadata.get("workflow_id")
+    if not workflow_value:
+        raise CustomStreamError(
+            "No workflow has been associated with this conversation.",
+            allow_retry=False,
+        )
+    try:
+        return UUID(str(workflow_value))
+    except ValueError as exc:
+        raise CustomStreamError(
+            "The configured workflow identifier is invalid.",
+            allow_retry=False,
+        ) from exc
+
+
+async def resolve_user_item(
+    store: Store[ChatKitRequestContext],
+    thread: ThreadMetadata,
+    item: UserMessageItem | None,
+    context: ChatKitRequestContext,
+) -> UserMessageItem:
+    """Return the most recent user message for the thread."""
+    if item is not None:
+        return item
+
+    page = await store.load_thread_items(
+        thread.id, after=None, limit=1, order="desc", context=context
+    )
+    for candidate in page.data:
+        if isinstance(candidate, UserMessageItem):
+            return candidate
+
+    raise CustomStreamError(
+        "Unable to locate the user message for this request.",
+        allow_retry=False,
+    )
+
+
+def build_inputs_payload(
+    thread: ThreadMetadata, message_text: str, history: list[dict[str, str]]
+) -> dict[str, Any]:
+    """Construct the workflow input payload."""
+    return {
+        "message": message_text,
+        "history": history,
+        "thread_id": thread.id,
+        "metadata": dict(thread.metadata),
+    }
+
+
+def record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:
+    """Persist run identifiers on the thread metadata."""
+    thread.metadata = {
+        **thread.metadata,
+        "last_run_at": datetime.now(UTC).isoformat(),
+    }
+    if "runs" in thread.metadata and isinstance(thread.metadata["runs"], list):
+        runs_list = list(thread.metadata["runs"])
+    else:
+        runs_list = []
+
+    if run is not None:
+        runs_list.append(str(run.id))
+        thread.metadata["last_run_id"] = str(run.id)
+
+    if runs_list:
+        thread.metadata["runs"] = runs_list[-20:]
+
+
+def build_assistant_item(
+    store: Store[ChatKitRequestContext],
+    thread: ThreadMetadata,
+    reply: str,
+    context: ChatKitRequestContext,
+) -> AssistantMessageItem:
+    """Create a ChatKit assistant message item from the reply text."""
+    return AssistantMessageItem(
+        id=store.generate_item_id("message", thread, context),
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[AssistantMessageContent(text=reply)],
+    )
+
+
+__all__ = [
+    "build_assistant_item",
+    "build_history",
+    "build_inputs_payload",
+    "record_run_metadata",
+    "require_workflow_id",
+    "resolve_user_item",
+]

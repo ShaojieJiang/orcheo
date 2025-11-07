@@ -1,7 +1,10 @@
-import React, { useRef, useCallback, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { Button } from "@/design-system/ui/button";
+import React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+
+import { Button } from "@/design-system/ui/button";
+import { cn } from "@/lib/utils";
+
+import { useSidebarResize } from "./use-sidebar-resize";
 
 export interface SidebarLayoutProps {
   /**
@@ -108,66 +111,16 @@ export default function SidebarLayout({
   sidebarClassName,
   mainClassName,
 }: SidebarLayoutProps) {
-  const resizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(0);
   const currentWidth = isCollapsed ? collapsedWidth : sidebarWidth;
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (!resizable || isCollapsed) return;
-
-      resizingRef.current = true;
-      startXRef.current = e.clientX;
-      startWidthRef.current = sidebarWidth;
-      e.preventDefault();
-    },
-    [resizable, isCollapsed, sidebarWidth],
-  );
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!resizingRef.current) return;
-
-      const delta =
-        position === "left"
-          ? e.clientX - startXRef.current
-          : startXRef.current - e.clientX;
-      let newWidth = startWidthRef.current + delta;
-
-      // Clamp width within min/max bounds
-      newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-
-      if (onWidthChange) {
-        onWidthChange(newWidth);
-      }
-    },
-    [position, minWidth, maxWidth, onWidthChange],
-  );
-
-  const handleMouseUp = useCallback(() => {
-    resizingRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    if (!resizable) {
-      return;
-    }
-
-    const targetDocument =
-      typeof document !== "undefined" ? document : undefined;
-    if (!targetDocument) {
-      return;
-    }
-
-    targetDocument.addEventListener("mousemove", handleMouseMove);
-    targetDocument.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      targetDocument.removeEventListener("mousemove", handleMouseMove);
-      targetDocument.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [resizable, handleMouseMove, handleMouseUp]);
+  const { handleMouseDown } = useSidebarResize({
+    resizable,
+    isCollapsed,
+    sidebarWidth,
+    minWidth,
+    maxWidth,
+    position,
+    onWidthChange,
+  });
 
   return (
     <div className={cn("flex h-full min-h-0", className)}>

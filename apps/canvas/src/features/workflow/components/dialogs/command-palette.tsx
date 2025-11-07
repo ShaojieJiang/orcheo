@@ -3,33 +3,21 @@ import { Dialog, DialogContent } from "@/design-system/ui/dialog";
 import { Input } from "@/design-system/ui/input";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
-import {
-  Search,
-  Folder,
-  FileText,
-  Code,
-  Settings,
-  Zap,
-  Database,
-  Sparkles,
-  ChevronRight,
-} from "lucide-react";
+import { Search, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import type { CommandItem } from "./command-palette-types";
+import { COMMAND_ITEMS } from "./command-palette-items";
+import {
+  filterCommandItems,
+  getTypeLabel,
+  groupCommandItems,
+} from "./command-palette-utils";
+import { useCommandPaletteNavigation } from "./use-command-palette-navigation";
 
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-interface CommandItem {
-  id: string;
-  name: string;
-  description?: string;
-  icon: React.ReactNode;
-  type: "workflow" | "node" | "action" | "setting";
-  shortcut?: string;
-  href?: string;
 }
 
 export default function CommandPalette({
@@ -44,146 +32,25 @@ export default function CommandPalette({
     setSelectedIndex(0);
   }, [open, searchQuery]);
 
-  // Handle keyboard navigation
-  useEffect(() => {
-    const targetWindow = typeof window !== "undefined" ? window : undefined;
-    if (!targetWindow) {
-      return;
-    }
+  const filteredItems = React.useMemo(
+    () => filterCommandItems(COMMAND_ITEMS, searchQuery),
+    [searchQuery],
+  );
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!open) return;
+  const groupedItems = React.useMemo(
+    () => groupCommandItems(filteredItems),
+    [filteredItems],
+  );
 
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          setSelectedIndex((prevIndex) =>
-            Math.min(prevIndex + 1, filteredItems.length - 1),
-          );
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setSelectedIndex((prevIndex) => Math.max(prevIndex - 1, 0));
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (filteredItems[selectedIndex]) {
-            handleSelect(filteredItems[selectedIndex]);
-          }
-          break;
-        case "Escape":
-          e.preventDefault();
-          onOpenChange(false);
-          break;
-      }
-    };
-
-    targetWindow.addEventListener("keydown", handleKeyDown);
-    return () => targetWindow.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedIndex, onOpenChange]);
-
-  // Sample command items
-  const commandItems: CommandItem[] = [
-    {
-      id: "workflow-1",
-      name: "Customer Onboarding",
-      description: "Automated customer onboarding workflow",
-      icon: <Folder className="h-4 w-4" />,
-
-      type: "workflow",
-      href: "/workflow-canvas",
-    },
-    {
-      id: "workflow-2",
-      name: "Email Campaign",
-      description: "Marketing email sequence",
-      icon: <Folder className="h-4 w-4" />,
-
-      type: "workflow",
-      href: "/workflow-canvas",
-    },
-    {
-      id: "node-1",
-      name: "HTTP Request",
-      description: "Make HTTP requests to external APIs",
-      icon: <Code className="h-4 w-4" />,
-
-      type: "node",
-    },
-    {
-      id: "node-2",
-      name: "Transform Data",
-      description: "Process and transform data",
-      icon: <Code className="h-4 w-4" />,
-
-      type: "node",
-    },
-    {
-      id: "node-3",
-      name: "Database Query",
-      description: "Execute SQL queries",
-      icon: <Database className="h-4 w-4" />,
-
-      type: "node",
-    },
-    {
-      id: "node-4",
-      name: "AI Text Generation",
-      description: "Generate text using AI models",
-      icon: <Sparkles className="h-4 w-4" />,
-
-      type: "node",
-    },
-    {
-      id: "action-1",
-      name: "Create New Workflow",
-      icon: <FileText className="h-4 w-4" />,
-
-      type: "action",
-    },
-    {
-      id: "action-2",
-      name: "Run Current Workflow",
-      icon: <Zap className="h-4 w-4" />,
-
-      type: "action",
-      shortcut: "⌘R",
-    },
-    {
-      id: "setting-1",
-      name: "User Settings",
-      icon: <Settings className="h-4 w-4" />,
-
-      type: "setting",
-      href: "/settings",
-    },
-  ];
-
-  // Filter items based on search query
-  const filteredItems = searchQuery
-    ? commandItems.filter(
-        (item) =>
-          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (item.description &&
-            item.description.toLowerCase().includes(searchQuery.toLowerCase())),
-      )
-    : commandItems;
-
-  // Group items by type
-  const groupedItems = filteredItems.reduce(
-    (acc, item) => {
-      if (!acc[item.type]) {
-        acc[item.type] = [];
-      }
-      acc[item.type].push(item);
-      return acc;
-    },
-    {} as Record<string, CommandItem[]>,
+  const groupedEntries = React.useMemo(
+    () =>
+      Object.entries(groupedItems) as Array<
+        [CommandItem["type"], CommandItem[]]
+      >,
+    [groupedItems],
   );
 
   const handleSelect = (item: CommandItem) => {
-    // Handle selection based on item type
     toast({
       title: item.name,
       description:
@@ -193,27 +60,19 @@ export default function CommandPalette({
     });
     onOpenChange(false);
 
-    // In a real implementation, you would navigate or perform the action
     if (item.href) {
-      // Navigate to the URL
       window.location.href = item.href;
     }
   };
 
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case "workflow":
-        return "Workflows";
-      case "node":
-        return "Nodes";
-      case "action":
-        return "Actions";
-      case "setting":
-        return "Settings";
-      default:
-        return type;
-    }
-  };
+  useCommandPaletteNavigation({
+    open,
+    filteredItems,
+    selectedIndex,
+    setSelectedIndex,
+    onSelect: handleSelect,
+    onClose: () => onOpenChange(false),
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -235,12 +94,12 @@ export default function CommandPalette({
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">
-          {Object.keys(groupedItems).length === 0 ? (
+          {groupedEntries.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground">
               No results found
             </div>
           ) : (
-            Object.entries(groupedItems).map(([type, items]) => (
+            groupedEntries.map(([type, items]) => (
               <div key={type} className="px-2 py-3">
                 <div className="px-2 mb-2 text-xs font-medium text-muted-foreground">
                   {getTypeLabel(type)}
