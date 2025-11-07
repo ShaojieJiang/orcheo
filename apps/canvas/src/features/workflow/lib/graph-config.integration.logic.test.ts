@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildGraphConfigFromCanvas } from "./graph-config";
 
-describe("buildGraphConfigFromCanvas integration", () => {
+describe("buildGraphConfigFromCanvas integration - logic and utility nodes", () => {
   it("serializes logic and utility nodes for backend consumption", async () => {
     const nodes: Node[] = [
       {
@@ -81,11 +81,7 @@ describe("buildGraphConfigFromCanvas integration", () => {
     ];
 
     const edges: Edge[] = [
-      {
-        id: "prep-to-if",
-        source: "prep-1",
-        target: "if-1",
-      } as Edge,
+      { id: "prep-to-if", source: "prep-1", target: "if-1" } as Edge,
       {
         id: "if-to-set",
         source: "if-1",
@@ -98,11 +94,7 @@ describe("buildGraphConfigFromCanvas integration", () => {
         target: "delay-1",
         sourceHandle: "false",
       } as Edge,
-      {
-        id: "set-to-delay",
-        source: "set-1",
-        target: "delay-1",
-      } as Edge,
+      { id: "set-to-delay", source: "set-1", target: "delay-1" } as Edge,
     ];
 
     const { config, canvasToGraph, graphToCanvas, warnings } =
@@ -120,7 +112,6 @@ describe("buildGraphConfigFromCanvas integration", () => {
     expect(graphToCanvas[ifElseName]).toBe("if-1");
 
     expect(config.nodes.some((node) => node.name === ifElseName)).toBe(false);
-
     expect(config.edge_nodes).toBeDefined();
 
     const ifElseNode = config.edge_nodes?.find(
@@ -166,163 +157,12 @@ describe("buildGraphConfigFromCanvas integration", () => {
     expect(config.conditional_edges).toContainEqual({
       source: prepName,
       path: ifElseName,
-      mapping: {
-        true: setVariableName,
-        false: delayName,
-      },
+      mapping: { true: setVariableName, false: delayName },
     });
 
     expect(config.edges).toContainEqual({
       source: setVariableName,
       target: delayName,
-    });
-  });
-
-  it("preserves template expressions for typed variables", async () => {
-    const nodes: Node[] = [
-      {
-        id: "producer",
-        type: "function",
-        position: { x: 0, y: 0 },
-        data: {
-          label: "Producer",
-          backendType: "SetVariableNode",
-          variables: [{ name: "value", valueType: "number", value: 10 }],
-        },
-      } as Node,
-      {
-        id: "consumer",
-        type: "function",
-        position: { x: 1, y: 0 },
-        data: {
-          label: "Consumer",
-          backendType: "SetVariableNode",
-          variables: [
-            {
-              name: "from_template",
-              valueType: "number",
-              value: "{{ results.producer.value }}",
-            },
-          ],
-        },
-      } as Node,
-    ];
-
-    const edges: Edge[] = [
-      {
-        id: "producer-to-consumer",
-        source: "producer",
-        target: "consumer",
-      } as Edge,
-    ];
-
-    const { config, canvasToGraph } = await buildGraphConfigFromCanvas(
-      nodes,
-      edges,
-    );
-
-    const consumerName = canvasToGraph["consumer"];
-    expect(consumerName).toBeDefined();
-
-    const consumerNode = config.nodes.find(
-      (node) => node.name === consumerName,
-    );
-
-    expect(consumerNode).toBeDefined();
-    const consumerVariables = (consumerNode?.variables ?? {}) as Record<
-      string,
-      unknown
-    >;
-
-    expect(consumerVariables).toMatchObject({
-      from_template: "{{ results.producer.value }}",
-    });
-  });
-
-  it("filters out canvas start and end nodes from serialization", async () => {
-    const nodes: Node[] = [
-      {
-        id: "start-node",
-        type: "start",
-        position: { x: 0, y: 0 },
-        data: {
-          label: "Workflow Start",
-          type: "start",
-        },
-      } as Node,
-      {
-        id: "set-var",
-        type: "function",
-        position: { x: 100, y: 0 },
-        data: {
-          label: "Set Variable",
-          backendType: "SetVariableNode",
-          variables: [
-            { name: "my_variable", valueType: "string", value: "sample" },
-            { name: "num", valueType: "number", value: 2 },
-          ],
-        },
-      } as Node,
-      {
-        id: "end-node",
-        type: "end",
-        position: { x: 200, y: 0 },
-        data: {
-          label: "Workflow End",
-          type: "end",
-        },
-      } as Node,
-    ];
-
-    const edges: Edge[] = [
-      {
-        id: "start-to-set",
-        source: "start-node",
-        target: "set-var",
-      } as Edge,
-      {
-        id: "set-to-end",
-        source: "set-var",
-        target: "end-node",
-      } as Edge,
-    ];
-
-    const { config, canvasToGraph, warnings } =
-      await buildGraphConfigFromCanvas(nodes, edges);
-
-    expect(warnings).toHaveLength(0);
-
-    // Canvas start/end nodes should NOT be in the mapping
-    expect(canvasToGraph["start-node"]).toBeUndefined();
-    expect(canvasToGraph["end-node"]).toBeUndefined();
-
-    // Only the SetVariable node should be serialized
-    expect(canvasToGraph["set-var"]).toBeDefined();
-    const setVarName = canvasToGraph["set-var"];
-
-    // Graph should have: START (hardcoded), set-variable, END (hardcoded)
-    expect(config.nodes).toHaveLength(3);
-    expect(config.nodes[0]).toMatchObject({
-      name: "START",
-      type: "START",
-    });
-    expect(config.nodes[1]).toMatchObject({
-      name: setVarName,
-      type: "SetVariableNode",
-    });
-    expect(config.nodes[2]).toMatchObject({
-      name: "END",
-      type: "END",
-    });
-
-    // Edges should connect START -> set-variable -> END
-    expect(config.edges).toContainEqual({
-      source: "START",
-      target: setVarName,
-    });
-    expect(config.edges).toContainEqual({
-      source: setVarName,
-      target: "END",
     });
   });
 });

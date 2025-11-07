@@ -1,7 +1,6 @@
 import { Button } from "@/design-system/ui/button";
-import ChatInterface, {
-  type ChatInterfaceProps,
-} from "@features/shared/components/chat-interface";
+import ChatInterface from "@features/shared/components/chat-interface";
+import type { ChatInterfaceProps } from "@features/shared/components/chat-interface.types";
 import { MessageSquare } from "lucide-react";
 
 type SupportChatCalloutProps = Pick<

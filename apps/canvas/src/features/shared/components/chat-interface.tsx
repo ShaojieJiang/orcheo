@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/design-system/ui/button";
 import {
   Dialog,
@@ -14,47 +14,11 @@ import {
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { buildBackendHttpUrl } from "@/lib/config";
-import {
-  ChatKit,
-  useChatKit,
-  type UseChatKitOptions,
-} from "@openai/chatkit-react";
+import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import { MessageSquare, MinimizeIcon, XIcon } from "lucide-react";
-import type { ChatMessageProps } from "@features/shared/components/chat-message";
 
-export interface ChatInterfaceProps {
-  title?: string;
-  initialMessages?: ChatMessageProps[];
-  className?: string;
-  isMinimizable?: boolean;
-  isClosable?: boolean;
-  position?:
-    | "bottom-right"
-    | "bottom-left"
-    | "top-right"
-    | "top-left"
-    | "center";
-  triggerButton?: React.ReactNode;
-  user: {
-    id: string;
-    name: string;
-    avatar?: string;
-  };
-  ai: {
-    id: string;
-    name: string;
-    avatar?: string;
-  };
-  backendBaseUrl?: string;
-  sessionPayload?: Record<string, unknown>;
-  getClientSecret?: (currentSecret: string | null) => Promise<string>;
-  chatkitOptions?: Partial<UseChatKitOptions>;
-  onResponseStart?: () => void;
-  onResponseEnd?: () => void;
-  onThreadChange?: (threadId: string | null) => void;
-  onLog?: (payload: Record<string, unknown>) => void;
-}
+import { useChatInterfaceOptions } from "./chat-interface-options";
+import type { ChatInterfaceProps } from "./chat-interface.types";
 
 export default function ChatInterface({
   title = "Chat",
@@ -78,126 +42,22 @@ export default function ChatInterface({
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
-  const initialGreeting = initialMessages.find(
-    (message) =>
-      typeof message.content === "string" && message.sender?.id === ai.id,
-  )?.content as string | undefined;
-
-  const resolveSessionSecret = useCallback(
-    async (currentSecret: string | null) => {
-      if (getClientSecret) {
-        return getClientSecret(currentSecret);
-      }
-
-      const url = buildBackendHttpUrl("/api/chatkit/session", backendBaseUrl);
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          current_client_secret: currentSecret,
-          currentClientSecret: currentSecret,
-          user,
-          assistant: ai,
-          metadata: {
-            title,
-            ...sessionPayload,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch ChatKit client secret");
-      }
-
-      const data = (await response.json()) as {
-        client_secret?: string;
-        clientSecret?: string;
-      };
-
-      const secret = data.client_secret ?? data.clientSecret;
-      if (!secret) {
-        throw new Error("ChatKit session response missing client secret");
-      }
-      return secret;
-    },
-    [ai, backendBaseUrl, getClientSecret, sessionPayload, title, user],
-  );
-
-  const composeHandlers = useCallback(
-    <T extends unknown[]>(
-      ...handlers: Array<((...args: T) => void) | undefined>
-    ) => {
-      const valid = handlers.filter(Boolean) as Array<(...args: T) => void>;
-      if (valid.length === 0) {
-        return undefined;
-      }
-      return (...args: T) => {
-        valid.forEach((handler) => handler(...args));
-      };
-    },
-    [],
-  );
-
-  const options = useMemo<UseChatKitOptions>(() => {
-    const merged = {
-      ...(chatkitOptions as UseChatKitOptions),
-    } as UseChatKitOptions;
-
-    merged.api = {
-      ...(chatkitOptions?.api ?? {}),
-      getClientSecret:
-        chatkitOptions?.api?.getClientSecret ?? resolveSessionSecret,
-    };
-
-    if (!merged.header) {
-      merged.header = {
-        enabled: true,
-        title: {
-          enabled: true,
-          text: title,
-        },
-      };
-    }
-
-    if (!merged.startScreen && initialGreeting) {
-      merged.startScreen = {
-        greeting: initialGreeting,
-      };
-    }
-
-    merged.onResponseStart = composeHandlers(
-      chatkitOptions?.onResponseStart,
-      onResponseStart,
-    );
-    merged.onResponseEnd = composeHandlers(
-      chatkitOptions?.onResponseEnd,
-      onResponseEnd,
-    );
-    merged.onThreadChange = composeHandlers(
-      chatkitOptions?.onThreadChange,
-      onThreadChange,
-    );
-    merged.onThreadLoadStart = chatkitOptions?.onThreadLoadStart;
-    merged.onThreadLoadEnd = chatkitOptions?.onThreadLoadEnd;
-    merged.onLog = composeHandlers(chatkitOptions?.onLog, onLog);
-    merged.onError = chatkitOptions?.onError;
-
-    return merged;
-  }, [
+  const chatKitOptions = useChatInterfaceOptions({
     chatkitOptions,
-    composeHandlers,
-    initialGreeting,
-    onLog,
-    onResponseEnd,
-    onResponseStart,
-    onThreadChange,
-    resolveSessionSecret,
+    getClientSecret,
+    backendBaseUrl,
+    sessionPayload,
     title,
-  ]);
+    user,
+    ai,
+    initialMessages,
+    onResponseStart,
+    onResponseEnd,
+    onThreadChange,
+    onLog,
+  });
 
-  const { control } = useChatKit(options);
+  const { control } = useChatKit(chatKitOptions);
 
   const handleToggleMinimize = () => {
     setIsMinimized(!isMinimized);
