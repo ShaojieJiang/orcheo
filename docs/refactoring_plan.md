@@ -51,7 +51,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/sdk/test_cli_service_token.py` — 544 LOC
 - [x] `tests/test_app.py` — 542 LOC
 - [x] `tests/test_backend_coverage.py` — 537 LOC
-- [ ] `apps/canvas/src/features/account/pages/settings.tsx` — 518 LOC
+- [x] `apps/canvas/src/features/account/pages/settings.tsx` — 518 LOC
 - [ ] `tests/nodes/test_ai.py` — 517 LOC
 - [ ] `tests/nodes/test_mongodb.py` — 507 LOC
 - [ ] `apps/canvas/src/features/workflow/components/dialogs/credentials-vault.tsx` — 503 LOC
