@@ -68,7 +68,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/backend/test_history.py` — 452 LOC
 - [x] `tests/graph/test_ingestion.py` — 451 LOC
 - [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
-- [ ] `src/orcheo/graph/ingestion.py` — 432 LOC
+- [x] `src/orcheo/graph/ingestion.py` — 432 LOC
 - [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
 - [ ] `src/orcheo/triggers/webhook.py` — 419 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
