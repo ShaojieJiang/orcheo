@@ -86,11 +86,11 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
 - [x] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
 - [x] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/variable-inspector.tsx` — 381 LOC
-- [ ] `apps/canvas/src/setupTests.ts` — 367 LOC
-- [ ] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-node-gallery.tsx` — 354 LOC
-- [ ] `apps/canvas/src/features/workflow/components/dialogs/command-palette.tsx` — 336 LOC
+- [x] `apps/canvas/src/features/workflow/components/panels/variable-inspector.tsx` — 381 LOC
+- [x] `apps/canvas/src/setupTests.ts` — 367 LOC
+- [x] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
+- [x] `apps/canvas/src/features/workflow/components/panels/workflow-node-gallery.tsx` — 354 LOC
+- [x] `apps/canvas/src/features/workflow/components/dialogs/command-palette.tsx` — 336 LOC
 - [ ] `apps/canvas/src/features/workflow/components/nodes/workflow-node.tsx` — 336 LOC
 - [ ] `apps/canvas/src/features/workflow/lib/graph-config.integration.test.ts` — 328 LOC
 - [ ] `apps/canvas/src/features/workflow/lib/workflow-storage.test.ts` — 309 LOC
