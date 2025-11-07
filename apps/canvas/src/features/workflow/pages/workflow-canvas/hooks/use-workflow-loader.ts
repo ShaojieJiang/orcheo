@@ -9,9 +9,9 @@ import {
 } from "@features/workflow/data/workflow-data";
 import {
   getWorkflowById,
-  loadWorkflowExecutions,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
+import { loadWorkflowExecutions } from "@features/workflow/lib/workflow-execution-storage";
 import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 interface UseWorkflowLoaderParams<TNode, TEdge> {
