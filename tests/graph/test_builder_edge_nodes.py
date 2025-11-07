@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 from langgraph.graph import END, START
 from langgraph.types import Send
-from orcheo.graph import builder
+from orcheo.graph.conditional import add_conditional_edges
+from orcheo.graph.edge_nodes import build_edge_nodes
 from tests.graph._builder_test_helpers import DummyGraph, StubDecision
 
 
@@ -15,14 +16,14 @@ def test_build_edge_nodes_missing_name() -> None:
     """Edge node without name raises ValueError."""
 
     with pytest.raises(ValueError, match="Edge node must have a name"):
-        builder._build_edge_nodes([{"type": "IfElseNode"}])
+        build_edge_nodes([{"type": "IfElseNode"}])
 
 
 def test_build_edge_nodes_unknown_type() -> None:
     """Unknown edge node type raises ValueError."""
 
     with pytest.raises(ValueError, match="Unknown edge node type: missing"):
-        builder._build_edge_nodes([{"name": "decision", "type": "missing"}])
+        build_edge_nodes([{"name": "decision", "type": "missing"}])
 
 
 def test_build_edge_nodes_success() -> None:
@@ -37,7 +38,7 @@ def test_build_edge_nodes_success() -> None:
         }
     ]
 
-    result = builder._build_edge_nodes(edge_nodes_config)
+    result = build_edge_nodes(edge_nodes_config)
 
     assert "my_decision" in result
     assert result["my_decision"].name == "my_decision"
@@ -61,7 +62,7 @@ def test_add_conditional_edges_validation(
     graph = DummyGraph()
 
     with pytest.raises(ValueError, match=expected_message):
-        builder._add_conditional_edges(graph, config, {})
+        add_conditional_edges(graph, config, {})
 
 
 def test_add_conditional_edges_maps_vertices() -> None:
@@ -69,7 +70,7 @@ def test_add_conditional_edges_maps_vertices() -> None:
 
     graph = DummyGraph()
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -95,7 +96,7 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
 
     graph = DummyGraph()
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -116,7 +117,7 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
     graph = DummyGraph()
     edge_node = StubDecision(["true", "unknown"])
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -140,7 +141,7 @@ def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
     graph = DummyGraph()
     edge_node = StubDecision(["maybe"])
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -161,7 +162,7 @@ def test_add_conditional_edges_edge_node_without_default_routes_to_end() -> None
     graph = DummyGraph()
     edge_node = StubDecision(["unknown"])
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -182,7 +183,7 @@ def test_add_conditional_edges_edge_node_handles_sequence_results() -> None:
     send_packet = Send("custom", {})
     edge_node = StubDecision([["true", send_packet]])
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "START",
@@ -203,7 +204,7 @@ def test_add_conditional_edges_without_edge_node() -> None:
 
     graph = DummyGraph()
 
-    builder._add_conditional_edges(
+    add_conditional_edges(
         graph,
         {
             "source": "node_a",
