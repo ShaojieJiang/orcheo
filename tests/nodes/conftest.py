@@ -1,9 +1,13 @@
 """Shared fixtures for node tests."""
 
 from __future__ import annotations
-from unittest.mock import AsyncMock
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from orcheo.nodes.ai import AgentNode
+from orcheo.nodes.mongodb import MongoDBNode
 
 
 @pytest.fixture
@@ -35,3 +39,46 @@ def agent():
         model_name="openai:gpt-4o-mini",
         system_prompt="Test prompt",
     )
+
+
+@dataclass
+class MongoTestContext:
+    """Encapsulates shared MongoDBNode test helpers."""
+
+    client: MagicMock
+    database: MagicMock
+    collection: MagicMock
+    mongo_client: MagicMock
+
+    def build_node(
+        self, *, operation: str, query: dict[str, Any] | None = None
+    ) -> MongoDBNode:
+        """Create a MongoDBNode with sensible defaults for tests."""
+
+        return MongoDBNode(
+            name="test_node",
+            database="test_db",
+            collection="test_coll",
+            operation=operation,
+            query=query or {},
+        )
+
+
+@pytest.fixture
+def mongo_context() -> Generator[MongoTestContext, None, None]:
+    """Provide patched MongoDB components and a node factory."""
+
+    collection = MagicMock()
+    database = MagicMock()
+    database.__getitem__.return_value = collection
+    client = MagicMock()
+    client.__getitem__.return_value = database
+
+    with patch("orcheo.nodes.mongodb.MongoClient") as mongo_client_cls:
+        mongo_client_cls.return_value = client
+        yield MongoTestContext(
+            client=client,
+            database=database,
+            collection=collection,
+            mongo_client=mongo_client_cls,
+        )
