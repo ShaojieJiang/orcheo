@@ -1,12 +1,33 @@
 """Tests covering repository and FastAPI app factory helpers."""
 
 import importlib
+import sys
+from types import ModuleType
 import pytest
 from orcheo_backend.app import _create_repository, create_app, get_repository
+from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
 backend_module = importlib.import_module("orcheo_backend.app")
+
+
+def test_install_app_module_proxy_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Installing the proxy twice should be a no-op on the second call."""
+    module_name = "tests.dummy_app_module"
+    dummy_module = ModuleType(module_name)
+    monkeypatch.setitem(sys.modules, module_name, dummy_module)
+
+    install_app_module_proxy(module_name)
+    proxied_module = sys.modules[module_name]
+    assert isinstance(proxied_module, _AppModule)
+
+    install_app_module_proxy(module_name)
+    assert sys.modules[module_name] is proxied_module
+
+    sys.modules.pop(module_name, None)
 
 
 def test_app_module_exposes_sensitive_debug_flag(
