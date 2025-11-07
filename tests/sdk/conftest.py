@@ -1,8 +1,9 @@
-"""Shared fixtures for CLI tests."""
+"""Shared fixtures for CLI and SDK tests."""
 
 from __future__ import annotations
 from pathlib import Path
 import pytest
+from orcheo_sdk import OrcheoClient
 from typer.testing import CliRunner
 
 
@@ -31,3 +32,12 @@ def mock_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up mock environment variables for SDK tests."""
     monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
     monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")
+
+
+@pytest.fixture()
+def client() -> OrcheoClient:
+    """Provide a baseline SDK client with default headers."""
+    return OrcheoClient(
+        base_url="http://localhost:8000",
+        default_headers={"X-Test": "1"},
+    )
