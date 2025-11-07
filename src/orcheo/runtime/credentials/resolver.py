@@ -1,11 +1,6 @@
-"""Runtime helpers for resolving credential placeholders during execution."""
+"""Credential resolver implementation and helpers."""
 
 from __future__ import annotations
-import re
-from collections.abc import Iterable
-from contextlib import contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 from orcheo.models import (
@@ -15,115 +10,12 @@ from orcheo.models import (
     OAuthTokenSecrets,
 )
 from orcheo.vault import BaseCredentialVault, CredentialNotFoundError
-
-
-_PLACEHOLDER_PATTERN = re.compile(r"^\[\[(?P<body>.+)\]\]$")
-_ACTIVE_RESOLVER: ContextVar[CredentialResolver | None] = ContextVar(
-    "orcheo_active_credential_resolver", default=None
+from .exceptions import (
+    CredentialReferenceNotFoundError,
+    DuplicateCredentialReferenceError,
+    UnknownCredentialPayloadError,
 )
-
-
-class CredentialResolutionError(RuntimeError):
-    """Base error raised when credential placeholders cannot be resolved."""
-
-
-class CredentialResolverUnavailableError(CredentialResolutionError):
-    """Raised when placeholders are used without an active resolver in scope."""
-
-
-class CredentialReferenceNotFoundError(CredentialResolutionError):
-    """Raised when a referenced credential cannot be located in the vault."""
-
-
-class DuplicateCredentialReferenceError(CredentialResolutionError):
-    """Raised when a reference matches multiple credentials."""
-
-
-class UnknownCredentialPayloadError(CredentialResolutionError):
-    """Raised when a placeholder requests an unsupported payload path."""
-
-
-@dataclass(frozen=True, slots=True)
-class CredentialReference:
-    """Opaque descriptor pointing to a credential payload."""
-
-    identifier: str
-    payload_path: tuple[str, ...] = ("secret",)
-
-    @classmethod
-    def from_placeholder(cls, value: str) -> CredentialReference | None:
-        """Return a reference extracted from a ``[[credential]]`` placeholder."""
-        match = _PLACEHOLDER_PATTERN.fullmatch(value.strip())
-        if not match:
-            return None
-        body = match.group("body").strip()
-        if not body:
-            return None
-        identifier, payload = _split_placeholder_body(body)
-        if not identifier:
-            return None
-        if not payload:
-            payload = ("secret",)
-        return cls(identifier=identifier, payload_path=payload)
-
-
-def _split_placeholder_body(body: str) -> tuple[str, tuple[str, ...]]:
-    """Split a placeholder body into identifier and payload path."""
-    if "#" not in body:
-        return body, ()
-    identifier, raw_path = body.split("#", 1)
-    path_parts = tuple(part.strip() for part in raw_path.split(".") if part.strip())
-    return identifier.strip(), path_parts
-
-
-def credential_ref(
-    identifier: str,
-    payload: str | Iterable[str] = "secret",
-) -> CredentialReference:
-    """Return a :class:`CredentialReference` for Python-authored graphs."""
-    normalized_identifier = identifier.strip()
-    if not normalized_identifier:
-        msg = "Credential identifier must be a non-empty string"
-        raise ValueError(msg)
-    if isinstance(payload, str):
-        payload_parts = tuple(
-            part.strip() for part in payload.split(".") if part.strip()
-        )
-    else:
-        payload_parts = tuple(
-            str(part).strip() for part in payload if str(part).strip()
-        )
-    if not payload_parts:
-        payload_parts = ("secret",)
-    return CredentialReference(
-        identifier=normalized_identifier,
-        payload_path=payload_parts,
-    )
-
-
-def parse_credential_reference(value: str) -> CredentialReference | None:
-    """Return a credential reference encoded within the provided string."""
-    return CredentialReference.from_placeholder(value)
-
-
-@contextmanager
-def credential_resolution(
-    resolver: CredentialResolver | None,
-) -> Any:
-    """Install ``resolver`` for the duration of the context manager."""
-    if resolver is None:
-        yield None
-        return
-    token = _ACTIVE_RESOLVER.set(resolver)
-    try:
-        yield resolver
-    finally:
-        _ACTIVE_RESOLVER.reset(token)
-
-
-def get_active_credential_resolver() -> CredentialResolver | None:
-    """Return the credential resolver currently bound to the execution context."""
-    return _ACTIVE_RESOLVER.get()
+from .references import CredentialReference
 
 
 class CredentialResolver:
@@ -254,3 +146,6 @@ class CredentialResolver:
         if tokens is None:
             return None
         return tokens.model_copy(deep=True)
+
+
+__all__ = ["CredentialResolver"]
