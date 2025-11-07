@@ -40,7 +40,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `apps/backend/src/orcheo_backend/app/history.py` — 589 LOC
 - [x] `tests/sdk/test_client.py` — 589 LOC
 - [x] `tests/backend/test_service_token_endpoints.py` — 576 LOC
-- [ ] `apps/canvas/src/features/support/pages/help-support.tsx` — 573 LOC
+- [x] `apps/canvas/src/features/support/pages/help-support.tsx` — 573 LOC
 - [ ] `apps/backend/src/orcheo_backend/app/chatkit_service.py` — 571 LOC
 - [ ] `apps/canvas/src/features/workflow/data/workflow-data.ts` — 569 LOC
 - [ ] `tests/backend/test_chatkit_tokens.py` — 567 LOC
