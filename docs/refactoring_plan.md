@@ -83,9 +83,9 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `src/orcheo/runtime/credentials.py` — 256 LOC
 - [x] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
 - [x] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
-- [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
-- [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
-- [ ] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
+- [x] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
+- [x] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
+- [x] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
 - [ ] `apps/canvas/src/features/workflow/components/panels/variable-inspector.tsx` — 381 LOC
 - [ ] `apps/canvas/src/setupTests.ts` — 367 LOC
 - [ ] `apps/canvas/src/design-system/ui/chart.tsx` — 365 LOC
