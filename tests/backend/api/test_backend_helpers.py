@@ -23,6 +23,10 @@ def test_backend_helper_builders_and_scope_errors() -> None:
     assert scope.workflow_ids
 
     assert backend_app._build_scope(None) is None
+    round_tripped_scope = backend_app._scope_to_payload(scope)
+    assert round_tripped_scope is not None
+    assert round_tripped_scope.workflow_ids == scope_payload.workflow_ids
+    assert backend_app._scope_to_payload(None) is None
 
     policy_payload = CredentialIssuancePolicyPayload(
         require_refresh_token=True,
@@ -31,6 +35,7 @@ def test_backend_helper_builders_and_scope_errors() -> None:
     )
     policy = backend_app._build_policy(policy_payload)
     assert policy.require_refresh_token is True
+    assert backend_app._policy_to_payload(None) is None
 
     token_payload = OAuthTokenRequest(
         access_token="a", refresh_token="b", expires_at=datetime.now(tz=UTC)

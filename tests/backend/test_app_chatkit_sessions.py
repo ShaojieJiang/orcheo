@@ -3,9 +3,16 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 import jwt
 import pytest
 from fastapi import HTTPException
+from orcheo.models import CredentialHealthStatus
+from orcheo.vault.oauth import (
+    CredentialHealthError,
+    CredentialHealthReport,
+    CredentialHealthResult,
+)
 from orcheo_backend.app import create_chatkit_session_endpoint
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
 from orcheo_backend.app.chatkit_tokens import (
@@ -128,6 +135,49 @@ async def test_create_chatkit_session_endpoint_missing_secret(
 
     assert exc_info.value.status_code == 503
     assert "ChatKit not configured" in exc_info.value.detail["message"]
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_credential_health_error() -> None:
+    """ChatKit session endpoint maps credential health failures to HTTP 503."""
+
+    workflow_id = uuid4()
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[
+            CredentialHealthResult(
+                credential_id=uuid4(),
+                name="slack",
+                provider="slack",
+                status=CredentialHealthStatus.UNHEALTHY,
+                last_checked_at=datetime.now(),
+                failure_reason="token expired",
+            )
+        ],
+        checked_at=datetime.now(),
+    )
+
+    class UnhealthyIssuer:
+        def mint_session(self, **_: Any) -> tuple[str, datetime]:
+            raise CredentialHealthError(report)
+
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="tester",
+            identity_type="user",
+            scopes=frozenset({"chatkit:session"}),
+            workspace_ids=frozenset({"ws-1"}),
+        )
+    )
+    request = ChatKitSessionRequest(workflow_id=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_chatkit_session_endpoint(
+            request, policy=policy, issuer=UnhealthyIssuer()
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "unhealthy credentials" in exc_info.value.detail["message"].lower()
 
 
 @pytest.mark.asyncio()

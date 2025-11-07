@@ -110,6 +110,48 @@ def test_record_alert_skips_acknowledged_entries() -> None:
     assert refreshed.id != alert.id
 
 
+def test_record_alert_ignores_non_matching_existing_entries() -> None:
+    cipher = AesGcmCredentialCipher(key="alert-ignore")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+    template = vault.create_template(
+        name="API",
+        provider="api",
+        scopes=["read"],
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+    template_alert = vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="template-alert",
+        actor="ops",
+        template_id=template.id,
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret",
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+        template_id=template.id,
+    )
+
+    credential_alert = vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.CRITICAL,
+        message="credential-alert",
+        actor="ops",
+        credential_id=metadata.id,
+        context=CredentialAccessContext(workflow_id=workflow_id),
+    )
+
+    assert credential_alert.id != template_alert.id
+
+
 def test_list_alerts_filters_by_context_and_acknowledgement() -> None:
     cipher = AesGcmCredentialCipher(key="alert-list")
     vault = InMemoryCredentialVault(cipher=cipher)

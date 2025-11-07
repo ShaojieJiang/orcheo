@@ -9,6 +9,23 @@ from orcheo_backend.app.repository import InMemoryWorkflowRepository
 backend_module = importlib.import_module("orcheo_backend.app")
 
 
+def test_app_module_exposes_sensitive_debug_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The module proxy forwards _should_log_sensitive_debug lookups."""
+    sentinel = object()
+    monkeypatch.setattr(
+        backend_module._workflow_execution_module,  # type: ignore[attr-defined]
+        "_should_log_sensitive_debug",
+        sentinel,
+        raising=False,
+    )
+
+    monkeypatch.delattr(backend_module, "_should_log_sensitive_debug", raising=False)
+
+    assert backend_module._should_log_sensitive_debug is sentinel  # type: ignore[attr-defined]
+
+
 def test_get_repository_returns_singleton() -> None:
     """The module-level repository accessor returns a singleton instance."""
 

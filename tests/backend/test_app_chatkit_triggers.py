@@ -13,7 +13,10 @@ from orcheo.vault.oauth import (
     CredentialHealthResult,
 )
 from orcheo_backend.app import trigger_chatkit_workflow
-from orcheo_backend.app.repository import WorkflowNotFoundError
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from orcheo_backend.app.schemas import ChatKitWorkflowTriggerRequest
 
 
@@ -133,3 +136,77 @@ async def test_trigger_chatkit_workflow_credential_health_error() -> None:
         await trigger_chatkit_workflow(workflow_id, request, Repository())
 
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_handles_missing_run_workflow() -> None:
+    """ChatKit trigger re-raises workflow errors from create_run."""
+
+    workflow_id = uuid4()
+
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=workflow_id,
+        version=1,
+        graph={},
+        created_by="system",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            return version
+
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise WorkflowNotFoundError("workflow removed")
+
+    request = ChatKitWorkflowTriggerRequest(
+        message="Hello",
+        client_thread_id="thread-123",
+        actor="user@example.com",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_chatkit_workflow(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
+    """ChatKit trigger re-raises version errors from create_run."""
+
+    workflow_id = uuid4()
+
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=workflow_id,
+        version=1,
+        graph={},
+        created_by="system",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            return version
+
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            raise WorkflowVersionNotFoundError("version missing")
+
+    request = ChatKitWorkflowTriggerRequest(
+        message="Hello",
+        client_thread_id="thread-123",
+        actor="user@example.com",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_chatkit_workflow(workflow_id, request, Repository())
+
+    assert exc_info.value.status_code == 404

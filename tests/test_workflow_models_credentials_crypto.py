@@ -5,6 +5,7 @@ from base64 import b64encode
 import pytest
 from orcheo.models import (
     AesGcmCredentialCipher,
+    CredentialCipher,
     EncryptionEnvelope,
     FernetCredentialCipher,
 )
@@ -36,3 +37,17 @@ def test_aes_cipher_rejects_short_payloads() -> None:
 
     with pytest.raises(ValueError, match="too short"):
         cipher.decrypt(envelope)
+
+
+def test_credential_cipher_protocol_methods_are_placeholders() -> None:
+    """Protocol default implementations should be no-op ellipsis bodies."""
+    envelope = EncryptionEnvelope(
+        algorithm="test",
+        key_id="key1",
+        ciphertext="payload",
+    )
+    encrypt_fn = CredentialCipher.__dict__["encrypt"]
+    decrypt_fn = CredentialCipher.__dict__["decrypt"]
+
+    assert encrypt_fn(object(), "secret") is None
+    assert decrypt_fn(object(), envelope) is None

@@ -18,6 +18,7 @@ from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
 backend_app = importlib.import_module("orcheo_backend.app")
+factory_module = importlib.import_module("orcheo_backend.app.factory")
 
 
 def test_get_chatkit_store_when_no_server() -> None:
@@ -259,6 +260,11 @@ def test_create_app_startup_exception_handling(monkeypatch: pytest.MonkeyPatch) 
         raise HTTPException(status_code=503, detail="ChatKit not configured")
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", mock_get_chatkit_server)
+    monkeypatch.setattr(
+        factory_module,
+        "get_chatkit_server",
+        mock_get_chatkit_server,
+    )
 
     cipher = AesGcmCredentialCipher(key="test-key")
     vault = InMemoryCredentialVault(cipher=cipher)

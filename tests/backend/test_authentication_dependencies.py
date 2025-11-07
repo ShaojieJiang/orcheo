@@ -16,6 +16,23 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     yield from reset_auth_state(monkeypatch)
 
 
+def test_extract_bearer_token_rejects_blank_token() -> None:
+    """_extract_bearer_token enforces a non-empty token segment."""
+
+    class FakeHeader(str):
+        def split(self) -> list[str]:  # type: ignore[override]
+            return ["Bearer", " "]
+
+    from orcheo_backend.app.authentication.dependencies import (
+        AuthenticationError,
+        _extract_bearer_token,
+    )
+
+    with pytest.raises(AuthenticationError) as exc:
+        _extract_bearer_token(FakeHeader("Bearer  "))
+    assert exc.value.code == "auth.missing_token"
+
+
 @pytest.mark.asyncio
 async def test_get_request_context_from_state() -> None:
     """get_request_context retrieves context from request state."""

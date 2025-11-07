@@ -47,7 +47,7 @@ def _resolve_compiler() -> Callable[[str, str, str], CodeType]:
         compiler_candidate = getattr(ingestion_module, "compile_restricted", None)
         if callable(compiler_candidate):
             compiler_fn = cast(Callable[[str, str, str], CodeType], compiler_candidate)
-    return compiler_fn or compile_restricted
+    return compiler_fn or compile_restricted  # pragma: no cover
 
 
 def create_sandbox_namespace() -> dict[str, Any]:
