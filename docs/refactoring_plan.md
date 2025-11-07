@@ -73,7 +73,7 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [x] `tests/test_triggers_manual.py` — 313 LOC
 - [x] `tests/nodes/test_base.py` — 294 LOC
 - [x] `src/orcheo/triggers/webhook.py` — 419 LOC
-- [ ] `src/orcheo/nodes/utility.py` — 390 LOC
+- [x] `src/orcheo/nodes/utility.py` — 390 LOC
 - [ ] `packages/sdk/src/orcheo_sdk/services/workflows.py` — 389 LOC
 - [ ] `apps/backend/src/orcheo_backend/app/schemas.py` — 357 LOC
 - [ ] `examples/agent_example.py` — 341 LOC
@@ -82,6 +82,8 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [ ] `src/orcheo/graph/builder.py` — 262 LOC
 - [ ] `apps/backend/src/orcheo_backend/app/service_token_endpoints.py` — 256 LOC
 - [ ] `src/orcheo/runtime/credentials.py` — 256 LOC
+- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
+- [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
 - [ ] `apps/canvas/src/features/workflow/components/dialogs/user-role-management.tsx` — 427 LOC
 - [ ] `apps/canvas/src/features/shared/components/chat-input.tsx` — 401 LOC
 - [ ] `apps/canvas/src/features/shared/components/top-navigation.tsx` — 393 LOC
@@ -104,8 +106,6 @@ Each script should have fewer than 250 LOC; special cases may extend but must st
 - [ ] `apps/canvas/src/design-system/ui/menubar.tsx` — 256 LOC
 - [ ] `apps/canvas/src/features/workflow/components/layouts/sidebar-layout.tsx` — 255 LOC
 - [ ] `apps/canvas/src/features/account/components/theme-settings.tsx` — 252 LOC
-- [ ] `apps/canvas/src/features/workflow/components/panels/workflow-history.tsx` — 459 LOC
-- [ ] `apps/canvas/src/features/workflow/components/canvas/time-travel-debugger.tsx` — 444 LOC
 
 
 ## Wrap up

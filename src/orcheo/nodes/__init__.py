@@ -9,6 +9,8 @@ from orcheo.nodes.data import (
     JsonProcessingNode,
     MergeNode,
 )
+from orcheo.nodes.debug import DebugNode
+from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.logic import (
     DelayNode,
     IfElseNode,
@@ -17,21 +19,17 @@ from orcheo.nodes.logic import (
     WhileNode,
 )
 from orcheo.nodes.mongodb import MongoDBNode
+from orcheo.nodes.python_sandbox import PythonSandboxNode
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackNode
 from orcheo.nodes.storage import PostgresNode, SQLiteNode
+from orcheo.nodes.sub_workflow import SubWorkflowNode
 from orcheo.nodes.telegram import MessageTelegram
 from orcheo.nodes.triggers import (
     CronTriggerNode,
     HttpPollingTriggerNode,
     ManualTriggerNode,
     WebhookTriggerNode,
-)
-from orcheo.nodes.utility import (
-    DebugNode,
-    JavaScriptSandboxNode,
-    PythonSandboxNode,
-    SubWorkflowNode,
 )
 
 
