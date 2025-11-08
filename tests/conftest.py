@@ -4,6 +4,11 @@ import sys
 from pathlib import Path
 
 
+pytest_plugins = [
+    "tests.backend.chatkit_router_helpers_support",
+]
+
+
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_SRC = ROOT / "apps" / "backend" / "src"
 SDK_SRC = ROOT / "packages" / "sdk" / "src"
