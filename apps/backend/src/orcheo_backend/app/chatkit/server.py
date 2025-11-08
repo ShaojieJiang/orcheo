@@ -131,8 +131,11 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         history = await self._history(thread, context)
         inputs = self._build_inputs_payload(thread, message_text, history)
 
+        actor = str(context.get("actor") or "chatkit")
         try:
-            reply, _state, run = await self._run_workflow(workflow_id, inputs)
+            reply, _state, run = await self._run_workflow(
+                workflow_id, inputs, actor=actor
+            )
         except WorkflowNotFoundError as exc:
             raise CustomStreamError(str(exc), allow_retry=False) from exc
         except WorkflowVersionNotFoundError as exc:

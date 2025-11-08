@@ -2,18 +2,37 @@
 
 Author: Shaojie Jiang. See `docs/chatkit_integration/requirements.md` and `docs/chatkit_integration/design.md` for full context.
 
-## Milestone 0 – Backend foundations (highest priority)
+## Milestone 0 – Backend foundations ✅ *(complete)*
+
+All backend prerequisites for ChatKit sharing are now in place. The workflow domain
+model understands publish metadata, repository layers persist the new state, and the
+ChatKit router accepts either workflow JWTs or publish tokens with consistent
+rate-limiting and error handling.
+
 1. **Publish metadata**
-   - Extend workflow model with `is_public`, `publish_token_hash`, `published_at`, `published_by`, `publish_token_rotated_at`, `require_login`.
-   - Add migration + tests covering publish/rotate/revoke/login-flag state transitions.
+   - [x] Extended the workflow model with publish state (`is_public`,
+     `publish_token_hash`, `published_at`, `published_by`,
+     `publish_token_rotated_at`, `require_login`) and helper utilities for token
+     lifecycle management (`generate_publish_token`, `hash_publish_token`,
+     `mask_publish_token`).
+   - [x] Added persistence updates and tests covering publish, rotate, revoke, and
+     `require_login` transitions across in-memory and SQLite repositories.
 2. **Publish management APIs**
-   - Implement `POST /api/workflows/{id}/publish`, `/publish/rotate`, `/publish/revoke` per design doc.
-   - Payload must accept `require_login` flag; responses include current status + newly generated token (shown once).
-   - Instrument audit logging and persist publish token hash only.
+   - [x] Implemented `POST /api/workflows/{id}/publish`, `/publish/rotate`, and
+     `/publish/revoke` endpoints with responses that surface current publish
+     status and newly generated tokens when applicable.
+   - [x] Ensured the payload accepts the `require_login` flag, publish token hashes
+     are persisted (token values only emitted once), and audit logging hooks are
+     wired in for future observability.
 3. **ChatKit endpoint auth**
-   - Update `/api/chatkit` to accept either workflow-scoped JWT (`Authorization: Bearer ...`) or `{publish_token}` (plus OAuth session when required).
-   - Enforce token hashing, JWT validation, OAuth session validation, rate limiting (via the existing middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`), and consistent error responses.
-   - Persist chat transcripts via existing session store for both auth modes.
+   - [x] Updated `/api/chatkit` to validate either workflow-scoped JWTs
+     (`Authorization: Bearer …`) or publish tokens, enforcing token hashing, JWT
+     checks, OAuth session validation when `require_login` is set, and rate
+     limiting via the shared middleware.
+   - [x] Persist chat transcripts through the existing session store for both auth
+     modes and added backend tests (including
+     `tests/backend/test_chatkit_authentication.py`) that cover the new helper
+     flows.
 
 ## Milestone 1 – CLI publish UX
 _Canvas-side publish surfaces remain future work; this milestone only delivers the CLI pathways so we can unblock external testing sooner._

@@ -52,6 +52,10 @@ from orcheo_backend.app.schemas.service_tokens import (  # noqa: F401
 )
 from orcheo_backend.app.schemas.workflows import (  # noqa: F401
     WorkflowCreateRequest,
+    WorkflowPublishRequest,
+    WorkflowPublishResponse,
+    WorkflowPublishRevokeRequest,
+    WorkflowPublishRotateRequest,
     WorkflowRunCreateRequest,
     WorkflowUpdateRequest,
     WorkflowVersionCreateRequest,
@@ -97,6 +101,10 @@ __all__ = [
     "RunSucceedRequest",
     "WorkflowCreateRequest",
     "WorkflowRunCreateRequest",
+    "WorkflowPublishRequest",
+    "WorkflowPublishResponse",
+    "WorkflowPublishRevokeRequest",
+    "WorkflowPublishRotateRequest",
     "WorkflowUpdateRequest",
     "WorkflowVersionCreateRequest",
     "WorkflowVersionDiffResponse",

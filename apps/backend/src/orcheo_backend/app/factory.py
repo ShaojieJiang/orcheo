@@ -53,17 +53,21 @@ configure_sensitive_logging(
 
 
 def _build_api_router() -> APIRouter:
-    router = APIRouter(prefix="/api", dependencies=[Depends(authenticate_request)])
-    router.include_router(service_token_router)
+    router = APIRouter(prefix="/api")
+
+    protected_router = APIRouter(dependencies=[Depends(authenticate_request)])
+    protected_router.include_router(service_token_router)
+    protected_router.include_router(workflows.router)
+    protected_router.include_router(credentials.router)
+    protected_router.include_router(credential_templates.router)
+    protected_router.include_router(credential_alerts.router)
+    protected_router.include_router(credential_health.router)
+    protected_router.include_router(runs.router)
+    protected_router.include_router(triggers.router)
+    protected_router.include_router(nodes.router)
+
     router.include_router(chatkit_router.router)
-    router.include_router(workflows.router)
-    router.include_router(credentials.router)
-    router.include_router(credential_templates.router)
-    router.include_router(credential_alerts.router)
-    router.include_router(credential_health.router)
-    router.include_router(runs.router)
-    router.include_router(triggers.router)
-    router.include_router(nodes.router)
+    router.include_router(protected_router)
     return router
 
 
