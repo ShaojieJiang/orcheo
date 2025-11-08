@@ -3,6 +3,7 @@
 from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
+from uuid import uuid4
 from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi.testclient import TestClient
@@ -42,14 +43,26 @@ async def test_chatkit_gateway_streaming_response(
     mock_server.process = mock_process
 
     mock_adapter = Mock()
-    mock_adapter.validate_json.return_value = {"action": "chat"}
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
     monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
 
     response = api_client.post(
         "/api/chatkit",
-        json={"test": "payload"},
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
     )
 
     assert response.status_code == 200
@@ -76,12 +89,27 @@ async def test_chatkit_gateway_json_response_with_callable(
     mock_server.process = mock_process
 
     mock_adapter = Mock()
-    mock_adapter.validate_json.return_value = {"action": "chat"}
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
     monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
 
-    response = api_client.post("/api/chatkit", json={"test": "payload"})
+    response = api_client.post(
+        "/api/chatkit",
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+    )
 
     assert response.status_code == 200
     assert response.json() == {"result": "success"}
@@ -107,12 +135,27 @@ async def test_chatkit_gateway_json_response_with_bytes(
     mock_server.process = mock_process
 
     mock_adapter = Mock()
-    mock_adapter.validate_json.return_value = {"action": "chat"}
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
     monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
 
-    response = api_client.post("/api/chatkit", json={"test": "payload"})
+    response = api_client.post(
+        "/api/chatkit",
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+    )
 
     assert response.status_code == 200
     assert response.content == b"binary-data"
@@ -138,12 +181,27 @@ async def test_chatkit_gateway_json_response_with_string(
     mock_server.process = mock_process
 
     mock_adapter = Mock()
-    mock_adapter.validate_json.return_value = {"action": "chat"}
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
     monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
 
-    response = api_client.post("/api/chatkit", json={"test": "payload"})
+    response = api_client.post(
+        "/api/chatkit",
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+    )
 
     assert response.status_code == 200
     assert response.text == "text response"
@@ -162,12 +220,27 @@ async def test_chatkit_gateway_dict_response(
     mock_server.process = mock_process
 
     mock_adapter = Mock()
-    mock_adapter.validate_json.return_value = {"action": "chat"}
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
 
     monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
     monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
 
-    response = api_client.post("/api/chatkit", json={"test": "payload"})
+    response = api_client.post(
+        "/api/chatkit",
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+    )
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}

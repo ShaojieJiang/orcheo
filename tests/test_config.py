@@ -231,3 +231,18 @@ def test_chatkit_retention_coerces_string_values() -> None:
     normalized = config._normalize_settings(source)
 
     assert normalized.chatkit_retention_days == 21
+
+
+def test_chatkit_rate_limit_settings_are_loaded() -> None:
+    """ChatKit rate limit configuration should surface defaults and overrides."""
+
+    source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("CHATKIT_RATE_LIMIT_IP_LIMIT", "200")
+    source.set("CHATKIT_RATE_LIMIT_PUBLISH_INTERVAL", "90")
+
+    normalized = config._normalize_settings(source)
+    limits = normalized.get("CHATKIT_RATE_LIMITS")
+
+    assert limits["ip_limit"] == 200
+    assert limits["publish_interval_seconds"] == 90
+    assert limits["session_limit"] == 60
