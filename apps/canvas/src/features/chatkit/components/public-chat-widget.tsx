@@ -74,7 +74,7 @@ export function PublicChatWidget({
   return (
     <ChatKit
       control={control}
-      className="flex h-full w-full rounded-lg border border-slate-800 bg-background"
+      className="flex h-full w-full rounded-lg border border-slate-200 bg-background dark:border-slate-800"
     />
   );
 }

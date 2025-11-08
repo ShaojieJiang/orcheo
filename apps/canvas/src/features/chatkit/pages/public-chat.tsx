@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Badge } from "@/design-system/ui/badge";
@@ -13,8 +15,11 @@ import {
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Skeleton } from "@/design-system/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/design-system/ui/toggle-group";
 import { getBackendBaseUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import type { Theme } from "@/lib/theme";
+import { useThemePreferences } from "@features/account/components/use-theme-preferences";
 import {
   ApiRequestError,
   fetchWorkflow,
@@ -207,7 +212,7 @@ export default function PublicChatPage() {
   const renderLeftColumn = () => {
     if (workflowState.status === "loading") {
       return (
-        <Card className="bg-slate-950/40 border-slate-800">
+        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
           <CardHeader className="space-y-2">
             <Skeleton className="h-6 w-3/4" />
             <Skeleton className="h-4 w-1/3" />
@@ -222,7 +227,7 @@ export default function PublicChatPage() {
 
     if (workflowState.status === "error") {
       return (
-        <Card className="bg-slate-950/40 border-slate-800">
+        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
           <CardHeader>
             <CardTitle>Workflow unavailable</CardTitle>
             <CardDescription>{workflowState.message}</CardDescription>
@@ -237,10 +242,10 @@ export default function PublicChatPage() {
     }
 
     return (
-      <Card className="bg-slate-950/40 border-slate-800 text-left space-y-4">
+      <Card className="space-y-4 border-slate-200 bg-white/90 text-left dark:border-slate-800 dark:bg-slate-950/40">
         <CardHeader className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <CardTitle className="text-xl text-white">
+            <CardTitle className="text-xl text-slate-900 dark:text-white">
               {workflowState.workflow.name}
             </CardTitle>
             <Badge
@@ -258,7 +263,7 @@ export default function PublicChatPage() {
               </Badge>
             )}
           </div>
-          <CardDescription className="text-slate-300">
+          <CardDescription className="text-slate-600 dark:text-slate-300">
             Paste a publish token to start a ChatKit session for this workflow.
           </CardDescription>
         </CardHeader>
@@ -274,9 +279,9 @@ export default function PublicChatPage() {
               placeholder="Paste token from workflow owner"
               value={tokenInput}
               onChange={(event) => setTokenInput(event.currentTarget.value)}
-              className="bg-slate-900 border-slate-700"
+              className="border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
             />
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Tokens never leave this page and are cleared if you refresh or
               close the tab.
             </p>
@@ -315,7 +320,7 @@ export default function PublicChatPage() {
   const renderChatColumn = () => {
     if (workflowState.status === "loading") {
       return (
-        <Card className="border-slate-800 bg-slate-950/40">
+        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
           <CardHeader>
             <Skeleton className="h-6 w-48" />
           </CardHeader>
@@ -329,7 +334,7 @@ export default function PublicChatPage() {
 
     if (workflowState.status === "error") {
       return (
-        <Card className="border-slate-800 bg-slate-950/40">
+        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
           <CardHeader>
             <CardTitle>Chat unavailable</CardTitle>
             <CardDescription>
@@ -355,10 +360,10 @@ export default function PublicChatPage() {
           };
 
     return (
-      <Card className="border-slate-800 bg-slate-950/40">
+      <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle className="text-white">
+            <CardTitle className="text-slate-900 dark:text-white">
               Chat with “{workflowName || workflowState.workflow.name}”
             </CardTitle>
             <Badge
@@ -368,7 +373,7 @@ export default function PublicChatPage() {
               {badgeTone.text}
             </Badge>
           </div>
-          <CardDescription className="text-slate-300">
+          <CardDescription className="text-slate-600 dark:text-slate-300">
             Provide a valid publish token to mount the ChatKit widget below.
           </CardDescription>
         </CardHeader>
@@ -406,14 +411,14 @@ export default function PublicChatPage() {
           ) : activeToken ? (
             <div className="relative min-h-[520px]">
               {!isChatReady && (
-                <div className="absolute inset-0 flex flex-col gap-4 rounded-lg border border-slate-800 bg-slate-950/80 p-6">
+                <div className="absolute inset-0 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white/90 p-6 dark:border-slate-800 dark:bg-slate-950/80">
                   <Skeleton className="h-10 w-1/2 self-center" />
                   <Skeleton className="h-full w-full" />
                 </div>
               )}
               <div
                 className={cn(
-                  "h-[520px] w-full rounded-lg border border-slate-800 bg-slate-950/80",
+                  "h-[520px] w-full rounded-lg border border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/80",
                   isChatReady ? "opacity-100" : "opacity-0",
                   "transition-opacity duration-200",
                 )}
@@ -430,7 +435,7 @@ export default function PublicChatPage() {
               </div>
             </div>
           ) : (
-            <div className="flex min-h-[420px] flex-col items-center justify-center space-y-4 rounded-lg border border-dashed border-slate-800 bg-slate-950/60 px-6 text-center text-slate-400">
+            <div className="flex min-h-[420px] flex-col items-center justify-center space-y-4 rounded-lg border border-dashed border-slate-200 bg-white/80 px-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
               <p>
                 Provide a publish token to unlock the public chat experience for
                 this workflow. Tokens stay in-memory for this tab only.
@@ -454,20 +459,23 @@ export default function PublicChatPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
       <div className="mx-auto max-w-6xl px-4 py-10 lg:py-14">
-        <div className="flex flex-col gap-3">
-          <p className="text-sm uppercase tracking-wide text-slate-400">
-            Orcheo ChatKit
-          </p>
-          <h1 className="text-3xl md:text-4xl font-semibold">
-            Share workflows through a secure public chat page
-          </h1>
-          <p className="text-slate-300 max-w-3xl">
-            Only published workflows can be accessed here. Share the page link +
-            publish token with trusted testers and rotate the token anytime from
-            the Orcheo CLI.
-          </p>
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex max-w-3xl flex-col gap-3">
+            <p className="text-sm uppercase tracking-wide text-slate-400">
+              Orcheo ChatKit
+            </p>
+            <h1 className="text-3xl md:text-4xl font-semibold">
+              Share workflows through a secure public chat page
+            </h1>
+            <p className="text-slate-600 dark:text-slate-300">
+              Only published workflows can be accessed here. Share the page link
+              + publish token with trusted testers and rotate the token anytime
+              from the Orcheo CLI.
+            </p>
+          </div>
+          <ThemeToggleButtonGroup className="mt-2 self-end lg:absolute lg:right-0 lg:top-0" />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[360px,1fr] mt-10">
@@ -476,5 +484,72 @@ export default function PublicChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+const THEME_OPTIONS: Array<{
+  icon: ReactNode;
+  label: string;
+  value: Theme;
+}> = [
+  {
+    value: "light",
+    label: "Light",
+    icon: <Sun className="h-4 w-4" />,
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    icon: <Moon className="h-4 w-4" />,
+  },
+  {
+    value: "system",
+    label: "System",
+    icon: <Monitor className="h-4 w-4" />,
+  },
+];
+
+const isThemeValue = (value: string): value is Theme =>
+  THEME_OPTIONS.some((option) => option.value === value);
+
+interface ThemeToggleButtonGroupProps {
+  className?: string;
+}
+
+function ThemeToggleButtonGroup({ className }: ThemeToggleButtonGroupProps) {
+  const { theme, setTheme } = useThemePreferences({});
+
+  const handleThemeChange = (value: string) => {
+    if (!value || !isThemeValue(value)) {
+      return;
+    }
+    setTheme(value);
+  };
+
+  return (
+    <ToggleGroup
+      type="single"
+      value={theme}
+      onValueChange={handleThemeChange}
+      aria-label="Select display theme"
+      className={cn(
+        "rounded-full border border-slate-200 bg-white/90 px-1 py-1 shadow-[inset_0_-1px_4px_rgba(15,23,42,0.12)] backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/70",
+        className,
+      )}
+      variant="default"
+      size="default"
+    >
+      {THEME_OPTIONS.map((option) => (
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          aria-label={`Use ${option.label.toLowerCase()} theme`}
+          className="h-9 w-9 rounded-full border border-transparent p-0 text-slate-400 transition-all hover:bg-transparent hover:text-slate-900 dark:text-slate-400 dark:hover:text-white data-[state=on]:border-slate-900/20 data-[state=on]:bg-slate-900 data-[state=on]:text-white data-[state=on]:shadow-[0_4px_12px_rgba(15,23,42,0.3)] dark:data-[state=on]:border-white/30 dark:data-[state=on]:bg-white dark:data-[state=on]:text-slate-900"
+        >
+          {option.icon}
+          <span className="sr-only">{option.label}</span>
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   );
 }
