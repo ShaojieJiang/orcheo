@@ -11,11 +11,12 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Static route served under `${canvas_base_url}/chat/:workflowId`; publish tokens must stay out of the URL surface. Prefer receiving them via the publish flow and keeping them in memory, only falling back to a `?token=` query string when embedding without prior context is impossible.
   - Loads the same ChatKit widget bundle used by Canvas, initializing with publish token auth and read-only workflow metadata (name only).
   - If the workflow was published with `require_login=true`, prompts the visitor to complete OAuth (e.g., Google) before instantiating the widget.
-- **CLI Publishing UX (orcheo CLI)**
+- **CLI & MCP Publishing UX (orcheo CLI + orcheo-mcp)**
   - Adds `orcheo workflow publish` / `unpublish` / `rotate-token` commands with interactive prompts and flags (e.g., `--require-login`) plus post-run summaries displaying the shareable URL.
-  - Persists the last-published workflow state locally to show status in `orcheo workflow list`.
-  - Surfaces errors (e.g., missing permissions, invalid workflow) inline with actionable remediation hints.
-  - Canvas-side publish UX parity is explicitly deferred until after the CLI flow ships; the CLI acts as the authoritative entry point for initial rollout.
+  - Shares the same command registry with the MCP server so `orcheo-mcp` exposes `workflows.publish`, `workflows.unpublish`, `workflows.rotate_publish_token`, and enriched `list_workflows` / `show_workflow` data for assistants like Claude/Codex.
+  - Persists the last-published workflow state locally to show status in `orcheo workflow list`, and returns identical metadata through MCP responses (including `is_public`, `require_login`, token rotation timestamps, and share link).
+  - Surfaces errors (e.g., missing permissions, invalid workflow) inline with actionable remediation hints while MCP propagates the same errors as structured tool failures.
+  - Canvas-side publish UX parity is explicitly deferred until after the CLI/MCP flows ship; these two surfaces act as the authoritative entry points for initial rollout.
 - **Canvas Backend (FastAPI)**
   - Provides publish/unpublish/token-rotation APIs.
   - Issues workflow-scoped JWTs for authenticated editors.
@@ -47,11 +48,11 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 6. Rate limiter tracks per `publish_token`, per IP, and per OAuth user (when available).
 7. If owner rotates token, old token stops authorizing new sessions immediately while existing chat connections keep streaming until they end or disconnect.
 
-### 3. CLI Publish/Unpublish flow
-1. User runs `orcheo workflow publish <workflow_id> [--require-login]`; CLI fetches workflow metadata and either respects the flag or prompts when omitted, then confirms public exposure.
-2. CLI invokes `POST /api/workflows/{id}/publish` with selected options and prints the resulting share URL/token once.
-3. Subsequent `orcheo workflow rotate-token <workflow_id>` or `orcheo workflow unpublish <workflow_id>` commands hit the rotate/revoke endpoints, updating local cache and printing status.
-4. CLI exit codes reflect success/failure so scripts can automate publishing.
+### 3. CLI & MCP Publish/Unpublish flow
+1. A user runs `orcheo workflow publish <workflow_id> [--require-login]` locally, or an AI assistant triggers the mirrored `orcheo-mcp.workflows.publish` tool; both paths fetch workflow metadata, honor the `--require-login` intent (prompting when omitted), and confirm public exposure.
+2. Shared helpers invoke `POST /api/workflows/{id}/publish` with the selected options and print or return the resulting share URL/token once; MCP responses include the same payload shape so assistants can narrate the link without persisting the token.
+3. Subsequent `orcheo workflow rotate-token <workflow_id>` / `orcheo workflow unpublish <workflow_id>` commands and the matching MCP tools hit the rotate/revoke endpoints, update cached status, and return consistent status objects (public/private, rotation timestamps, require-login flag).
+4. CLI exit codes reflect success/failure for scripting, while MCP tool responses encode identical error codes/messages so AI clients can guide users through remediation without bespoke logic.
 
 ## API Contract
 ```
@@ -101,7 +102,7 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 - Instrument abuse monitoring: log auth failures (without tokens), emit metrics by publish token/OAuth user/IP, and feed dashboards owned by Platform Admin + SRE on-call; active CAPTCHA or challenge flows remain future work beyond this phase.
 
 ## Testing Strategy
-- Unit tests for publish/unpublish/token rotation logic (backend + CLI commands).
+- Unit tests for publish/unpublish/token rotation logic (backend + shared CLI/MCP command helpers).
 - Integration tests for `/api/chatkit` verifying both auth paths.
 - Frontend tests for modal open/close, token refresh, and URL token handling.
 - Manual QA checklist covering:
@@ -119,4 +120,4 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 
 ## Open Issues
 - Determine hosting path for public assets when canvas app is deployed separately.
-- Canvas publishing UX should mirror the CLI flows (same prompts/options) as follow-up work once the CLI implementation lands, to keep user expectations aligned.
+- Canvas publishing UX should mirror the CLI/MCP flows (same prompts/options) as follow-up work once these implementations land, to keep user expectations aligned across all surfaces.

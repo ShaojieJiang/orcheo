@@ -6,12 +6,14 @@ Enable two chat experiences powered by Orcheo workflows:
 2. **Canvas chat bubble** for authenticated creators to test the workflow inline.
 
 Both surfaces must reuse a single ChatKit backend endpoint while enforcing the correct authentication path (publish token + optional OAuth vs. JWT) and respecting workflow publish status. The ChatKit widget code must be shared between public and Canvas surfaces to minimize divergence.
+Publishing, unpublishing, and rotating workflows are initiated through the Orcheo CLI and mirrored via the MCP server so human operators and AI assistants share the same UX until the Canvas UI catches up.
 
 ## Goals
 - Let workflow owners publish a workflow and share a public chat URL that works from the open internet.
 - Provide Canvas users with an in-editor chat bubble for rapid testing of the workflow currently being edited.
 - Maintain a single authoritative ChatKit backend contract so both clients behave consistently.
 - Allow owners to revoke or rotate access at any time (unpublish, regenerate token, expire JWTs).
+- Ensure CLI and MCP surfaces expose identical publish/unpublish/rotate workflows so automations and AI copilots can manage sharing without bespoke logic.
 
 ## Non-goals
 - Building a generic workflow marketplace or discovery surface.
@@ -34,9 +36,12 @@ Both surfaces must reuse a single ChatKit backend endpoint while enforcing the c
 
 ## Functional Requirements
 - **Publish Workflow**
-  - Introduce explicit "Publish" action (initially via CLI, with Canvas UX tracked as future work) that flips `workflow.is_public = true`, lets the owner opt into requiring OAuth login, and generates `publish_token` (128-bit random).
+  - Introduce explicit "Publish" action (delivered via the CLI and mirrored through the MCP server, with Canvas UX tracked as future work) that flips `workflow.is_public = true`, lets the owner opt into requiring OAuth login, and generates `publish_token` (128-bit random).
   - Store published metadata: token, published_at, publisher_id, last_rotated_at, `require_login` flag, OAuth client context.
   - Provide "Unpublish" and "Rotate Token" actions; revocation happens instantly for new sessions while existing chats continue until they naturally complete.
+- **Tooling parity**
+  - CLI commands (`orcheo workflow publish|rotate-token|unpublish`) and MCP tools (`workflows.publish|rotate_publish_token|unpublish`) must share the same command registry, prompts, flag defaults, exit codes/error payloads, and single-display token handling.
+  - `orcheo workflow list/show` output and MCP `list_workflows`/`show_workflow` responses must include identical publish metadata (`is_public`, `require_login`, rotation timestamps, share URL preview) so scripts and AI assistants stay in sync.
 - **Public Chat Page**
   - Route: `${canvas_base_url}/chat/${workflow_id}` with publish tokens kept out of the URL whenever possible; if an out-of-band channel cannot deliver the token, fall back to a `?token=` query string.
   - Frontend loads the shared ChatKit UI bundle (same as Canvas) and exchanges messages with `${backend_url}/api/chatkit` sending `{workflow_id, publish_token}` with every request.
