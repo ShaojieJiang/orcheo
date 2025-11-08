@@ -6,6 +6,7 @@ re-exporting the concrete schema classes from the new modular structure.
 
 from orcheo.models import CredentialHealthStatus  # noqa: F401
 from orcheo_backend.app.schemas.chatkit import (  # noqa: F401
+    ChatKitPublicWorkflow,
     ChatKitSessionRequest,
     ChatKitSessionResponse,
     ChatKitWorkflowTriggerRequest,
@@ -69,6 +70,7 @@ __all__ = [
     "ChatKitSessionRequest",
     "ChatKitSessionResponse",
     "ChatKitWorkflowTriggerRequest",
+    "ChatKitPublicWorkflow",
     "CronDispatchRequest",
     "CredentialCreateRequest",
     "CredentialHealthItem",

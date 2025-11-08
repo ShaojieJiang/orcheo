@@ -1,4 +1,5 @@
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
+const DEFAULT_CHATKIT_DOMAIN_KEY = "domain_pk_localhost_dev";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
@@ -44,6 +45,16 @@ export const getBackendBaseUrl = (): string => {
   }
 
   return normalised;
+};
+
+export const getChatKitDomainKey = (): string => {
+  const fromEnv = (import.meta.env?.VITE_ORCHEO_CHATKIT_DOMAIN_KEY ??
+    "") as string;
+  const trimmed = fromEnv.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return DEFAULT_CHATKIT_DOMAIN_KEY;
 };
 
 const ensureHttpProtocol = (baseUrl: string): string => {

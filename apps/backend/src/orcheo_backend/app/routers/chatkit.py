@@ -38,6 +38,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas import (
+    ChatKitPublicWorkflow,
     ChatKitSessionRequest,
     ChatKitSessionResponse,
     ChatKitWorkflowTriggerRequest,
@@ -269,6 +270,34 @@ async def authenticate_chatkit_invocation(
         publish_token=publish_token,
         now=now,
         repository=repository,
+    )
+
+
+@router.get(
+    "/chatkit/workflows/{workflow_id}",
+    response_model=ChatKitPublicWorkflow,
+    status_code=status.HTTP_200_OK,
+)
+async def get_chatkit_public_workflow(
+    workflow_id: UUID, repository: RepositoryDep
+) -> ChatKitPublicWorkflow:
+    """Expose publish-safe workflow metadata for the public chat page."""
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    if not workflow.is_public or not workflow.publish_token_hash:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Workflow is not published."},
+        )
+
+    return ChatKitPublicWorkflow(
+        id=workflow.id,
+        name=workflow.name,
+        is_public=workflow.is_public,
+        require_login=workflow.require_login,
     )
 
 

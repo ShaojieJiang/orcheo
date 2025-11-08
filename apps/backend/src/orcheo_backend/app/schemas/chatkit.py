@@ -38,3 +38,20 @@ class ChatKitWorkflowTriggerRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ChatKitPublicWorkflow(BaseModel):
+    """Metadata describing a published workflow for the public chat page."""
+
+    id: UUID
+    name: str
+    is_public: bool
+    require_login: bool
+
+
+__all__ = [
+    "ChatKitSessionRequest",
+    "ChatKitSessionResponse",
+    "ChatKitWorkflowTriggerRequest",
+    "ChatKitPublicWorkflow",
+]

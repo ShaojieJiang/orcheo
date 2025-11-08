@@ -7,6 +7,7 @@ import Signup from "@features/auth/pages/signup";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
 import HelpSupport from "@features/support/pages/help-support";
+import PublicChatPage from "@features/chatkit/pages/public-chat-page";
 
 export default function OrcheoCanvasApp() {
   return (
@@ -24,6 +25,8 @@ export default function OrcheoCanvasApp() {
           path="/workflow-execution-details/:executionId"
           element={<WorkflowExecutionDetails />}
         />
+
+        <Route path="/chat/:workflowId" element={<PublicChatPage />} />
 
         <Route path="/login" element={<Login />} />
 
