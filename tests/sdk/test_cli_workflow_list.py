@@ -8,7 +8,16 @@ from typer.testing import CliRunner
 
 
 def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> None:
-    payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
+    payload = [
+        {
+            "id": "wf-1",
+            "name": "Demo",
+            "is_archived": False,
+            "is_public": True,
+            "require_login": False,
+            "published_at": "2024-01-01T00:00:00Z",
+        }
+    ]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
@@ -16,12 +25,22 @@ def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> 
         result = runner.invoke(app, ["workflow", "list"], env=env)
     assert result.exit_code == 0
     assert "Demo" in result.stdout
+    assert "Public" in result.stdout
+    assert "http://api.test/chat/wf-1" in result.stdout
 
 
 def test_workflow_list_excludes_archived_by_default(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    payload = [{"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False}]
+    payload = [
+        {
+            "id": "wf-1",
+            "name": "Active",
+            "is_archived": False,
+            "is_public": False,
+            "require_login": False,
+        }
+    ]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
@@ -35,8 +54,20 @@ def test_workflow_list_includes_archived_with_flag(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     payload = [
-        {"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False},
-        {"id": "wf-2", "name": "Archived", "slug": "archived", "is_archived": True},
+        {
+            "id": "wf-1",
+            "name": "Active",
+            "is_archived": False,
+            "is_public": False,
+            "require_login": False,
+        },
+        {
+            "id": "wf-2",
+            "name": "Archived",
+            "is_archived": True,
+            "is_public": False,
+            "require_login": False,
+        },
     ]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://api.test/api/workflows?include_archived=true").mock(
