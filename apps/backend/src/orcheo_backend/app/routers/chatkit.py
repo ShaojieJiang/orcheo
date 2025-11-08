@@ -587,17 +587,6 @@ async def _authenticate_publish_request(
     now: datetime,
     repository: RepositoryDep,
 ) -> ChatKitAuthResult:
-    if not publish_token:
-        raise _chatkit_error(
-            status.HTTP_401_UNAUTHORIZED,
-            message=(
-                "Publish token authentication failed: token is required "
-                "when no bearer token is provided."
-            ),
-            code="chatkit.auth.publish_token_missing",
-            auth_mode="publish",
-        )
-
     try:
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
@@ -610,15 +599,19 @@ async def _authenticate_publish_request(
             code="chatkit.auth.not_published",
             auth_mode="publish",
         )
-    if not workflow.verify_publish_token(publish_token):
-        raise _chatkit_error(
-            status.HTTP_401_UNAUTHORIZED,
-            message="Publish token authentication failed: token is invalid.",
-            code="chatkit.auth.invalid_publish_token",
-            auth_mode="publish",
-        )
 
-    _rate_limit(_PUBLISH_RATE_LIMITER, workflow.publish_token_hash, now=now)
+    token_hash = workflow.publish_token_hash
+    if publish_token:
+        if not token_hash or not workflow.verify_publish_token(publish_token):
+            raise _chatkit_error(
+                status.HTTP_401_UNAUTHORIZED,
+                message="Publish token authentication failed: token is invalid.",
+                code="chatkit.auth.invalid_publish_token",
+                auth_mode="publish",
+            )
+
+    rate_limit_key = token_hash or str(workflow_id)
+    _rate_limit(_PUBLISH_RATE_LIMITER, rate_limit_key, now=now)
 
     session_subject = _extract_session_subject(request)
     if workflow.require_login and not session_subject:
@@ -634,7 +627,11 @@ async def _authenticate_publish_request(
 
     _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
 
-    actor = mask_publish_token(workflow.publish_token_hash)
+    actor = (
+        mask_publish_token(token_hash)
+        if publish_token and token_hash
+        else f"workflow:{workflow_id}"
+    )
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=actor,

@@ -1,16 +1,15 @@
 import { buildBackendHttpUrl } from "@/lib/config";
 
-export interface PublishHttpError {
+export interface PublicChatHttpError {
   status: number;
   message: string;
   code?: string;
 }
 
-interface PublishFetchOptions {
+interface PublicChatFetchOptions {
   workflowId: string;
-  publishToken: string;
   backendBaseUrl?: string;
-  onHttpError?: (error: PublishHttpError) => void;
+  onHttpError?: (error: PublicChatHttpError) => void;
   metadata?: Record<string, unknown>;
 }
 
@@ -25,7 +24,7 @@ const safeString = (value: unknown): string | undefined => {
 
 const parseErrorPayload = async (
   response: Response,
-): Promise<Pick<PublishHttpError, "message" | "code">> => {
+): Promise<Pick<PublicChatHttpError, "message" | "code">> => {
   try {
     const body = await response.json();
     if (!body) {
@@ -71,13 +70,12 @@ export const getChatKitDomainKey = (): string => {
   return fromEnv ?? DEFAULT_DOMAIN_KEY;
 };
 
-export const buildPublishFetch = ({
+export const buildPublicChatFetch = ({
   workflowId,
-  publishToken,
   backendBaseUrl,
   onHttpError,
   metadata,
-}: PublishFetchOptions): typeof fetch => {
+}: PublicChatFetchOptions): typeof fetch => {
   const baseFetch = window.fetch.bind(window);
   const resolvedUrl = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
 
@@ -109,7 +107,6 @@ export const buildPublishFetch = ({
       if (!serialized) {
         return JSON.stringify({
           workflow_id: workflowId,
-          publish_token: publishToken,
           metadata: {
             ...(metadata ?? {}),
             workflow_id: workflowId,
@@ -122,7 +119,6 @@ export const buildPublishFetch = ({
           if (!payload.workflow_id) {
             payload.workflow_id = workflowId;
           }
-          payload.publish_token = publishToken;
           const payloadMetadata =
             payload.metadata && typeof payload.metadata === "object"
               ? { ...(payload.metadata as Record<string, unknown>) }

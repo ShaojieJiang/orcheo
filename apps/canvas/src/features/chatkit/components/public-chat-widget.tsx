@@ -3,25 +3,23 @@ import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
 import {
-  buildPublishFetch,
+  buildPublicChatFetch,
   getChatKitDomainKey,
-  type PublishHttpError,
+  type PublicChatHttpError,
 } from "@features/chatkit/lib/chatkit-client";
 
 interface PublicChatWidgetProps {
   workflowId: string;
   workflowName: string;
-  publishToken: string;
   backendBaseUrl?: string;
   onReady?: () => void;
-  onHttpError?: (error: PublishHttpError) => void;
+  onHttpError?: (error: PublicChatHttpError) => void;
   onLog?: (payload: Record<string, unknown>) => void;
 }
 
 export function PublicChatWidget({
   workflowId,
   workflowName,
-  publishToken,
   backendBaseUrl,
   onReady,
   onHttpError,
@@ -33,9 +31,8 @@ export function PublicChatWidget({
       api: {
         url: buildBackendHttpUrl("/api/chatkit", backendBaseUrl),
         domainKey,
-        fetch: buildPublishFetch({
+        fetch: buildPublicChatFetch({
           workflowId,
-          publishToken,
           backendBaseUrl,
           onHttpError,
           metadata: {
@@ -59,15 +56,7 @@ export function PublicChatWidget({
       onReady,
       onLog,
     };
-  }, [
-    backendBaseUrl,
-    onHttpError,
-    onLog,
-    onReady,
-    publishToken,
-    workflowId,
-    workflowName,
-  ]);
+  }, [backendBaseUrl, onHttpError, onLog, onReady, workflowId, workflowName]);
 
   const { control } = useChatKit(options);
 

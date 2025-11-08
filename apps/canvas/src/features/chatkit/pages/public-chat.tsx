@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Badge } from "@/design-system/ui/badge";
 import { Button } from "@/design-system/ui/button";
@@ -12,8 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/design-system/ui/card";
-import { Input } from "@/design-system/ui/input";
-import { Label } from "@/design-system/ui/label";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/design-system/ui/toggle-group";
 import { getBackendBaseUrl } from "@/lib/config";
@@ -26,7 +24,7 @@ import {
 } from "@features/workflow/lib/workflow-storage-api";
 import type { ApiWorkflow } from "@features/workflow/lib/workflow-storage.types";
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
-import type { PublishHttpError } from "@features/chatkit/lib/chatkit-client";
+import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
 
 type WorkflowState =
   | { status: "loading" }
@@ -39,19 +37,13 @@ export default function PublicChatPage() {
     status: workflowId ? "loading" : "error",
     ...(workflowId ? {} : { message: "Workflow identifier missing from URL." }),
   });
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [tokenInput, setTokenInput] = useState("");
-  const [activeToken, setActiveToken] = useState<string | null>(null);
-  const [chatError, setChatError] = useState<PublishHttpError | null>(null);
-  const [rateLimitError, setRateLimitError] = useState<PublishHttpError | null>(
-    null,
-  );
+  const [chatError, setChatError] = useState<PublicChatHttpError | null>(null);
+  const [rateLimitError, setRateLimitError] =
+    useState<PublicChatHttpError | null>(null);
   const [isChatReady, setIsChatReady] = useState(false);
   const backendBaseUrl = useMemo(() => getBackendBaseUrl(), []);
 
   useEffect(() => {
-    setTokenInput("");
-    setActiveToken(null);
     setChatError(null);
     setRateLimitError(null);
     setIsChatReady(false);
@@ -109,28 +101,6 @@ export default function PublicChatPage() {
     };
   }, [workflowId]);
 
-  useEffect(() => {
-    const tokenFromQuery = searchParams.get("token");
-    if (!tokenFromQuery) {
-      return;
-    }
-    setTokenInput(tokenFromQuery);
-    setActiveToken(tokenFromQuery);
-
-    const next = new URLSearchParams(searchParams);
-    next.delete("token");
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  useEffect(() => {
-    setIsChatReady(false);
-    if (!activeToken) {
-      return;
-    }
-    setChatError(null);
-    setRateLimitError(null);
-  }, [activeToken]);
-
   const workflowName = useMemo(() => {
     if (workflowState.status !== "ready") {
       return "";
@@ -147,31 +117,12 @@ export default function PublicChatPage() {
     );
     const link = typeof window !== "undefined" ? window.location.href : "";
     const body = encodeURIComponent(
-      `Hi,%0A%0ACould you share a fresh publish token for workflow "${workflowState.workflow.name}" (${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
+      `Hi,%0A%0ACould you confirm access for workflow "${workflowState.workflow.name}" (${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
     );
     return `mailto:?subject=${subject}&body=${body}`;
   }, [workflowState]);
 
-  const requireLogin =
-    workflowState.status === "ready" && workflowState.workflow.require_login;
-
-  const handleActivateToken = () => {
-    if (!tokenInput.trim()) {
-      return;
-    }
-    setActiveToken(tokenInput.trim());
-    setChatError(null);
-    setRateLimitError(null);
-  };
-
-  const handleResetToken = () => {
-    setActiveToken(null);
-    setTokenInput("");
-    setChatError(null);
-    setRateLimitError(null);
-  };
-
-  const handleChatHttpError = (error: PublishHttpError) => {
+  const handleChatHttpError = (error: PublicChatHttpError) => {
     if (error.status === 429 || error.code?.startsWith("chatkit.rate_limit")) {
       setRateLimitError(error);
       return;
@@ -185,18 +136,12 @@ export default function PublicChatPage() {
       setIsChatReady(false);
       return;
     }
-    if (
-      error.code === "chatkit.auth.invalid_publish_token" ||
-      error.status === 401 ||
-      error.status === 403
-    ) {
+    if (error.status === 401 || error.status === 403) {
       setChatError({
         ...error,
         message:
-          "This publish token is invalid, expired, or was revoked. Ask the workflow owner for a fresh token.",
+          "You do not have access to this workflow yet. Ask the owner to confirm it is still published.",
       });
-      setTokenInput("");
-      setActiveToken(null);
       setIsChatReady(false);
       return;
     }
@@ -207,114 +152,6 @@ export default function PublicChatPage() {
         "ChatKit could not start this conversation. Please try again shortly.",
     });
     setIsChatReady(false);
-  };
-
-  const renderLeftColumn = () => {
-    if (workflowState.status === "loading") {
-      return (
-        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
-          <CardHeader className="space-y-2">
-            <Skeleton className="h-6 w-3/4" />
-            <Skeleton className="h-4 w-1/3" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (workflowState.status === "error") {
-      return (
-        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
-          <CardHeader>
-            <CardTitle>Workflow unavailable</CardTitle>
-            <CardDescription>{workflowState.message}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full" variant="secondary">
-              <Link to="/">Back to Canvas</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    return (
-      <Card className="space-y-4 border-slate-200 bg-white/90 text-left dark:border-slate-800 dark:bg-slate-950/40">
-        <CardHeader className="space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <CardTitle className="text-xl text-slate-900 dark:text-white">
-              {workflowState.workflow.name}
-            </CardTitle>
-            <Badge
-              variant="outline"
-              className="border-green-500 text-green-300"
-            >
-              Public
-            </Badge>
-            {requireLogin && (
-              <Badge
-                variant="outline"
-                className="border-orange-500 text-orange-300"
-              >
-                Login required
-              </Badge>
-            )}
-          </div>
-          <CardDescription className="text-slate-600 dark:text-slate-300">
-            Paste a publish token to start a ChatKit session for this workflow.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="publish-token">Publish token</Label>
-            <Input
-              id="publish-token"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              inputMode="text"
-              placeholder="Paste token from workflow owner"
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.currentTarget.value)}
-              className="border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
-            />
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Tokens never leave this page and are cleared if you refresh or
-              close the tab.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                className="flex-1"
-                disabled={!tokenInput.trim()}
-                onClick={handleActivateToken}
-              >
-                Use token
-              </Button>
-              {activeToken && (
-                <Button variant="ghost" onClick={handleResetToken}>
-                  Reset
-                </Button>
-              )}
-            </div>
-          </div>
-          {requireLogin && (
-            <Alert className="bg-amber-500/10 border-amber-500/50 text-amber-100">
-              <AlertTitle>Login may be required</AlertTitle>
-              <AlertDescription>
-                The workflow owner requires OAuth login before chatting. Use the
-                button below if you are not already signed in.
-              </AlertDescription>
-              <Button asChild size="sm" variant="secondary" className="mt-3">
-                <Link to="/login">Sign in</Link>
-              </Button>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-    );
   };
 
   const renderChatColumn = () => {
@@ -352,12 +189,10 @@ export default function PublicChatPage() {
 
     const badgeTone = isChatReady
       ? { text: "Connected", className: "border-emerald-500 text-emerald-300" }
-      : activeToken
-        ? { text: "Initializing", className: "border-cyan-500 text-cyan-300" }
-        : {
-            text: "Awaiting token",
-            className: "border-slate-600 text-slate-300",
-          };
+      : {
+          text: "Connecting",
+          className: "border-cyan-500 text-cyan-300",
+        };
 
     return (
       <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
@@ -374,7 +209,8 @@ export default function PublicChatPage() {
             </Badge>
           </div>
           <CardDescription className="text-slate-600 dark:text-slate-300">
-            Provide a valid publish token to mount the ChatKit widget below.
+            Chat sessions open automatically for published workflows unless the
+            owner requires OAuth login.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -383,7 +219,7 @@ export default function PublicChatPage() {
               <AlertTitle>Slow down for a moment</AlertTitle>
               <AlertDescription>
                 {rateLimitError.message ||
-                  "Too many requests were sent for this publish token. Please wait before retrying."}
+                  "Too many requests were sent for this workflow. Please wait before retrying."}
               </AlertDescription>
               <div className="mt-3">
                 <Button
@@ -402,13 +238,12 @@ export default function PublicChatPage() {
             <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-6 text-center space-y-4">
               <p className="font-medium text-red-100">{chatError.message}</p>
               <div className="flex flex-wrap justify-center gap-3">
-                <Button onClick={handleResetToken}>Paste new token</Button>
                 <Button asChild variant="outline">
                   <a href={contactHref}>Contact owner</a>
                 </Button>
               </div>
             </div>
-          ) : activeToken ? (
+          ) : (
             <div className="relative min-h-[520px]">
               {!isChatReady && (
                 <div className="absolute inset-0 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white/90 p-6 dark:border-slate-800 dark:bg-slate-950/80">
@@ -424,33 +259,14 @@ export default function PublicChatPage() {
                 )}
               >
                 <PublicChatWidget
-                  key={`${workflowState.workflow.id}-${activeToken}`}
+                  key={workflowState.workflow.id}
                   workflowId={workflowState.workflow.id}
                   workflowName={workflowState.workflow.name}
-                  publishToken={activeToken}
                   backendBaseUrl={backendBaseUrl}
                   onHttpError={handleChatHttpError}
                   onReady={() => setIsChatReady(true)}
                 />
               </div>
-            </div>
-          ) : (
-            <div className="flex min-h-[420px] flex-col items-center justify-center space-y-4 rounded-lg border border-dashed border-slate-200 bg-white/80 px-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
-              <p>
-                Provide a publish token to unlock the public chat experience for
-                this workflow. Tokens stay in-memory for this tab only.
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (typeof document === "undefined") {
-                    return;
-                  }
-                  document.getElementById("publish-token")?.focus();
-                }}
-              >
-                Paste token
-              </Button>
             </div>
           )}
         </CardContent>
@@ -460,27 +276,12 @@ export default function PublicChatPage() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
-      <div className="mx-auto max-w-6xl px-4 py-10 lg:py-14">
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex max-w-3xl flex-col gap-3">
-            <p className="text-sm uppercase tracking-wide text-slate-400">
-              Orcheo ChatKit
-            </p>
-            <h1 className="text-3xl md:text-4xl font-semibold">
-              Share workflows through a secure public chat page
-            </h1>
-            <p className="text-slate-600 dark:text-slate-300">
-              Only published workflows can be accessed here. Share the page link
-              + publish token with trusted testers and rotate the token anytime
-              from the Orcheo CLI.
-            </p>
-          </div>
-          <ThemeToggleButtonGroup className="mt-2 self-end lg:absolute lg:right-0 lg:top-0" />
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 lg:py-14">
+        <div className="flex justify-end">
+          <ThemeToggleButtonGroup />
         </div>
-
-        <div className="grid gap-6 lg:grid-cols-[360px,1fr] mt-10">
-          {renderLeftColumn()}
-          {renderChatColumn()}
+        <div className="mt-10 flex flex-1 items-center justify-center">
+          <div className="w-full max-w-3xl">{renderChatColumn()}</div>
         </div>
       </div>
     </div>

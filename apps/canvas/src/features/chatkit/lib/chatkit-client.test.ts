@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildPublishFetch } from "./chatkit-client";
+import { buildPublicChatFetch } from "./chatkit-client";
 
 const originalFetch = window.fetch;
 
@@ -14,14 +14,13 @@ const createResponse = (status: number, body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
-describe("buildPublishFetch", () => {
-  it("injects publish token and workflow id into JSON bodies", async () => {
+describe("buildPublicChatFetch", () => {
+  it("injects workflow id into JSON bodies", async () => {
     const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
     window.fetch = fetchMock as unknown as typeof window.fetch;
 
-    const handler = buildPublishFetch({
+    const handler = buildPublicChatFetch({
       workflowId: "wf-123",
-      publishToken: "secret-token",
       backendBaseUrl: "http://localhost:8000",
       metadata: { workflow_name: "LangGraph" },
     });
@@ -38,25 +37,24 @@ describe("buildPublishFetch", () => {
 
     const payload = JSON.parse((options?.body as string) ?? "{}");
     expect(payload.workflow_id).toBe("wf-123");
-    expect(payload.publish_token).toBe("secret-token");
     expect(payload.foo).toBe("bar");
     expect(payload.metadata.workflow_id).toBe("wf-123");
     expect(payload.metadata.workflow_name).toBe("LangGraph");
+    expect(payload.publish_token).toBeUndefined();
   });
 
   it("emits structured errors when the backend rejects a request", async () => {
     const fetchMock = vi.fn(async () =>
       createResponse(401, {
-        code: "chatkit.auth.invalid_publish_token",
-        message: "invalid token",
+        code: "chatkit.auth.oauth_required",
+        message: "login first",
       }),
     );
     window.fetch = fetchMock as unknown as typeof window.fetch;
 
     const onHttpError = vi.fn();
-    const handler = buildPublishFetch({
+    const handler = buildPublicChatFetch({
       workflowId: "wf-123",
-      publishToken: "bad-token",
       onHttpError,
     });
 
@@ -68,8 +66,8 @@ describe("buildPublishFetch", () => {
 
     expect(onHttpError).toHaveBeenCalledWith({
       status: 401,
-      message: "invalid token",
-      code: "chatkit.auth.invalid_publish_token",
+      message: "login first",
+      code: "chatkit.auth.oauth_required",
     });
   });
 
@@ -77,9 +75,8 @@ describe("buildPublishFetch", () => {
     const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
     window.fetch = fetchMock as unknown as typeof window.fetch;
 
-    const handler = buildPublishFetch({
+    const handler = buildPublicChatFetch({
       workflowId: "wf-789",
-      publishToken: "secret",
       metadata: { injected: "value" },
     });
 
