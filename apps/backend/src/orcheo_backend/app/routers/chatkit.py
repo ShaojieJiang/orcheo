@@ -20,6 +20,7 @@ from orcheo_backend.app.authentication import (
     AuthenticationError,
     AuthorizationPolicy,
     get_authorization_policy,
+    load_auth_settings,
 )
 from orcheo_backend.app.authentication.rate_limit import SlidingWindowRateLimiter
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
@@ -400,8 +401,15 @@ async def trigger_chatkit_workflow(
     workflow_id: UUID,
     request: ChatKitWorkflowTriggerRequest,
     repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowRun:
     """Create a workflow run initiated from the ChatKit interface."""
+    try:
+        policy.require_authenticated()
+    except AuthenticationError as exc:
+        if load_auth_settings().enforce:
+            raise exc.as_http_exception() from exc
+
     try:
         latest_version = await repository.get_latest_version(workflow_id)
     except WorkflowNotFoundError as exc:
