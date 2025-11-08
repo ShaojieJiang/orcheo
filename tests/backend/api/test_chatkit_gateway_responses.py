@@ -3,8 +3,8 @@
 from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
-from uuid import uuid4
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from tests.backend.api.shared import backend_app
@@ -22,6 +22,18 @@ async def test_chatkit_gateway_validation_error(api_client: TestClient) -> None:
     detail = response.json()["detail"]
     assert "Invalid ChatKit payload" in detail["message"]
     assert "errors" in detail
+
+
+@pytest.mark.asyncio
+async def test_chatkit_gateway_invalid_json_payload(api_client: TestClient) -> None:
+    """chatkit_gateway surfaces JSON decoding failures."""
+    response = api_client.post(
+        "/api/chatkit",
+        data="{invalid",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert "Invalid JSON payload" in response.json()["detail"]["message"]
 
 
 @pytest.mark.asyncio
@@ -244,3 +256,53 @@ async def test_chatkit_gateway_dict_response(
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_chatkit_gateway_omits_subject_when_not_provided(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chatkit_gateway excludes the subject when authentication omits it."""
+
+    captured_context: list[dict[str, Any]] = []
+
+    class MockResult:
+        def __init__(self) -> None:
+            self.json = {"status": "ok"}
+            self.status_code = 200
+            self.headers = None
+            self.media_type = "application/json"
+
+    async def mock_process(payload: bytes, context: Any) -> MockResult:
+        captured_context.append(context)
+        return MockResult()
+
+    mock_server = AsyncMock()
+    mock_server.process = mock_process
+
+    mock_adapter = Mock()
+    mock_adapter.validate_python.return_value = {"action": "chat"}
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="publish:token",
+        auth_mode="publish",
+        subject=None,
+    )
+
+    monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
+    monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
+
+    response = api_client.post(
+        "/api/chatkit",
+        json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+    )
+
+    assert response.status_code == 200
+    assert captured_context
+    assert "subject" not in captured_context[0]

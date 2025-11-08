@@ -13,14 +13,14 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     CredentialHealthResult,
 )
+from orcheo_backend.app import trigger_chatkit_workflow
 from orcheo_backend.app.authentication import AuthorizationPolicy
 from orcheo_backend.app.authentication.context import RequestContext
-from orcheo_backend.app.routers import chatkit as chatkit_router
-from orcheo_backend.app import trigger_chatkit_workflow
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.routers import chatkit as chatkit_router
 from orcheo_backend.app.schemas import ChatKitWorkflowTriggerRequest
 
 
@@ -237,7 +237,7 @@ async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
         actor="user@example.com",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(HTTPException):
         await trigger_chatkit_workflow(
             workflow_id,
             request,

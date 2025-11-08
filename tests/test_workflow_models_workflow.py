@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 from uuid import uuid4
-
 import pytest
 from pydantic import ValidationError
-
 from orcheo.models import (
     Workflow,
     WorkflowRun,
@@ -36,6 +34,12 @@ def test_workflow_record_event_updates_timestamp() -> None:
 def test_workflow_requires_name_or_slug() -> None:
     with pytest.raises(ValidationError):
         Workflow(name="", slug="")
+
+
+def test_workflow_slug_validator_requires_identifier() -> None:
+    workflow = Workflow.model_construct(name="", slug="")
+    with pytest.raises(ValueError):
+        workflow._populate_slug()
 
 
 def test_workflow_name_and_description_are_normalized() -> None:
@@ -172,3 +176,32 @@ def test_workflow_publish_invalid_transitions() -> None:
 
     with pytest.raises(ValueError):
         workflow.publish(token_hash=token_hash, require_login=False, actor="alice")
+
+
+def test_workflow_publish_requires_token_hash() -> None:
+    workflow = Workflow(name="Tokenless")
+
+    with pytest.raises(ValueError):
+        workflow.publish(token_hash="", require_login=False, actor="alice")
+
+
+def test_workflow_rotate_publish_token_requires_token_hash() -> None:
+    workflow = Workflow(name="RotateToken")
+    workflow.publish(
+        token_hash=hash_publish_token("initial"),
+        require_login=False,
+        actor="alice",
+    )
+
+    with pytest.raises(ValueError):
+        workflow.rotate_publish_token(token_hash="", actor="alice")
+
+
+def test_workflow_verify_publish_token_without_state() -> None:
+    workflow = Workflow(name="Verifier")
+    assert workflow.verify_publish_token("anything") is False
+
+
+def test_mask_publish_token_handles_zero_reveal() -> None:
+    masked = mask_publish_token("abcdef123456", reveal=0)
+    assert masked.startswith("publish:***")

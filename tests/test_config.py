@@ -3,6 +3,8 @@
 import pytest
 from dynaconf import Dynaconf
 from orcheo import config
+from orcheo.config.app_settings import AppSettings
+from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -246,3 +248,23 @@ def test_chatkit_rate_limit_settings_are_loaded() -> None:
     assert limits["ip_limit"] == 200
     assert limits["publish_interval_seconds"] == 90
     assert limits["session_limit"] == 60
+
+
+def test_app_settings_wraps_chatkit_rate_limit_mapping() -> None:
+    """chatkit_rate_limits is coerced into ChatKitRateLimitSettings."""
+
+    settings = AppSettings(chatkit_rate_limits={"unexpected": "value"})
+
+    assert isinstance(settings.chatkit_rate_limits, ChatKitRateLimitSettings)
+
+
+def test_app_settings_recovers_invalid_chatkit_rate_limits() -> None:
+    """Model validator should replace unexpected chatkit_rate_limits types."""
+
+    settings = AppSettings()
+    settings.chatkit_rate_limits = {"unexpected": "value"}
+
+    # Manually invoke the model validator to simulate a defensive re-run.
+    validated = settings._validate_postgres_requirements()
+
+    assert isinstance(validated.chatkit_rate_limits, ChatKitRateLimitSettings)
