@@ -8,6 +8,7 @@ from orcheo.models import CredentialHealthStatus  # noqa: F401
 from orcheo_backend.app.schemas.chatkit import (  # noqa: F401
     ChatKitSessionRequest,
     ChatKitSessionResponse,
+    ChatKitWorkflowMetadataResponse,
     ChatKitWorkflowTriggerRequest,
 )
 from orcheo_backend.app.schemas.credentials import (  # noqa: F401
@@ -68,6 +69,7 @@ __all__ = [
     "AlertAcknowledgeRequest",
     "ChatKitSessionRequest",
     "ChatKitSessionResponse",
+    "ChatKitWorkflowMetadataResponse",
     "ChatKitWorkflowTriggerRequest",
     "CronDispatchRequest",
     "CredentialCreateRequest",

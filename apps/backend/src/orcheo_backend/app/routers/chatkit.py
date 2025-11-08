@@ -40,6 +40,7 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas import (
     ChatKitSessionRequest,
     ChatKitSessionResponse,
+    ChatKitWorkflowMetadataResponse,
     ChatKitWorkflowTriggerRequest,
 )
 
@@ -212,6 +213,18 @@ def _extract_session_subject(request: Request) -> str | None:
     return None
 
 
+def _resolve_publish_token(request: Request) -> str | None:
+    header_token = request.headers.get("X-Orcheo-Publish-Token")
+    if header_token and header_token.strip():
+        return header_token.strip()
+
+    query_token = request.query_params.get("token")
+    if query_token and str(query_token).strip():
+        return str(query_token).strip()
+
+    return None
+
+
 def _rate_limit(
     limiter: SlidingWindowRateLimiter,
     key: str | None,
@@ -269,6 +282,66 @@ async def authenticate_chatkit_invocation(
         publish_token=publish_token,
         now=now,
         repository=repository,
+    )
+
+
+@router.get(
+    "/chatkit/workflows/{workflow_id}",
+    response_model=ChatKitWorkflowMetadataResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_chatkit_workflow_metadata(
+    workflow_id: UUID,
+    request: Request,
+    repository: RepositoryDep,
+) -> ChatKitWorkflowMetadataResponse:
+    """Return lightweight workflow metadata for public chat links."""
+    publish_token = _resolve_publish_token(request)
+    if not publish_token:
+        raise _chatkit_error(
+            status.HTTP_401_UNAUTHORIZED,
+            message=(
+                "Publish token authentication failed: token is required to "
+                "load workflow metadata."
+            ),
+            code="chatkit.auth.publish_token_missing",
+            auth_mode="publish",
+        )
+
+    now = datetime.now(tz=UTC)
+    client_host = request.client.host if request.client else None
+    _rate_limit(_IP_RATE_LIMITER, client_host, now=now)
+
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    if not workflow.is_public or not workflow.publish_token_hash:
+        raise _chatkit_error(
+            status.HTTP_403_FORBIDDEN,
+            message="Publish token authentication failed: workflow is not published.",
+            code="chatkit.auth.not_published",
+            auth_mode="publish",
+        )
+
+    if not workflow.verify_publish_token(publish_token):
+        raise _chatkit_error(
+            status.HTTP_401_UNAUTHORIZED,
+            message="Publish token authentication failed: token is invalid.",
+            code="chatkit.auth.invalid_publish_token",
+            auth_mode="publish",
+        )
+
+    _rate_limit(_PUBLISH_RATE_LIMITER, workflow.publish_token_hash, now=now)
+    session_subject = _extract_session_subject(request)
+    _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
+
+    return ChatKitWorkflowMetadataResponse(
+        id=workflow.id,
+        name=workflow.name,
+        is_public=workflow.is_public,
+        require_login=workflow.require_login,
     )
 
 

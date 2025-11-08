@@ -1,4 +1,5 @@
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
+const DEFAULT_CHATKIT_DOMAIN_KEY = "domain_pk_localhost_dev";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
@@ -81,4 +82,10 @@ export const buildWorkflowWebSocketUrl = (
   const protocol = resolved.startsWith("https://") ? "wss://" : "ws://";
   const host = resolved.replace(/^https?:\/\//, "").replace(/^ws?:\/\//, "");
   return `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}`;
+};
+
+export const getChatkitDomainKey = (): string => {
+  const raw = (import.meta.env?.VITE_ORCHEO_CHATKIT_DOMAIN_KEY ?? "") as string;
+  const trimmed = raw.trim();
+  return trimmed || DEFAULT_CHATKIT_DOMAIN_KEY;
 };

@@ -7,6 +7,17 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ChatKitWorkflowMetadataResponse(BaseModel):
+    """Lightweight metadata exposed to the public chat page."""
+
+    id: UUID
+    name: str
+    is_public: bool
+    require_login: bool = Field(alias="require_login")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ChatKitSessionRequest(BaseModel):
     """Request payload for retrieving a ChatKit client secret."""
 
