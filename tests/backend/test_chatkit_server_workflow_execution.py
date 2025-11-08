@@ -161,3 +161,19 @@ async def test_chatkit_server_run_workflow_with_repository_create_run_failure() 
     assert run is None
 
     server._repository.create_run = original_create_run
+
+
+def test_chatkit_server_backfills_workflow_id_from_context() -> None:
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_missing_workflow",
+        created_at=datetime.now(UTC),
+        metadata={},
+    )
+    context = {"workflow_id": "wf-123"}
+
+    server._ensure_workflow_metadata(thread, context)
+
+    assert thread.metadata["workflow_id"] == "wf-123"

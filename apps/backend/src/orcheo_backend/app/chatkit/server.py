@@ -78,6 +78,20 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Compatibility wrapper delegating to the workflow id helper."""
         return require_workflow_id(thread)
 
+    @staticmethod
+    def _ensure_workflow_metadata(
+        thread: ThreadMetadata, context: ChatKitRequestContext
+    ) -> None:
+        """Populate workflow metadata from request context when missing."""
+        metadata = dict(thread.metadata or {})
+        if metadata.get("workflow_id"):
+            thread.metadata = metadata
+            return
+        context_workflow_id = context.get("workflow_id") if context else None
+        if context_workflow_id:
+            metadata["workflow_id"] = context_workflow_id
+            thread.metadata = metadata
+
     async def _resolve_user_item(
         self,
         thread: ThreadMetadata,
@@ -125,6 +139,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         context: ChatKitRequestContext,
     ) -> AsyncIterator[ThreadStreamEvent]:
         """Execute the workflow and yield assistant events."""
+        self._ensure_workflow_metadata(thread, context)
         workflow_id = self._require_workflow_id(thread)
         user_item = await self._resolve_user_item(thread, item, context)
         message_text = collect_text_from_user_content(user_item.content)

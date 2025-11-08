@@ -23,6 +23,7 @@ describe("buildPublishFetch", () => {
       workflowId: "wf-123",
       publishToken: "secret-token",
       backendBaseUrl: "http://localhost:8000",
+      metadata: { workflow_name: "LangGraph" },
     });
 
     await handler("http://localhost:8000/api/chatkit", {
@@ -39,6 +40,8 @@ describe("buildPublishFetch", () => {
     expect(payload.workflow_id).toBe("wf-123");
     expect(payload.publish_token).toBe("secret-token");
     expect(payload.foo).toBe("bar");
+    expect(payload.metadata.workflow_id).toBe("wf-123");
+    expect(payload.metadata.workflow_name).toBe("LangGraph");
   });
 
   it("emits structured errors when the backend rejects a request", async () => {
@@ -67,6 +70,33 @@ describe("buildPublishFetch", () => {
       status: 401,
       message: "invalid token",
       code: "chatkit.auth.invalid_publish_token",
+    });
+  });
+
+  it("merges existing metadata without overwriting it", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+
+    const handler = buildPublishFetch({
+      workflowId: "wf-789",
+      publishToken: "secret",
+      metadata: { injected: "value" },
+    });
+
+    await handler("http://localhost:8000/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        metadata: { existing: "field" },
+      }),
+    });
+
+    const [, options] = fetchMock.mock.calls[0]!;
+    const payload = JSON.parse((options?.body as string) ?? "{}");
+    expect(payload.metadata).toMatchObject({
+      existing: "field",
+      injected: "value",
+      workflow_id: "wf-789",
     });
   });
 });

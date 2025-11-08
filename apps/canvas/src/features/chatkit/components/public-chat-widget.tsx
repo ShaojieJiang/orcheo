@@ -38,6 +38,9 @@ export function PublicChatWidget({
           publishToken,
           backendBaseUrl,
           onHttpError,
+          metadata: {
+            workflow_name: workflowName,
+          },
         }),
       },
       header: {

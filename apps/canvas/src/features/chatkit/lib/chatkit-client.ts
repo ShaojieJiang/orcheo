@@ -11,6 +11,7 @@ interface PublishFetchOptions {
   publishToken: string;
   backendBaseUrl?: string;
   onHttpError?: (error: PublishHttpError) => void;
+  metadata?: Record<string, unknown>;
 }
 
 const DEFAULT_DOMAIN_KEY = "domain_pk_localhost_dev";
@@ -75,6 +76,7 @@ export const buildPublishFetch = ({
   publishToken,
   backendBaseUrl,
   onHttpError,
+  metadata,
 }: PublishFetchOptions): typeof fetch => {
   const baseFetch = window.fetch.bind(window);
   const resolvedUrl = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
@@ -108,6 +110,10 @@ export const buildPublishFetch = ({
         return JSON.stringify({
           workflow_id: workflowId,
           publish_token: publishToken,
+          metadata: {
+            ...(metadata ?? {}),
+            workflow_id: workflowId,
+          },
         });
       }
       try {
@@ -117,6 +123,15 @@ export const buildPublishFetch = ({
             payload.workflow_id = workflowId;
           }
           payload.publish_token = publishToken;
+          const payloadMetadata =
+            payload.metadata && typeof payload.metadata === "object"
+              ? { ...(payload.metadata as Record<string, unknown>) }
+              : {};
+          if (metadata) {
+            Object.assign(payloadMetadata, metadata);
+          }
+          payloadMetadata.workflow_id = workflowId;
+          payload.metadata = payloadMetadata;
         }
         return JSON.stringify(payload);
       } catch {

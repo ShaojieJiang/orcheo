@@ -1,6 +1,8 @@
 """Application factory for the Orcheo FastAPI service."""
 
 from __future__ import annotations
+import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 from dotenv import load_dotenv
@@ -74,6 +76,33 @@ def _build_api_router() -> APIRouter:
 api_router = _build_api_router()
 
 
+_DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+def _load_allowed_origins() -> list[str]:
+    """Return the list of CORS-allowed origins based on environment configuration."""
+    raw = os.getenv("ORCHEO_CORS_ALLOW_ORIGINS")
+    if not raw:
+        return list(_DEFAULT_ALLOWED_ORIGINS)
+    candidates: list[str] = []
+    parsed: list[str] | str | None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = raw
+
+    if isinstance(parsed, str):
+        candidates = [entry.strip() for entry in parsed.split(",")]
+    elif isinstance(parsed, list):
+        candidates = [str(entry).strip() for entry in parsed]
+
+    origins = [origin for origin in candidates if origin]
+    return origins or list(_DEFAULT_ALLOWED_ORIGINS)
+
+
 def create_app(
     repository: WorkflowRepository | None = None,
     *,
@@ -95,9 +124,11 @@ def create_app(
 
     application = FastAPI(lifespan=lifespan)
 
+    allowed_origins = _load_allowed_origins()
+
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
