@@ -11,6 +11,11 @@ from orcheo_sdk.services.workflows.listing import (
     show_workflow_data,
 )
 from orcheo_sdk.services.workflows.management import delete_workflow_data
+from orcheo_sdk.services.workflows.publishing import (
+    publish_workflow_data,
+    revoke_workflow_publish_data,
+    rotate_publish_token_data,
+)
 from orcheo_sdk.services.workflows.upload import upload_workflow_data
 from orcheo_sdk.services.workflows.versions import (
     get_latest_workflow_version_data,
@@ -25,4 +30,7 @@ __all__ = [
     "upload_workflow_data",
     "download_workflow_data",
     "get_latest_workflow_version_data",
+    "publish_workflow_data",
+    "rotate_publish_token_data",
+    "revoke_workflow_publish_data",
 ]

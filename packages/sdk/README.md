@@ -123,6 +123,9 @@ Available on all commands:
 | `orcheo workflow delete <id>` | Delete a workflow | `--force` - Skip confirmation prompt |
 | `orcheo workflow upload <file>` | Upload workflow from Python or JSON file | `--id` - Workflow ID (for updates) |
 | `orcheo workflow download <id>` | Download workflow configuration | `-o, --output` - Output file path<br>`-f, --format` - Format: json or python (default: json) |
+| `orcheo workflow publish <id>` | Publish a workflow for ChatKit access | `--require-login` - Force OAuth login for visitors |
+| `orcheo workflow rotate-token <id>` | Rotate the publish token | - |
+| `orcheo workflow unpublish <id>` | Revoke public access and disable share links | - |
 
 **Examples:**
 
@@ -148,6 +151,15 @@ orcheo workflow download my-workflow-id -o workflow.json
 
 # Download workflow as Python template
 orcheo workflow download my-workflow-id -o workflow.py -f python
+
+# Publish a workflow and require login
+orcheo workflow publish my-workflow-id --require-login
+
+# Rotate the publish token (existing chats stay active)
+orcheo workflow rotate-token my-workflow-id
+
+# Unpublish a workflow
+orcheo workflow unpublish my-workflow-id
 
 # Delete a workflow
 orcheo workflow delete my-workflow-id --force

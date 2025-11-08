@@ -36,17 +36,17 @@ rate-limiting and error handling.
 
 ## Milestone 1 – CLI and MCP publish UX
 _Canvas-side publish surfaces remain future work; this milestone delivers the CLI flows plus matching MCP tools so we can unblock external testing and AI-assistant workflows before Canvas parity ships._
-- [ ] **Publish command**
-  - [ ] Implement `orcheo workflow publish <workflow_id>` with a `--require-login` option (default off), confirmation prompts, and summary output showing the share URL/token once.
-  - [ ] Handle errors (missing workflow, permission denied) with actionable hints and non-zero exit codes.
-  - [ ] Expose the same flow via `orcheo-mcp` (e.g., `workflows.publish`) so Claude/Codex automations receive identical responses, including one-time token display and require-login flag handling.
-- [ ] **Unpublish / rotate commands**
-  - [ ] Add `orcheo workflow unpublish <workflow_id>` and `orcheo workflow rotate-token <workflow_id>` that call the corresponding APIs and update local cache/state.
-  - [ ] Ensure rotated tokens are only displayed once, older tokens are clearly marked invalid for new sessions, and existing chat connections stay active until they complete.
-  - [ ] Mirror both actions in MCP tools (`workflows.unpublish`, `workflows.rotate_publish_token`) that stream back the same status payloads and error semantics as the CLI.
-- [ ] **Status surfacing**
-  - [ ] Update `orcheo workflow list` and `orcheo workflow show` to include publish status (`public/private`, `require_login` flag, last rotated timestamp, share URL if available), and return the same enriched metadata from the MCP `list_workflows`/`show_workflow` tools.
-  - [ ] Write CLI + MCP regression tests covering each command/tool path and add docs/examples so users (and assistants) can script the flows consistently.
+- [x] **Publish command**
+  - [x] Implement `orcheo workflow publish <workflow_id>` with a `--require-login` option (default off), confirmation prompts, and summary output showing the share URL/token once.
+  - [x] Handle errors (missing workflow, permission denied) with actionable hints and non-zero exit codes.
+  - [x] Expose the same flow via `orcheo-mcp` (e.g., `workflows.publish`) so Claude/Codex automations receive identical responses, including one-time token display and require-login flag handling.
+- [x] **Unpublish / rotate commands**
+  - [x] Add `orcheo workflow unpublish <workflow_id>` and `orcheo workflow rotate-token <workflow_id>` that call the corresponding APIs and update local cache/state.
+  - [x] Ensure rotated tokens are only displayed once, older tokens are clearly marked invalid for new sessions, and existing chat connections stay active until they complete.
+  - [x] Mirror both actions in MCP tools (`workflows.unpublish`, `workflows.rotate_publish_token`) that stream back the same status payloads and error semantics as the CLI.
+- [x] **Status surfacing**
+  - [x] Update `orcheo workflow list` and `orcheo workflow show` to include publish status (`public/private`, `require_login` flag, last rotated timestamp, share URL if available), and return the same enriched metadata from the MCP `list_workflows`/`show_workflow` tools.
+  - [x] Write CLI + MCP regression tests covering each command/tool path and add docs/examples so users (and assistants) can script the flows consistently.
 
 ## Milestone 2 – Canvas chat bubble
 - [ ] **JWT session issuance**

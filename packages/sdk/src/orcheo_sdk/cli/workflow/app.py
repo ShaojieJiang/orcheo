@@ -62,6 +62,13 @@ FormatOption = Annotated[
     str,
     typer.Option("--format", "-f", help="Output format (auto, json, or python)."),
 ]
+RequireLoginOption = Annotated[
+    bool,
+    typer.Option(
+        "--require-login",
+        help="Require OAuth login before visitors can use the shared chat.",
+    ),
+]
 
 
 def _state(ctx: typer.Context) -> CLIState:
@@ -82,5 +89,6 @@ __all__ = [
     "WorkflowNameOption",
     "OutputPathOption",
     "FormatOption",
+    "RequireLoginOption",
     "_state",
 ]
