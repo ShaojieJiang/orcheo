@@ -13,7 +13,16 @@ def test_mcp_list_workflows(mock_env: None) -> None:
     import orcheo_sdk.mcp_server.main as main_module
 
     payload = [
-        {"id": "wf-1", "name": "Test Workflow", "slug": "test", "is_archived": False}
+        {
+            "id": "wf-1",
+            "name": "Test Workflow",
+            "slug": "test",
+            "is_archived": False,
+            "is_public": True,
+            "require_login": False,
+            "published_at": "2024-01-01T00:00:00Z",
+            "publish_token_rotated_at": None,
+        }
     ]
 
     with respx.mock() as router:
@@ -22,14 +31,21 @@ def test_mcp_list_workflows(mock_env: None) -> None:
         )
         result = main_module.list_workflows.fn()
 
-    assert result == payload
+    assert result[0]["share_url"] == "http://api.test/chat/wf-1"
 
 
 def test_mcp_show_workflow(mock_env: None) -> None:
     """Test show_workflow MCP tool wrapper to cover return statement."""
     import orcheo_sdk.mcp_server.main as main_module
 
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -46,7 +62,89 @@ def test_mcp_show_workflow(mock_env: None) -> None:
 
         result = main_module.show_workflow.fn("wf-1")
 
-    assert result["workflow"] == workflow
+    assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
+
+
+def test_mcp_publish_workflow(mock_env: None) -> None:
+    """Test publish_workflow MCP tool wrapper."""
+
+    import orcheo_sdk.mcp_server.main as main_module
+
+    workflow = {
+        "id": "wf-1",
+        "name": "Published",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+        "share_url": "http://api.test/chat/wf-1",
+    }
+    payload = {
+        "workflow": workflow,
+        "publish_token": "token",
+        "message": "Store securely",
+    }
+
+    with respx.mock() as router:
+        router.post("http://api.test/api/workflows/wf-1/publish").mock(
+            return_value=httpx.Response(201, json=payload)
+        )
+        result = main_module.publish_workflow.fn("wf-1")
+
+    assert result["share_url"] == "http://api.test/chat/wf-1"
+
+
+def test_mcp_rotate_publish_token(mock_env: None) -> None:
+    """Test rotate_publish_token MCP tool wrapper."""
+
+    import orcheo_sdk.mcp_server.main as main_module
+
+    workflow = {
+        "id": "wf-1",
+        "name": "Rotate",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": "2024-01-02T00:00:00Z",
+        "share_url": "http://api.test/chat/wf-1",
+    }
+    payload = {
+        "workflow": workflow,
+        "publish_token": "new-token",
+        "message": None,
+    }
+
+    with respx.mock() as router:
+        router.post("http://api.test/api/workflows/wf-1/publish/rotate").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = main_module.rotate_publish_token.fn("wf-1")
+
+    assert result["publish_token"] == "new-token"
+
+
+def test_mcp_unpublish_workflow(mock_env: None) -> None:
+    """Test unpublish_workflow MCP tool wrapper."""
+
+    import orcheo_sdk.mcp_server.main as main_module
+
+    workflow = {
+        "id": "wf-1",
+        "name": "Unpublish",
+        "is_public": False,
+        "require_login": False,
+        "published_at": None,
+        "publish_token_rotated_at": None,
+        "share_url": None,
+    }
+
+    with respx.mock() as router:
+        router.post("http://api.test/api/workflows/wf-1/publish/revoke").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        result = main_module.unpublish_workflow.fn("wf-1")
+
+    assert result["workflow"]["is_public"] is False
 
 
 def test_mcp_run_workflow(mock_env: None) -> None:

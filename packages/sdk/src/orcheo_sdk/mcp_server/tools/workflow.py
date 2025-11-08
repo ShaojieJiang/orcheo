@@ -7,8 +7,11 @@ from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
     list_workflows_data,
+    publish_workflow_data,
+    rotate_publish_token_data,
     run_workflow_data,
     show_workflow_data,
+    unpublish_workflow_data,
     upload_workflow_data,
 )
 
@@ -91,11 +94,50 @@ def download_workflow(
     )
 
 
+def publish_workflow(
+    workflow_id: str,
+    *,
+    require_login: bool = False,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Publish a workflow and return publish metadata."""
+    client, _ = get_api_client(profile=profile)
+    return publish_workflow_data(
+        client,
+        workflow_id,
+        require_login=require_login,
+        actor="mcp",
+    )
+
+
+def rotate_publish_token(
+    workflow_id: str,
+    *,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Rotate the publish token for a workflow."""
+    client, _ = get_api_client(profile=profile)
+    return rotate_publish_token_data(client, workflow_id, actor="mcp")
+
+
+def unpublish_workflow(
+    workflow_id: str,
+    *,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Revoke public access for a workflow."""
+    client, _ = get_api_client(profile=profile)
+    return unpublish_workflow_data(client, workflow_id, actor="mcp")
+
+
 __all__ = [
     "delete_workflow",
     "download_workflow",
+    "publish_workflow",
     "list_workflows",
+    "rotate_publish_token",
     "run_workflow",
     "show_workflow",
+    "unpublish_workflow",
     "upload_workflow",
 ]

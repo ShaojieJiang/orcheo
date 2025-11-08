@@ -10,7 +10,16 @@ def test_list_workflows_with_profile(mock_env: None) -> None:
     from orcheo_sdk.mcp_server import tools
 
     payload = [
-        {"id": "wf-1", "name": "Test Workflow", "slug": "test", "is_archived": False}
+        {
+            "id": "wf-1",
+            "name": "Test Workflow",
+            "slug": "test",
+            "is_archived": False,
+            "is_public": True,
+            "require_login": False,
+            "published_at": "2024-01-01T00:00:00Z",
+            "publish_token_rotated_at": None,
+        }
     ]
 
     with respx.mock() as router:
@@ -19,7 +28,7 @@ def test_list_workflows_with_profile(mock_env: None) -> None:
         )
         result = tools.list_workflows(archived=False, profile=None)
 
-    assert result == payload
+    assert result[0]["share_url"] == "http://api.test/chat/wf-1"
 
 
 def test_list_workflows_success(mock_env: None) -> None:
@@ -27,7 +36,16 @@ def test_list_workflows_success(mock_env: None) -> None:
     from orcheo_sdk.mcp_server import tools
 
     payload = [
-        {"id": "wf-1", "name": "Test Workflow", "slug": "test", "is_archived": False}
+        {
+            "id": "wf-1",
+            "name": "Test Workflow",
+            "slug": "test",
+            "is_archived": False,
+            "is_public": True,
+            "require_login": False,
+            "published_at": "2024-01-01T00:00:00Z",
+            "publish_token_rotated_at": None,
+        }
     ]
 
     with respx.mock() as router:
@@ -36,7 +54,7 @@ def test_list_workflows_success(mock_env: None) -> None:
         )
         result = tools.list_workflows()
 
-    assert result == payload
+    assert result[0]["share_url"] == "http://api.test/chat/wf-1"
 
 
 def test_list_workflows_with_archived(mock_env: None) -> None:
@@ -44,8 +62,26 @@ def test_list_workflows_with_archived(mock_env: None) -> None:
     from orcheo_sdk.mcp_server import tools
 
     payload = [
-        {"id": "wf-1", "name": "Active", "slug": "active", "is_archived": False},
-        {"id": "wf-2", "name": "Archived", "slug": "archived", "is_archived": True},
+        {
+            "id": "wf-1",
+            "name": "Active",
+            "slug": "active",
+            "is_archived": False,
+            "is_public": True,
+            "require_login": False,
+            "published_at": "2024-01-01T00:00:00Z",
+            "publish_token_rotated_at": None,
+        },
+        {
+            "id": "wf-2",
+            "name": "Archived",
+            "slug": "archived",
+            "is_archived": True,
+            "is_public": False,
+            "require_login": False,
+            "published_at": None,
+            "publish_token_rotated_at": None,
+        },
     ]
 
     with respx.mock() as router:
@@ -61,7 +97,14 @@ def test_show_workflow_success(mock_env: None) -> None:
     """Test showing workflow details."""
     from orcheo_sdk.mcp_server import tools
 
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -78,7 +121,7 @@ def test_show_workflow_success(mock_env: None) -> None:
 
         result = tools.show_workflow("wf-1")
 
-    assert result["workflow"] == workflow
+    assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
     assert result["latest_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
@@ -89,7 +132,14 @@ def test_show_workflow_with_cached_runs(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -103,7 +153,7 @@ def test_show_workflow_with_cached_runs(mock_env: None) -> None:
             runs=runs,
         )
 
-    assert result["workflow"] == workflow
+    assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
     assert result["latest_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
@@ -114,7 +164,14 @@ def test_show_workflow_with_runs_none_path(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -132,7 +189,7 @@ def test_show_workflow_with_runs_none_path(mock_env: None) -> None:
             runs=None,
         )
 
-    assert result["workflow"] == workflow
+    assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
     assert result["latest_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
@@ -143,7 +200,14 @@ def test_show_workflow_without_runs(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
 
     with respx.mock():
@@ -155,6 +219,6 @@ def test_show_workflow_without_runs(mock_env: None) -> None:
             versions=versions,
         )
 
-    assert result["workflow"] == workflow
+    assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
     assert result["latest_version"] == versions[0]
     assert result["recent_runs"] == []

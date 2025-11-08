@@ -36,6 +36,19 @@ WorkflowIdOption = Annotated[
     str | None,
     typer.Option("--id", help="Workflow ID (for updates). Creates new if omitted."),
 ]
+RequireLoginOption = Annotated[
+    bool,
+    typer.Option(
+        help="Require OAuth login for published workflow access.",
+    ),
+]
+AutoConfirmOption = Annotated[
+    bool,
+    typer.Option(
+        "--yes",
+        help="Automatically confirm publish management prompts.",
+    ),
+]
 EntrypointOption = Annotated[
     str | None,
     typer.Option(
@@ -79,6 +92,8 @@ __all__ = [
     "FilePathArgument",
     "WorkflowIdOption",
     "EntrypointOption",
+    "RequireLoginOption",
+    "AutoConfirmOption",
     "WorkflowNameOption",
     "OutputPathOption",
     "FormatOption",

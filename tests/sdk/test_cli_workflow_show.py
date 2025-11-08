@@ -12,7 +12,14 @@ from typer.testing import CliRunner
 def test_workflow_show_uses_cache_when_offline(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    workflow = {"id": "wf-1", "name": "Cached"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Cached",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [
         {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
     ]
@@ -30,6 +37,7 @@ def test_workflow_show_uses_cache_when_offline(
         )
         first = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
         assert first.exit_code == 0
+        assert "Share URL: http://api.test/chat/wf-1" in first.stdout
 
     offline_env = env | {"ORCHEO_PROFILE": "offline"}
     offline_args = ["--offline", "workflow", "show", "wf-1"]
@@ -41,7 +49,14 @@ def test_workflow_show_uses_cache_when_offline(
 def test_workflow_show_with_cache_notice(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    workflow = {"id": "wf-1", "name": "Cached"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Cached",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [
         {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
     ]
@@ -59,6 +74,7 @@ def test_workflow_show_with_cache_notice(
         )
         first = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
         assert first.exit_code == 0
+        assert "Status: public" in first.stdout
 
     # Now test offline with cache showing the notice
     offline_env = env | {"ORCHEO_PROFILE": "offline"}
@@ -73,7 +89,14 @@ def test_workflow_show_no_latest_version(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test workflow show when there's no latest version."""
-    workflow = {"id": "wf-1", "name": "NoVersion"}
+    workflow = {
+        "id": "wf-1",
+        "name": "NoVersion",
+        "is_public": False,
+        "require_login": False,
+        "published_at": None,
+        "publish_token_rotated_at": None,
+    }
     versions: list[dict] = []
     runs: list[dict] = []
 
@@ -93,7 +116,14 @@ def test_workflow_show_no_latest_version(
 
 def test_workflow_show_no_runs(runner: CliRunner, env: dict[str, str]) -> None:
     """Test workflow show when there are no runs."""
-    workflow = {"id": "wf-1", "name": "NoRuns"}
+    workflow = {
+        "id": "wf-1",
+        "name": "NoRuns",
+        "is_public": True,
+        "require_login": True,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": "2024-01-02T00:00:00Z",
+    }
     versions = [
         {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
     ]
@@ -124,7 +154,14 @@ def test_workflow_show_with_stale_cache_notice(
 
     # Create cache files with 25-hour-old timestamps (older than 24h TTL)
     stale_time = datetime.now(tz=UTC) - timedelta(hours=25)
-    workflow = {"id": "wf-1", "name": "Cached"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Cached",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [
         {"id": "ver-1", "version": 1, "graph": {"nodes": ["start"], "edges": []}}
     ]
@@ -155,7 +192,14 @@ def test_workflow_show_with_mermaid_generation(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test workflow show generates mermaid diagram with various edge cases."""
-    workflow = {"id": "wf-1", "name": "Test"}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": True,
+        "require_login": False,
+        "published_at": "2024-01-01T00:00:00Z",
+        "publish_token_rotated_at": None,
+    }
     versions = [
         {
             "id": "ver-1",
