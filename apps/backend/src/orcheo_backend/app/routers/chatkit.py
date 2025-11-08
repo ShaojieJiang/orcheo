@@ -14,6 +14,7 @@ from chatkit.types import ChatKitReq
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
+from orcheo.config import get_settings
 from orcheo.models.workflow import WorkflowRun, mask_publish_token
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.authentication import (
@@ -48,27 +49,69 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-_IP_RATE_LIMITER = SlidingWindowRateLimiter(
-    limit=120,
-    interval_seconds=60,
+def _load_rate_limit_config() -> Mapping[str, Any]:
+    settings = get_settings()
+    config = settings.get("CHATKIT_RATE_LIMITS")
+    return config if isinstance(config, Mapping) else {}
+
+
+def _coerce_rate_limit(config: Mapping[str, Any], key: str, default: int) -> int:
+    value = config.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_rate_limiter(
+    *,
+    limit_key: str,
+    interval_key: str,
+    default_limit: int,
+    default_interval: int,
+    code: str,
+    message_template: str,
+) -> SlidingWindowRateLimiter:
+    config = _load_rate_limit_config()
+    limit = _coerce_rate_limit(config, limit_key, default_limit)
+    interval = _coerce_rate_limit(config, interval_key, default_interval)
+    return SlidingWindowRateLimiter(
+        limit=limit,
+        interval_seconds=interval,
+        code=code,
+        message_template=message_template,
+    )
+
+
+_IP_RATE_LIMITER = _build_rate_limiter(
+    limit_key="ip_limit",
+    interval_key="ip_interval_seconds",
+    default_limit=120,
+    default_interval=60,
     code="chatkit.rate_limit.ip",
     message_template="Too many ChatKit requests from {key}",
 )
-_JWT_RATE_LIMITER = SlidingWindowRateLimiter(
-    limit=120,
-    interval_seconds=60,
+_JWT_RATE_LIMITER = _build_rate_limiter(
+    limit_key="jwt_limit",
+    interval_key="jwt_interval_seconds",
+    default_limit=120,
+    default_interval=60,
     code="chatkit.rate_limit.identity",
     message_template="Too many ChatKit requests for identity {key}",
 )
-_PUBLISH_RATE_LIMITER = SlidingWindowRateLimiter(
-    limit=60,
-    interval_seconds=60,
+_PUBLISH_RATE_LIMITER = _build_rate_limiter(
+    limit_key="publish_limit",
+    interval_key="publish_interval_seconds",
+    default_limit=60,
+    default_interval=60,
     code="chatkit.rate_limit.publish",
     message_template="Too many ChatKit requests for publish token {key}",
 )
-_SESSION_RATE_LIMITER = SlidingWindowRateLimiter(
-    limit=60,
-    interval_seconds=60,
+_SESSION_RATE_LIMITER = _build_rate_limiter(
+    limit_key="session_limit",
+    interval_key="session_interval_seconds",
+    default_limit=60,
+    default_interval=60,
     code="chatkit.rate_limit.session",
     message_template="Too many ChatKit requests for session {key}",
 )
@@ -84,8 +127,16 @@ class ChatKitAuthResult:
     subject: str | None
 
 
-def _chatkit_error(status_code: int, *, message: str, code: str) -> HTTPException:
-    detail = {"message": message, "code": code}
+def _chatkit_error(
+    status_code: int,
+    *,
+    message: str,
+    code: str,
+    auth_mode: str | None = None,
+) -> HTTPException:
+    detail: dict[str, Any] = {"message": message, "code": code}
+    if auth_mode:
+        detail["auth_mode"] = auth_mode
     return HTTPException(status_code=status_code, detail=detail)
 
 
@@ -93,22 +144,32 @@ def _extract_bearer_token(header_value: str | None) -> str:
     if not header_value:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Missing bearer token.",
+            message=(
+                "ChatKit session token authentication failed: missing bearer token."
+            ),
             code="chatkit.auth.missing_token",
+            auth_mode="jwt",
         )
     parts = header_value.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Authorization header must use the Bearer scheme.",
+            message=(
+                "ChatKit session token authentication failed: "
+                "Authorization header must use the Bearer scheme."
+            ),
             code="chatkit.auth.invalid_scheme",
+            auth_mode="jwt",
         )
     token = parts[1].strip()
     if not token:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Missing bearer token.",
+            message=(
+                "ChatKit session token authentication failed: missing bearer token."
+            ),
             code="chatkit.auth.missing_token",
+            auth_mode="jwt",
         )
     return token
 
@@ -134,8 +195,9 @@ def _decode_chatkit_jwt(token: str) -> Mapping[str, Any]:
     except jwt.PyJWTError as exc:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Invalid ChatKit session token.",
+            message="ChatKit session token authentication failed: invalid token.",
             code="chatkit.auth.invalid_jwt",
+            auth_mode="jwt",
         ) from exc
     return payload
 
@@ -468,8 +530,11 @@ async def _authenticate_jwt_request(
     if not isinstance(chatkit_claims, Mapping):
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="ChatKit session token is missing required claims.",
+            message=(
+                "ChatKit session token authentication failed: missing required claims."
+            ),
             code="chatkit.auth.invalid_jwt_claims",
+            auth_mode="jwt",
         )
 
     claimed_workflow_id = chatkit_claims.get("workflow_id")
@@ -479,14 +544,22 @@ async def _authenticate_jwt_request(
         except ValueError as exc:
             raise _chatkit_error(
                 status.HTTP_401_UNAUTHORIZED,
-                message="ChatKit session token workflow_id is invalid.",
+                message=(
+                    "ChatKit session token authentication failed: workflow_id "
+                    "claim is invalid."
+                ),
                 code="chatkit.auth.invalid_jwt_claims",
+                auth_mode="jwt",
             ) from exc
         if claimed_uuid != workflow_id:
             raise _chatkit_error(
                 status.HTTP_403_FORBIDDEN,
-                message="ChatKit session token is not valid for this workflow.",
+                message=(
+                    "ChatKit session token authentication failed: "
+                    "token does not authorize this workflow."
+                ),
                 code="chatkit.auth.workflow_mismatch",
+                auth_mode="jwt",
             )
 
     identity = chatkit_claims.get("token_id") or claims.get("sub")
@@ -517,8 +590,12 @@ async def _authenticate_publish_request(
     if not publish_token:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Publish token is required when no bearer token is provided.",
+            message=(
+                "Publish token authentication failed: token is required "
+                "when no bearer token is provided."
+            ),
             code="chatkit.auth.publish_token_missing",
+            auth_mode="publish",
         )
 
     try:
@@ -529,14 +606,16 @@ async def _authenticate_publish_request(
     if not workflow.is_public or not workflow.publish_token_hash:
         raise _chatkit_error(
             status.HTTP_403_FORBIDDEN,
-            message="Workflow is not published.",
+            message="Publish token authentication failed: workflow is not published.",
             code="chatkit.auth.not_published",
+            auth_mode="publish",
         )
     if not workflow.verify_publish_token(publish_token):
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="Invalid publish token.",
+            message="Publish token authentication failed: token is invalid.",
             code="chatkit.auth.invalid_publish_token",
+            auth_mode="publish",
         )
 
     _rate_limit(_PUBLISH_RATE_LIMITER, workflow.publish_token_hash, now=now)
@@ -545,8 +624,12 @@ async def _authenticate_publish_request(
     if workflow.require_login and not session_subject:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
-            message="OAuth login is required to access this workflow.",
+            message=(
+                "Publish token authentication failed: OAuth login is required "
+                "to access this workflow."
+            ),
             code="chatkit.auth.oauth_required",
+            auth_mode="publish",
         )
 
     _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)

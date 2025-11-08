@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 from uuid import uuid4
+
 import pytest
+from pydantic import ValidationError
+
 from orcheo.models import (
     Workflow,
     WorkflowRun,
     WorkflowRunStatus,
     WorkflowVersion,
     hash_publish_token,
+    mask_publish_token,
 )
 
 
@@ -30,8 +34,23 @@ def test_workflow_record_event_updates_timestamp() -> None:
 
 
 def test_workflow_requires_name_or_slug() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         Workflow(name="", slug="")
+
+
+def test_workflow_name_and_description_are_normalized() -> None:
+    workflow = Workflow(name="  Demo Flow  ", description="  Some description  ")
+
+    assert workflow.name == "Demo Flow"
+    assert workflow.description == "Some description"
+
+
+def test_mask_publish_token_masks_short_hashes() -> None:
+    assert mask_publish_token("abcd", reveal=6) == "publish:***abcd"
+
+
+def test_mask_publish_token_handles_empty_values() -> None:
+    assert mask_publish_token("") == "publish:unknown"
 
 
 def test_workflow_tag_normalization() -> None:

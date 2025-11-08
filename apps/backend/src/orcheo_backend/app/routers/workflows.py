@@ -1,6 +1,7 @@
 """Workflow CRUD and version management routes."""
 
 from __future__ import annotations
+import logging
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
@@ -9,6 +10,7 @@ from orcheo.models.workflow import (
     WorkflowVersion,
     generate_publish_token,
     hash_publish_token,
+    mask_publish_token,
 )
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
@@ -31,6 +33,7 @@ from orcheo_backend.app.schemas import (
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/workflows", response_model=list[Workflow])
@@ -258,6 +261,15 @@ async def publish_workflow(
             detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
         ) from exc
 
+    logger.info(
+        "Workflow published",
+        extra={
+            "workflow_id": str(workflow.id),
+            "actor": request.actor,
+            "require_login": request.require_login,
+            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
+        },
+    )
     return _publish_response(workflow, token)
 
 
@@ -286,6 +298,14 @@ async def rotate_publish_token(
             detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
         ) from exc
 
+    logger.info(
+        "Workflow publish token rotated",
+        extra={
+            "workflow_id": str(workflow.id),
+            "actor": request.actor,
+            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
+        },
+    )
     return _publish_response(workflow, token)
 
 
@@ -300,7 +320,7 @@ async def revoke_workflow_publish(
 ) -> Workflow:
     """Revoke public access to the workflow."""
     try:
-        return await repository.revoke_publish(workflow_id, actor=request.actor)
+        workflow = await repository.revoke_publish(workflow_id, actor=request.actor)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowPublishStateError as exc:
@@ -308,6 +328,23 @@ async def revoke_workflow_publish(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
         ) from exc
+
+    masked_previous = "unknown"
+    if workflow.audit_log:
+        last_event = workflow.audit_log[-1]
+        if last_event.metadata.get("previous_token"):
+            masked_previous = str(last_event.metadata["previous_token"])
+
+    logger.info(
+        "Workflow publish access revoked",
+        extra={
+            "workflow_id": str(workflow.id),
+            "actor": request.actor,
+            "previous_token": masked_previous,
+        },
+    )
+
+    return workflow
 
 
 __all__ = ["router"]
