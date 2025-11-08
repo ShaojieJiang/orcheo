@@ -23,6 +23,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_SERVICE_TOKEN": "token",
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
+        "ORCHEO_CANVAS_BASE_URL": "http://canvas.test",
         "NO_COLOR": "1",
     }
 
@@ -32,6 +33,7 @@ def mock_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up mock environment variables for SDK tests."""
     monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
     monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")
+    monkeypatch.setenv("ORCHEO_CANVAS_BASE_URL", "http://canvas.test")
 
 
 @pytest.fixture()

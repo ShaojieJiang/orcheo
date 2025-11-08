@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import typer
-from orcheo_sdk.cli.output import render_table
+from orcheo_sdk.cli.output import format_datetime, render_table
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import _state, workflow_app
 from orcheo_sdk.cli.workflow.inputs import _cache_notice
@@ -29,18 +29,34 @@ def list_workflows(
         _cache_notice(state, "workflow catalog", stale)
     rows = []
     for item in payload:
+        visibility = "public" if item.get("is_public") else "private"
+        require_login = "yes" if item.get("require_login") else "no"
+        rotated_at = item.get("publish_token_rotated_at") or item.get("published_at")
         rows.append(
             [
                 item.get("id"),
                 item.get("name"),
                 item.get("slug"),
                 "yes" if item.get("is_archived") else "no",
+                visibility,
+                require_login,
+                format_datetime(rotated_at) if rotated_at else "—",
+                item.get("share_url") or "—",
             ]
         )
     render_table(
         state.console,
         title="Workflows",
-        columns=["ID", "Name", "Slug", "Archived"],
+        columns=[
+            "ID",
+            "Name",
+            "Slug",
+            "Archived",
+            "Visibility",
+            "Require login",
+            "Last rotated",
+            "Share URL",
+        ],
         rows=rows,
     )
 

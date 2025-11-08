@@ -63,6 +63,12 @@ class CacheManager:
         serialized = json.dumps(document, indent=2, sort_keys=True)
         path.write_text(serialized, encoding="utf-8")
 
+    def invalidate(self, key: str) -> None:
+        """Remove cached payload for ``key`` when present."""
+        path = self._path_for_key(key)
+        if path.exists():
+            path.unlink()
+
     def fetch(self, key: str, loader: Callable[[], Any]) -> tuple[Any, bool, bool]:
         """Return cached or freshly loaded payload for ``key``.
 

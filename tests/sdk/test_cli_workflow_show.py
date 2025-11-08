@@ -36,6 +36,7 @@ def test_workflow_show_uses_cache_when_offline(
     result = runner.invoke(app, offline_args, env=offline_env)
     assert result.exit_code == 0
     assert "Using cached data" in result.stdout
+    assert "Publish status" in result.stdout
 
 
 def test_workflow_show_with_cache_notice(

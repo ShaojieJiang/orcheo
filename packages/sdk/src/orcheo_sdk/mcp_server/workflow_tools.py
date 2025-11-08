@@ -22,6 +22,45 @@ def show_workflow(
     return tools.show_workflow(workflow_id=workflow_id, profile=profile)
 
 
+
+@mcp.tool()
+def publish_workflow(
+    workflow_id: str,
+    require_login: bool = False,
+    profile: str | None = None,
+) -> dict:
+    """Publish a workflow and return share metadata."""
+    return tools.publish_workflow(
+        workflow_id=workflow_id,
+        require_login=require_login,
+        profile=profile,
+    )
+
+
+@mcp.tool()
+def rotate_publish_token(
+    workflow_id: str,
+    profile: str | None = None,
+) -> dict:
+    """Rotate a workflow's publish token."""
+    return tools.rotate_publish_token(
+        workflow_id=workflow_id,
+        profile=profile,
+    )
+
+
+@mcp.tool()
+def unpublish_workflow(
+    workflow_id: str,
+    profile: str | None = None,
+) -> dict:
+    """Revoke public access to a workflow."""
+    return tools.unpublish_workflow(
+        workflow_id=workflow_id,
+        profile=profile,
+    )
+
+
 @mcp.tool()
 def run_workflow(
     workflow_id: str,
@@ -85,7 +124,10 @@ __all__ = [
     "delete_workflow",
     "download_workflow",
     "list_workflows",
+    "publish_workflow",
+    "rotate_publish_token",
     "run_workflow",
     "show_workflow",
+    "unpublish_workflow",
     "upload_workflow",
 ]

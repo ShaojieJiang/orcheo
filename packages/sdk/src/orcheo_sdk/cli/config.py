@@ -15,6 +15,7 @@ API_URL_ENV = "ORCHEO_API_URL"
 SERVICE_TOKEN_ENV = "ORCHEO_SERVICE_TOKEN"
 CONFIG_FILENAME = "cli.toml"
 DEFAULT_PROFILE = "default"
+CANVAS_BASE_URL_ENV = "ORCHEO_CANVAS_BASE_URL"
 
 
 @dataclass(slots=True)
@@ -25,6 +26,7 @@ class CLISettings:
     service_token: str | None
     profile: str | None
     offline: bool = False
+    canvas_base_url: str | None = None
 
 
 def get_config_dir() -> Path:
@@ -81,10 +83,15 @@ def resolve_settings(
         or os.getenv(SERVICE_TOKEN_ENV)
         or profile_data.get("service_token")
     )
+    resolved_canvas_base = (
+        os.getenv(CANVAS_BASE_URL_ENV)
+        or profile_data.get("canvas_base_url")
+    )
 
     return CLISettings(
         api_url=resolved_api_url,
         service_token=resolved_token,
         profile=profile_name,
         offline=offline,
+        canvas_base_url=resolved_canvas_base,
     )

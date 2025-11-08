@@ -7,8 +7,11 @@ from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
     list_workflows_data,
+    publish_workflow_data,
+    rotate_publish_token_data,
     run_workflow_data,
     show_workflow_data,
+    unpublish_workflow_data,
     upload_workflow_data,
 )
 
@@ -18,8 +21,12 @@ def list_workflows(
     profile: str | None = None,
 ) -> list[dict[str, Any]]:
     """List all workflows in Orcheo."""
-    client, _ = get_api_client(profile=profile)
-    return list_workflows_data(client, archived=archived)
+    client, settings = get_api_client(profile=profile)
+    return list_workflows_data(
+        client,
+        archived=archived,
+        canvas_base_url=settings.canvas_base_url,
+    )
 
 
 def show_workflow(
@@ -27,8 +34,54 @@ def show_workflow(
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Display details about a workflow."""
-    client, _ = get_api_client(profile=profile)
-    return show_workflow_data(client, workflow_id)
+    client, settings = get_api_client(profile=profile)
+    return show_workflow_data(
+        client,
+        workflow_id,
+        canvas_base_url=settings.canvas_base_url,
+    )
+
+
+
+def publish_workflow(
+    workflow_id: str,
+    require_login: bool = False,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Publish a workflow and return enriched metadata."""
+    client, settings = get_api_client(profile=profile)
+    return publish_workflow_data(
+        client,
+        workflow_id,
+        require_login=require_login,
+        canvas_base_url=settings.canvas_base_url,
+    )
+
+
+def rotate_publish_token(
+    workflow_id: str,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Rotate a workflow's publish token."""
+    client, settings = get_api_client(profile=profile)
+    return rotate_publish_token_data(
+        client,
+        workflow_id,
+        canvas_base_url=settings.canvas_base_url,
+    )
+
+
+def unpublish_workflow(
+    workflow_id: str,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Revoke public access to a workflow."""
+    client, settings = get_api_client(profile=profile)
+    return unpublish_workflow_data(
+        client,
+        workflow_id,
+        canvas_base_url=settings.canvas_base_url,
+    )
 
 
 def run_workflow(
@@ -95,7 +148,10 @@ __all__ = [
     "delete_workflow",
     "download_workflow",
     "list_workflows",
+    "publish_workflow",
+    "rotate_publish_token",
     "run_workflow",
     "show_workflow",
+    "unpublish_workflow",
     "upload_workflow",
 ]

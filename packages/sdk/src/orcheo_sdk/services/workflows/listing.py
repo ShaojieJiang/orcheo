@@ -3,17 +3,24 @@
 from __future__ import annotations
 from typing import Any
 from orcheo_sdk.cli.http import ApiClient
+from orcheo_sdk.services.workflows.publish import enrich_workflow_publish_metadata
 
 
 def list_workflows_data(
     client: ApiClient,
     archived: bool = False,
+    *,
+    canvas_base_url: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return workflows optionally including archived entries."""
     url = "/api/workflows"
     if archived:
         url += "?include_archived=true"
-    return client.get(url)
+    payload = client.get(url)
+    return [
+        enrich_workflow_publish_metadata(item, canvas_base_url)
+        for item in payload
+    ]
 
 
 def show_workflow_data(
@@ -24,6 +31,7 @@ def show_workflow_data(
     workflow: dict[str, Any] | None = None,
     versions: list[dict[str, Any]] | None = None,
     runs: list[dict[str, Any]] | None = None,
+    canvas_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Return workflow metadata plus optional latest version and runs."""
     if workflow is None:
@@ -51,7 +59,7 @@ def show_workflow_data(
             )[:5]
 
     return {
-        "workflow": workflow,
+        "workflow": enrich_workflow_publish_metadata(workflow, canvas_base_url),
         "latest_version": latest_version,
         "recent_runs": recent_runs,
     }

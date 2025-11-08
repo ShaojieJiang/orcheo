@@ -16,6 +16,7 @@ def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> 
         result = runner.invoke(app, ["workflow", "list"], env=env)
     assert result.exit_code == 0
     assert "Demo" in result.stdout
+    assert "Share URL" in result.stdout
 
 
 def test_workflow_list_excludes_archived_by_default(

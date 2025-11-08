@@ -25,8 +25,11 @@ from .workflow import (
     delete_workflow,
     download_workflow,
     list_workflows,
+    publish_workflow,
+    rotate_publish_token,
     run_workflow,
     show_workflow,
+    unpublish_workflow,
     upload_workflow,
 )
 
@@ -51,13 +54,16 @@ __all__ = [
     "list_workflows",
     "import_module",
     "logger",
+    "publish_workflow",
     "revoke_service_token",
+    "rotate_publish_token",
     "rotate_service_token",
     "run_workflow",
     "show_agent_tool",
     "show_node",
     "show_service_token",
     "show_workflow",
+    "unpublish_workflow",
     "upload_workflow",
     "util",
 ]
