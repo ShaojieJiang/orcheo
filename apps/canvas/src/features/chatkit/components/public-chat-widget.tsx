@@ -3,6 +3,7 @@ import type { StartScreenPrompt } from "@openai/chatkit";
 import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
+import { cn } from "@/lib/utils";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
@@ -143,7 +144,14 @@ export function PublicChatWidget({
   const { control } = useChatKit(options);
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-[0_25px_80px_rgba(15,23,42,0.12)] dark:border-slate-800/70 dark:bg-slate-900">
+    <div
+      className={cn(
+        "relative h-full w-full overflow-hidden rounded-3xl",
+        "border border-slate-200/70 bg-white",
+        "shadow-[0_25px_80px_rgba(15,23,42,0.12)]",
+        "dark:border-slate-800/70 dark:bg-slate-900",
+      )}
+    >
       <ChatKit control={control} className="block h-full w-full" />
     </div>
   );

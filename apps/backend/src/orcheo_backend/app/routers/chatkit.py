@@ -6,13 +6,16 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from functools import lru_cache
+from importlib import import_module
+from types import ModuleType
+from typing import Any, Literal, cast
 from uuid import UUID
 import jwt
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
 from orcheo.models.workflow import WorkflowRun, mask_publish_token
@@ -125,6 +128,46 @@ class ChatKitAuthResult:
     actor: str
     auth_mode: Literal["jwt", "publish"]
     subject: str | None
+
+
+@lru_cache(maxsize=1)
+def _resolve_backend_app_module() -> ModuleType:
+    """Load the exported backend app module once for dependency lookups."""
+    return import_module("orcheo_backend.app")
+
+
+def _build_chatkit_request_adapter() -> TypeAdapter[ChatKitReq]:
+    """Construct the ChatKit request adapter using the backend exports."""
+    backend_app = _resolve_backend_app_module()
+    adapter_factory = backend_app.TypeAdapter
+    return cast(TypeAdapter[ChatKitReq], adapter_factory(ChatKitReq))
+
+
+def _resolve_chatkit_server() -> Any:
+    """Retrieve the ChatKit server instance from backend exports."""
+    backend_app = _resolve_backend_app_module()
+    return backend_app.get_chatkit_server()
+
+
+def _build_chatkit_log_context(
+    auth_result: ChatKitAuthResult, parsed_request: Any
+) -> dict[str, Any]:
+    """Construct structured log context for ChatKit requests."""
+    thread_id = getattr(parsed_request, "thread_id", None)
+    request_type = getattr(parsed_request, "type", None)
+
+    log_context: dict[str, Any] = {
+        "workflow_id": str(auth_result.workflow_id),
+        "auth_mode": auth_result.auth_mode,
+        "actor": auth_result.actor,
+    }
+    if auth_result.subject is not None:
+        log_context["subject"] = auth_result.subject
+    if thread_id is not None:
+        log_context["thread_id"] = str(thread_id)
+    if request_type is not None:
+        log_context["request_type"] = request_type
+    return log_context
 
 
 def _chatkit_error(
@@ -286,10 +329,8 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
 
     publish_token = payload_dict.pop("publish_token", None)
 
-    from orcheo_backend.app import TypeAdapter, get_chatkit_server
-
     try:
-        adapter: TypeAdapter[ChatKitReq] = TypeAdapter(ChatKitReq)
+        adapter = _build_chatkit_request_adapter()
         parsed_request = adapter.validate_python(payload_dict)
     except ValidationError as exc:
         raise HTTPException(
@@ -318,15 +359,12 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
     if auth_result.subject is not None:
         context["subject"] = auth_result.subject
 
-    server = get_chatkit_server()
+    server = _resolve_chatkit_server()
     result = await server.process(sanitized_payload, context)
 
     logger.info(
         "Processed ChatKit request",
-        extra={
-            "workflow_id": str(auth_result.workflow_id),
-            "auth_mode": auth_result.auth_mode,
-        },
+        extra=_build_chatkit_log_context(auth_result, parsed_request),
     )
 
     if isinstance(result, StreamingResult):

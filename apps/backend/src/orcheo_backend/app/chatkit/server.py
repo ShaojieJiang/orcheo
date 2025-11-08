@@ -15,6 +15,7 @@ from chatkit.types import (
     ThreadStreamEvent,
     UserMessageItem,
 )
+from dynaconf import Dynaconf
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.legacy_support import (
@@ -163,6 +164,26 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         yield ThreadItemDoneEvent(item=assistant_item)
 
 
+def _resolve_chatkit_sqlite_path(settings: Any) -> Path:
+    """Return the configured ChatKit SQLite path with a consistent strategy."""
+    default_path = Path("~/.orcheo/chatkit.sqlite")
+    candidate: Any | None = None
+
+    if isinstance(settings, Dynaconf):
+        candidate = settings.get("CHATKIT_SQLITE_PATH")
+    elif isinstance(settings, Mapping):
+        candidate = settings.get("CHATKIT_SQLITE_PATH")
+    else:
+        candidate = getattr(settings, "chatkit_sqlite_path", None)
+        if candidate is None:
+            candidate = getattr(settings, "CHATKIT_SQLITE_PATH", None)
+
+    if not candidate:
+        return default_path.expanduser()
+
+    return Path(str(candidate)).expanduser()
+
+
 def create_chatkit_server(
     repository: WorkflowRepository,
     vault_provider: Callable[[], BaseCredentialVault],
@@ -172,11 +193,7 @@ def create_chatkit_server(
     """Factory returning an Orcheo-configured ChatKit server."""
     if store is None:
         settings = _call_get_settings()
-        candidate = settings.get(
-            "CHATKIT_SQLITE_PATH",
-            getattr(settings, "chatkit_sqlite_path", "~/.orcheo/chatkit.sqlite"),
-        )
-        sqlite_path = Path(str(candidate or "~/.orcheo/chatkit.sqlite")).expanduser()
+        sqlite_path = _resolve_chatkit_sqlite_path(settings)
         store = SqliteChatKitStore(sqlite_path)
     return OrcheoChatKitServer(
         store=store,

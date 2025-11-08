@@ -16,6 +16,7 @@ import {
 } from "@features/workflow/lib/workflow-storage-api";
 import type { ApiWorkflow } from "@features/workflow/lib/workflow-storage.types";
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
+import { PublicChatErrorBoundary } from "@features/chatkit/components/public-chat-error-boundary";
 import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
 
 type ColorScheme = "light" | "dark";
@@ -24,6 +25,12 @@ type WorkflowState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; workflow: ApiWorkflow };
+
+const sanitizeWorkflowNameForEmail = (value: string): string =>
+  value
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[<>]/g, "")
+    .trim();
 
 export default function PublicChatPage() {
   const { workflowId } = useParams<{ workflowId: string }>();
@@ -106,15 +113,22 @@ export default function PublicChatPage() {
     if (workflowState.status !== "ready") {
       return "mailto:?subject=Orcheo%20workflow%20access";
     }
-    const subject = encodeURIComponent(
-      `Request access to ${workflowState.workflow.name}`,
+    const sanitizedName = sanitizeWorkflowNameForEmail(
+      workflowState.workflow.name,
     );
+    const subject = encodeURIComponent(`Request access to ${sanitizedName}`);
     const link = typeof window !== "undefined" ? window.location.href : "";
     const body = encodeURIComponent(
-      `Hi,%0A%0ACould you confirm access for workflow "${workflowState.workflow.name}" (${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
+      `Hi,%0A%0ACould you confirm access for workflow "${sanitizedName}" (${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
     );
     return `mailto:?subject=${subject}&body=${body}`;
   }, [workflowState]);
+
+  const handleErrorBoundaryReset = useCallback(() => {
+    setChatError(null);
+    setRateLimitError(null);
+    setIsChatReady(false);
+  }, []);
 
   const handleChatHttpError = (error: PublicChatHttpError) => {
     if (error.status === 429 || error.code?.startsWith("chatkit.rate_limit")) {
@@ -293,13 +307,15 @@ export default function PublicChatPage() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
-      <div className="mx-auto flex h-full max-w-6xl flex-col px-4 py-6 lg:py-8">
-        <div className="flex flex-1 items-center justify-center">
-          <div className="w-full max-w-3xl">{renderChatColumn()}</div>
+    <PublicChatErrorBoundary onReset={handleErrorBoundaryReset}>
+      <div className="h-screen overflow-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
+        <div className="mx-auto flex h-full max-w-6xl flex-col px-4 py-6 lg:py-8">
+          <div className="flex flex-1 items-center justify-center">
+            <div className="w-full max-w-3xl">{renderChatColumn()}</div>
+          </div>
         </div>
       </div>
-    </div>
+    </PublicChatErrorBoundary>
   );
 }
 

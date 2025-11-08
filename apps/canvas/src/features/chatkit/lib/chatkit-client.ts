@@ -13,13 +13,31 @@ interface PublicChatFetchOptions {
   metadata?: Record<string, unknown>;
 }
 
-const DEFAULT_DOMAIN_KEY = "domain_pk_localhost_dev";
+type RuntimeConfig = {
+  chatkitDomainKey?: unknown;
+};
 
 const safeString = (value: unknown): string | undefined => {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
   }
   return undefined;
+};
+
+const DEFAULT_DOMAIN_KEY =
+  safeString(import.meta.env?.VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY) ??
+  "domain_pk_localhost_dev";
+
+const getRuntimeDomainKey = (): string | undefined => {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const runtimeConfig = (
+    window as typeof window & {
+      __ORCHEO_CONFIG__?: RuntimeConfig;
+    }
+  ).__ORCHEO_CONFIG__;
+  return safeString(runtimeConfig?.chatkitDomainKey);
 };
 
 const parseErrorPayload = async (
@@ -67,7 +85,8 @@ const parseErrorPayload = async (
 
 export const getChatKitDomainKey = (): string => {
   const fromEnv = safeString(import.meta.env?.VITE_ORCHEO_CHATKIT_DOMAIN_KEY);
-  return fromEnv ?? DEFAULT_DOMAIN_KEY;
+  const fromRuntime = getRuntimeDomainKey();
+  return fromEnv ?? fromRuntime ?? DEFAULT_DOMAIN_KEY;
 };
 
 export const buildPublicChatFetch = ({
