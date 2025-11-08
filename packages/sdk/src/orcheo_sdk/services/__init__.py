@@ -30,10 +30,14 @@ from orcheo_sdk.services.service_tokens import (
 from orcheo_sdk.services.workflows import (
     delete_workflow_data,
     download_workflow_data,
+    enrich_workflow_publish_metadata,
     get_latest_workflow_version_data,
     list_workflows_data,
+    publish_workflow_data,
+    rotate_publish_token_data,
     run_workflow_data,
     show_workflow_data,
+    unpublish_workflow_data,
     upload_workflow_data,
 )
 
@@ -47,6 +51,10 @@ __all__ = [
     "upload_workflow_data",
     "download_workflow_data",
     "get_latest_workflow_version_data",
+    "publish_workflow_data",
+    "rotate_publish_token_data",
+    "unpublish_workflow_data",
+    "enrich_workflow_publish_metadata",
     # Nodes
     "list_nodes_data",
     "show_node_data",

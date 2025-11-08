@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Any
 from orcheo_sdk.cli.http import ApiClient
+from orcheo_sdk.services.workflows.publish import enrich_workflow_publish_metadata
 
 
 def list_workflows_data(
@@ -13,7 +14,8 @@ def list_workflows_data(
     url = "/api/workflows"
     if archived:
         url += "?include_archived=true"
-    return client.get(url)
+    payload = client.get(url)
+    return [enrich_workflow_publish_metadata(client, item) for item in payload]
 
 
 def show_workflow_data(
@@ -50,8 +52,10 @@ def show_workflow_data(
                 reverse=True,
             )[:5]
 
+    enriched_workflow = enrich_workflow_publish_metadata(client, workflow)
+
     return {
-        "workflow": workflow,
+        "workflow": enriched_workflow,
         "latest_version": latest_version,
         "recent_runs": recent_runs,
     }
