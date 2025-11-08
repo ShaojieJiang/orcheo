@@ -4,12 +4,16 @@ from __future__ import annotations
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.vault.oauth import OAuthCredentialService
-from orcheo_backend.app.authentication import authenticate_request
+from orcheo_backend.app.authentication import (
+    AuthenticationError,
+    authenticate_request,
+)
 from orcheo_backend.app.chatkit_runtime import (
     cancel_chatkit_cleanup_task,
     ensure_chatkit_cleanup_task,
@@ -52,6 +56,13 @@ configure_logging()
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),
 )
+
+
+async def _authentication_error_handler(request: Request, exc: Exception) -> Response:
+    """Translate AuthenticationError instances into structured HTTP responses."""
+    auth_error = cast(AuthenticationError, exc)
+    http_exc = auth_error.as_http_exception()
+    return await http_exception_handler(request, http_exc)
 
 
 def _build_api_router() -> APIRouter:
@@ -156,6 +167,9 @@ def create_app(
 
     application.include_router(api_router)
     application.include_router(websocket.router)
+    application.add_exception_handler(
+        AuthenticationError, _authentication_error_handler
+    )
 
     return application
 

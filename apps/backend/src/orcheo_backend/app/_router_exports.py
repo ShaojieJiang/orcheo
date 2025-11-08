@@ -74,6 +74,7 @@ archive_workflow = _workflows_routes.archive_workflow
 publish_workflow = _workflows_routes.publish_workflow
 rotate_publish_token = _workflows_routes.rotate_publish_token
 revoke_workflow_publish = _workflows_routes.revoke_workflow_publish
+create_workflow_chatkit_session = _workflows_routes.create_workflow_chatkit_session
 create_workflow_version = _workflows_routes.create_workflow_version
 ingest_workflow_version = _workflows_routes.ingest_workflow_version
 list_workflow_versions = _workflows_routes.list_workflow_versions
@@ -107,6 +108,7 @@ __all__ = [
     "publish_workflow",
     "rotate_publish_token",
     "revoke_workflow_publish",
+    "create_workflow_chatkit_session",
     "chatkit_gateway",
     "configure_cron_trigger",
     "configure_webhook_trigger",

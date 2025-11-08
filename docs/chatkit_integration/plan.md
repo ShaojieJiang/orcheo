@@ -59,16 +59,16 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
   - [x] Ensure OAuth sessions use secure HttpOnly cookies and display clear login prompts when required.
 
 ## Milestone 3 – Canvas chat bubble
-- [ ] **JWT session issuance**
-  - [ ] Add `POST /api/workflows/{id}/chatkit/session` to return 5-min JWTs tied to workflow + user.
-  - [ ] Cover with unit tests ensuring permission checks.
-- [ ] **UI components**
-  - [ ] Create floating FAB + modal in `apps/canvas/src` that lazy-loads the ChatKit widget.
-  - [ ] Integrate token refresh logic, workflow switch handling, loading/error states.
-  - [ ] Add telemetry for open/close events and request failures.
-- [ ] **Shared widget refactor**
-  - [ ] Move existing ChatKit client logic into a reusable module (`features/chatkit`).
-  - [ ] Deduplicate code paths so Canvas modal and public page import the same component.
+- [x] **JWT session issuance**
+  - [x] Add `POST /api/workflows/{id}/chatkit/session` to return 5-min JWTs tied to workflow + user.
+  - [x] Cover with unit tests ensuring permission checks.
+- [x] **UI components**
+  - [x] Create floating FAB + modal in `apps/canvas/src` that lazy-loads the ChatKit widget.
+  - [x] Integrate token refresh logic, workflow switch handling, loading/error states.
+  - [x] Add telemetry for open/close events and request failures.
+- [x] **Shared widget refactor**
+  - [x] Move existing ChatKit client logic into a reusable module (`features/chatkit`).
+  - [x] Deduplicate code paths so Canvas modal and public page import the same component.
 
 ## Milestone 4 – QA, docs, rollout
 - [ ] **Testing matrix**

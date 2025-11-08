@@ -3,7 +3,7 @@
 from __future__ import annotations
 import logging
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import (
     Workflow,
@@ -12,6 +12,12 @@ from orcheo.models.workflow import (
     hash_publish_token,
     mask_publish_token,
 )
+from orcheo_backend.app.authentication import (
+    AuthorizationPolicy,
+    get_authorization_policy,
+)
+from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
+from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.repository import (
@@ -20,6 +26,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas import (
+    ChatKitSessionResponse,
     WorkflowCreateRequest,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
@@ -345,6 +352,63 @@ async def revoke_workflow_publish(
     )
 
     return workflow
+
+
+def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
+    if len(workspace_ids) == 1:
+        return next(iter(workspace_ids))
+    return None
+
+
+@router.post(
+    "/workflows/{workflow_id}/chatkit/session",
+    response_model=ChatKitSessionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_workflow_chatkit_session(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
+    issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
+) -> ChatKitSessionResponse:
+    """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
+    context = policy.require_authenticated()
+    policy.require_scopes("workflows:read", "workflows:execute")
+
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    metadata = {
+        "workflow_id": str(workflow.id),
+        "workflow_name": workflow.name,
+        "source": "canvas",
+    }
+    primary_workspace = _select_primary_workspace(context.workspace_ids)
+    token, expires_at = issuer.mint_session(
+        subject=context.subject,
+        identity_type=context.identity_type,
+        token_id=context.token_id,
+        workspace_ids=context.workspace_ids,
+        primary_workspace_id=primary_workspace,
+        workflow_id=workflow.id,
+        scopes=context.scopes,
+        metadata=metadata,
+        user=None,
+        assistant=None,
+        extra={"interface": "canvas_modal"},
+    )
+
+    logger.info(
+        "Issued workflow ChatKit session token",
+        extra={
+            "workflow_id": str(workflow.id),
+            "subject": context.subject,
+            "workspace_id": primary_workspace or "<multiple>",
+        },
+    )
+    return ChatKitSessionResponse(client_secret=token, expires_at=expires_at)
 
 
 __all__ = ["router"]
