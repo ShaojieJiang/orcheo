@@ -1,11 +1,16 @@
 """Tests covering repository and FastAPI app factory helpers."""
 
 import importlib
+import json
 import sys
 from types import ModuleType
 import pytest
 from orcheo_backend.app import _create_repository, create_app, get_repository
 from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
+from orcheo_backend.app.factory import (
+    _DEFAULT_ALLOWED_ORIGINS,
+    _load_allowed_origins,
+)
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -89,3 +94,39 @@ def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(ValueError, match="Unsupported repository backend"):
         _create_repository()
+
+
+def test_load_allowed_origins_reads_json_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JSON arrays should be parsed, trimmed, and filtered."""
+    monkeypatch.setenv(
+        "ORCHEO_CORS_ALLOW_ORIGINS",
+        json.dumps([" https://foo.example ", ""]),
+    )
+
+    origins = _load_allowed_origins()
+    assert origins == ["https://foo.example"]
+
+
+def test_load_allowed_origins_reads_csv_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Comma-separated values fallback when JSON parsing fails."""
+    monkeypatch.setenv(
+        "ORCHEO_CORS_ALLOW_ORIGINS",
+        "https://a.example, ,https://b.example  ",
+    )
+
+    origins = _load_allowed_origins()
+    assert origins == ["https://a.example", "https://b.example"]
+
+
+def test_load_allowed_origins_defaults_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the filtered list is empty the defaults should be returned."""
+    monkeypatch.setenv(
+        "ORCHEO_CORS_ALLOW_ORIGINS",
+        json.dumps(["", "   "]),
+    )
+
+    origins = _load_allowed_origins()
+    assert origins == list(_DEFAULT_ALLOWED_ORIGINS)
+    assert origins is not _DEFAULT_ALLOWED_ORIGINS

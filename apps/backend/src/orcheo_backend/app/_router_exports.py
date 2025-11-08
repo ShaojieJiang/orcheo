@@ -1,6 +1,9 @@
+# mypy: ignore-errors
 """Router-level exports for :mod:`orcheo_backend.app`."""
 
 from __future__ import annotations
+from collections.abc import Callable
+from typing import Any
 from orcheo_backend.app.routers import (
     chatkit as _chatkit_routes,
 )
@@ -31,9 +34,15 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers.websocket import workflow_websocket
 
 
-chatkit_gateway = _chatkit_routes.chatkit_gateway
-create_chatkit_session_endpoint = _chatkit_routes.create_chatkit_session_endpoint
-trigger_chatkit_workflow = _chatkit_routes.trigger_chatkit_workflow
+chatkit_gateway: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.chatkit_gateway
+)
+create_chatkit_session_endpoint: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.create_chatkit_session_endpoint
+)
+trigger_chatkit_workflow: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.trigger_chatkit_workflow
+)
 _resolve_chatkit_workspace_id = _chatkit_routes._resolve_chatkit_workspace_id
 
 list_credentials = _credentials_routes.list_credentials

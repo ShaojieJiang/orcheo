@@ -29,7 +29,7 @@ async def test_chatkit_gateway_invalid_json_payload(api_client: TestClient) -> N
     """chatkit_gateway surfaces JSON decoding failures."""
     response = api_client.post(
         "/api/chatkit",
-        data="{invalid",
+        content="{invalid",
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 400

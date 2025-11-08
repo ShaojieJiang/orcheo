@@ -8,8 +8,9 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Adds floating chat bubble, modal container, and shared ChatKit widget.
   - Responsible for requesting JWTs from Canvas backend and passing them to ChatKit client.
 - **Public Chat Frontend (Canvas app shell)**
-  - Static route served under `${canvas_base_url}/chat/:workflowId`; publish tokens must stay out of the URL surface. Prefer receiving them via the publish flow and keeping them in memory, only falling back to a `?token=` query string when embedding without prior context is impossible.
-  - Loads the same ChatKit widget bundle used by Canvas, initializing with publish token auth and read-only workflow metadata (name only).
+  - Static route served under `${canvas_base_url}/chat/:workflowId`; sessions now start without publish tokens, and the page keeps all state in-memory so refreshes clear any cached data.
+  - Loads the same ChatKit widget bundle used by Canvas, initializing with read-only workflow metadata (name only) plus the workflow identifier.
+  - Publish tokens remain available for back-compat in the CLI but are no longer required to use the public page; revocation is handled via unpublish or the `require_login` flag.
   - If the workflow was published with `require_login=true`, prompts the visitor to complete OAuth (e.g., Google) before instantiating the widget.
 - **CLI & MCP Publishing UX (orcheo CLI + orcheo-mcp)**
   - Adds `orcheo workflow publish` / `unpublish` / `rotate-token` commands with interactive prompts and flags (e.g., `--require-login`) plus post-run summaries displaying the shareable URL.
@@ -39,14 +40,14 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 5. ChatKit backend verifies signature, checks workflow access, executes workflow, streams response.
 6. On token expiry (~5 min), frontend refreshes via silent request.
 
-### 2. Public Chat Page (publish token + optional OAuth)
-1. Owner publishes workflow, backend generates `publish_token` and exposes URL `.../chat/{workflowId}` (tokens are delivered out-of-band and stored only in memory; fall back to `?token=` links only when there is no alternative).
+### 2. Public Chat Page (open access + optional OAuth)
+1. Owner publishes workflow and shares the URL `.../chat/{workflowId}`; publish tokens are retained only for backwards compatibility.
 2. Visitor loads page; Canvas app fetches workflow metadata (name only) with workflowId and determines whether login is required.
-3. If `require_login=true` and no session cookie exists, visitor is sent through OAuth (state param ties back to workflowId + token). After OAuth success, session cookie is set.
-4. Widget initializes with `authMode = "publish"`, storing token only in JS memory.
-5. Each request posts `{workflow_id, publish_token}` plus relies on the OAuth session when required; ChatKit backend hashes token, compares to stored hash, confirms workflow `is_public`, and optionally validates session claims.
-6. Rate limiter tracks per `publish_token`, per IP, and per OAuth user (when available).
-7. If owner rotates token, old token stops authorizing new sessions immediately while existing chat connections keep streaming until they end or disconnect.
+3. If `require_login=true` and no session cookie exists, visitor is sent through OAuth (state param ties back to the workflowId and return URL). After OAuth success, session cookie is set.
+4. Widget initializes with `authMode = "publish"` and issues requests containing `{workflow_id}` while relying on the browser's cookies for OAuth, when required.
+5. ChatKit backend confirms the workflow is still public and, if `require_login=true`, validates the OAuth subject before executing the workflow.
+6. Rate limiter tracks per workflow identifier, per IP, and per OAuth user (when available).
+7. If the owner unpublishes the workflow, new sessions stop immediately while existing chats keep streaming until they end or disconnect.
 
 ### 3. CLI & MCP Publish/Unpublish flow
 1. A user runs `orcheo workflow publish <workflow_id> [--require-login]` locally, or an AI assistant triggers the mirrored `orcheo-mcp.workflows.publish` tool; both paths fetch workflow metadata, honor the `--require-login` intent (prompting when omitted), and confirm public exposure.
@@ -61,7 +62,6 @@ Headers:
   Authorization: Bearer <jwt>   # optional
 Body fields:
   workflow_id: str
-  publish_token: str | null
   messages: ChatMessage[]
   client_id: str (for dedupe)
   oauth_session: bool (implicit via cookie)
@@ -91,20 +91,20 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 ## Frontend Architecture
 - Introduce shared ChatKit client module under `apps/canvas/src/features/chatkit/`.
 - Modal component reads workflow context, lazy-loads widget bundle to keep editor light.
-- Public page imports the same widget but passes `readOnly: true`, publishes mode, and hides editor-specific controls.
+- Public page imports the same widget but passes `readOnly: true`, public auth mode (no tokens), and hides editor-specific controls.
 - Use React context or Zustand store for chat state; sessions persist via ChatKit backend so the widget only needs in-memory cache for current display.
 
 ## Security Considerations
-- Publish tokens stored hashed (e.g., SHA-256) to mitigate leakage; token value only displayed once after publish.
+- Publish tokens continue to be stored hashed (e.g., SHA-256) for CLI tooling, but the public page no longer surfaces them; revocation relies on unpublish or OAuth requirements.
 - Strict CORS rules on backend to only allow Canvas/public domains.
 - JWT secret rotation via env var; default signing key comes from `ORCHEO_AUTH_JWT_SECRET` and should be rotated regularly (kid header for seamless rollover).
 - OAuth login flow uses PKCE + state tokens to prevent CSRF; tokens stored in HttpOnly cookies.
-- Instrument abuse monitoring: log auth failures (without tokens), emit metrics by publish token/OAuth user/IP, and feed dashboards owned by Platform Admin + SRE on-call; active CAPTCHA or challenge flows remain future work beyond this phase.
+- Instrument abuse monitoring: log auth failures (without tokens), emit metrics by workflow/OAuth user/IP, and feed dashboards owned by Platform Admin + SRE on-call; active CAPTCHA or challenge flows remain future work beyond this phase.
 
 ## Testing Strategy
 - Unit tests for publish/unpublish/token rotation logic (backend + shared CLI/MCP command helpers).
 - Integration tests for `/api/chatkit` verifying both auth paths.
-- Frontend tests for modal open/close, token refresh, and URL token handling.
+- Frontend tests for modal open/close, login prompts, and open-access flows.
 - Manual QA checklist covering:
   - Publish workflow -> share link -> chat works unauthenticated.
   - Publish workflow with login required -> OAuth prompt -> chat works after auth.

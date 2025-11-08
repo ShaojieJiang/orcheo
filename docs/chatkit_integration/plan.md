@@ -49,14 +49,14 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
   - [x] Write CLI + MCP regression tests covering each command/tool path and add docs/examples so users (and assistants) can script the flows consistently.
 
 ## Milestone 2 – Public chat page ([reference template](https://github.com/openai/openai-chatkit-advanced-samples/tree/main/frontend))
-- [ ] **Route + bootstrapping**
-  - [ ] Add `${canvas_base_url}/chat/:workflowId` page; tokens should stay hidden (use in-memory storage from publish response), falling back to a `?token=` query string only if embedding without prior context is impossible.
-  - [ ] Fetch workflow metadata to display the workflow name only (no description).
-  - [ ] Initialize shared ChatKit widget with publish-token auth mode and optionally prompt for OAuth login before mounting when `require_login=true`.
-- [ ] **Hardening & UX**
-  - [ ] Handle invalid/expired tokens with friendly error screens and CTA to contact owner.
-  - [ ] Add basic rate-limit feedback and loading skeletons; CAPTCHA defenses will be tracked as follow-up work.
-  - [ ] Ensure publish tokens never persist beyond in-memory storage and OAuth sessions use secure HttpOnly cookies.
+- [x] **Route + bootstrapping**
+  - [x] Add `${canvas_base_url}/chat/:workflowId` page; sessions should open automatically once metadata loads (no publish tokens required).
+  - [x] Fetch workflow metadata to display the workflow name only (no description).
+  - [x] Initialize shared ChatKit widget with public auth mode and optionally prompt for OAuth login before mounting when `require_login=true`.
+- [x] **Hardening & UX**
+  - [x] Handle unauthorized/expired sessions with friendly error screens and CTA to contact owner.
+  - [x] Add basic rate-limit feedback and loading skeletons; CAPTCHA defenses will be tracked as follow-up work.
+  - [x] Ensure OAuth sessions use secure HttpOnly cookies and display clear login prompts when required.
 
 ## Milestone 3 – Canvas chat bubble
 - [ ] **JWT session issuance**

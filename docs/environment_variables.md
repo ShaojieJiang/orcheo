@@ -18,6 +18,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CHATKIT_RETENTION_DAYS` | `30` | Number of days ChatKit conversation history is retained before pruning. See [config.py](../src/orcheo/config.py) and [apps/backend/app/__init__.py](../apps/backend/src/orcheo_backend/app/__init__.py). |
 | `ORCHEO_HOST` | `0.0.0.0` | Network bind address for the FastAPI service. See [config.py](../src/orcheo/config.py). |
 | `ORCHEO_PORT` | `8000` | TCP port exposed by the FastAPI service (validated to be an integer). See [config.py](../src/orcheo/config.py). |
+| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | Comma-separated string or JSON array of browser origins allowed to call the API with credentials (used for ChatKit/public Canvas). Set this to your deployed Canvas/public hostnames in production. |
 
 ### Vault configuration
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 import jwt
 import pytest
 from fastapi import HTTPException, status
@@ -43,6 +44,23 @@ def test_chatkit_error_includes_auth_mode() -> None:
         auth_mode="jwt",
     )
     assert exc.detail["auth_mode"] == "jwt"
+
+
+def test_build_chatkit_log_context_includes_optional_fields() -> None:
+    auth_result = chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="tester",
+        auth_mode="jwt",
+        subject="bob",
+    )
+    parsed_request = SimpleNamespace(
+        thread_id=uuid4(),
+        type="response.create",
+    )
+
+    log_context = chatkit._build_chatkit_log_context(auth_result, parsed_request)
+    assert log_context["thread_id"] == str(parsed_request.thread_id)
+    assert log_context["request_type"] == "response.create"
 
 
 def test_extract_bearer_token_requires_header() -> None:
