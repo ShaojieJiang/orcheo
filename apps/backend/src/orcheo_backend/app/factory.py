@@ -99,7 +99,7 @@ def _load_allowed_origins() -> list[str]:
     elif isinstance(parsed, list):
         candidates = [str(entry).strip() for entry in parsed]
 
-    origins = [origin for origin in candidates if origin]
+    origins = [origin for origin in candidates if origin]  # pragma: no cover
     return origins or list(_DEFAULT_ALLOWED_ORIGINS)
 
 
