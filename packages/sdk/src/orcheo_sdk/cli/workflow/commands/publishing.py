@@ -1,13 +1,10 @@
 """Publish-related workflow commands."""
 
 from __future__ import annotations
-
 from collections.abc import Iterable
 from typing import Any
-
 import typer
 from rich.console import Console
-
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.config import CLISettings
 from orcheo_sdk.cli.errors import APICallError, CLIError
@@ -27,7 +24,6 @@ from orcheo_sdk.services import (
 
 def _require_online(settings: CLISettings) -> None:
     """Ensure the command is not executed in offline mode."""
-
     if settings.offline:
         msg = "This command requires network connectivity."
         raise CLIError(msg)
@@ -35,7 +31,6 @@ def _require_online(settings: CLISettings) -> None:
 
 def _apply_error_hints(workflow_id: str, exc: APICallError) -> APICallError:
     """Return a new ``APICallError`` instance with actionable guidance."""
-
     if exc.status_code == 404:
         message = (
             f"Workflow '{workflow_id}' was not found. "
@@ -64,7 +59,6 @@ def _format_rotation_timestamp(workflow: dict[str, Any]) -> str:
 
 def _update_workflow_cache(cache: CacheManager, workflow: dict[str, Any]) -> None:
     """Refresh cached workflow entries after publish state changes."""
-
     workflow_id = str(workflow.get("id")) if workflow.get("id") else None
     if not workflow_id:
         return
@@ -108,7 +102,6 @@ def _print_publish_summary(
     message: str | None,
 ) -> None:
     """Render a human-friendly summary after publish actions."""
-
     console.print("[bold green]Workflow visibility updated successfully.[/bold green]")
     console.print(f"[bold]Status:[/] {_visibility_label(workflow)}")
     console.print(
@@ -144,7 +137,6 @@ def publish_workflow(
     force: ForceOption = False,
 ) -> None:
     """Publish a workflow for ChatKit access."""
-
     state = _state(ctx)
     _require_online(state.settings)
 
@@ -184,7 +176,6 @@ def rotate_publish_token(
     force: ForceOption = False,
 ) -> None:
     """Rotate the publish token for a workflow."""
-
     state = _state(ctx)
     _require_online(state.settings)
 
@@ -223,14 +214,11 @@ def unpublish_workflow(
     force: ForceOption = False,
 ) -> None:
     """Revoke public ChatKit access for a workflow."""
-
     state = _state(ctx)
     _require_online(state.settings)
 
     if not force:
-        prompt = (
-            f"Unpublish workflow '{workflow_id}'? This revokes public access."
-        )
+        prompt = f"Unpublish workflow '{workflow_id}'? This revokes public access."
         typer.confirm(prompt, abort=True)
 
     try:

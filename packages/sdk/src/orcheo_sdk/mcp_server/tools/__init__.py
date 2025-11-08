@@ -29,8 +29,8 @@ from .workflow import (
     rotate_publish_token,
     run_workflow,
     show_workflow,
-    upload_workflow,
     unpublish_workflow,
+    upload_workflow,
 )
 
 

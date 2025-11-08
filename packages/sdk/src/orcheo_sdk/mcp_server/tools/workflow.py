@@ -66,7 +66,6 @@ def publish_workflow(
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Publish a workflow for ChatKit access."""
-
     client, _ = get_api_client(profile=profile)
     return publish_workflow_data(
         client,
@@ -81,7 +80,6 @@ def rotate_publish_token(
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Rotate the publish token for a workflow."""
-
     client, _ = get_api_client(profile=profile)
     return rotate_publish_token_data(client, workflow_id, actor="mcp")
 
@@ -91,7 +89,6 @@ def unpublish_workflow(
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Revoke public access to a workflow."""
-
     client, _ = get_api_client(profile=profile)
     return unpublish_workflow_data(client, workflow_id, actor="mcp")
 

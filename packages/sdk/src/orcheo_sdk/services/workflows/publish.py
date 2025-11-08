@@ -1,18 +1,18 @@
 """Helpers for workflow publish lifecycle operations."""
 
 from __future__ import annotations
-
+import re
 from typing import Any
-
 from orcheo_sdk.cli.http import ApiClient
+
+
+_API_SUFFIX_PATTERN = re.compile(r"(/api)(/v[0-9]+)?$")
 
 
 def _build_share_url(base_url: str, workflow_id: str) -> str:
     """Return the chat share URL for ``workflow_id``."""
-
     root = base_url.rstrip("/")
-    if root.endswith("/api"):
-        root = root[: -len("/api")]
+    root = _API_SUFFIX_PATTERN.sub("", root)
     return f"{root}/chat/{workflow_id}"
 
 
@@ -34,7 +34,6 @@ def publish_workflow_data(
     actor: str,
 ) -> dict[str, Any]:
     """Publish a workflow and return the enriched response payload."""
-
     payload: dict[str, Any] = client.post(
         f"/api/workflows/{workflow_id}/publish",
         json_body={"require_login": require_login, "actor": actor},
@@ -55,7 +54,6 @@ def rotate_publish_token_data(
     actor: str,
 ) -> dict[str, Any]:
     """Rotate a workflow publish token and return enriched payload."""
-
     payload: dict[str, Any] = client.post(
         f"/api/workflows/{workflow_id}/publish/rotate",
         json_body={"actor": actor},
@@ -76,7 +74,6 @@ def unpublish_workflow_data(
     actor: str,
 ) -> dict[str, Any]:
     """Unpublish a workflow and return the enriched payload."""
-
     workflow: dict[str, Any] = client.post(
         f"/api/workflows/{workflow_id}/publish/revoke",
         json_body={"actor": actor},
@@ -90,7 +87,6 @@ def enrich_workflow_publish_metadata(
     workflow: dict[str, Any],
 ) -> dict[str, Any]:
     """Return ``workflow`` with derived publish metadata (share URL)."""
-
     return _enrich_workflow(client.base_url, workflow)
 
 

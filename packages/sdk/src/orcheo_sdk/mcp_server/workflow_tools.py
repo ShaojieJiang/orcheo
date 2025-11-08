@@ -88,7 +88,6 @@ def publish_workflow(
     profile: str | None = None,
 ) -> dict:
     """Publish a workflow for ChatKit access."""
-
     return tools.publish_workflow(
         workflow_id=workflow_id,
         require_login=require_login,
@@ -102,7 +101,6 @@ def rotate_publish_token(
     profile: str | None = None,
 ) -> dict:
     """Rotate a workflow's publish token."""
-
     return tools.rotate_publish_token(workflow_id=workflow_id, profile=profile)
 
 
@@ -112,7 +110,6 @@ def unpublish_workflow(
     profile: str | None = None,
 ) -> dict:
     """Revoke public ChatKit access for a workflow."""
-
     return tools.unpublish_workflow(workflow_id=workflow_id, profile=profile)
 
 

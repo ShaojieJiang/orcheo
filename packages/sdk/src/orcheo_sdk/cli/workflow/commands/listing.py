@@ -53,7 +53,22 @@ def list_workflows(
             "Share URL",
         ],
         rows=rows,
+        column_overflow={"Share URL": "fold"},
     )
+
+    share_entries = []
+    for workflow in payload:
+        share_url = workflow.get("share_url")
+        if not share_url:
+            continue
+        identifier = workflow.get("name") or workflow.get("id")
+        share_entries.append(f"{identifier}: {share_url}")
+
+    if share_entries:
+        state.console.print()
+        state.console.print("[bold]Share URLs[/bold]")
+        for entry in share_entries:
+            state.console.print(entry)
 
 
 __all__ = ["list_workflows"]

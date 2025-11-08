@@ -123,7 +123,12 @@ def test_show_workflow_with_cached_runs(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test", "is_public": False, "require_login": False}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": False,
+        "require_login": False,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -148,7 +153,12 @@ def test_show_workflow_with_runs_none_path(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test", "is_public": False, "require_login": False}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": False,
+        "require_login": False,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
     runs = [{"id": "r1", "status": "completed", "created_at": "2025-01-01T00:00:00Z"}]
 
@@ -177,7 +187,12 @@ def test_show_workflow_without_runs(mock_env: None) -> None:
     from orcheo_sdk.services.workflows import show_workflow_data
 
     client, _ = get_api_client()
-    workflow = {"id": "wf-1", "name": "Test", "is_public": False, "require_login": False}
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "is_public": False,
+        "require_login": False,
+    }
     versions = [{"id": "v1", "version": 1, "graph": {}}]
 
     with respx.mock():

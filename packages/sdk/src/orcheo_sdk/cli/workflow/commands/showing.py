@@ -59,9 +59,8 @@ def show_workflow(
     state.console.print(
         f"Require login: {'Yes' if workflow_details.get('require_login') else 'No'}"
     )
-    rotation = (
-        workflow_details.get("publish_token_rotated_at")
-        or workflow_details.get("published_at")
+    rotation = workflow_details.get("publish_token_rotated_at") or workflow_details.get(
+        "published_at"
     )
     state.console.print(
         f"Last rotated: {format_datetime(rotation) if rotation else '-'}"
