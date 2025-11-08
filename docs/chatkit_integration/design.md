@@ -23,7 +23,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Reuses existing Canvas OAuth clients; issues short-lived session cookies for public visitors when login is required.
 - **ChatKit Backend (FastAPI existing)**
   - Single `/api/chatkit` endpoint supporting both auth modes.
-  - Orchestrates workflow invocation, handles streaming responses, enforces rate limits.
+  - Orchestrates workflow invocation, handles streaming responses, and enforces rate limits by reusing the shared middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`.
 - **Persistence**
   - Workflow table gains `is_public`, `publish_token_hash`, `published_at`, `published_by`, `publish_token_rotated_at`, and `require_login`.
   - JWT signing keys stored in secure config (through environment variable `ORCHEO_AUTH_JWT_SECRET`).
@@ -45,7 +45,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 4. Widget initializes with `authMode = "publish"`, storing token only in JS memory.
 5. Each request posts `{workflow_id, publish_token}` plus relies on the OAuth session when required; ChatKit backend hashes token, compares to stored hash, confirms workflow `is_public`, and optionally validates session claims.
 6. Rate limiter tracks per `publish_token`, per IP, and per OAuth user (when available).
-7. If owner rotates token, old token becomes invalid immediately.
+7. If owner rotates token, old token stops authorizing new sessions immediately while existing chat connections keep streaming until they end or disconnect.
 
 ### 3. CLI Publish/Unpublish flow
 1. User runs `orcheo workflow publish <workflow_id> [--require-login]`; CLI fetches workflow metadata and either respects the flag or prompts when omitted, then confirms public exposure.

@@ -139,6 +139,8 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
+Rotating a publish token does **not** interrupt in-flight chat sessions; active conversations finish streaming under the old token, and only new sessions must present the freshly issued secret.
+
 #### Offline Mode
 
 Pass `--offline` to reuse cached metadata when disconnected:

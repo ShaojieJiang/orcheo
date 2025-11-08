@@ -12,7 +12,7 @@ Author: Shaojie Jiang. See `docs/chatkit_integration/requirements.md` and `docs/
    - Instrument audit logging and persist publish token hash only.
 3. **ChatKit endpoint auth**
    - Update `/api/chatkit` to accept either workflow-scoped JWT (`Authorization: Bearer ...`) or `{publish_token}` (plus OAuth session when required).
-   - Enforce token hashing, JWT validation, OAuth session validation, rate limiting, and consistent error responses.
+   - Enforce token hashing, JWT validation, OAuth session validation, rate limiting (via the existing middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`), and consistent error responses.
    - Persist chat transcripts via existing session store for both auth modes.
 
 ## Milestone 1 – CLI publish UX
@@ -22,7 +22,7 @@ _Canvas-side publish surfaces remain future work; this milestone only delivers t
    - Handle errors (missing workflow, permission denied) with actionable hints and non-zero exit codes.
 2. **Unpublish / rotate commands**
    - Add `orcheo workflow unpublish <workflow_id>` and `orcheo workflow rotate-token <workflow_id>` that call the corresponding APIs and update local cache/state.
-   - Ensure rotated tokens are only displayed once and older tokens are clearly marked invalid.
+   - Ensure rotated tokens are only displayed once, older tokens are clearly marked invalid for new sessions, and existing chat connections stay active until they complete.
 3. **Status surfacing**
    - Update `orcheo workflow list` and `orcheo workflow show` to include publish status (`public/private`, `require_login` flag, last rotated timestamp, share URL if available).
    - Write CLI tests covering each command path and add docs/examples so users can script the flows.

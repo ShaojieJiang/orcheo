@@ -63,7 +63,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ### Milestone 6 – Observability, Testing & Launch Prep
 - [x] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
-- [ ] ChatKit public page + workflow publish UX (CLI) and backend actions
+- [ ] ChatKit public page + workflow publish UX (CLI) and backend actions _(status will be updated through milestone subtasks once the implementation ships)_
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.

@@ -36,7 +36,7 @@ Both surfaces must reuse a single ChatKit backend endpoint while enforcing the c
 - **Publish Workflow**
   - Introduce explicit "Publish" action (initially via CLI, with Canvas UX tracked as future work) that flips `workflow.is_public = true`, lets the owner opt into requiring OAuth login, and generates `publish_token` (128-bit random).
   - Store published metadata: token, published_at, publisher_id, last_rotated_at, `require_login` flag, OAuth client context.
-  - Provide "Unpublish" and "Rotate Token" actions; revocation happens instantly.
+  - Provide "Unpublish" and "Rotate Token" actions; revocation happens instantly for new sessions while existing chats continue until they naturally complete.
 - **Public Chat Page**
   - Route: `${canvas_base_url}/chat/${workflow_id}` with publish tokens kept out of the URL whenever possible; if an out-of-band channel cannot deliver the token, fall back to a `?token=` query string.
   - Frontend loads the shared ChatKit UI bundle (same as Canvas) and exchanges messages with `${backend_url}/api/chatkit` sending `{workflow_id, publish_token}` with every request.
@@ -57,8 +57,8 @@ Both surfaces must reuse a single ChatKit backend endpoint while enforcing the c
 
 ## Non-functional Requirements
 - JWT tokens signed with rotating key material; max TTL 5 minutes.
-- Publish tokens must be at least 128 bits of entropy; stored hashed server-side if feasible.
-- Endpoint enforces per-IP/per-token rate limits and exports metrics for Platform Admin abuse monitoring runbooks; CAPTCHA or other challenge flows are future work.
+- Publish tokens must be at least 128 bits of entropy; stored hashed server-side.
+- Endpoint enforces per-IP/per-token rate limits (reusing the existing middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`) and exports metrics for Platform Admin abuse monitoring runbooks; CAPTCHA or other challenge flows are future work.
 - Logging must redact publish tokens and JWTs.
 - CI continues to enforce 95% overall / 100% diff test coverage.
 - Chat transcripts (public and Canvas) persist indefinitely unless retention policy changes; stored alongside other ChatKit sessions.
