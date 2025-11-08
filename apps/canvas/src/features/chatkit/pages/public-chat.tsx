@@ -1,17 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
-import { Badge } from "@/design-system/ui/badge";
 import { Button } from "@/design-system/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/design-system/ui/card";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/design-system/ui/toggle-group";
 import { getBackendBaseUrl } from "@/lib/config";
@@ -25,6 +17,8 @@ import {
 import type { ApiWorkflow } from "@features/workflow/lib/workflow-storage.types";
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
 import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
+
+type ColorScheme = "light" | "dark";
 
 type WorkflowState =
   | { status: "loading" }
@@ -41,6 +35,13 @@ export default function PublicChatPage() {
   const [rateLimitError, setRateLimitError] =
     useState<PublicChatHttpError | null>(null);
   const [isChatReady, setIsChatReady] = useState(false);
+  const [systemColorScheme, setSystemColorScheme] = useState<ColorScheme>(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light",
+  );
+  const { theme, setTheme } = useThemePreferences({});
   const backendBaseUrl = useMemo(() => getBackendBaseUrl(), []);
 
   useEffect(() => {
@@ -101,13 +102,6 @@ export default function PublicChatPage() {
     };
   }, [workflowId]);
 
-  const workflowName = useMemo(() => {
-    if (workflowState.status !== "ready") {
-      return "";
-    }
-    return workflowState.workflow.name;
-  }, [workflowState]);
-
   const contactHref = useMemo(() => {
     if (workflowState.status !== "ready") {
       return "mailto:?subject=Orcheo%20workflow%20access";
@@ -154,68 +148,72 @@ export default function PublicChatPage() {
     setIsChatReady(false);
   };
 
-  const renderChatColumn = () => {
-    if (workflowState.status === "loading") {
-      return (
-        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
-          <CardHeader>
-            <Skeleton className="h-6 w-48" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-[420px] w-full" />
-          </CardContent>
-        </Card>
-      );
-    }
+  const resolvedColorScheme: ColorScheme =
+    theme === "system" ? systemColorScheme : theme;
 
-    if (workflowState.status === "error") {
-      return (
-        <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
-          <CardHeader>
-            <CardTitle>Chat unavailable</CardTitle>
-            <CardDescription>
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setSystemColorScheme(event.matches ? "dark" : "light");
+    };
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange);
+    } else {
+      media.addListener(handleChange);
+    }
+    return () => {
+      if (typeof media.removeEventListener === "function") {
+        media.removeEventListener("change", handleChange);
+      } else {
+        media.removeListener(handleChange);
+      }
+    };
+  }, []);
+
+  const handleThemeRequest = useCallback(
+    (requestedScheme: ColorScheme) => {
+      setTheme(requestedScheme);
+    },
+    [setTheme],
+  );
+
+  const renderChatColumn = () => {
+    const currentWorkflowName =
+      workflowState.status === "ready"
+        ? workflowState.workflow.name
+        : "this workflow";
+
+    const renderBody = () => {
+      if (workflowState.status === "loading") {
+        return (
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-40 rounded-full" />
+            <Skeleton className="h-[520px] w-full rounded-3xl" />
+          </div>
+        );
+      }
+
+      if (workflowState.status === "error") {
+        return (
+          <div className="rounded-3xl border border-slate-200/80 bg-white/70 p-6 text-slate-900 shadow-sm dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-white">
+            <p className="text-lg font-semibold">Chat unavailable</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
               We cannot open a ChatKit session until the workflow loads.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="secondary">
+            </p>
+            <Button asChild variant="secondary" className="mt-4">
               <Link to="/">Return home</Link>
             </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    const badgeTone = isChatReady
-      ? { text: "Connected", className: "border-emerald-500 text-emerald-300" }
-      : {
-          text: "Connecting",
-          className: "border-cyan-500 text-cyan-300",
-        };
-
-    return (
-      <Card className="border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/40">
-        <CardHeader>
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle className="text-slate-900 dark:text-white">
-              Chat with “{workflowName || workflowState.workflow.name}”
-            </CardTitle>
-            <Badge
-              variant="outline"
-              className={cn("text-xs", badgeTone.className)}
-            >
-              {badgeTone.text}
-            </Badge>
           </div>
-          <CardDescription className="text-slate-600 dark:text-slate-300">
-            Chat sessions open automatically for published workflows unless the
-            owner requires OAuth login.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        );
+      }
+
+      return (
+        <div className="space-y-4">
           {rateLimitError && (
-            <Alert className="bg-amber-500/10 border-amber-500/50 text-amber-100">
+            <Alert className="border-amber-500/50 bg-amber-500/[0.08] text-amber-100">
               <AlertTitle>Slow down for a moment</AlertTitle>
               <AlertDescription>
                 {rateLimitError.message ||
@@ -225,7 +223,7 @@ export default function PublicChatPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-amber-100 border-amber-400/60"
+                  className="border-amber-400/60 text-amber-100"
                   onClick={() => setRateLimitError(null)}
                 >
                   Dismiss
@@ -235,7 +233,7 @@ export default function PublicChatPage() {
           )}
 
           {chatError ? (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-6 text-center space-y-4">
+            <div className="space-y-4 rounded-3xl border border-red-500/40 bg-red-500/10 p-6 text-center">
               <p className="font-medium text-red-100">{chatError.message}</p>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button asChild variant="outline">
@@ -246,14 +244,14 @@ export default function PublicChatPage() {
           ) : (
             <div className="relative min-h-[520px]">
               {!isChatReady && (
-                <div className="absolute inset-0 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white/90 p-6 dark:border-slate-800 dark:bg-slate-950/80">
+                <div className="absolute inset-0 flex flex-col gap-4 rounded-3xl bg-white/90 p-6 shadow-sm dark:bg-slate-950/80">
                   <Skeleton className="h-10 w-1/2 self-center" />
                   <Skeleton className="h-full w-full" />
                 </div>
               )}
               <div
                 className={cn(
-                  "h-[520px] w-full rounded-lg border border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/80",
+                  "h-[520px] w-full",
                   isChatReady ? "opacity-100" : "opacity-0",
                   "transition-opacity duration-200",
                 )}
@@ -265,22 +263,39 @@ export default function PublicChatPage() {
                   backendBaseUrl={backendBaseUrl}
                   onHttpError={handleChatHttpError}
                   onReady={() => setIsChatReady(true)}
+                  colorScheme={resolvedColorScheme}
+                  onThemeRequest={handleThemeRequest}
                 />
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <p className="text-3xl font-semibold text-slate-900 dark:text-white">
+              Chat with “{currentWorkflowName}”
+            </p>
+            <p className="text-base text-slate-600 dark:text-slate-300">
+              Chat sessions open automatically for published workflows unless
+              the owner requires OAuth login.
+            </p>
+          </div>
+          <ThemeToggleButtonGroup value={theme} onChange={setTheme} />
+        </div>
+        {renderBody()}
+      </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 lg:py-14">
-        <div className="flex justify-end">
-          <ThemeToggleButtonGroup />
-        </div>
-        <div className="mt-10 flex flex-1 items-center justify-center">
+    <div className="h-screen overflow-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
+      <div className="mx-auto flex h-full max-w-6xl flex-col px-4 py-6 lg:py-8">
+        <div className="flex flex-1 items-center justify-center">
           <div className="w-full max-w-3xl">{renderChatColumn()}</div>
         </div>
       </div>
@@ -315,22 +330,26 @@ const isThemeValue = (value: string): value is Theme =>
 
 interface ThemeToggleButtonGroupProps {
   className?: string;
+  value: Theme;
+  onChange: (theme: Theme) => void;
 }
 
-function ThemeToggleButtonGroup({ className }: ThemeToggleButtonGroupProps) {
-  const { theme, setTheme } = useThemePreferences({});
-
+function ThemeToggleButtonGroup({
+  className,
+  value,
+  onChange,
+}: ThemeToggleButtonGroupProps) {
   const handleThemeChange = (value: string) => {
     if (!value || !isThemeValue(value)) {
       return;
     }
-    setTheme(value);
+    onChange(value);
   };
 
   return (
     <ToggleGroup
       type="single"
-      value={theme}
+      value={value}
       onValueChange={handleThemeChange}
       aria-label="Select display theme"
       className={cn(
