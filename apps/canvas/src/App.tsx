@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
 import WorkflowExecutionDetails from "@features/workflow/pages/workflow-execution-details";
+import PublicChatPage from "@features/chatkit/pages/public-chat";
 import Login from "@features/auth/pages/login";
 import Signup from "@features/auth/pages/signup";
 import Profile from "@features/account/pages/profile";
@@ -34,6 +35,8 @@ export default function OrcheoCanvasApp() {
         <Route path="/settings" element={<Settings />} />
 
         <Route path="/help-support" element={<HelpSupport />} />
+
+        <Route path="/chat/:workflowId" element={<PublicChatPage />} />
       </Routes>
     </Router>
   );
