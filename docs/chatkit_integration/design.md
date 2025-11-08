@@ -114,8 +114,8 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 
 ## Rollout Plan
 1. Implement backend publish metadata + APIs behind flag.
-2. Ship Canvas chat bubble + JWT flow gated by `chatkit_canvas_enabled` flag for internal users.
-3. Deploy public page but keep publish flag disabled until backend load testing complete.
+2. Deploy public page but keep publish flag disabled until backend load testing complete.
+3. Ship Canvas chat bubble + JWT flow gated by `chatkit_canvas_enabled` flag for internal users.
 4. Gradually enable publish feature per tenant and monitor metrics.
 
 ## Open Issues
