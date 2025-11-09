@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 from pathlib import Path
+import pytest
 from orcheo_sdk.cli.config import (
     API_URL_ENV,
     CACHE_DIR_ENV,
+    CHATKIT_PUBLIC_BASE_URL_ENV,
     CONFIG_DIR_ENV,
     SERVICE_TOKEN_ENV,
     get_cache_dir,
@@ -107,6 +109,7 @@ def test_resolve_settings_from_args() -> None:
     assert settings.api_url == "http://test.com"
     assert settings.service_token == "token123"
     assert not settings.offline
+    assert settings.chatkit_public_base_url is None
 
 
 def test_resolve_settings_from_env(tmp_path: Path) -> None:
@@ -129,6 +132,7 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
         )
         assert settings.api_url == "http://env.test"
         assert settings.service_token == "env-token"
+        assert settings.chatkit_public_base_url is None
     finally:
         if original_config:
             os.environ[CONFIG_DIR_ENV] = original_config
@@ -166,3 +170,17 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
             os.environ[CONFIG_DIR_ENV] = original
         else:
             os.environ.pop(CONFIG_DIR_ENV, None)
+
+
+def test_resolve_settings_uses_chatkit_public_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(CHATKIT_PUBLIC_BASE_URL_ENV, raising=False)
+    monkeypatch.setenv(CHATKIT_PUBLIC_BASE_URL_ENV, "https://canvas.example")
+    settings = resolve_settings(
+        profile=None,
+        api_url="http://localhost:8000/api",
+        service_token=None,
+        offline=False,
+    )
+    assert settings.chatkit_public_base_url == "https://canvas.example"

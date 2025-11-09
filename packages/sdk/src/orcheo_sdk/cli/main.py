@@ -83,7 +83,11 @@ def main(
         directory=get_cache_dir(),
         ttl=timedelta(hours=cache_ttl_hours),
     )
-    client = ApiClient(base_url=settings.api_url, token=settings.service_token)
+    client = ApiClient(
+        base_url=settings.api_url,
+        token=settings.service_token,
+        public_base_url=settings.chatkit_public_base_url,
+    )
     ctx.obj = CLIState(settings=settings, client=client, cache=cache, console=console)
 
 

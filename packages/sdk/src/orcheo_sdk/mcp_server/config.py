@@ -43,6 +43,7 @@ def get_api_client(
     client = ApiClient(
         base_url=settings.api_url,
         token=settings.service_token,
+        public_base_url=settings.chatkit_public_base_url,
     )
 
     return client, settings

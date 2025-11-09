@@ -6,8 +6,15 @@ from orcheo_sdk.services.workflows import publish as publish_module
 class DummyClient:
     """Minimal client stub for publish service tests."""
 
-    def __init__(self, *, base_url: str, response: Any) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        response: Any,
+        public_base_url: str | None = None,
+    ) -> None:
         self.base_url = base_url
+        self.public_base_url = public_base_url
         self.response = response
         self.calls: list[dict[str, Any]] = []
 
@@ -21,6 +28,15 @@ def test_build_share_url_strips_api_segment() -> None:
     assert url == "http://host/chat/wf-123"
     url_with_slash = publish_module._build_share_url("http://host/api/", "wf-456")
     assert url_with_slash == "http://host/chat/wf-456"
+
+
+def test_build_share_url_prefers_public_base_url() -> None:
+    url = publish_module._build_share_url(
+        "http://host/api",
+        "wf-789",
+        public_base_url="https://canvas.test",
+    )
+    assert url == "https://canvas.test/chat/wf-789"
 
 
 def test_enrich_workflow_preserves_share_url_when_public() -> None:
@@ -59,6 +75,24 @@ def test_publish_workflow_data_returns_enriched_payload() -> None:
     ]
 
 
+def test_publish_workflow_data_prefers_explicit_public_base() -> None:
+    payload = {
+        "workflow": {"id": "wf-2", "is_public": True, "require_login": False},
+        "message": "Published",
+    }
+    client = DummyClient(base_url="http://api.example.com/api", response=payload)
+
+    result = publish_module.publish_workflow_data(
+        client,
+        "wf-2",
+        require_login=False,
+        actor="cli",
+        public_base_url="https://canvas.example",
+    )
+
+    assert result["share_url"] == "https://canvas.example/chat/wf-2"
+
+
 def test_unpublish_workflow_returns_enriched_workflow() -> None:
     workflow = {"id": "wf-3", "is_public": False}
     client = DummyClient(base_url="http://api.test", response=workflow)
@@ -83,3 +117,17 @@ def test_enrich_workflow_publish_metadata_derives_share_url() -> None:
     )
 
     assert enriched["share_url"] == "http://api.test/chat/wf-4"
+
+
+def test_enrich_workflow_publish_metadata_uses_public_override() -> None:
+    workflow = {"id": "wf-override", "is_public": True}
+    enriched = publish_module.enrich_workflow_publish_metadata(
+        DummyClient(
+            base_url="http://api.test/api",
+            response={},
+            public_base_url="https://canvas.example",
+        ),
+        workflow,
+    )
+
+    assert enriched["share_url"] == "https://canvas.example/chat/wf-override"

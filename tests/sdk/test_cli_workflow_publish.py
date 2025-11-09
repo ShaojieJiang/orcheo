@@ -51,6 +51,31 @@ def test_publish_workflow_success(runner: CliRunner, env: dict[str, str]) -> Non
     assert "http://api.test/chat/wf-1" in result.stdout
 
 
+def test_publish_workflow_with_custom_public_base(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = _publish_response()
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1/publish").mock(
+            return_value=httpx.Response(201, json=payload)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "publish",
+                "wf-1",
+                "--force",
+                "--chatkit-public-base-url",
+                "https://canvas.test",
+            ],
+            env=env,
+        )
+
+    assert result.exit_code == 0
+    assert "https://canvas.test/chat/wf-1" in result.stdout
+
+
 def test_publish_workflow_not_found(runner: CliRunner, env: dict[str, str]) -> None:
     with respx.mock(assert_all_called=True) as router:
         router.post("http://api.test/api/workflows/missing/publish").mock(

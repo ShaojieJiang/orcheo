@@ -18,18 +18,23 @@ context without leaving Canvas.
    LaunchDarkly, env var, or your preferred flag service). Keep the flag off in
    production until QA is complete.
 2. **Authenticated Canvas session** – the bubble reuses the creator’s Canvas
-   cookies to call `/api/workflows/{id}/chatkit/session`. Anonymous users are
-   not supported.
+  cookies to call `/api/workflows/{id}/chatkit/session`. Anonymous users are
+  not supported.
 3. **Saved workflow ID** – session issuance fails unless the workflow has been
-   saved and has a stable `workflowId`. The hook surfaces the error
-   “Save the workflow before opening ChatKit.” when no ID exists (`use-workflow-chat.ts:68-77`).
+  saved and has a stable `workflowId`. The hook surfaces the error
+  “Save the workflow before opening ChatKit.” when no ID exists (`use-workflow-chat.ts:68-77`).
 4. **Backend reachability** – ensure the editor can reach the backend base URL
-   returned by `getBackendBaseUrl()` (typically `http://localhost:8000` in dev)
-   so JWT refresh calls succeed.
+  returned by `getBackendBaseUrl()` (typically `http://localhost:8000` in dev)
+  so JWT refresh calls succeed.
 5. **Dev login (local only)** – enable `ORCHEO_AUTH_DEV_LOGIN_ENABLED=true`
-   so the Canvas login screen can mint a mock OAuth cookie via the new
-   `/api/auth/dev/login` endpoint. This replaces the Google/GitHub buttons
-   while real OAuth is under construction.
+  so the Canvas login screen can mint a mock OAuth cookie via the new
+  `/api/auth/dev/login` endpoint. This replaces the Google/GitHub buttons
+  while real OAuth is under construction.
+6. **ChatKit signing key** – set `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY` (HS or RSA
+   private key material) so the backend can mint workflow-scoped ChatKit
+   session JWTs. Without this key, `/api/workflows/{id}/chatkit/session` returns
+   `503 Service Unavailable` with the hint “Set CHATKIT_TOKEN_SIGNING_KEY to
+   enable ChatKit session issuance.”
 
 ## Component map
 | Path | Responsibility |

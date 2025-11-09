@@ -16,16 +16,23 @@ class ApiClient:
         base_url: str,
         token: str | None,
         timeout: float = 30.0,
+        public_base_url: str | None = None,
     ) -> None:
         """Initialize the HTTP client wrapper."""
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._timeout = timeout
+        self._public_base_url = public_base_url.rstrip("/") if public_base_url else None
 
     @property
     def base_url(self) -> str:
         """Return the configured base URL."""
         return self._base_url
+
+    @property
+    def public_base_url(self) -> str | None:
+        """Return the optional public ChatKit base URL for share links."""
+        return self._public_base_url
 
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}

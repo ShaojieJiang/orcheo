@@ -126,6 +126,11 @@ def publish_workflow(
         show_default=False,
     ),
     force: ForceOption = False,
+    chatkit_public_base_url: str | None = typer.Option(
+        None,
+        "--chatkit-public-base-url",
+        help="Override the ChatKit share URL origin for this publish command.",
+    ),
 ) -> None:
     """Publish a workflow for ChatKit access."""
     state = _state(ctx)
@@ -139,11 +144,14 @@ def publish_workflow(
         typer.confirm(prompt, abort=True)
 
     try:
+        share_origin = chatkit_public_base_url or state.settings.chatkit_public_base_url
+
         result = publish_workflow_data(
             state.client,
             workflow_id,
             require_login=require_login,
             actor="cli",
+            public_base_url=share_origin,
         )
     except APICallError as exc:  # pragma: no cover - exercised in tests
         raise _apply_error_hints(workflow_id, exc) from exc
