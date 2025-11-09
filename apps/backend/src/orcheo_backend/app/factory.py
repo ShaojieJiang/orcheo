@@ -4,12 +4,16 @@ from __future__ import annotations
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.vault.oauth import OAuthCredentialService
-from orcheo_backend.app.authentication import authenticate_request
+from orcheo_backend.app.authentication import (
+    AuthenticationError,
+    authenticate_request,
+)
 from orcheo_backend.app.chatkit_runtime import (
     cancel_chatkit_cleanup_task,
     ensure_chatkit_cleanup_task,
@@ -29,9 +33,7 @@ from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
-    chatkit as chatkit_router,
-)
-from orcheo_backend.app.routers import (
+    auth,
     credential_alerts,
     credential_health,
     credential_templates,
@@ -41,6 +43,9 @@ from orcheo_backend.app.routers import (
     triggers,
     websocket,
     workflows,
+)
+from orcheo_backend.app.routers import (
+    chatkit as chatkit_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
@@ -52,6 +57,13 @@ configure_logging()
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),
 )
+
+
+async def _authentication_error_handler(request: Request, exc: Exception) -> Response:
+    """Translate AuthenticationError instances into structured HTTP responses."""
+    auth_error = cast(AuthenticationError, exc)
+    http_exc = auth_error.as_http_exception()
+    return await http_exception_handler(request, http_exc)
 
 
 def _build_api_router() -> APIRouter:
@@ -69,6 +81,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
 
     router.include_router(chatkit_router.router)
+    router.include_router(auth.router)
     router.include_router(protected_router)
     return router
 
@@ -156,6 +169,9 @@ def create_app(
 
     application.include_router(api_router)
     application.include_router(websocket.router)
+    application.add_exception_handler(
+        AuthenticationError, _authentication_error_handler
+    )
 
     return application
 

@@ -126,7 +126,6 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
 | `orcheo workflow publish <workflow> [--require-login]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login. |
-| `orcheo workflow rotate-token <workflow>` | Rotate the publish token and show the new share URL once. |
 | `orcheo workflow unpublish <workflow>` | Revoke public access and invalidate existing share links. |
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
@@ -139,7 +138,7 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
-Rotating a publish token does **not** interrupt in-flight chat sessions; active conversations finish streaming under the old token, and only new sessions must present the freshly issued secret.
+Published workflows remain accessible until you run `orcheo workflow unpublish <workflow>` or toggle the `--require-login` flag to gate public chats behind OAuth.
 
 #### Offline Mode
 

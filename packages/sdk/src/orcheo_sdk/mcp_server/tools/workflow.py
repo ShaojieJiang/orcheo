@@ -8,7 +8,6 @@ from orcheo_sdk.services import (
     download_workflow_data,
     list_workflows_data,
     publish_workflow_data,
-    rotate_publish_token_data,
     run_workflow_data,
     show_workflow_data,
     unpublish_workflow_data,
@@ -75,15 +74,6 @@ def publish_workflow(
     )
 
 
-def rotate_publish_token(
-    workflow_id: str,
-    profile: str | None = None,
-) -> dict[str, Any]:
-    """Rotate the publish token for a workflow."""
-    client, _ = get_api_client(profile=profile)
-    return rotate_publish_token_data(client, workflow_id, actor="mcp")
-
-
 def unpublish_workflow(
     workflow_id: str,
     profile: str | None = None,
@@ -132,7 +122,6 @@ __all__ = [
     "download_workflow",
     "list_workflows",
     "publish_workflow",
-    "rotate_publish_token",
     "run_workflow",
     "show_workflow",
     "upload_workflow",

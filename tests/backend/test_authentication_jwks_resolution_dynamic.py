@@ -52,9 +52,10 @@ async def test_match_fetched_key_with_mismatched_kid() -> None:
     authenticator = Authenticator(settings, token_manager)
 
     entries = [jwk1, jwk2]
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
 
     # Try to match with kid that doesn't exist
-    key = authenticator._match_fetched_key(entries, "key3", "RS256")  # noqa: SLF001
+    key = jwt_auth._match_fetched_key(entries, "key3", "RS256")  # noqa: SLF001
 
     assert key is None
 
@@ -84,8 +85,10 @@ async def test_match_fetched_key_with_mismatched_algorithm() -> None:
     token_manager = ServiceTokenManager(repository)
     authenticator = Authenticator(settings, token_manager)
 
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
+
     # Try to match with different algorithm
-    key = authenticator._match_fetched_key([jwk_dict], "test-kid", "RS384")  # noqa: SLF001
+    key = jwt_auth._match_fetched_key([jwk_dict], "test-kid", "RS384")  # noqa: SLF001
 
     assert key is None
 
@@ -120,9 +123,10 @@ async def test_match_fetched_key_with_non_mapping_entry() -> None:
         "not-a-dict",  # Non-mapping
         123,  # Non-mapping
     ]
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
 
     # Should handle non-mapping gracefully
-    key = authenticator._match_fetched_key(entries, "key1", None)  # noqa: SLF001
+    key = jwt_auth._match_fetched_key(entries, "key1", None)  # noqa: SLF001
 
     # Should find the valid key
     assert key is not None

@@ -10,10 +10,9 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
 )
 from orcheo_backend.app.routers import workflows
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.workflows import (
     WorkflowPublishRequest,
     WorkflowPublishRevokeRequest,
-    WorkflowPublishRotateRequest,
 )
 
 
@@ -22,18 +21,9 @@ class _MissingPublishRepo:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
-class _InvalidRotateRepo:
-    async def rotate_publish_token(
-        self, workflow_id: UUID, **kwargs: object
-    ) -> Workflow:
-        raise WorkflowPublishStateError("invalid")
-
-
-class _MissingRotateRepo:
-    async def rotate_publish_token(
-        self, workflow_id: UUID, **kwargs: object
-    ) -> Workflow:
-        raise WorkflowNotFoundError(str(workflow_id))
+class _InvalidPublishRepo:
+    async def publish_workflow(self, workflow_id: UUID, **kwargs: object) -> Workflow:
+        raise WorkflowPublishStateError("invalid state")
 
 
 class _InvalidRevokeRepo:
@@ -46,47 +36,19 @@ class _MissingRevokeRepo:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
-class _AuditWorkflowRepo:
+class _RevokeRepo:
     def __init__(self) -> None:
         self.workflow = Workflow(name="Audit")
-        self.workflow.record_event(
-            actor="tester",
-            action="workflow_unpublished",
-            metadata={"previous_token": "publish:***123"},
-        )
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         return self.workflow
 
 
-class _EmptyAuditWorkflowRepo:
-    def __init__(self) -> None:
-        self.workflow = Workflow(name="NoAudit")
-
-    async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
-        return self.workflow
-
-
-class _NoPreviousTokenRepo:
-    def __init__(self) -> None:
-        self.workflow = Workflow(name="NoPrev")
-        self.workflow.record_event(
-            actor="tester",
-            action="workflow_unpublished",
-            metadata={},
-        )
-
-    async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
-        return self.workflow
-
-
-def test_publish_response_sets_and_omits_message_based_on_token() -> None:
+def test_publish_response_uses_message_helper() -> None:
     workflow = Workflow(name="Responder")
-    response_with_token = workflows._publish_response(workflow, token="secret")
-    assert response_with_token.message
-
-    response_without_token = workflows._publish_response(workflow, token=None)
-    assert response_without_token.message is None
+    response = workflows._publish_response(workflow, message="ok")
+    assert response.workflow is workflow
+    assert response.message == "ok"
 
 
 @pytest.mark.asyncio()
@@ -104,31 +66,17 @@ async def test_publish_workflow_raises_not_found() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_rotate_publish_token_translates_state_errors() -> None:
-    request = WorkflowPublishRotateRequest(actor="alice")
+async def test_publish_workflow_translates_state_errors() -> None:
+    request = WorkflowPublishRequest(actor="alice", require_login=False)
 
     with pytest.raises(HTTPException) as excinfo:
-        await workflows.rotate_publish_token(
+        await workflows.publish_workflow(
             uuid4(),
             request,
-            _InvalidRotateRepo(),
+            _InvalidPublishRepo(),
         )
 
     assert excinfo.value.status_code == 409
-
-
-@pytest.mark.asyncio()
-async def test_rotate_publish_token_not_found() -> None:
-    request = WorkflowPublishRotateRequest(actor="alice")
-
-    with pytest.raises(HTTPException) as excinfo:
-        await workflows.rotate_publish_token(
-            uuid4(),
-            request,
-            _MissingRotateRepo(),
-        )
-
-    assert excinfo.value.status_code == 404
 
 
 @pytest.mark.asyncio()
@@ -160,11 +108,11 @@ async def test_revoke_publish_not_found() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_revoke_publish_logs_previous_token_metadata(
+async def test_revoke_publish_logs_without_previous_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = WorkflowPublishRevokeRequest(actor="alice")
-    repo = _AuditWorkflowRepo()
+    repo = _RevokeRepo()
     captured: dict[str, str] = {}
 
     def _capture(message: str, *, extra: dict[str, str]) -> None:
@@ -179,52 +127,4 @@ async def test_revoke_publish_logs_previous_token_metadata(
     )
 
     assert result is repo.workflow
-    assert repo.workflow.audit_log[-1].metadata["previous_token"] == "publish:***123"
-    assert captured["previous_token"] == "publish:***123"
-
-
-@pytest.mark.asyncio()
-async def test_revoke_publish_without_audit_log(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    request = WorkflowPublishRevokeRequest(actor="alice")
-    repo = _EmptyAuditWorkflowRepo()
-    captured: dict[str, str] = {}
-
-    monkeypatch.setattr(
-        workflows.logger,
-        "info",
-        lambda message, *, extra: captured.update(extra),
-    )
-
-    result = await workflows.revoke_workflow_publish(
-        repo.workflow.id,
-        request,
-        repo,
-    )
-
-    assert result is repo.workflow
-    assert captured["previous_token"] == "unknown"
-
-
-@pytest.mark.asyncio()
-async def test_revoke_publish_without_previous_token_metadata(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    request = WorkflowPublishRevokeRequest(actor="alice")
-    repo = _NoPreviousTokenRepo()
-    captured: dict[str, str] = {}
-
-    monkeypatch.setattr(
-        workflows.logger,
-        "info",
-        lambda message, *, extra: captured.update(extra),
-    )
-
-    await workflows.revoke_workflow_publish(
-        repo.workflow.id,
-        request,
-        repo,
-    )
-
-    assert captured["previous_token"] == "unknown"
+    assert captured["workflow_id"] == str(repo.workflow.id)

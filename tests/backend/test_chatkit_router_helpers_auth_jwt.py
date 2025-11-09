@@ -32,7 +32,6 @@ async def test_authenticate_chatkit_invocation_requires_workflow_id() -> None:
         await chatkit.authenticate_chatkit_invocation(
             request=request,
             payload={},
-            publish_token=None,
             repository=repository,
         )
     assert excinfo.value.detail["code"] == "chatkit.workflow_id_missing"
@@ -47,7 +46,6 @@ async def test_authenticate_chatkit_invocation_validates_workflow_id_format() ->
         await chatkit.authenticate_chatkit_invocation(
             request=request,
             payload={"workflow_id": "not-a-uuid"},
-            publish_token=None,
             repository=repository,
         )
     assert excinfo.value.detail["code"] == "chatkit.workflow_id_invalid"

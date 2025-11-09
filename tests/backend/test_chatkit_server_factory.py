@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from orcheo.vault import InMemoryCredentialVault
 from orcheo_backend.app import app
+from orcheo_backend.app.chatkit import create_chatkit_server
 from orcheo_backend.app.chatkit.server import _resolve_chatkit_sqlite_path
-from orcheo_backend.app.chatkit_service import create_chatkit_server
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -31,7 +31,7 @@ def test_create_chatkit_server_with_default_store() -> None:
         mock_settings.chatkit_sqlite_path = str(sqlite_path)
 
         with patch(
-            "orcheo_backend.app.chatkit_service.get_settings",
+            "orcheo_backend.app.chatkit.server.get_settings",
             return_value=mock_settings,
         ):
             server = create_chatkit_server(repository, InMemoryCredentialVault)
@@ -50,7 +50,7 @@ def test_create_chatkit_server_with_env_var() -> None:
         mock_settings.chatkit_sqlite_path = str(sqlite_path)
 
         with patch(
-            "orcheo_backend.app.chatkit_service.get_settings",
+            "orcheo_backend.app.chatkit.server.get_settings",
             return_value=mock_settings,
         ):
             server = create_chatkit_server(repository, InMemoryCredentialVault)

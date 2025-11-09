@@ -16,7 +16,6 @@ export interface ApiWorkflow {
   require_login: boolean;
   published_at: string | null;
   published_by: string | null;
-  publish_token_rotated_at: string | null;
   created_at: string;
   updated_at: string;
 }

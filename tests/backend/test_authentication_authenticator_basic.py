@@ -118,26 +118,17 @@ async def test_authenticator_authenticate_empty_token() -> None:
 
 
 def test_claims_to_context_with_various_token_ids() -> None:
-    """_claims_to_context extracts token_id from various claim fields."""
-    from orcheo_backend.app.authentication import Authenticator
-
-    settings = load_auth_settings(refresh=True)
-    from orcheo_backend.app.service_token_repository import (
-        InMemoryServiceTokenRepository,
-    )
-
-    repository = InMemoryServiceTokenRepository()
-    token_manager = ServiceTokenManager(repository)
-    authenticator = Authenticator(settings, token_manager)
+    """claims_to_context extracts token_id from various claim fields."""
+    from orcheo_backend.app.authentication.jwt_helpers import claims_to_context
 
     # With jti
-    context = authenticator._claims_to_context({"sub": "user", "jti": "token-123"})
+    context = claims_to_context({"sub": "user", "jti": "token-123"})
     assert context.token_id == "token-123"
 
     # With token_id
-    context = authenticator._claims_to_context({"sub": "user", "token_id": "token-456"})
+    context = claims_to_context({"sub": "user", "token_id": "token-456"})
     assert context.token_id == "token-456"
 
     # Fallback to subject
-    context = authenticator._claims_to_context({"sub": "user-789"})
+    context = claims_to_context({"sub": "user-789"})
     assert context.token_id == "user-789"

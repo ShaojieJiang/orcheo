@@ -22,7 +22,7 @@ from orcheo_backend.app import (
     validate_workflow_credentials,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas import CredentialValidationRequest
+from orcheo_backend.app.schemas.credentials import CredentialValidationRequest
 
 
 class _MissingWorkflowRepository:

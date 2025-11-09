@@ -21,7 +21,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 )
                 rows = await cursor.fetchall()
             workflows = [
-                Workflow.model_validate_json(row["payload"]).model_copy(deep=True)
+                self._deserialize_workflow(row["payload"]).model_copy(deep=True)
                 for row in rows
             ]
             if include_archived:
@@ -144,7 +144,6 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         self,
         workflow_id: UUID,
         *,
-        publish_token_hash: str,
         require_login: bool,
         actor: str,
     ) -> Workflow:
@@ -153,40 +152,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
             workflow = await self._get_workflow_locked(workflow_id)
             try:
                 workflow.publish(
-                    token_hash=publish_token_hash,
                     require_login=require_login,
-                    actor=actor,
-                )
-            except ValueError as exc:
-                raise WorkflowPublishStateError(str(exc)) from exc
-            async with self._connection() as conn:
-                await conn.execute(
-                    """
-                    UPDATE workflows
-                       SET payload = ?, updated_at = ?
-                     WHERE id = ?
-                    """,
-                    (
-                        self._dump_model(workflow),
-                        workflow.updated_at.isoformat(),
-                        str(workflow.id),
-                    ),
-                )
-            return workflow.model_copy(deep=True)
-
-    async def rotate_publish_token(
-        self,
-        workflow_id: UUID,
-        *,
-        publish_token_hash: str,
-        actor: str,
-    ) -> Workflow:
-        await self._ensure_initialized()
-        async with self._lock:
-            workflow = await self._get_workflow_locked(workflow_id)
-            try:
-                workflow.rotate_publish_token(
-                    token_hash=publish_token_hash,
                     actor=actor,
                 )
             except ValueError as exc:

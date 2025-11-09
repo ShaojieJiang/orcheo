@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from orcheo.models.workflow import WorkflowRun
 from orcheo_backend.app import mark_run_started, mark_run_succeeded
 from orcheo_backend.app.repository import WorkflowRunNotFoundError
-from orcheo_backend.app.schemas import RunActionRequest, RunSucceedRequest
+from orcheo_backend.app.schemas.runs import RunActionRequest, RunSucceedRequest
 
 
 @pytest.mark.asyncio()

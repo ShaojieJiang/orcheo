@@ -29,15 +29,15 @@ def list_workflows(
         _cache_notice(state, "workflow catalog", stale)
     rows = []
     for item in payload:
-        rotation = item.get("publish_token_rotated_at") or item.get("published_at")
-        rotation_display = format_datetime(rotation) if rotation else "-"
+        published_at = item.get("published_at")
+        published_display = format_datetime(published_at) if published_at else "-"
         rows.append(
             [
                 item.get("id"),
                 item.get("name"),
                 "Public" if item.get("is_public") else "Private",
                 "yes" if item.get("require_login") else "no",
-                rotation_display,
+                published_display,
                 item.get("share_url") or "-",
             ]
         )
@@ -49,7 +49,7 @@ def list_workflows(
             "Name",
             "Visibility",
             "Require login",
-            "Last rotated",
+            "Published at",
             "Share URL",
         ],
         rows=rows,

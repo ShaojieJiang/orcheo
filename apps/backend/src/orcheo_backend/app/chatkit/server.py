@@ -16,12 +16,9 @@ from chatkit.types import (
     UserMessageItem,
 )
 from dynaconf import Dynaconf
+from orcheo.config import get_settings
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
-from orcheo_backend.app.chatkit.legacy_support import (
-    call_build_graph,
-    call_get_settings,
-)
 from orcheo_backend.app.chatkit.message_utils import collect_text_from_user_content
 from orcheo_backend.app.chatkit.messages import (
     build_assistant_item,
@@ -39,16 +36,6 @@ from orcheo_backend.app.repository import (
     WorkflowRun,
     WorkflowVersionNotFoundError,
 )
-
-
-def _call_get_settings() -> Any:
-    """Proxy for legacy settings helper so tests can monkeypatch this module."""
-    return call_get_settings()
-
-
-def _call_build_graph(graph_config: Mapping[str, Any]) -> Any:
-    """Proxy for legacy graph builder to keep backwards-compat imports working."""
-    return call_build_graph(graph_config)
 
 
 class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
@@ -71,12 +58,12 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
     async def _history(
         self, thread: ThreadMetadata, context: ChatKitRequestContext
     ) -> list[dict[str, str]]:
-        """Compatibility wrapper delegating to the history helper."""
+        """Delegate to the shared history helper."""
         return await build_history(self.store, thread, context)
 
     @staticmethod
     def _require_workflow_id(thread: ThreadMetadata) -> UUID:
-        """Compatibility wrapper delegating to the workflow id helper."""
+        """Delegate to the workflow id helper."""
         return require_workflow_id(thread)
 
     @staticmethod
@@ -99,19 +86,19 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         item: UserMessageItem | None,
         context: ChatKitRequestContext,
     ) -> UserMessageItem:
-        """Compatibility wrapper delegating to the user item helper."""
+        """Delegate to the user item helper."""
         return await resolve_user_item(self.store, thread, item, context)
 
     @staticmethod
     def _build_inputs_payload(
         thread: ThreadMetadata, message_text: str, history: list[dict[str, str]]
     ) -> dict[str, Any]:
-        """Compatibility wrapper delegating to the payload helper."""
+        """Delegate to the payload helper."""
         return build_inputs_payload(thread, message_text, history)
 
     @staticmethod
     def _record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:
-        """Compatibility wrapper delegating to the metadata helper."""
+        """Delegate to the metadata helper."""
         record_run_metadata(thread, run)
 
     def _build_assistant_item(
@@ -120,7 +107,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         reply: str,
         context: ChatKitRequestContext,
     ) -> AssistantMessageItem:
-        """Compatibility wrapper delegating to the assistant item helper."""
+        """Delegate to the assistant item helper."""
         return build_assistant_item(self.store, thread, reply, context)
 
     async def _run_workflow(
@@ -130,7 +117,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         *,
         actor: str = "chatkit",
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
-        """Compatibility wrapper delegating to the workflow executor."""
+        """Delegate execution to the workflow executor."""
         return await self._workflow_executor.run(workflow_id, inputs, actor=actor)
 
     async def respond(
@@ -192,7 +179,7 @@ def create_chatkit_server(
 ) -> OrcheoChatKitServer:
     """Factory returning an Orcheo-configured ChatKit server."""
     if store is None:
-        settings = _call_get_settings()
+        settings = get_settings()
         sqlite_path = _resolve_chatkit_sqlite_path(settings)
         store = SqliteChatKitStore(sqlite_path)
     return OrcheoChatKitServer(

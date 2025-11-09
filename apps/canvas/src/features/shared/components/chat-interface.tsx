@@ -14,9 +14,9 @@ import {
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import { MessageSquare, MinimizeIcon, XIcon } from "lucide-react";
 
+import { ChatKitSurface } from "@features/chatkit/components/chatkit-surface";
 import { useChatInterfaceOptions } from "./chat-interface-options";
 import type { ChatInterfaceProps } from "./chat-interface.types";
 
@@ -31,6 +31,7 @@ export default function ChatInterface({
   user,
   ai,
   backendBaseUrl,
+  workflowId,
   sessionPayload,
   getClientSecret,
   chatkitOptions,
@@ -46,6 +47,7 @@ export default function ChatInterface({
     chatkitOptions,
     getClientSecret,
     backendBaseUrl,
+    workflowId,
     sessionPayload,
     title,
     user,
@@ -56,8 +58,6 @@ export default function ChatInterface({
     onThreadChange,
     onLog,
   });
-
-  const { control } = useChatKit(chatKitOptions);
 
   const handleToggleMinimize = () => {
     setIsMinimized(!isMinimized);
@@ -87,10 +87,7 @@ export default function ChatInterface({
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
           <div className="flex h-[60vh] flex-col">
-            <ChatKit
-              control={control}
-              className="flex h-full w-full flex-col"
-            />
+            <ChatKitSurface options={chatKitOptions} />
           </div>
         </DialogContent>
       </Dialog>
@@ -154,10 +151,7 @@ export default function ChatInterface({
           {!isMinimized && (
             <>
               <div className="flex-1 overflow-hidden">
-                <ChatKit
-                  control={control}
-                  className="flex h-full w-full flex-col"
-                />
+                <ChatKitSurface options={chatKitOptions} />
               </div>
             </>
           )}

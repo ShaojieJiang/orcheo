@@ -10,7 +10,6 @@ def test_sensitive_logging_enabled_accepts_dev_environment(
 ) -> None:
     """Development-like env vars enable sensitive logging."""
     monkeypatch.setenv("ORCHEO_ENV", "DEV")
-    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.delenv("NODE_ENV", raising=False)
     monkeypatch.delenv("LOG_SENSITIVE_DEBUG", raising=False)
 

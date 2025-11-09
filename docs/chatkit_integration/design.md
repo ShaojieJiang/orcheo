@@ -8,18 +8,18 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Adds floating chat bubble, modal container, and shared ChatKit widget.
   - Responsible for requesting JWTs from Canvas backend and passing them to ChatKit client.
 - **Public Chat Frontend (Canvas app shell)**
-  - Static route served under `${canvas_base_url}/chat/:workflowId`; sessions now start without publish tokens, and the page keeps all state in-memory so refreshes clear any cached data.
+  - Static route served under `${canvas_base_url}/chat/:workflowId`; the page keeps all state in-memory so refreshes clear any cached data.
   - Loads the same ChatKit widget bundle used by Canvas, initializing with read-only workflow metadata (name only) plus the workflow identifier.
-  - Publish tokens remain available for back-compat in the CLI but are no longer required to use the public page; revocation is handled via unpublish or the `require_login` flag.
+  - Public access is controlled exclusively via publish/unpublish plus the `require_login` flag—no shared secrets are distributed.
   - If the workflow was published with `require_login=true`, prompts the visitor to complete OAuth (e.g., Google) before instantiating the widget.
 - **CLI & MCP Publishing UX (orcheo CLI + orcheo-mcp)**
-  - Adds `orcheo workflow publish` / `unpublish` / `rotate-token` commands with interactive prompts and flags (e.g., `--require-login`) plus post-run summaries displaying the shareable URL.
-  - Shares the same command registry with the MCP server so `orcheo-mcp` exposes `workflows.publish`, `workflows.unpublish`, `workflows.rotate_publish_token`, and enriched `list_workflows` / `show_workflow` data for assistants like Claude/Codex.
-  - Persists the last-published workflow state locally to show status in `orcheo workflow list`, and returns identical metadata through MCP responses (including `is_public`, `require_login`, token rotation timestamps, and share link).
+  - Adds `orcheo workflow publish` / `unpublish` commands with interactive prompts and flags (e.g., `--require-login`) plus post-run summaries displaying the shareable URL.
+  - Shares the same command registry with the MCP server so `orcheo-mcp` exposes `workflows.publish`, `workflows.unpublish`, and enriched `list_workflows` / `show_workflow` data for assistants like Claude/Codex.
+  - Persists the last-published workflow state locally to show status in `orcheo workflow list`, and returns identical metadata through MCP responses (including `is_public`, `require_login`, and share link).
   - Surfaces errors (e.g., missing permissions, invalid workflow) inline with actionable remediation hints while MCP propagates the same errors as structured tool failures.
   - Canvas-side publish UX parity is explicitly deferred until after the CLI/MCP flows ship; these two surfaces act as the authoritative entry points for initial rollout.
 - **Canvas Backend (FastAPI)**
-  - Provides publish/unpublish/token-rotation APIs.
+  - Provides publish/unpublish APIs.
   - Issues workflow-scoped JWTs for authenticated editors.
 - **OAuth/Auth Provider**
   - Reuses existing Canvas OAuth clients; issues short-lived session cookies for public visitors when login is required.
@@ -27,7 +27,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Single `/api/chatkit` endpoint supporting both auth modes.
   - Orchestrates workflow invocation, handles streaming responses, and enforces rate limits by reusing the shared middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`.
 - **Persistence**
-  - Workflow table gains `is_public`, `publish_token_hash`, `published_at`, `published_by`, `publish_token_rotated_at`, and `require_login`.
+  - Workflow table gains `is_public`, `published_at`, `published_by`, and `require_login`.
   - JWT signing keys stored in secure config (through environment variable `ORCHEO_AUTH_JWT_SECRET`).
   - ChatKit transcripts (public or Canvas) persist via existing session store with default infinite retention unless a future policy sets TTLs.
 
@@ -41,7 +41,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 6. On token expiry (~5 min), frontend refreshes via silent request.
 
 ### 2. Public Chat Page (open access + optional OAuth)
-1. Owner publishes workflow and shares the URL `.../chat/{workflowId}`; publish tokens are retained only for backwards compatibility.
+1. Owner publishes workflow and shares the URL `.../chat/{workflowId}`; no secrets are embedded in the link.
 2. Visitor loads page; Canvas app fetches workflow metadata (name only) with workflowId and determines whether login is required.
 3. If `require_login=true` and no session cookie exists, visitor is sent through OAuth (state param ties back to the workflowId and return URL). After OAuth success, session cookie is set.
 4. Widget initializes with `authMode = "publish"` and issues requests containing `{workflow_id}` while relying on the browser's cookies for OAuth, when required.
@@ -51,8 +51,8 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 
 ### 3. CLI & MCP Publish/Unpublish flow
 1. A user runs `orcheo workflow publish <workflow_id> [--require-login]` locally, or an AI assistant triggers the mirrored `orcheo-mcp.workflows.publish` tool; both paths fetch workflow metadata, honor the `--require-login` intent (prompting when omitted), and confirm public exposure.
-2. Shared helpers invoke `POST /api/workflows/{id}/publish` with the selected options and print or return the resulting share URL/token once; MCP responses include the same payload shape so assistants can narrate the link without persisting the token.
-3. Subsequent `orcheo workflow rotate-token <workflow_id>` / `orcheo workflow unpublish <workflow_id>` commands and the matching MCP tools hit the rotate/revoke endpoints, update cached status, and return consistent status objects (public/private, rotation timestamps, require-login flag).
+2. Shared helpers invoke `POST /api/workflows/{id}/publish` with the selected options and return the resulting share URL once; MCP responses include the same payload shape so assistants can narrate the link without persisting anything sensitive.
+3. Subsequent `orcheo workflow unpublish <workflow_id>` commands and the matching MCP tools hit the revoke endpoint, update cached status, and return consistent status objects (public/private, require-login flag).
 4. CLI exit codes reflect success/failure for scripting, while MCP tool responses encode identical error codes/messages so AI clients can guide users through remediation without bespoke logic.
 
 ## API Contract
@@ -83,8 +83,7 @@ Response 200: { token: <jwt>, expires_in: 300 }
 
 ### Publish management
 ```
-POST   /api/workflows/{id}/publish         -> marks public + generates token + sets require_login flag
-POST   /api/workflows/{id}/publish/rotate  -> rotates token
+POST   /api/workflows/{id}/publish         -> marks public + sets require_login flag
 POST   /api/workflows/{id}/publish/revoke  -> unpublish
 ```
 
@@ -95,14 +94,14 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 - Use React context or Zustand store for chat state; sessions persist via ChatKit backend so the widget only needs in-memory cache for current display.
 
 ## Security Considerations
-- Publish tokens continue to be stored hashed (e.g., SHA-256) for CLI tooling, but the public page no longer surfaces them; revocation relies on unpublish or OAuth requirements.
+- No publish tokens are persisted or distributed; revocation relies on unpublish or OAuth requirements.
 - Strict CORS rules on backend to only allow Canvas/public domains.
 - JWT secret rotation via env var; default signing key comes from `ORCHEO_AUTH_JWT_SECRET` and should be rotated regularly (kid header for seamless rollover).
 - OAuth login flow uses PKCE + state tokens to prevent CSRF; tokens stored in HttpOnly cookies.
 - Instrument abuse monitoring: log auth failures (without tokens), emit metrics by workflow/OAuth user/IP, and feed dashboards owned by Platform Admin + SRE on-call; active CAPTCHA or challenge flows remain future work beyond this phase.
 
 ## Testing Strategy
-- Unit tests for publish/unpublish/token rotation logic (backend + shared CLI/MCP command helpers).
+- Unit tests for publish/unpublish logic (backend + shared CLI/MCP command helpers).
 - Integration tests for `/api/chatkit` verifying both auth paths.
 - Frontend tests for modal open/close, login prompts, and open-access flows.
 - Manual QA checklist covering:

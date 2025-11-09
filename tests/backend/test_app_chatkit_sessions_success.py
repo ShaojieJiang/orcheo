@@ -9,7 +9,7 @@ from orcheo_backend.app.chatkit_tokens import (
     ChatKitSessionTokenIssuer,
     ChatKitTokenSettings,
 )
-from orcheo_backend.app.schemas import ChatKitSessionRequest
+from orcheo_backend.app.schemas.chatkit import ChatKitSessionRequest
 
 
 @pytest.mark.asyncio()

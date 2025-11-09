@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import pytest
 from chatkit.types import InferenceOptions, UserMessageItem, UserMessageTextContent
-from orcheo_backend.app.chatkit_service import (
+from orcheo_backend.app.chatkit import (
     ChatKitRequestContext,
     InMemoryChatKitStore,
 )

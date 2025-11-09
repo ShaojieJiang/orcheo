@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any
 import pytest
 from starlette.requests import Request
-from orcheo.models.workflow import generate_publish_token, hash_publish_token
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
 from tests.backend.api.shared import backend_app
 
@@ -32,7 +31,7 @@ def _make_request(headers: dict[str, str] | None = None) -> Request:
 def reset_rate_limiters() -> None:
     backend_app.routers.chatkit._IP_RATE_LIMITER.reset()  # type: ignore[attr-defined]
     backend_app.routers.chatkit._JWT_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    backend_app.routers.chatkit._PUBLISH_RATE_LIMITER.reset()  # type: ignore[attr-defined]
+    backend_app.routers.chatkit._WORKFLOW_RATE_LIMITER.reset()  # type: ignore[attr-defined]
     backend_app.routers.chatkit._SESSION_RATE_LIMITER.reset()  # type: ignore[attr-defined]
 
 
@@ -61,7 +60,6 @@ async def test_authenticate_chatkit_invocation_with_jwt(
     result = await backend_app.routers.chatkit.authenticate_chatkit_invocation(
         request=request,
         payload={"workflow_id": str(workflow.id)},
-        publish_token=None,
         repository=repository,
     )
 
@@ -71,7 +69,7 @@ async def test_authenticate_chatkit_invocation_with_jwt(
 
 
 @pytest.mark.asyncio
-async def test_authenticate_chatkit_invocation_with_publish_token(
+async def test_authenticate_chatkit_invocation_with_public_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = InMemoryWorkflowRepository()
@@ -83,10 +81,8 @@ async def test_authenticate_chatkit_invocation_with_publish_token(
         actor="tester",
     )
 
-    token = generate_publish_token()
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash=hash_publish_token(token),
         require_login=False,
         actor="tester",
     )
@@ -95,13 +91,12 @@ async def test_authenticate_chatkit_invocation_with_publish_token(
     result = await backend_app.routers.chatkit.authenticate_chatkit_invocation(
         request=request,
         payload={"workflow_id": str(workflow.id)},
-        publish_token=token,
         repository=repository,
     )
 
     assert result.auth_mode == "publish"
     assert result.subject is None
-    assert result.actor.startswith("publish:")
+    assert result.actor == f"workflow:{workflow.id}"
 
 
 @pytest.mark.asyncio
@@ -117,10 +112,8 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         actor="tester",
     )
 
-    token = generate_publish_token()
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash=hash_publish_token(token),
         require_login=True,
         actor="tester",
     )
@@ -130,7 +123,6 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         await backend_app.routers.chatkit.authenticate_chatkit_invocation(
             request=request,
             payload={"workflow_id": str(workflow.id)},
-            publish_token=token,
             repository=repository,
         )
 
@@ -140,7 +132,6 @@ async def test_authenticate_chatkit_requires_session_when_configured(
     result = await backend_app.routers.chatkit.authenticate_chatkit_invocation(
         request=session_request,
         payload={"workflow_id": str(workflow.id)},
-        publish_token=token,
         repository=repository,
     )
 

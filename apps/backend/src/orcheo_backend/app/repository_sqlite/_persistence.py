@@ -1,6 +1,7 @@
 """Low-level SQLite persistence helpers."""
 
 from __future__ import annotations
+import json
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,14 @@ from orcheo_backend.app.repository_sqlite._base import SqliteRepositoryBase
 class SqlitePersistenceMixin(SqliteRepositoryBase):
     """Expose locked fetch helpers shared across mixins."""
 
+    @staticmethod
+    def _deserialize_workflow(payload_json: str) -> Workflow:
+        """Return a Workflow instance while stripping deprecated fields."""
+        payload = json.loads(payload_json)
+        payload.pop("publish_token_hash", None)
+        payload.pop("publish_token_rotated_at", None)
+        return Workflow.model_validate(payload)
+
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
             cursor = await conn.execute(
@@ -24,7 +33,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
-        return Workflow.model_validate_json(row["payload"])
+        return self._deserialize_workflow(row["payload"])
 
     async def _get_version_locked(self, version_id: UUID) -> WorkflowVersion:
         async with self._connection() as conn:

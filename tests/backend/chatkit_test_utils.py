@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 from orcheo.models.workflow import Workflow
 from orcheo.vault import InMemoryCredentialVault
-from orcheo_backend.app.chatkit_service import (
+from orcheo_backend.app.chatkit import (
     InMemoryChatKitStore,
     OrcheoChatKitServer,
     create_chatkit_server,

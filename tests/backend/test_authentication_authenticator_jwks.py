@@ -68,7 +68,7 @@ async def test_authenticator_resolve_signing_key_with_jwks_cache() -> None:
     repository = InMemoryServiceTokenRepository()
     token_manager = ServiceTokenManager(repository)
     authenticator = Authenticator(settings, token_manager)
-    authenticator._jwks_cache = jwks_cache
+    authenticator._jwt_authenticator.jwks_cache = jwks_cache  # noqa: SLF001
 
     # Create token with matching kid
     token = jwt_lib.encode(
@@ -128,6 +128,7 @@ def test_authenticator_static_jwks_with_non_string_algorithm() -> None:
 
     # Both should be added successfully
     # First has algorithm_str="RS256", second has algorithm_str=None (line 564)
-    assert len(authenticator._static_jwks) == 2  # noqa: SLF001
-    assert authenticator._static_jwks[0][1] == "RS256"  # noqa: SLF001
-    assert authenticator._static_jwks[1][1] is None  # noqa: SLF001 - line 564 else branch
+    static_jwks = authenticator._jwt_authenticator.static_jwks  # noqa: SLF001
+    assert len(static_jwks) == 2
+    assert static_jwks[0][1] == "RS256"
+    assert static_jwks[1][1] is None  # line 564 else branch

@@ -144,7 +144,7 @@ def test_mcp_publish_workflow(mock_env: None) -> None:
             "require_login": True,
             "published_at": "2024-01-01T00:00:00Z",
         },
-        "publish_token": "token",
+        "message": "ok",
     }
 
     with respx.mock() as router:
@@ -154,28 +154,7 @@ def test_mcp_publish_workflow(mock_env: None) -> None:
         result = main_module.publish_workflow.fn("wf-1", require_login=True)
 
     assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
-    assert result["publish_token"] == "token"
-
-
-def test_mcp_rotate_publish_token(mock_env: None) -> None:
-    import orcheo_sdk.mcp_server.main as main_module
-
-    payload = {
-        "workflow": {
-            "id": "wf-1",
-            "is_public": True,
-            "require_login": False,
-        },
-        "publish_token": "rotated",
-    }
-
-    with respx.mock() as router:
-        router.post("http://api.test/api/workflows/wf-1/publish/rotate").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
-        result = main_module.rotate_publish_token.fn("wf-1")
-
-    assert result["publish_token"] == "rotated"
+    assert result["message"] == "ok"
 
 
 def test_mcp_unpublish_workflow(mock_env: None) -> None:

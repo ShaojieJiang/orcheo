@@ -41,7 +41,7 @@ def reset_chatkit_limiters() -> None:
     """Reset chatkit rate limiters once for dependent fixtures."""
     chatkit._IP_RATE_LIMITER.reset()  # type: ignore[attr-defined]
     chatkit._JWT_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    chatkit._PUBLISH_RATE_LIMITER.reset()  # type: ignore[attr-defined]
+    chatkit._WORKFLOW_RATE_LIMITER.reset()  # type: ignore[attr-defined]
     chatkit._SESSION_RATE_LIMITER.reset()  # type: ignore[attr-defined]
 
 

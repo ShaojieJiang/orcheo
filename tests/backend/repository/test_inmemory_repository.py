@@ -105,7 +105,6 @@ async def test_inmemory_publish_workflow_missing_id_raises_not_found() -> None:
     with pytest.raises(WorkflowNotFoundError):
         await repository.publish_workflow(
             uuid4(),
-            publish_token_hash="hash",
             require_login=False,
             actor="tester",
         )
@@ -121,7 +120,6 @@ async def test_inmemory_publish_workflow_translates_value_errors() -> None:
     )
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash="hash-1",
         require_login=False,
         actor="tester",
     )
@@ -129,39 +127,7 @@ async def test_inmemory_publish_workflow_translates_value_errors() -> None:
     with pytest.raises(WorkflowPublishStateError):
         await repository.publish_workflow(
             workflow.id,
-            publish_token_hash="hash-2",
             require_login=False,
-            actor="tester",
-        )
-
-
-@pytest.mark.asyncio()
-async def test_inmemory_rotate_publish_token_missing_workflow() -> None:
-    """rotate_publish_token raises WorkflowNotFoundError for unknown workflows."""
-
-    repository = InMemoryWorkflowRepository()
-
-    with pytest.raises(WorkflowNotFoundError):
-        await repository.rotate_publish_token(
-            uuid4(),
-            publish_token_hash="hash",
-            actor="tester",
-        )
-
-
-@pytest.mark.asyncio()
-async def test_inmemory_rotate_publish_token_requires_published_state() -> None:
-    """rotate_publish_token translates invalid state errors."""
-
-    repository = InMemoryWorkflowRepository()
-    workflow = await repository.create_workflow(
-        name="Rotate", slug=None, description=None, tags=None, actor="tester"
-    )
-
-    with pytest.raises(WorkflowPublishStateError):
-        await repository.rotate_publish_token(
-            workflow.id,
-            publish_token_hash="hash",
             actor="tester",
         )
 

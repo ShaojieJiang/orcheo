@@ -21,7 +21,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.routers import chatkit as chatkit_router
-from orcheo_backend.app.schemas import ChatKitWorkflowTriggerRequest
+from orcheo_backend.app.schemas.chatkit import ChatKitWorkflowTriggerRequest
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:

@@ -9,8 +9,6 @@ from orcheo.models import (
     WorkflowRun,
     WorkflowRunStatus,
     WorkflowVersion,
-    hash_publish_token,
-    mask_publish_token,
 )
 
 
@@ -47,14 +45,6 @@ def test_workflow_name_and_description_are_normalized() -> None:
 
     assert workflow.name == "Demo Flow"
     assert workflow.description == "Some description"
-
-
-def test_mask_publish_token_masks_short_hashes() -> None:
-    assert mask_publish_token("abcd", reveal=6) == "publish:***abcd"
-
-
-def test_mask_publish_token_handles_empty_values() -> None:
-    assert mask_publish_token("") == "publish:unknown"
 
 
 def test_workflow_tag_normalization() -> None:
@@ -137,27 +127,17 @@ def test_workflow_run_cancel_without_reason() -> None:
 
 def test_workflow_publish_lifecycle() -> None:
     workflow = Workflow(name="Publish Demo")
-    token_hash = hash_publish_token("secret-token")
 
-    workflow.publish(token_hash=token_hash, require_login=True, actor="alice")
+    workflow.publish(require_login=True, actor="alice")
 
     assert workflow.is_public is True
     assert workflow.require_login is True
-    assert workflow.publish_token_hash == token_hash
     assert workflow.published_by == "alice"
     assert workflow.published_at is not None
     assert workflow.audit_log[-1].action == "workflow_published"
 
-    new_hash = hash_publish_token("rotated")
-    workflow.rotate_publish_token(token_hash=new_hash, actor="bob")
-
-    assert workflow.publish_token_hash == new_hash
-    assert workflow.publish_token_rotated_at is not None
-    assert workflow.audit_log[-1].action == "workflow_publish_token_rotated"
-
     workflow.revoke_publish(actor="carol")
     assert workflow.is_public is False
-    assert workflow.publish_token_hash is None
     assert workflow.require_login is False
     assert workflow.published_at is None
     assert workflow.audit_log[-1].action == "workflow_unpublished"
@@ -165,43 +145,11 @@ def test_workflow_publish_lifecycle() -> None:
 
 def test_workflow_publish_invalid_transitions() -> None:
     workflow = Workflow(name="Bad Publish")
-    token_hash = hash_publish_token("token")
 
-    with pytest.raises(ValueError):
-        workflow.rotate_publish_token(token_hash=token_hash, actor="alice")
     with pytest.raises(ValueError):
         workflow.revoke_publish(actor="alice")
 
-    workflow.publish(token_hash=token_hash, require_login=False, actor="alice")
+    workflow.publish(require_login=False, actor="alice")
 
     with pytest.raises(ValueError):
-        workflow.publish(token_hash=token_hash, require_login=False, actor="alice")
-
-
-def test_workflow_publish_requires_token_hash() -> None:
-    workflow = Workflow(name="Tokenless")
-
-    with pytest.raises(ValueError):
-        workflow.publish(token_hash="", require_login=False, actor="alice")
-
-
-def test_workflow_rotate_publish_token_requires_token_hash() -> None:
-    workflow = Workflow(name="RotateToken")
-    workflow.publish(
-        token_hash=hash_publish_token("initial"),
-        require_login=False,
-        actor="alice",
-    )
-
-    with pytest.raises(ValueError):
-        workflow.rotate_publish_token(token_hash="", actor="alice")
-
-
-def test_workflow_verify_publish_token_without_state() -> None:
-    workflow = Workflow(name="Verifier")
-    assert workflow.verify_publish_token("anything") is False
-
-
-def test_mask_publish_token_handles_zero_reveal() -> None:
-    masked = mask_publish_token("abcdef123456", reveal=0)
-    assert masked.startswith("publish:***")
+        workflow.publish(require_login=False, actor="alice")

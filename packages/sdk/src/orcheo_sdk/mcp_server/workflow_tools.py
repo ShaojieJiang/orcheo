@@ -96,15 +96,6 @@ def publish_workflow(
 
 
 @mcp.tool()
-def rotate_publish_token(
-    workflow_id: str,
-    profile: str | None = None,
-) -> dict:
-    """Rotate a workflow's publish token."""
-    return tools.rotate_publish_token(workflow_id=workflow_id, profile=profile)
-
-
-@mcp.tool()
 def unpublish_workflow(
     workflow_id: str,
     profile: str | None = None,
@@ -118,7 +109,6 @@ __all__ = [
     "download_workflow",
     "list_workflows",
     "publish_workflow",
-    "rotate_publish_token",
     "run_workflow",
     "show_workflow",
     "upload_workflow",

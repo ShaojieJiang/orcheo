@@ -40,7 +40,7 @@ async def test_authenticator_jwt_with_invalid_token_format() -> None:
 @pytest.mark.asyncio
 async def test_authenticator_jwt_key_resolution_returns_none() -> None:
     """Authenticator raises auth.key_unavailable when key not resolved."""
-    from unittest.mock import patch
+    from unittest.mock import AsyncMock, patch
 
     settings = AuthSettings(
         mode="required",
@@ -74,7 +74,11 @@ async def test_authenticator_jwt_key_resolution_returns_none() -> None:
     token = jwt_lib.encode({"sub": "test-user"}, private_key, algorithm="RS256")
 
     # Mock _resolve_signing_key to return None (key not found)
-    with patch.object(authenticator, "_resolve_signing_key", return_value=None):
+    with patch.object(
+        authenticator._jwt_authenticator,  # noqa: SLF001
+        "_resolve_signing_key",
+        AsyncMock(return_value=None),
+    ):
         with pytest.raises(AuthenticationError) as exc_info:
             await authenticator.authenticate(token)
 

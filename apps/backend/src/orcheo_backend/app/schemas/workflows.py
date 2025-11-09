@@ -82,12 +82,6 @@ class WorkflowPublishRequest(BaseModel):
     actor: str = Field(default="system")
 
 
-class WorkflowPublishRotateRequest(BaseModel):
-    """Payload for rotating a published workflow token."""
-
-    actor: str = Field(default="system")
-
-
 class WorkflowPublishRevokeRequest(BaseModel):
     """Payload for revoking workflow publication."""
 
@@ -95,8 +89,7 @@ class WorkflowPublishRevokeRequest(BaseModel):
 
 
 class WorkflowPublishResponse(BaseModel):
-    """Response payload for publish and rotate actions."""
+    """Response payload for publish actions."""
 
     workflow: Workflow
-    publish_token: str | None = None
     message: str | None = None

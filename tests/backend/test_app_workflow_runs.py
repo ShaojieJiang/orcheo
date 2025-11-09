@@ -22,7 +22,7 @@ from orcheo_backend.app.repository import (
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import WorkflowRunCreateRequest
+from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:

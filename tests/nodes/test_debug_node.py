@@ -1,7 +1,7 @@
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.utility import DebugNode
+from orcheo.nodes.debug import DebugNode
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type { StartScreenPrompt } from "@openai/chatkit";
-import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -9,6 +8,7 @@ import {
   getChatKitDomainKey,
   type PublicChatHttpError,
 } from "@features/chatkit/lib/chatkit-client";
+import { ChatKitSurface } from "@features/chatkit/components/chatkit-surface";
 
 type ColorScheme = "light" | "dark";
 
@@ -141,8 +141,6 @@ export function PublicChatWidget({
     workflowName,
   ]);
 
-  const { control } = useChatKit(options);
-
   return (
     <div
       className={cn(
@@ -152,7 +150,7 @@ export function PublicChatWidget({
         "dark:border-slate-800/70 dark:bg-slate-900",
       )}
     >
-      <ChatKit control={control} className="block h-full w-full" />
+      <ChatKitSurface options={options} />
     </div>
   );
 }

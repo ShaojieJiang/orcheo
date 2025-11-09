@@ -12,7 +12,7 @@ from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
     RequestContext,
 )
-from orcheo_backend.app.schemas import ChatKitSessionRequest
+from orcheo_backend.app.schemas.chatkit import ChatKitSessionRequest
 
 
 @pytest.mark.asyncio()

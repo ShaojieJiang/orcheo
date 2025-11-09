@@ -110,8 +110,6 @@ def load_chatkit_token_settings(*, refresh: bool = False) -> ChatKitTokenSetting
     settings = get_settings(refresh=refresh)
     signing_key = _coerce_optional_str(settings.get("CHATKIT_TOKEN_SIGNING_KEY"))
     if not signing_key:
-        signing_key = _coerce_optional_str(settings.get("CHATKIT_CLIENT_SECRET"))
-    if not signing_key:
         raise ChatKitTokenConfigurationError(
             "ChatKit session token signing key is not configured",
         )

@@ -38,7 +38,6 @@ def test_enrich_workflow_hides_share_url_when_private() -> None:
 def test_publish_workflow_data_returns_enriched_payload() -> None:
     payload = {
         "workflow": {"id": "wf-1", "is_public": True, "require_login": True},
-        "publish_token": "publish-token",
         "message": "Published",
     }
     client = DummyClient(base_url="http://api.example.com/api", response=payload)
@@ -51,37 +50,11 @@ def test_publish_workflow_data_returns_enriched_payload() -> None:
     )
 
     assert result["share_url"] == "http://api.example.com/chat/wf-1"
-    assert result["publish_token"] == "publish-token"
     assert result["message"] == "Published"
     assert client.calls == [
         {
             "path": "/api/workflows/wf-1/publish",
             "json_body": {"require_login": True, "actor": "cli"},
-        }
-    ]
-
-
-def test_rotate_publish_token_data_rotates_and_enriches() -> None:
-    payload = {
-        "workflow": {"id": "wf-2", "is_public": True},
-        "publish_token": "rotated",
-        "message": "Token rotated",
-    }
-    client = DummyClient(base_url="http://api.test/api/v1", response=payload)
-
-    result = publish_module.rotate_publish_token_data(
-        client,
-        "wf-2",
-        actor="cli",
-    )
-
-    assert result["publish_token"] == "rotated"
-    assert result["message"] == "Token rotated"
-    assert result["share_url"] == "http://api.test/chat/wf-2"
-    assert client.calls == [
-        {
-            "path": "/api/workflows/wf-2/publish/rotate",
-            "json_body": {"actor": "cli"},
         }
     ]
 

@@ -12,14 +12,14 @@ from orcheo.models import (
     OAuthTokenSecrets,
     SecretGovernanceAlert,
 )
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialIssuancePolicyPayload,
     CredentialScopePayload,
     CredentialTemplateResponse,
     CredentialVaultEntryResponse,
-    GovernanceAlertResponse,
     OAuthTokenRequest,
 )
+from orcheo_backend.app.schemas.governance import GovernanceAlertResponse
 
 
 def scope_from_access(

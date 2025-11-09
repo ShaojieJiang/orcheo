@@ -84,7 +84,7 @@ async def test_jwks_fetch_with_http_error(monkeypatch: pytest.MonkeyPatch) -> No
         )
 
         with pytest.raises(httpx.HTTPStatusError):
-            await authenticator._fetch_jwks()
+            await authenticator._jwt_authenticator._fetch_jwks()
 
 
 @pytest.mark.asyncio
@@ -173,7 +173,7 @@ async def test_fetch_jwks_returns_empty_when_no_url() -> None:
     token_manager = ServiceTokenManager(repository)
     authenticator = Authenticator(settings, token_manager)
 
-    keys, ttl = await authenticator._fetch_jwks()  # noqa: SLF001
+    keys, ttl = await authenticator._jwt_authenticator._fetch_jwks()  # noqa: SLF001
 
     assert keys == []
     assert ttl is None
@@ -219,7 +219,7 @@ async def test_fetch_jwks_parses_cache_control() -> None:
             return_value=mock_response
         )
 
-        keys, ttl = await authenticator._fetch_jwks()  # noqa: SLF001
+        keys, ttl = await authenticator._jwt_authenticator._fetch_jwks()  # noqa: SLF001
 
         assert len(keys) == 1
         assert ttl == 600

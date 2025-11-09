@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from orcheo.models.workflow import WorkflowVersion
 from orcheo_backend.app import create_workflow_version, ingest_workflow_version
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionCreateRequest,
     WorkflowVersionIngestRequest,
 )

@@ -7,7 +7,7 @@ import pytest
 from chatkit.errors import CustomStreamError
 from chatkit.types import ThreadMetadata
 from pydantic import BaseModel
-from orcheo_backend.app.chatkit_service import OrcheoChatKitServer
+from orcheo_backend.app.chatkit import OrcheoChatKitServer
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from tests.backend.chatkit_test_utils import (
     create_chatkit_test_server,
@@ -119,7 +119,9 @@ async def test_chatkit_server_run_workflow_with_basemodel_state() -> None:
     mock_compiled = MagicMock()
     mock_compiled.ainvoke = AsyncMock(return_value=TestState(reply="Test reply"))
 
-    with patch("orcheo_backend.app.chatkit_service.build_graph") as mock_build:
+    with patch(
+        "orcheo_backend.app.chatkit.workflow_executor.build_graph"
+    ) as mock_build:
         mock_graph = MagicMock()
         mock_graph.compile.return_value = mock_compiled
         mock_build.return_value = mock_graph

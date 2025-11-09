@@ -1,11 +1,10 @@
 import React from "react";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
-import { getBackendBaseUrl } from "@/lib/config";
 
 import TopNavigation from "@features/shared/components/top-navigation";
-import ChatInterface from "@features/shared/components/chat-interface";
 import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
+import { CanvasChatBubble } from "@features/chatkit/components/canvas-chat-bubble";
 
 import type {
   CanvasEdge,
@@ -47,9 +46,16 @@ interface ChatState {
     avatar: string;
   };
   activeChatNodeId: string | null;
+  workflowId: string | null;
+  backendBaseUrl: string | null;
   handleChatResponseStart: () => void;
   handleChatResponseEnd: () => void;
   handleChatClientTool: (tool: unknown) => void;
+  getClientSecret: (currentSecret: string | null) => Promise<string>;
+  refreshSession: () => Promise<string>;
+  sessionStatus: "idle" | "loading" | "ready" | "error";
+  sessionError: string | null;
+  handleCloseChat: () => void;
 }
 
 interface WorkflowCanvasLayoutProps {
@@ -134,37 +140,28 @@ export function WorkflowCanvasLayout({
         />
       )}
 
-      {chat?.isChatOpen && (
-        <ChatInterface
+      {chat && (
+        <CanvasChatBubble
           title={chat.chatTitle}
           user={chat.user}
           ai={chat.ai}
-          isClosable
-          position="bottom-right"
-          initialMessages={[
-            {
-              id: "welcome-msg",
-              content: `Welcome to the ${chat.chatTitle} interface. How can I help you today?`,
-              sender: {
-                ...chat.ai,
-                isAI: true,
-              },
-              timestamp: new Date(),
-            },
-          ]}
-          backendBaseUrl={getBackendBaseUrl()}
+          workflowId={chat.workflowId}
           sessionPayload={{
-            workflowId: chat.activeChatNodeId,
+            workflowId: chat.workflowId,
             workflowLabel: chat.chatTitle,
+            chatNodeId: chat.activeChatNodeId,
           }}
+          backendBaseUrl={chat.backendBaseUrl}
+          getClientSecret={chat.getClientSecret}
+          sessionStatus={chat.sessionStatus}
+          sessionError={chat.sessionError}
+          onRetry={chat.refreshSession}
           onResponseStart={chat.handleChatResponseStart}
           onResponseEnd={chat.handleChatResponseEnd}
-          chatkitOptions={{
-            composer: {
-              placeholder: `Send a message to ${chat.chatTitle}`,
-            },
-            onClientTool: chat.handleChatClientTool,
-          }}
+          onClientTool={chat.handleChatClientTool}
+          onDismiss={chat.handleCloseChat}
+          onOpen={() => chat.setIsChatOpen(true)}
+          isExternallyOpen={chat.isChatOpen}
         />
       )}
     </div>

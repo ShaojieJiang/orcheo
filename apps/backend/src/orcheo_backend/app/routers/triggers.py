@@ -16,7 +16,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import CronDispatchRequest
+from orcheo_backend.app.schemas.runs import CronDispatchRequest
 
 
 router = APIRouter()

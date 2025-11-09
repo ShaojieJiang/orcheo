@@ -3,15 +3,19 @@
 from __future__ import annotations
 import logging
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import (
     Workflow,
     WorkflowVersion,
-    generate_publish_token,
-    hash_publish_token,
-    mask_publish_token,
 )
+from orcheo_backend.app.authentication import (
+    AuthorizationError,
+    AuthorizationPolicy,
+    get_authorization_policy,
+)
+from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
+from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.repository import (
@@ -19,12 +23,12 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
+from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
-    WorkflowPublishRotateRequest,
     WorkflowUpdateRequest,
     WorkflowVersionCreateRequest,
     WorkflowVersionDiffResponse,
@@ -223,13 +227,13 @@ async def diff_workflow_versions(
         raise_not_found("Workflow version not found", exc)
 
 
-def _publish_response(workflow: Workflow, token: str | None) -> WorkflowPublishResponse:
-    message: str | None = None
-    if token:
-        message = "Store this publish token securely. It will not be shown again."
+def _publish_response(
+    workflow: Workflow,
+    *,
+    message: str | None = None,
+) -> WorkflowPublishResponse:
     return WorkflowPublishResponse(
         workflow=workflow,
-        publish_token=token,
         message=message,
     )
 
@@ -244,12 +248,10 @@ async def publish_workflow(
     request: WorkflowPublishRequest,
     repository: RepositoryDep,
 ) -> WorkflowPublishResponse:
-    """Publish a workflow and generate a new shareable token."""
+    """Publish a workflow and expose it for ChatKit access."""
     try:
-        token = generate_publish_token()
         workflow = await repository.publish_workflow(
             workflow_id,
-            publish_token_hash=hash_publish_token(token),
             require_login=request.require_login,
             actor=request.actor,
         )
@@ -267,46 +269,12 @@ async def publish_workflow(
             "workflow_id": str(workflow.id),
             "actor": request.actor,
             "require_login": request.require_login,
-            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
         },
     )
-    return _publish_response(workflow, token)
-
-
-@router.post(
-    "/workflows/{workflow_id}/publish/rotate",
-    response_model=WorkflowPublishResponse,
-)
-async def rotate_publish_token(
-    workflow_id: UUID,
-    request: WorkflowPublishRotateRequest,
-    repository: RepositoryDep,
-) -> WorkflowPublishResponse:
-    """Rotate the publish token for the specified workflow."""
-    try:
-        token = generate_publish_token()
-        workflow = await repository.rotate_publish_token(
-            workflow_id,
-            publish_token_hash=hash_publish_token(token),
-            actor=request.actor,
-        )
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
-    except WorkflowPublishStateError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
-        ) from exc
-
-    logger.info(
-        "Workflow publish token rotated",
-        extra={
-            "workflow_id": str(workflow.id),
-            "actor": request.actor,
-            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
-        },
+    return _publish_response(
+        workflow,
+        message="Workflow is now public via the /chat route.",
     )
-    return _publish_response(workflow, token)
 
 
 @router.post(
@@ -329,22 +297,119 @@ async def revoke_workflow_publish(
             detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
         ) from exc
 
-    masked_previous = "unknown"
-    if workflow.audit_log:
-        last_event = workflow.audit_log[-1]
-        if last_event.metadata.get("previous_token"):
-            masked_previous = str(last_event.metadata["previous_token"])
-
     logger.info(
         "Workflow publish access revoked",
         extra={
             "workflow_id": str(workflow.id),
             "actor": request.actor,
-            "previous_token": masked_previous,
         },
     )
 
     return workflow
+
+
+def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
+    if len(workspace_ids) == 1:
+        return next(iter(workspace_ids))
+    return None
+
+
+def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
+    """Return workspace identifiers encoded within workflow tags."""
+    workspaces = {
+        tag.split(":", 1)[1]
+        for tag in workflow.tags
+        if tag.startswith("workspace:") and ":" in tag
+    }
+    return frozenset(workspaces)
+
+
+def _resolve_workflow_owner(workflow: Workflow) -> str | None:
+    """Return the actor associated with the workflow's creation event."""
+    if not workflow.audit_log:
+        return None
+    return workflow.audit_log[0].actor
+
+
+@router.post(
+    "/workflows/{workflow_id}/chatkit/session",
+    response_model=ChatKitSessionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_workflow_chatkit_session(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
+    issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
+) -> ChatKitSessionResponse:
+    """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
+    context = policy.require_authenticated()
+    policy.require_scopes("workflows:read", "workflows:execute")
+
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+    if workflow_workspaces:
+        if not context.workspace_ids:
+            raise AuthorizationError(
+                "Workspace access required for workflow.",
+                code="auth.workspace_forbidden",
+            )
+        if not workflow_workspaces.intersection(context.workspace_ids):
+            raise AuthorizationError(
+                "Workspace access denied for workflow.",
+                code="auth.workspace_forbidden",
+            )
+    else:
+        owner = _resolve_workflow_owner(workflow)
+        if owner is not None and owner != context.subject:
+            if context.identity_type == "developer":
+                logger.debug(
+                    "Bypassing workflow owner check for developer context",
+                    extra={
+                        "workflow_id": str(workflow.id),
+                        "owner": owner,
+                        "subject": context.subject,
+                    },
+                )
+            else:
+                raise AuthorizationError(
+                    "Workflow access denied for caller.",
+                    code="auth.forbidden",
+                )
+
+    metadata = {
+        "workflow_id": str(workflow.id),
+        "workflow_name": workflow.name,
+        "source": "canvas",
+    }
+    primary_workspace = _select_primary_workspace(context.workspace_ids)
+    token, expires_at = issuer.mint_session(
+        subject=context.subject,
+        identity_type=context.identity_type,
+        token_id=context.token_id,
+        workspace_ids=context.workspace_ids,
+        primary_workspace_id=primary_workspace,
+        workflow_id=workflow.id,
+        scopes=context.scopes,
+        metadata=metadata,
+        user=None,
+        assistant=None,
+        extra={"interface": "canvas_modal"},
+    )
+
+    logger.info(
+        "Issued workflow ChatKit session token",
+        extra={
+            "workflow_id": str(workflow.id),
+            "subject": context.subject,
+            "workspace_id": primary_workspace or "<multiple>",
+        },
+    )
+    return ChatKitSessionResponse(client_secret=token, expires_at=expires_at)
 
 
 __all__ = ["router"]
