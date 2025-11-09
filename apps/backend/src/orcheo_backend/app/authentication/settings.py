@@ -33,6 +33,10 @@ class AuthSettings:
     bootstrap_service_token: str | None = None
     bootstrap_token_scopes: frozenset[str] = field(default_factory=frozenset)
     bootstrap_token_expires_at: datetime | None = None
+    dev_login_enabled: bool = False
+    dev_login_cookie_name: str | None = None
+    dev_login_scopes: tuple[str, ...] = field(default_factory=tuple)
+    dev_login_workspace_ids: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def enforce(self) -> bool:
@@ -51,6 +55,13 @@ class AuthSettings:
 
 
 _DEFAULT_ALGORITHMS: tuple[str, ...] = ("RS256", "HS256")
+_DEV_DEFAULT_SCOPES: tuple[str, ...] = (
+    "workflows:read",
+    "workflows:write",
+    "workflows:execute",
+    "vault:read",
+    "vault:write",
+)
 
 
 def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
@@ -132,6 +143,20 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
             "all requests will be rejected",
         )
 
+    dev_login_enabled = _parse_bool(settings.get("AUTH_DEV_LOGIN_ENABLED"), False)
+    dev_cookie_name: str | None = None
+    dev_scopes: tuple[str, ...] = ()
+    dev_workspace_ids: tuple[str, ...] = ()
+    if dev_login_enabled:
+        dev_cookie_name = (
+            _coerce_optional_str(settings.get("AUTH_DEV_COOKIE_NAME"))
+            or "orcheo_dev_session"
+        )
+        dev_scopes = _parse_str_sequence(settings.get("AUTH_DEV_SCOPES"))
+        if not dev_scopes:
+            dev_scopes = _DEV_DEFAULT_SCOPES
+        dev_workspace_ids = _parse_str_sequence(settings.get("AUTH_DEV_WORKSPACE_IDS"))
+
     return AuthSettings(
         mode=mode,
         jwt_secret=jwt_secret,
@@ -149,6 +174,10 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         rate_limit_ip=rate_limit_ip,
         rate_limit_identity=rate_limit_identity,
         rate_limit_interval=rate_limit_interval,
+        dev_login_enabled=dev_login_enabled,
+        dev_login_cookie_name=dev_cookie_name,
+        dev_login_scopes=tuple(dev_scopes),
+        dev_login_workspace_ids=tuple(dev_workspace_ids),
     )
 
 
@@ -197,6 +226,20 @@ def _coerce_mode(value: Any) -> str:
         if lowered in {"disabled", "required", "optional"}:
             return lowered
     return "optional"
+
+
+def _parse_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
 
 
 def _parse_float(value: Any, default: float) -> float:

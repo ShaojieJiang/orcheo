@@ -51,6 +51,10 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN` | _none_ | **Bootstrap token for initial setup**: A long-lived service token read directly from the environment (not stored in the database). This token is intended for bootstrapping authentication when no persistent tokens exist yet. It grants full admin access by default and should be removed after creating persistent tokens via the CLI or API. Use constant-time comparison for security. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES` | `admin:*` | Comma or space-delimited scopes granted to the bootstrap service token. Defaults to full admin access (`admin:tokens:read`, `admin:tokens:write`, `workflows:read`, `workflows:write`, `workflows:execute`, `vault:read`, `vault:write`). See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` | _none_ | Optional expiration timestamp (ISO 8601 or UNIX epoch) applied to the bootstrap service token. When the timestamp passes, the token is rejected with `auth.token_expired`. See [authentication.py](../apps/backend/src/orcheo_backend/app/authentication.py). |
+| `ORCHEO_AUTH_DEV_LOGIN_ENABLED` | `false` | Enables the local developer login flow used by the Canvas prototype to mimic Google/GitHub OAuth. Never enable this in production. |
+| `ORCHEO_AUTH_DEV_COOKIE_NAME` | `orcheo_dev_session` | Cookie name that stores the developer login session identifier when dev login is enabled. |
+| `ORCHEO_AUTH_DEV_SCOPES` | `workflows:read,workflows:write,workflows:execute,vault:read,vault:write` | Scopes granted to developer login sessions; accepts comma- or JSON-delimited lists. |
+| `ORCHEO_AUTH_DEV_WORKSPACE_IDS` | _none_ | Optional comma/JSON list of workspace IDs automatically assigned to developer login sessions for Canvas testing. |
 
 ### Service token management
 

@@ -9,7 +9,7 @@ from .context import RequestContext
 from .errors import AuthenticationError
 from .rate_limit import AuthRateLimiter
 from .service_tokens import ServiceTokenManager
-from .settings import load_auth_settings
+from .settings import AuthSettings, load_auth_settings
 from .telemetry import auth_telemetry
 
 
@@ -103,15 +103,53 @@ def _extract_bearer_token(header_value: str | None) -> str:
     return token
 
 
+def _build_dev_context(identity: str, settings: AuthSettings) -> RequestContext:
+    scopes = (
+        frozenset(settings.dev_login_scopes)
+        if settings.dev_login_scopes
+        else frozenset()
+    )
+    if not scopes:
+        scopes = frozenset(
+            [
+                "workflows:read",
+                "workflows:write",
+                "workflows:execute",
+                "vault:read",
+                "vault:write",
+            ]
+        )
+    workspace_ids = (
+        frozenset(settings.dev_login_workspace_ids)
+        if settings.dev_login_workspace_ids
+        else frozenset()
+    )
+    return RequestContext(
+        subject=identity,
+        identity_type="developer",
+        scopes=scopes,
+        workspace_ids=workspace_ids,
+    )
+
+
+def _try_dev_login_cookie(
+    scope: Request | WebSocket, settings: AuthSettings
+) -> RequestContext | None:
+    cookie_name = settings.dev_login_cookie_name if settings.dev_login_enabled else None
+    if not cookie_name:
+        return None
+    cookies = getattr(scope, "cookies", None) or {}
+    raw_value = cookies.get(cookie_name)
+    if not raw_value:
+        return None
+    identity = f"dev:{raw_value}"
+    return _build_dev_context(identity, settings)
+
+
 async def authenticate_request(request: Request) -> RequestContext:
     """FastAPI dependency that enforces authentication on HTTP requests."""
     api = modules["orcheo_backend.app.authentication"]
     authenticator = api.get_authenticator()
-    if not authenticator.settings.enforce:
-        context = RequestContext.anonymous()
-        request.state.auth = context
-        return context
-
     limiter = api.get_auth_rate_limiter()
     ip = request.client.host if request.client else None
     now = datetime.now(tz=UTC)
@@ -120,23 +158,51 @@ async def authenticate_request(request: Request) -> RequestContext:
     except AuthenticationError as exc:
         raise exc.as_http_exception() from exc
 
-    try:
-        token = _extract_bearer_token(request.headers.get("Authorization"))
-        context = await authenticator.authenticate(token)
-    except AuthenticationError as exc:
-        auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
-        raise exc.as_http_exception() from exc
+    token: str | None = None
+    header_value = request.headers.get("Authorization")
+    if header_value:
+        try:
+            token = _extract_bearer_token(header_value)
+        except AuthenticationError as exc:
+            auth_error = exc
 
-    try:
-        limiter.check_identity(context.token_id or context.subject, now=now)
-    except AuthenticationError as exc:
-        raise exc.as_http_exception() from exc
-    auth_telemetry.record_auth_success(context, ip=ip)
-    request.state.auth = context
-    return context
+    if token:
+        try:
+            context = await authenticator.authenticate(token)
+        except AuthenticationError as exc:
+            auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
+            raise exc.as_http_exception() from exc
+
+        try:
+            limiter.check_identity(context.token_id or context.subject, now=now)
+        except AuthenticationError as exc:
+            raise exc.as_http_exception() from exc
+        auth_telemetry.record_auth_success(context, ip=ip)
+        request.state.auth = context
+        return context
+
+    dev_context = _try_dev_login_cookie(request, authenticator.settings)
+    if dev_context:
+        request.state.auth = dev_context
+        return dev_context
+
+    if not authenticator.settings.enforce:
+        context = RequestContext.anonymous()
+        request.state.auth = context
+        return context
+
+    if auth_error is not None:
+        auth_telemetry.record_auth_failure(reason=auth_error.code, ip=ip)
+        raise auth_error.as_http_exception() from auth_error
+
+    missing_error = AuthenticationError(
+        "Missing bearer token", code="auth.missing_token"
+    )
+    auth_telemetry.record_auth_failure(reason=missing_error.code, ip=ip)
+    raise missing_error.as_http_exception() from missing_error
 
 
-async def authenticate_websocket(websocket: WebSocket) -> RequestContext:
+async def authenticate_websocket(websocket: WebSocket) -> RequestContext:  # noqa: PLR0915
     """Authenticate a WebSocket connection before accepting it."""
     api = modules["orcheo_backend.app.authentication"]
     authenticator = api.get_authenticator()
@@ -171,6 +237,10 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:
         raise
 
     if not token:
+        dev_context = _try_dev_login_cookie(websocket, authenticator.settings)
+        if dev_context:
+            websocket.state.auth = dev_context
+            return dev_context
         auth_telemetry.record_auth_failure(reason="auth.missing_token", ip=ip)
         await websocket.close(code=4401, reason="Missing bearer token")
         raise AuthenticationError("Missing bearer token", code="auth.missing_token")

@@ -71,5 +71,6 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
   - [ ] Document manual QA checklist referenced in requirements success metrics, including OAuth-required flows and transcript persistence checks.
 - [ ] **Docs & enablement**
   - [ ] Update product docs/tutorials explaining how to publish, share links, and use Canvas bubble.
+    - [x] Add Canvas chat bubble integration guide (`docs/chatkit_integration/canvas_chat_bubble_guide.md`).
   - [ ] Ship feature flags (`chatkit_canvas_enabled`, `chatkit_publish_enabled`) and rollout plan.
   - [ ] Monitor logs/metrics post-deploy and prepare rollback steps.

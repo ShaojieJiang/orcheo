@@ -33,9 +33,7 @@ from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
-    chatkit as chatkit_router,
-)
-from orcheo_backend.app.routers import (
+    auth,
     credential_alerts,
     credential_health,
     credential_templates,
@@ -45,6 +43,9 @@ from orcheo_backend.app.routers import (
     triggers,
     websocket,
     workflows,
+)
+from orcheo_backend.app.routers import (
+    chatkit as chatkit_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
@@ -80,6 +81,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
 
     router.include_router(chatkit_router.router)
+    router.include_router(auth.router)
     router.include_router(protected_router)
     return router
 
