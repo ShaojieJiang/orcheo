@@ -153,31 +153,15 @@ async def authenticate_request(request: Request) -> RequestContext:
     limiter = api.get_auth_rate_limiter()
     ip = request.client.host if request.client else None
     now = datetime.now(tz=UTC)
-    try:
-        limiter.check_ip(ip, now=now)
-    except AuthenticationError as exc:
-        raise exc.as_http_exception() from exc
+    _enforce_ip_limit(limiter, ip, now)
 
-    token: str | None = None
-    header_value = request.headers.get("Authorization")
-    if header_value:
-        try:
-            token = _extract_bearer_token(header_value)
-        except AuthenticationError as exc:
-            auth_error = exc
+    auth_header = request.headers.get("Authorization")
+    token, auth_error = _parse_authorization_header(auth_header)
 
-    if token:
-        try:
-            context = await authenticator.authenticate(token)
-        except AuthenticationError as exc:
-            auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
-            raise exc.as_http_exception() from exc
-
-        try:
-            limiter.check_identity(context.token_id or context.subject, now=now)
-        except AuthenticationError as exc:
-            raise exc.as_http_exception() from exc
-        auth_telemetry.record_auth_success(context, ip=ip)
+    context = await _attempt_bearer_auth_optional(
+        authenticator, limiter, token, ip, now
+    )
+    if context is not None:
         request.state.auth = context
         return context
 
@@ -200,6 +184,48 @@ async def authenticate_request(request: Request) -> RequestContext:
     )
     auth_telemetry.record_auth_failure(reason=missing_error.code, ip=ip)
     raise missing_error.as_http_exception() from missing_error
+
+
+def _enforce_ip_limit(limiter: AuthRateLimiter, ip: str | None, now: datetime) -> None:
+    try:
+        limiter.check_ip(ip, now=now)
+    except AuthenticationError as exc:
+        raise exc.as_http_exception() from exc
+
+
+def _parse_authorization_header(
+    header_value: str | None,
+) -> tuple[str | None, AuthenticationError | None]:
+    if not header_value:
+        return None, None
+    try:
+        return _extract_bearer_token(header_value), None
+    except AuthenticationError as exc:
+        return None, exc
+
+
+async def _attempt_bearer_auth_optional(
+    authenticator: Authenticator,
+    limiter: AuthRateLimiter,
+    token: str | None,
+    ip: str | None,
+    now: datetime,
+) -> RequestContext | None:
+    if not token:
+        return None
+    try:
+        context = await authenticator.authenticate(token)
+    except AuthenticationError as exc:
+        if authenticator.settings.enforce:
+            auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
+            raise exc.as_http_exception() from exc
+        return None
+    try:
+        limiter.check_identity(context.token_id or context.subject, now=now)
+    except AuthenticationError as exc:
+        raise exc.as_http_exception() from exc
+    auth_telemetry.record_auth_success(context, ip=ip)
+    return context
 
 
 async def authenticate_websocket(websocket: WebSocket) -> RequestContext:  # noqa: PLR0915
