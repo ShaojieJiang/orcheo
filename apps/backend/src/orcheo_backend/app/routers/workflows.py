@@ -366,10 +366,20 @@ async def create_workflow_chatkit_session(
     else:
         owner = _resolve_workflow_owner(workflow)
         if owner is not None and owner != context.subject:
-            raise AuthorizationError(
-                "Workflow access denied for caller.",
-                code="auth.forbidden",
-            )
+            if context.identity_type == "developer":
+                logger.debug(
+                    "Bypassing workflow owner check for developer context",
+                    extra={
+                        "workflow_id": str(workflow.id),
+                        "owner": owner,
+                        "subject": context.subject,
+                    },
+                )
+            else:
+                raise AuthorizationError(
+                    "Workflow access denied for caller.",
+                    code="auth.forbidden",
+                )
 
     metadata = {
         "workflow_id": str(workflow.id),

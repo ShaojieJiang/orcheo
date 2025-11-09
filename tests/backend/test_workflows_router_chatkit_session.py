@@ -244,6 +244,40 @@ async def test_create_workflow_chatkit_session_denies_when_owner_mismatch() -> N
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_allows_developer_owner_mismatch() -> (
+    None
+):
+    workflow = Workflow(name="Canvas Workflow")
+    workflow.record_event(actor="cli", action="workflow_created")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="dev:local-user",
+            identity_type="developer",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        workflow.id,
+        repo,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_allows_ownerless_workflow() -> None:
     workflow = Workflow(name="Canvas Workflow")
     repo = _WorkflowRepo(workflow)
