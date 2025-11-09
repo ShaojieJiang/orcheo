@@ -16,6 +16,8 @@ import { useChatInterfaceOptions } from "@features/shared/components/chat-interf
 import type { ChatParticipant } from "@features/shared/components/chat-interface.types";
 import type { ChatSessionStatus } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
 import { recordChatTelemetry } from "@features/chatkit/lib/telemetry";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
 
 const ChatKitSurfaceLazy = lazy(() =>
   import("@features/chatkit/components/chatkit-surface").then((module) => ({
@@ -71,6 +73,7 @@ export function CanvasChatBubble({
   const [shouldLoadChat, setShouldLoadChat] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [floatingOffset, setFloatingOffset] = useState(DEFAULT_FLOATING_OFFSET);
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     if (isExternallyOpen) {
@@ -182,6 +185,7 @@ export function CanvasChatBubble({
         placeholder: `Ask ${title} a question`,
       },
       onClientTool,
+      theme: buildChatTheme(colorScheme),
     },
     getClientSecret,
     backendBaseUrl: backendBaseUrl ?? undefined,
@@ -261,13 +265,10 @@ export function CanvasChatBubble({
 
       {isPanelOpen && (
         <div
-          className={cn(
-            "fixed right-6 z-50 flex h-[520px] w-full max-w-md flex-col rounded-2xl border bg-background shadow-2xl",
-            "border-slate-200/80 bg-white dark:border-slate-800/70 dark:bg-slate-900",
-          )}
+          className="fixed right-6 z-50 flex h-[520px] w-full max-w-md flex-col rounded-2xl border border-border bg-card text-foreground shadow-2xl"
           style={floatingPositionStyle}
         >
-          <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div>
               <p className="text-sm uppercase text-muted-foreground">
                 Chatting

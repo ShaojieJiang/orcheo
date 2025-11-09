@@ -3,14 +3,14 @@ import type { StartScreenPrompt } from "@openai/chatkit";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import type { ColorScheme } from "@/hooks/use-color-scheme";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
   type PublicChatHttpError,
 } from "@features/chatkit/lib/chatkit-client";
 import { ChatKitSurface } from "@features/chatkit/components/chatkit-surface";
-
-type ColorScheme = "light" | "dark";
+import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
 
 interface PublicChatWidgetProps {
   workflowId: string;
@@ -22,24 +22,6 @@ interface PublicChatWidgetProps {
   colorScheme?: ColorScheme;
   onThemeRequest?: (scheme: ColorScheme) => Promise<void> | void;
 }
-
-const buildChatTheme = (
-  scheme: ColorScheme,
-): NonNullable<UseChatKitOptions["theme"]> => ({
-  colorScheme: scheme,
-  color: {
-    grayscale: {
-      hue: 220,
-      tint: 6,
-      shade: scheme === "dark" ? -1 : -4,
-    },
-    accent: {
-      primary: scheme === "dark" ? "#f1f5f9" : "#0f172a",
-      level: 1,
-    },
-  },
-  radius: "round",
-});
 
 const buildStartScreenPrompts = (workflowName: string): StartScreenPrompt[] => [
   {
