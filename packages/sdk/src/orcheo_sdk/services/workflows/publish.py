@@ -41,27 +41,6 @@ def publish_workflow_data(
     workflow = _enrich_workflow(client.base_url, payload["workflow"])
     return {
         "workflow": workflow,
-        "publish_token": payload.get("publish_token"),
-        "message": payload.get("message"),
-        "share_url": workflow.get("share_url"),
-    }
-
-
-def rotate_publish_token_data(
-    client: ApiClient,
-    workflow_id: str,
-    *,
-    actor: str,
-) -> dict[str, Any]:
-    """Rotate a workflow publish token and return enriched payload."""
-    payload: dict[str, Any] = client.post(
-        f"/api/workflows/{workflow_id}/publish/rotate",
-        json_body={"actor": actor},
-    )
-    workflow = _enrich_workflow(client.base_url, payload["workflow"])
-    return {
-        "workflow": workflow,
-        "publish_token": payload.get("publish_token"),
         "message": payload.get("message"),
         "share_url": workflow.get("share_url"),
     }
@@ -93,6 +72,5 @@ def enrich_workflow_publish_metadata(
 __all__ = [
     "enrich_workflow_publish_metadata",
     "publish_workflow_data",
-    "rotate_publish_token_data",
     "unpublish_workflow_data",
 ]

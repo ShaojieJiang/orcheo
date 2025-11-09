@@ -3,6 +3,7 @@
 from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
+from orcheo.models import CredentialHealthStatus
 from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     RepositoryDep,
@@ -10,9 +11,8 @@ from orcheo_backend.app.dependencies import (
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history_utils import health_report_to_response
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialHealthResponse,
-    CredentialHealthStatus,
     CredentialValidationRequest,
 )
 

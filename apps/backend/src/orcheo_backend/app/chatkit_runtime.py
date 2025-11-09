@@ -7,7 +7,7 @@ import os
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException, status
-from orcheo_backend.app.chatkit_service import (
+from orcheo_backend.app.chatkit import (
     OrcheoChatKitServer,
     create_chatkit_server,
 )

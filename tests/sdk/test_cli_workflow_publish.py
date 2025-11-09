@@ -10,7 +10,7 @@ from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app
 from orcheo_sdk.cli.workflow.commands.publishing import (
     _apply_error_hints,
-    _format_rotation_timestamp,
+    _format_publish_timestamp,
     _print_publish_summary,
     _require_online,
     _update_workflow_cache,
@@ -29,8 +29,7 @@ def _publish_response(require_login: bool = False) -> dict[str, object]:
             "require_login": require_login,
             "published_at": "2024-01-01T00:00:00Z",
         },
-        "publish_token": "token-secret",
-        "message": "Store token",
+        "message": "Stored",
     }
 
 
@@ -50,7 +49,6 @@ def test_publish_workflow_success(runner: CliRunner, env: dict[str, str]) -> Non
     assert "Workflow visibility updated successfully" in result.stdout
     assert "Require login: Yes" in result.stdout
     assert "http://api.test/chat/wf-1" in result.stdout
-    assert result.stdout.count("token-secret") == 1
 
 
 def test_publish_workflow_not_found(runner: CliRunner, env: dict[str, str]) -> None:
@@ -85,22 +83,6 @@ def test_publish_workflow_forbidden(runner: CliRunner, env: dict[str, str]) -> N
     assert result.exit_code == 1
     assert isinstance(result.exception, APICallError)
     assert "Permission denied when modifying workflow 'wf-1'" in str(result.exception)
-
-
-def test_rotate_publish_token_success(runner: CliRunner, env: dict[str, str]) -> None:
-    payload = _publish_response()
-    with respx.mock(assert_all_called=True) as router:
-        router.post("http://api.test/api/workflows/wf-1/publish/rotate").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
-        result = runner.invoke(
-            app,
-            ["workflow", "rotate-token", "wf-1", "--force"],
-            env=env,
-        )
-
-    assert result.exit_code == 0
-    assert "Previous tokens can no longer start new chat sessions" in result.stdout
 
 
 def test_unpublish_workflow_success(runner: CliRunner, env: dict[str, str]) -> None:
@@ -239,11 +221,8 @@ def test_apply_error_hints_handles_status_codes() -> None:
 def test_visibility_label_and_timestamp_helpers() -> None:
     assert _visibility_label({"is_public": True}) == "Public"
     assert _visibility_label({"is_public": False}) == "Private"
-
-    workflow = {"publish_token_rotated_at": "2024-02-01T01:00:00Z"}
-    assert _format_rotation_timestamp(workflow) == "2024-02-01 01:00:00 UTC"
-
-    assert _format_rotation_timestamp({}) == "-"
+    assert _format_publish_timestamp({"published_at": "2024-01-01T00:00:00Z"}) != "-"
+    assert _format_publish_timestamp({}) == "-"
 
 
 def test_print_publish_summary_displays_optional_fields() -> None:
@@ -257,14 +236,12 @@ def test_print_publish_summary_displays_optional_fields() -> None:
         console,
         workflow=workflow,
         share_url=None,
-        publish_token="secret",
         message="Keep it secure.",
     )
 
     output = console.export_text()
     assert "Private" in output
     assert "Share URL: -" in output
-    assert "secret" in output
     assert "Keep it secure." in output
 
 
@@ -279,7 +256,6 @@ def test_print_publish_summary_omits_message_when_absent() -> None:
         console,
         workflow=workflow,
         share_url="http://api.test/chat/wf-omit",
-        publish_token=None,
         message=None,
     )
 
@@ -312,25 +288,6 @@ def test_publish_command_prompts_for_confirmation(
 
     assert result.exit_code == 0
     assert "Publish workflow 'wf-1' as public?" in result.stdout
-
-
-def test_rotate_command_prompts_for_confirmation(
-    runner: CliRunner, env: dict[str, str]
-) -> None:
-    payload = _publish_response()
-    with respx.mock(assert_all_called=True) as router:
-        router.post("http://api.test/api/workflows/wf-1/publish/rotate").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
-        result = runner.invoke(
-            app,
-            ["workflow", "rotate-token", "wf-1"],
-            input="y\n",
-            env=env,
-        )
-
-    assert result.exit_code == 0
-    assert "Rotate the publish token for workflow 'wf-1'?" in result.stdout
 
 
 def test_unpublish_command_prompts_for_confirmation(

@@ -121,40 +121,17 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         self,
         workflow_id: UUID,
         *,
-        publish_token_hash: str,
         require_login: bool,
         actor: str,
     ) -> Workflow:
-        """Mark the workflow as public with a hashed publish token."""
+        """Mark the workflow as public."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
                 raise WorkflowNotFoundError(str(workflow_id))
             try:
                 workflow.publish(
-                    token_hash=publish_token_hash,
                     require_login=require_login,
-                    actor=actor,
-                )
-            except ValueError as exc:
-                raise WorkflowPublishStateError(str(exc)) from exc
-            return workflow.model_copy(deep=True)
-
-    async def rotate_publish_token(
-        self,
-        workflow_id: UUID,
-        *,
-        publish_token_hash: str,
-        actor: str,
-    ) -> Workflow:
-        """Rotate the publish token for the specified workflow."""
-        async with self._lock:
-            workflow = self._workflows.get(workflow_id)
-            if workflow is None:
-                raise WorkflowNotFoundError(str(workflow_id))
-            try:
-                workflow.rotate_publish_token(
-                    token_hash=publish_token_hash,
                     actor=actor,
                 )
             except ValueError as exc:

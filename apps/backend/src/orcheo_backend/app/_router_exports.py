@@ -72,7 +72,6 @@ get_workflow = _workflows_routes.get_workflow
 update_workflow = _workflows_routes.update_workflow
 archive_workflow = _workflows_routes.archive_workflow
 publish_workflow = _workflows_routes.publish_workflow
-rotate_publish_token = _workflows_routes.rotate_publish_token
 revoke_workflow_publish = _workflows_routes.revoke_workflow_publish
 create_workflow_chatkit_session = _workflows_routes.create_workflow_chatkit_session
 create_workflow_version = _workflows_routes.create_workflow_version
@@ -106,7 +105,6 @@ __all__ = [
     "acknowledge_governance_alert",
     "archive_workflow",
     "publish_workflow",
-    "rotate_publish_token",
     "revoke_workflow_publish",
     "create_workflow_chatkit_session",
     "chatkit_gateway",

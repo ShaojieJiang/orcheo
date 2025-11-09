@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
-from orcheo.models.workflow import WorkflowRun, mask_publish_token
+from orcheo.models.workflow import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -27,8 +27,8 @@ from orcheo_backend.app.authentication import (
     load_auth_settings,
 )
 from orcheo_backend.app.authentication.rate_limit import SlidingWindowRateLimiter
+from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
-from orcheo_backend.app.chatkit_service import ChatKitRequestContext
 from orcheo_backend.app.chatkit_tokens import (
     ChatKitSessionTokenIssuer,
     ChatKitTokenConfigurationError,
@@ -40,7 +40,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.chatkit import (
     ChatKitSessionRequest,
     ChatKitSessionResponse,
     ChatKitWorkflowTriggerRequest,
@@ -102,13 +102,13 @@ _JWT_RATE_LIMITER = _build_rate_limiter(
     code="chatkit.rate_limit.identity",
     message_template="Too many ChatKit requests for identity {key}",
 )
-_PUBLISH_RATE_LIMITER = _build_rate_limiter(
+_WORKFLOW_RATE_LIMITER = _build_rate_limiter(
     limit_key="publish_limit",
     interval_key="publish_interval_seconds",
     default_limit=60,
     default_interval=60,
     code="chatkit.rate_limit.publish",
-    message_template="Too many ChatKit requests for publish token {key}",
+    message_template="Too many ChatKit requests for workflow {key}",
 )
 _SESSION_RATE_LIMITER = _build_rate_limiter(
     limit_key="session_limit",
@@ -273,7 +273,6 @@ async def authenticate_chatkit_invocation(
     *,
     request: Request,
     payload: Mapping[str, Any],
-    publish_token: str | None,
     repository: RepositoryDep,
 ) -> ChatKitAuthResult:
     """Validate authentication for the ChatKit gateway request."""
@@ -309,7 +308,6 @@ async def authenticate_chatkit_invocation(
     return await _authenticate_publish_request(
         request=request,
         workflow_id=workflow_id,
-        publish_token=publish_token,
         now=now,
         repository=repository,
     )
@@ -327,8 +325,6 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
             detail={"message": "Invalid JSON payload.", "errors": [str(exc)]},
         ) from exc
 
-    publish_token = payload_dict.pop("publish_token", None)
-
     try:
         adapter = _build_chatkit_request_adapter()
         parsed_request = adapter.validate_python(payload_dict)
@@ -344,7 +340,6 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
     auth_result = await authenticate_chatkit_invocation(
         request=request,
         payload=payload_dict,
-        publish_token=publish_token,
         repository=repository,
     )
 
@@ -621,7 +616,6 @@ async def _authenticate_publish_request(
     *,
     request: Request,
     workflow_id: UUID,
-    publish_token: str | None,
     now: datetime,
     repository: RepositoryDep,
 ) -> ChatKitAuthResult:
@@ -630,33 +624,22 @@ async def _authenticate_publish_request(
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
-    if not workflow.is_public or not workflow.publish_token_hash:
+    if not workflow.is_public:
         raise _chatkit_error(
             status.HTTP_403_FORBIDDEN,
-            message="Publish token authentication failed: workflow is not published.",
+            message="Publish authentication failed: workflow is not published.",
             code="chatkit.auth.not_published",
             auth_mode="publish",
         )
 
-    token_hash = workflow.publish_token_hash
-    if publish_token:
-        if not token_hash or not workflow.verify_publish_token(publish_token):
-            raise _chatkit_error(
-                status.HTTP_401_UNAUTHORIZED,
-                message="Publish token authentication failed: token is invalid.",
-                code="chatkit.auth.invalid_publish_token",
-                auth_mode="publish",
-            )
-
-    rate_limit_key = token_hash or str(workflow_id)
-    _rate_limit(_PUBLISH_RATE_LIMITER, rate_limit_key, now=now)
+    _rate_limit(_WORKFLOW_RATE_LIMITER, str(workflow_id), now=now)
 
     session_subject = _extract_session_subject(request)
     if workflow.require_login and not session_subject:
         raise _chatkit_error(
             status.HTTP_401_UNAUTHORIZED,
             message=(
-                "Publish token authentication failed: OAuth login is required "
+                "Publish authentication failed: OAuth login is required "
                 "to access this workflow."
             ),
             code="chatkit.auth.oauth_required",
@@ -665,11 +648,7 @@ async def _authenticate_publish_request(
 
     _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
 
-    actor = (
-        mask_publish_token(token_hash)
-        if publish_token and token_hash
-        else f"workflow:{workflow_id}"
-    )
+    actor = f"workflow:{workflow_id}"
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=actor,

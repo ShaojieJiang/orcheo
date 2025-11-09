@@ -5,7 +5,10 @@ import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException
 from orcheo.nodes.registry import registry
-from orcheo_backend.app.schemas import NodeExecutionRequest, NodeExecutionResponse
+from orcheo_backend.app.schemas.nodes import (
+    NodeExecutionRequest,
+    NodeExecutionResponse,
+)
 from orcheo_backend.app.workflow_execution import execute_node
 
 

@@ -59,11 +59,9 @@ def show_workflow(
     state.console.print(
         f"Require login: {'Yes' if workflow_details.get('require_login') else 'No'}"
     )
-    rotation = workflow_details.get("publish_token_rotated_at") or workflow_details.get(
-        "published_at"
-    )
+    published_at = workflow_details.get("published_at")
     state.console.print(
-        f"Last rotated: {format_datetime(rotation) if rotation else '-'}"
+        f"Published at: {format_datetime(published_at) if published_at else '-'}"
     )
     share_url = workflow_details.get("share_url")
     state.console.print(f"Share URL: {share_url or '-'}\n")

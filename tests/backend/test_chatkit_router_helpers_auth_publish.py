@@ -1,11 +1,10 @@
-"""Publish token authentication tests for ChatKit router helper functions."""
+"""Publish authentication tests for ChatKit router helper functions."""
 
 from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
-from orcheo.models.workflow import hash_publish_token
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -33,42 +32,10 @@ async def test_authenticate_publish_request_missing_workflow() -> None:
         await chatkit._authenticate_publish_request(
             request=request,
             workflow_id=workflow_id,
-            publish_token="token",
             now=datetime.now(tz=UTC),
             repository=_MissingWorkflowPublishRepo(),
         )
     assert excinfo.value.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.asyncio()
-async def test_authenticate_publish_request_allows_missing_token_for_public_workflow() -> (  # noqa: E501
-    None
-):
-    request = make_chatkit_request()
-    repository = InMemoryWorkflowRepository()
-    workflow = await repository.create_workflow(
-        name="Publish",
-        slug=None,
-        description=None,
-        tags=None,
-        actor="tester",
-    )
-    await repository.publish_workflow(
-        workflow.id,
-        publish_token_hash=hash_publish_token("token"),
-        require_login=False,
-        actor="tester",
-    )
-
-    result = await chatkit._authenticate_publish_request(
-        request=request,
-        workflow_id=workflow.id,
-        publish_token=None,
-        now=datetime.now(tz=UTC),
-        repository=repository,
-    )
-    assert result.actor == f"workflow:{workflow.id}"
-    assert result.subject is None
 
 
 @pytest.mark.asyncio()
@@ -87,7 +54,6 @@ async def test_authenticate_publish_request_requires_published_state() -> None:
         await chatkit._authenticate_publish_request(
             request=request,
             workflow_id=workflow.id,
-            publish_token="token",
             now=datetime.now(tz=UTC),
             repository=repository,
         )
@@ -95,7 +61,7 @@ async def test_authenticate_publish_request_requires_published_state() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_authenticate_publish_request_validates_token() -> None:
+async def test_authenticate_publish_request_allows_public_workflow() -> None:
     request = make_chatkit_request()
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
@@ -105,23 +71,20 @@ async def test_authenticate_publish_request_validates_token() -> None:
         tags=None,
         actor="tester",
     )
-    valid_token = "secret"
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash=hash_publish_token(valid_token),
         require_login=False,
         actor="tester",
     )
 
-    with pytest.raises(HTTPException) as excinfo:
-        await chatkit._authenticate_publish_request(
-            request=request,
-            workflow_id=workflow.id,
-            publish_token="invalid",
-            now=datetime.now(tz=UTC),
-            repository=repository,
-        )
-    assert excinfo.value.detail["code"] == "chatkit.auth.invalid_publish_token"
+    result = await chatkit._authenticate_publish_request(
+        request=request,
+        workflow_id=workflow.id,
+        now=datetime.now(tz=UTC),
+        repository=repository,
+    )
+    assert result.actor == f"workflow:{workflow.id}"
+    assert result.subject is None
 
 
 @pytest.mark.asyncio()
@@ -135,10 +98,8 @@ async def test_authenticate_publish_request_requires_oauth_when_flag_enabled() -
         tags=None,
         actor="tester",
     )
-    token = "secret"
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash=hash_publish_token(token),
         require_login=True,
         actor="tester",
     )
@@ -147,7 +108,6 @@ async def test_authenticate_publish_request_requires_oauth_when_flag_enabled() -
         await chatkit._authenticate_publish_request(
             request=request,
             workflow_id=workflow.id,
-            publish_token=None,
             now=datetime.now(tz=UTC),
             repository=repository,
         )
@@ -167,7 +127,6 @@ async def test_authenticate_publish_request_accepts_oauth_session() -> None:
     )
     await repository.publish_workflow(
         workflow.id,
-        publish_token_hash=hash_publish_token("token"),
         require_login=True,
         actor="tester",
     )
@@ -175,7 +134,6 @@ async def test_authenticate_publish_request_accepts_oauth_session() -> None:
     result = await chatkit._authenticate_publish_request(
         request=request,
         workflow_id=workflow.id,
-        publish_token=None,
         now=datetime.now(tz=UTC),
         repository=repository,
     )

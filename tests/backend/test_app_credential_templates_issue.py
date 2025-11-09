@@ -13,7 +13,7 @@ from orcheo.models import (
 )
 from orcheo.vault import WorkflowScopeError
 from orcheo_backend.app import issue_credential_from_template
-from orcheo_backend.app.schemas import CredentialIssuanceRequest
+from orcheo_backend.app.schemas.credentials import CredentialIssuanceRequest
 
 
 def test_issue_credential_from_template_success() -> None:

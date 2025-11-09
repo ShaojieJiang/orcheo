@@ -22,38 +22,19 @@ def test_publish_workflow_sets_metadata(api_client: TestClient) -> None:
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["publish_token"]
     assert payload["message"]
 
     workflow = payload["workflow"]
     assert workflow["is_public"] is True
     assert workflow["require_login"] is True
     assert workflow["published_by"] == "alice"
-    assert workflow["publish_token_hash"]
+    assert workflow["published_at"] is not None
 
     fetched = api_client.get(f"/api/workflows/{workflow_id}")
     assert fetched.status_code == 200
     fetched_payload = fetched.json()
     assert fetched_payload["is_public"] is True
-    assert fetched_payload["publish_token_hash"] == workflow["publish_token_hash"]
-
-
-def test_rotate_publish_token(api_client: TestClient) -> None:
-    workflow_id = _create_workflow(api_client)
-
-    publish_response = api_client.post(f"/api/workflows/{workflow_id}/publish", json={})
-    first_token = publish_response.json()["publish_token"]
-
-    rotate_response = api_client.post(
-        f"/api/workflows/{workflow_id}/publish/rotate",
-        json={"actor": "rotator"},
-    )
-
-    assert rotate_response.status_code == 200
-    rotated_payload = rotate_response.json()
-    assert rotated_payload["publish_token"]
-    assert rotated_payload["publish_token"] != first_token
-    assert rotated_payload["workflow"]["publish_token_rotated_at"] is not None
+    assert fetched_payload["published_at"] == workflow["published_at"]
 
 
 def test_revoke_publish_resets_state(api_client: TestClient) -> None:
@@ -69,7 +50,6 @@ def test_revoke_publish_resets_state(api_client: TestClient) -> None:
     assert revoke_response.status_code == 200
     workflow = revoke_response.json()
     assert workflow["is_public"] is False
-    assert workflow["publish_token_hash"] is None
     assert workflow["require_login"] is False
 
 

@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.vault import InMemoryCredentialVault, WorkflowScopeError
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialIssuancePolicyPayload,
     CredentialScopePayload,
     OAuthTokenRequest,

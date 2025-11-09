@@ -8,9 +8,6 @@ from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import (
     Workflow,
     WorkflowVersion,
-    generate_publish_token,
-    hash_publish_token,
-    mask_publish_token,
 )
 from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
@@ -25,13 +22,12 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import (
-    ChatKitSessionResponse,
+from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
+from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
-    WorkflowPublishRotateRequest,
     WorkflowUpdateRequest,
     WorkflowVersionCreateRequest,
     WorkflowVersionDiffResponse,
@@ -230,13 +226,13 @@ async def diff_workflow_versions(
         raise_not_found("Workflow version not found", exc)
 
 
-def _publish_response(workflow: Workflow, token: str | None) -> WorkflowPublishResponse:
-    message: str | None = None
-    if token:
-        message = "Store this publish token securely. It will not be shown again."
+def _publish_response(
+    workflow: Workflow,
+    *,
+    message: str | None = None,
+) -> WorkflowPublishResponse:
     return WorkflowPublishResponse(
         workflow=workflow,
-        publish_token=token,
         message=message,
     )
 
@@ -251,12 +247,10 @@ async def publish_workflow(
     request: WorkflowPublishRequest,
     repository: RepositoryDep,
 ) -> WorkflowPublishResponse:
-    """Publish a workflow and generate a new shareable token."""
+    """Publish a workflow and expose it for ChatKit access."""
     try:
-        token = generate_publish_token()
         workflow = await repository.publish_workflow(
             workflow_id,
-            publish_token_hash=hash_publish_token(token),
             require_login=request.require_login,
             actor=request.actor,
         )
@@ -274,46 +268,12 @@ async def publish_workflow(
             "workflow_id": str(workflow.id),
             "actor": request.actor,
             "require_login": request.require_login,
-            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
         },
     )
-    return _publish_response(workflow, token)
-
-
-@router.post(
-    "/workflows/{workflow_id}/publish/rotate",
-    response_model=WorkflowPublishResponse,
-)
-async def rotate_publish_token(
-    workflow_id: UUID,
-    request: WorkflowPublishRotateRequest,
-    repository: RepositoryDep,
-) -> WorkflowPublishResponse:
-    """Rotate the publish token for the specified workflow."""
-    try:
-        token = generate_publish_token()
-        workflow = await repository.rotate_publish_token(
-            workflow_id,
-            publish_token_hash=hash_publish_token(token),
-            actor=request.actor,
-        )
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
-    except WorkflowPublishStateError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
-        ) from exc
-
-    logger.info(
-        "Workflow publish token rotated",
-        extra={
-            "workflow_id": str(workflow.id),
-            "actor": request.actor,
-            "publish_token": mask_publish_token(workflow.publish_token_hash or ""),
-        },
+    return _publish_response(
+        workflow,
+        message="Workflow is now public via the /chat route.",
     )
-    return _publish_response(workflow, token)
 
 
 @router.post(
@@ -336,18 +296,11 @@ async def revoke_workflow_publish(
             detail={"message": str(exc), "code": "workflow.publish.invalid_state"},
         ) from exc
 
-    masked_previous = "unknown"
-    if workflow.audit_log:
-        last_event = workflow.audit_log[-1]
-        if last_event.metadata.get("previous_token"):
-            masked_previous = str(last_event.metadata["previous_token"])
-
     logger.info(
         "Workflow publish access revoked",
         extra={
             "workflow_id": str(workflow.id),
             "actor": request.actor,
-            "previous_token": masked_previous,
         },
     )
 

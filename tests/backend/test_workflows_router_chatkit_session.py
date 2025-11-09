@@ -130,3 +130,9 @@ async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
     assert decoded["chatkit"]["metadata"]["workflow_name"] == "Canvas Workflow"
     assert decoded["chatkit"]["metadata"]["source"] == "canvas"
     assert decoded["chatkit"]["interface"] == "canvas_modal"
+
+
+def test_select_primary_workspace_handles_multiple_workspaces() -> None:
+    workspace_ids = frozenset({"ws-1", "ws-2"})
+
+    assert workflows._select_primary_workspace(workspace_ids) is None

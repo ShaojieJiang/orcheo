@@ -173,10 +173,6 @@ export const deleteWorkflow = async (
   emitUpdate();
 };
 
-export const clearWorkflowStorage = () => {
-  // No-op placeholder retained for backward compatibility with tests.
-};
-
 export type {
   StoredWorkflow,
   WorkflowVersionRecord,

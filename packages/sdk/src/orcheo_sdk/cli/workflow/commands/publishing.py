@@ -17,7 +17,6 @@ from orcheo_sdk.cli.workflow.app import (
 )
 from orcheo_sdk.services import (
     publish_workflow_data,
-    rotate_publish_token_data,
     unpublish_workflow_data,
 )
 
@@ -50,11 +49,11 @@ def _visibility_label(workflow: dict[str, Any]) -> str:
     return "Public" if workflow.get("is_public") else "Private"
 
 
-def _format_rotation_timestamp(workflow: dict[str, Any]) -> str:
-    rotation = workflow.get("publish_token_rotated_at") or workflow.get("published_at")
-    if not rotation:
+def _format_publish_timestamp(workflow: dict[str, Any]) -> str:
+    published_at = workflow.get("published_at")
+    if not published_at:
         return "-"
-    return format_datetime(rotation)
+    return format_datetime(published_at)
 
 
 def _update_workflow_cache(cache: CacheManager, workflow: dict[str, Any]) -> None:
@@ -98,7 +97,6 @@ def _print_publish_summary(
     *,
     workflow: dict[str, Any],
     share_url: str | None,
-    publish_token: str | None,
     message: str | None,
 ) -> None:
     """Render a human-friendly summary after publish actions."""
@@ -107,19 +105,12 @@ def _print_publish_summary(
     console.print(
         f"[bold]Require login:[/] {'Yes' if workflow.get('require_login') else 'No'}"
     )
-    console.print(f"[bold]Last rotation:[/] {_format_rotation_timestamp(workflow)}")
+    console.print(f"[bold]Published at:[/] {_format_publish_timestamp(workflow)}")
 
     if share_url:
         console.print(f"[bold]Share URL:[/] {share_url}")
     else:
         console.print("[bold]Share URL:[/] -")
-    if publish_token:
-        console.print(
-            f"[bold yellow]Publish token:[/] [reverse]{publish_token}[/reverse]"
-        )
-        console.print(
-            "[dim]Store this token securely. It will not be shown again.[/dim]"
-        )
     if message:
         console.print(f"\n[dim]{message}[/dim]")
 
@@ -164,46 +155,7 @@ def publish_workflow(
         state.console,
         workflow=workflow,
         share_url=result.get("share_url"),
-        publish_token=result.get("publish_token"),
         message=result.get("message"),
-    )
-
-
-@workflow_app.command("rotate-token")
-def rotate_publish_token(
-    ctx: typer.Context,
-    workflow_id: WorkflowIdArgument,
-    force: ForceOption = False,
-) -> None:
-    """Rotate the publish token for a workflow."""
-    state = _state(ctx)
-    _require_online(state.settings)
-
-    if not force:
-        prompt = (
-            f"Rotate the publish token for workflow '{workflow_id}'? "
-            "Existing links will stop authorizing new sessions."
-        )
-        typer.confirm(prompt, abort=True)
-
-    try:
-        result = rotate_publish_token_data(
-            state.client,
-            workflow_id,
-            actor="cli",
-        )
-    except APICallError as exc:  # pragma: no cover - exercised in tests
-        raise _apply_error_hints(workflow_id, exc) from exc
-
-    workflow = result["workflow"]
-    _update_workflow_cache(state.cache, workflow)
-
-    _print_publish_summary(
-        state.console,
-        workflow=workflow,
-        share_url=result.get("share_url"),
-        publish_token=result.get("publish_token"),
-        message="Previous tokens can no longer start new chat sessions.",
     )
 
 
@@ -237,13 +189,11 @@ def unpublish_workflow(
         state.console,
         workflow=workflow,
         share_url=None,
-        publish_token=None,
         message="Workflow is now private to authenticated editors.",
     )
 
 
 __all__ = [
     "publish_workflow",
-    "rotate_publish_token",
     "unpublish_workflow",
 ]

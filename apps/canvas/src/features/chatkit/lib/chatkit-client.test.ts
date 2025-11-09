@@ -40,7 +40,6 @@ describe("buildPublicChatFetch", () => {
     expect(payload.foo).toBe("bar");
     expect(payload.metadata.workflow_id).toBe("wf-123");
     expect(payload.metadata.workflow_name).toBe("LangGraph");
-    expect(payload.publish_token).toBeUndefined();
   });
 
   it("emits structured errors when the backend rejects a request", async () => {

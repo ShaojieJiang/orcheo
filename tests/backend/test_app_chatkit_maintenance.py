@@ -15,7 +15,7 @@ from orcheo_backend.app import (
     _ensure_chatkit_cleanup_task,
     _get_chatkit_store,
 )
-from orcheo_backend.app.chatkit_service import InMemoryChatKitStore
+from orcheo_backend.app.chatkit import InMemoryChatKitStore
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 
 

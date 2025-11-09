@@ -13,7 +13,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_POSTGRES_DSN` | _none_ | Database connection string required when `ORCHEO_CHECKPOINT_BACKEND=postgres`. See [config.py](../src/orcheo/config.py). |
 | `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | Controls the workflow repository backend (`sqlite` or `inmemory`). See [config.py](../src/orcheo/config.py). |
 | `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Location of the workflow repository SQLite database. See [config.py](../src/orcheo/config.py). |
-| `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Storage location for ChatKit conversation history when using SQLite storage. See [config.py](../src/orcheo/config.py) and [chatkit_service.py](../apps/backend/src/orcheo_backend/app/chatkit_service.py). |
+| `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Storage location for ChatKit conversation history when using SQLite storage. See [config.py](../src/orcheo/config.py) and [chatkit/server.py](../apps/backend/src/orcheo_backend/app/chatkit/server.py). |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Filesystem directory used by ChatKit for attachments and other assets. See [config.py](../src/orcheo/config.py). |
 | `ORCHEO_CHATKIT_RETENTION_DAYS` | `30` | Number of days ChatKit conversation history is retained before pruning. See [config.py](../src/orcheo/config.py) and [apps/backend/app/__init__.py](../apps/backend/src/orcheo_backend/app/__init__.py). |
 | `ORCHEO_HOST` | `0.0.0.0` | Network bind address for the FastAPI service. See [config.py](../src/orcheo/config.py). |
@@ -71,6 +71,15 @@ All service tokens are stored in a SQLite database with SHA256-hashed secrets, n
 | `ORCHEO_CHATKIT_TOKEN_AUDIENCE` | `chatkit` | Custom audience claim for ChatKit tokens. See [chatkit_tokens.py](../apps/backend/src/orcheo_backend/app/chatkit_tokens.py). |
 | `ORCHEO_CHATKIT_TOKEN_TTL_SECONDS` | `300` (minimum `60`) | Token lifetime in seconds; values below 60 are coerced up to ensure safety. See [chatkit_tokens.py](../apps/backend/src/orcheo_backend/app/chatkit_tokens.py). |
 | `ORCHEO_CHATKIT_TOKEN_ALGORITHM` | `HS256` | JWT signing algorithm used for ChatKit session tokens. See [chatkit_tokens.py](../apps/backend/src/orcheo_backend/app/chatkit_tokens.py). |
+
+### ChatKit rate-limit tuning
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ORCHEO_CHATKIT_RATE_LIMIT_IP_LIMIT` / `ORCHEO_CHATKIT_RATE_LIMIT_IP_INTERVAL` | `120` / `60` | Per-IP request cap and interval (seconds) enforced by `/api/chatkit`. See [chatkit.py](../apps/backend/src/orcheo_backend/app/routers/chatkit.py) and [chatkit_rate_limit_settings.py](../src/orcheo/config/chatkit_rate_limit_settings.py). |
+| `ORCHEO_CHATKIT_RATE_LIMIT_JWT_LIMIT` / `ORCHEO_CHATKIT_RATE_LIMIT_JWT_INTERVAL` | `120` / `60` | Sliding-window limit for JWT-authenticated requests and its interval (seconds). |
+| `ORCHEO_CHATKIT_RATE_LIMIT_PUBLISH_LIMIT` / `ORCHEO_CHATKIT_RATE_LIMIT_PUBLISH_INTERVAL` | `60` / `60` | Rate limit applied to publish-token authenticated requests and the evaluation window. |
+| `ORCHEO_CHATKIT_RATE_LIMIT_SESSION_LIMIT` / `ORCHEO_CHATKIT_RATE_LIMIT_SESSION_INTERVAL` | `60` / `60` | Limits repeated ChatKit session initialisation attempts per session identifier within the supplied window. |
 
 ## CLI and SDK configuration
 

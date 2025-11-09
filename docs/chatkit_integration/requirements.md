@@ -12,8 +12,8 @@ Publishing, unpublishing, and rotating workflows are initiated through the Orche
 - Let workflow owners publish a workflow and share a public chat URL that works from the open internet.
 - Provide Canvas users with an in-editor chat bubble for rapid testing of the workflow currently being edited.
 - Maintain a single authoritative ChatKit backend contract so both clients behave consistently.
-- Allow owners to revoke or rotate access at any time (unpublish, regenerate token, expire JWTs).
-- Ensure CLI and MCP surfaces expose identical publish/unpublish/rotate workflows so automations and AI copilots can manage sharing without bespoke logic.
+- Allow owners to revoke or change access at any time (unpublish, toggle login requirements, expire JWTs).
+- Ensure CLI and MCP surfaces expose identical publish/unpublish workflows so automations and AI copilots can manage sharing without bespoke logic.
 
 ## Non-goals
 - Building a generic workflow marketplace or discovery surface.
@@ -28,20 +28,20 @@ Publishing, unpublishing, and rotating workflows are initiated through the Orche
 ## User Stories
 | # | Persona | When | I want | So that |
 |---|---------|------|--------|---------|
-| 1 | Creator | I publish a workflow for external testing | Choose whether OAuth login is required and receive a shareable URL (token optional for tooling) | I can control public access without extra tooling |
+| 1 | Creator | I publish a workflow for external testing | Choose whether OAuth login is required and receive a shareable URL | I can control public access without extra tooling |
 | 2 | Creator | A workflow is already public | Unpublish or enable login instantly | Existing links stop working if compromised |
 | 3 | Creator | I am editing a workflow in Canvas | Open a chat bubble scoped to that workflow using my auth context | I can validate behavior without leaving the editor |
 | 4 | Public tester | I open a shared link | Chat with the workflow (authenticating if prompted) and see its name | I can exercise the workflow confidently |
-| 5 | Platform admin | I monitor published workflows | Audit status, tokens, and abuse metrics | I can disable violating workflows quickly |
+| 5 | Platform admin | I monitor published workflows | Audit status and abuse metrics | I can disable violating workflows quickly |
 
 ## Functional Requirements
 - **Publish Workflow**
-  - Introduce explicit "Publish" action (delivered via the CLI and mirrored through the MCP server, with Canvas UX tracked as future work) that flips `workflow.is_public = true`, lets the owner opt into requiring OAuth login, and generates `publish_token` (128-bit random).
-  - Store published metadata: token, published_at, publisher_id, last_rotated_at, `require_login` flag, OAuth client context.
-  - Provide "Unpublish" and "Rotate Token" actions; revocation happens instantly for new sessions while existing chats continue until they naturally complete.
+  - Introduce explicit "Publish" action (delivered via the CLI and mirrored through the MCP server, with Canvas UX tracked as future work) that flips `workflow.is_public = true` and lets the owner opt into requiring OAuth login.
+  - Store published metadata: published_at, publisher_id, `require_login` flag, OAuth client context.
+  - Provide an "Unpublish" action; revocation happens instantly for new sessions while existing chats continue until they naturally complete.
 - **Tooling parity**
-  - CLI commands (`orcheo workflow publish|rotate-token|unpublish`) and MCP tools (`workflows.publish|rotate_publish_token|unpublish`) must share the same command registry, prompts, flag defaults, exit codes/error payloads, and single-display token handling.
-  - `orcheo workflow list/show` output and MCP `list_workflows`/`show_workflow` responses must include identical publish metadata (`is_public`, `require_login`, rotation timestamps, share URL preview) so scripts and AI assistants stay in sync.
+  - CLI commands (`orcheo workflow publish|unpublish`) and MCP tools (`workflows.publish|unpublish`) must share the same command registry, prompts, flag defaults, and exit codes/error payloads.
+  - `orcheo workflow list/show` output and MCP `list_workflows`/`show_workflow` responses must include identical publish metadata (`is_public`, `require_login`, share URL preview) so scripts and AI assistants stay in sync.
 - **Public Chat Page**
   - Route: `${canvas_base_url}/chat/${workflow_id}` with open access for any published workflow; OAuth login remains optional based on the publisher’s preference.
   - Frontend loads the shared ChatKit UI bundle (same as Canvas) and exchanges messages with `${backend_url}/api/chatkit` sending `{workflow_id}` with every request.
@@ -62,9 +62,8 @@ Publishing, unpublishing, and rotating workflows are initiated through the Orche
 
 ## Non-functional Requirements
 - JWT tokens signed with rotating key material; max TTL 5 minutes.
-- Publish tokens (still minted for CLI/back-compat) must be at least 128 bits of entropy; stored hashed server-side even though the public page no longer requires them.
 - Endpoint enforces per-IP/per-workflow rate limits (reusing the existing middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`) and exports metrics for Platform Admin abuse monitoring runbooks; CAPTCHA or other challenge flows are future work.
-- Logging must redact publish tokens and JWTs.
+- Logging must redact JWTs.
 - CI continues to enforce 95% overall / 100% diff test coverage.
 - Chat transcripts (public and Canvas) persist indefinitely unless retention policy changes; stored alongside other ChatKit sessions.
 

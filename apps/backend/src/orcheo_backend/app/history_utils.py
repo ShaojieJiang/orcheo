@@ -1,12 +1,14 @@
 """Helpers for converting run history data into API responses."""
 
 from __future__ import annotations
+from orcheo.models import CredentialHealthStatus
 from orcheo.vault.oauth import CredentialHealthReport
 from orcheo_backend.app.history import RunHistoryRecord
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialHealthItem,
     CredentialHealthResponse,
-    CredentialHealthStatus,
+)
+from orcheo_backend.app.schemas.runs import (
     RunHistoryResponse,
     RunHistoryStepResponse,
 )

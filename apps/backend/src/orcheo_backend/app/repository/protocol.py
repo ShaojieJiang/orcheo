@@ -62,20 +62,10 @@ class WorkflowRepository(Protocol):
         self,
         workflow_id: UUID,
         *,
-        publish_token_hash: str,
         require_login: bool,
         actor: str,
     ) -> Workflow:
-        """Mark the workflow as public with the provided publish token hash."""
-
-    async def rotate_publish_token(
-        self,
-        workflow_id: UUID,
-        *,
-        publish_token_hash: str,
-        actor: str,
-    ) -> Workflow:
-        """Rotate the publish token for a workflow."""
+        """Mark the workflow as public."""
 
     async def revoke_publish(self, workflow_id: UUID, *, actor: str) -> Workflow:
         """Revoke public access for the workflow."""

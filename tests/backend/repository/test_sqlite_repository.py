@@ -150,10 +150,10 @@ async def test_sqlite_ensure_initialized_concurrent_calls(
 
 
 @pytest.mark.asyncio()
-async def test_sqlite_publish_rotate_revoke_workflow_lifecycle(
+async def test_sqlite_publish_revoke_workflow_lifecycle(
     tmp_path: pathlib.Path,
 ) -> None:
-    """publish/rotate/revoke roundtrip persists workflow state."""
+    """publish/revoke roundtrip persists workflow state."""
 
     db_path = tmp_path / "publish.sqlite"
     repository = SqliteWorkflowRepository(db_path)
@@ -168,26 +168,16 @@ async def test_sqlite_publish_rotate_revoke_workflow_lifecycle(
         )
         published = await repository.publish_workflow(
             workflow.id,
-            publish_token_hash="hash-1",
             require_login=True,
             actor="author",
         )
         assert published.is_public is True
         assert published.require_login is True
         stored = await repository.get_workflow(workflow.id)
-        assert stored.publish_token_hash == "hash-1"
-
-        rotated = await repository.rotate_publish_token(
-            workflow.id,
-            publish_token_hash="hash-2",
-            actor="auditor",
-        )
-        assert rotated.publish_token_hash == "hash-2"
-        assert rotated.publish_token_rotated_at is not None
+        assert stored.is_public is True
 
         revoked = await repository.revoke_publish(workflow.id, actor="auditor")
         assert revoked.is_public is False
-        assert revoked.publish_token_hash is None
     finally:
         await repository.reset()
 
@@ -211,7 +201,6 @@ async def test_sqlite_publish_workflow_translates_value_error(
         )
         await repository.publish_workflow(
             workflow.id,
-            publish_token_hash="hash-1",
             require_login=False,
             actor="author",
         )
@@ -219,7 +208,6 @@ async def test_sqlite_publish_workflow_translates_value_error(
         with pytest.raises(WorkflowPublishStateError):
             await repository.publish_workflow(
                 workflow.id,
-                publish_token_hash="hash-2",
                 require_login=False,
                 actor="author",
             )
@@ -228,10 +216,10 @@ async def test_sqlite_publish_workflow_translates_value_error(
 
 
 @pytest.mark.asyncio()
-async def test_sqlite_rotate_and_revoke_require_published_state(
+async def test_sqlite_revoke_requires_published_state(
     tmp_path: pathlib.Path,
 ) -> None:
-    """rotate/revoke propagate WorkflowPublishStateError when unpublished."""
+    """Revoke propagates WorkflowPublishStateError when unpublished."""
 
     db_path = tmp_path / "publish-invalid.sqlite"
     repository = SqliteWorkflowRepository(db_path)
@@ -244,13 +232,6 @@ async def test_sqlite_rotate_and_revoke_require_published_state(
             tags=None,
             actor="author",
         )
-
-        with pytest.raises(WorkflowPublishStateError):
-            await repository.rotate_publish_token(
-                workflow.id,
-                publish_token_hash="hash",
-                actor="author",
-            )
 
         with pytest.raises(WorkflowPublishStateError):
             await repository.revoke_publish(workflow.id, actor="author")
