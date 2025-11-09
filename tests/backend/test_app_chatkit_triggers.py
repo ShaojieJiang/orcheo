@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -13,11 +14,14 @@ from orcheo.vault.oauth import (
     CredentialHealthResult,
 )
 from orcheo_backend.app import trigger_chatkit_workflow
+from orcheo_backend.app.authentication import AuthorizationPolicy
+from orcheo_backend.app.authentication.context import RequestContext
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import ChatKitWorkflowTriggerRequest
+from orcheo_backend.app.routers import chatkit as chatkit_router
+from orcheo_backend.app.schemas.chatkit import ChatKitWorkflowTriggerRequest
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:
@@ -36,6 +40,13 @@ def _health_error(workflow_id: UUID) -> CredentialHealthError:
         checked_at=datetime.now(tz=UTC),
     )
     return CredentialHealthError(report)
+
+
+def _authenticated_policy(subject: str = "tester") -> AuthorizationPolicy:
+    """Return an authorization policy representing an authenticated identity."""
+
+    context = RequestContext(subject=subject, identity_type="user")
+    return AuthorizationPolicy(context)
 
 
 @pytest.mark.asyncio()
@@ -75,7 +86,12 @@ async def test_trigger_chatkit_workflow_creates_run() -> None:
         actor="user@example.com",
     )
 
-    result = await trigger_chatkit_workflow(workflow_id, request, Repository())
+    result = await trigger_chatkit_workflow(
+        workflow_id,
+        request,
+        Repository(),
+        _authenticated_policy(),
+    )
 
     assert result.id == run_id
     assert result.triggered_by == "user@example.com"
@@ -98,7 +114,12 @@ async def test_trigger_chatkit_workflow_missing_workflow() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await trigger_chatkit_workflow(workflow_id, request, Repository())
+        await trigger_chatkit_workflow(
+            workflow_id,
+            request,
+            Repository(),
+            _authenticated_policy(),
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -133,7 +154,12 @@ async def test_trigger_chatkit_workflow_credential_health_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await trigger_chatkit_workflow(workflow_id, request, Repository())
+        await trigger_chatkit_workflow(
+            workflow_id,
+            request,
+            Repository(),
+            _authenticated_policy(),
+        )
 
     assert exc_info.value.status_code == 422
 
@@ -170,7 +196,12 @@ async def test_trigger_chatkit_workflow_handles_missing_run_workflow() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await trigger_chatkit_workflow(workflow_id, request, Repository())
+        await trigger_chatkit_workflow(
+            workflow_id,
+            request,
+            Repository(),
+            _authenticated_policy(),
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -206,7 +237,61 @@ async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
         actor="user@example.com",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await trigger_chatkit_workflow(workflow_id, request, Repository())
+    with pytest.raises(HTTPException):
+        await trigger_chatkit_workflow(
+            workflow_id,
+            request,
+            Repository(),
+            _authenticated_policy(),
+        )
 
-    assert exc_info.value.status_code == 404
+
+@pytest.mark.asyncio()
+async def test_trigger_chatkit_workflow_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unauthenticated requests to the trigger endpoint are rejected."""
+
+    workflow_id = uuid4()
+
+    monkeypatch.setattr(
+        chatkit_router,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+
+    class Repository:
+        async def get_latest_version(self, wf_id):
+            return WorkflowVersion(
+                id=uuid4(),
+                workflow_id=wf_id,
+                version=1,
+                graph={},
+                created_by="system",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+        async def create_run(
+            self, wf_id, workflow_version_id, triggered_by, input_payload
+        ):
+            return WorkflowRun(
+                id=uuid4(),
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=input_payload,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = ChatKitWorkflowTriggerRequest(message="Hello")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_chatkit_workflow(
+            workflow_id,
+            request,
+            Repository(),
+            AuthorizationPolicy(RequestContext.anonymous()),
+        )
+
+    assert exc_info.value.status_code == 401

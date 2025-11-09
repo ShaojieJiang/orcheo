@@ -67,3 +67,29 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  .react-flow__controls {
+    @apply flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 text-slate-700 shadow-lg backdrop-blur-sm;
+  }
+
+  .react-flow__controls-button {
+    @apply flex h-10 w-10 items-center justify-center border-b border-slate-200/70 text-slate-700 transition-colors duration-200 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+
+  .react-flow__controls-button:last-child {
+    @apply border-b-0;
+  }
+
+  .react-flow__controls-button svg {
+    @apply text-current;
+  }
+
+  .dark .react-flow__controls {
+    @apply border-slate-800/80 bg-slate-900/90 text-slate-200 shadow-[0_18px_40px_rgba(0,0,0,0.65)];
+  }
+
+  .dark .react-flow__controls-button {
+    @apply border-slate-800/70 text-slate-400 hover:bg-slate-800 focus-visible:ring-slate-300/40 focus-visible:ring-offset-slate-900;
+  }
+}

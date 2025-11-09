@@ -18,7 +18,7 @@ from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
 )
 from orcheo_backend.app.errors import raise_not_found, raise_scope_error
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialCreateRequest,
     CredentialVaultEntryResponse,
 )

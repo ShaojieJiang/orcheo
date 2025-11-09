@@ -18,15 +18,15 @@ from orcheo_backend.app.repository import (
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.runs import (
     RunActionRequest,
     RunCancelRequest,
     RunFailRequest,
     RunHistoryResponse,
     RunReplayRequest,
     RunSucceedRequest,
-    WorkflowRunCreateRequest,
 )
+from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 
 
 router = APIRouter()

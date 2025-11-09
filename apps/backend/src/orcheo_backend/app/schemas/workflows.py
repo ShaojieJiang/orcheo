@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
+from orcheo.models.workflow import Workflow
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -72,3 +73,23 @@ class WorkflowVersionDiffResponse(BaseModel):
     base_version: int
     target_version: int
     diff: list[str]
+
+
+class WorkflowPublishRequest(BaseModel):
+    """Payload for publishing a workflow."""
+
+    require_login: bool = False
+    actor: str = Field(default="system")
+
+
+class WorkflowPublishRevokeRequest(BaseModel):
+    """Payload for revoking workflow publication."""
+
+    actor: str = Field(default="system")
+
+
+class WorkflowPublishResponse(BaseModel):
+    """Response payload for publish actions."""
+
+    workflow: Workflow
+    message: str | None = None

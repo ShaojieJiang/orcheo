@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.utility import JavaScriptSandboxNode
+from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 
 
 # Ensure py_mini_racer is importable in test environments without the dependency

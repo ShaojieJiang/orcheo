@@ -58,6 +58,18 @@ class WorkflowRepository(Protocol):
     async def archive_workflow(self, workflow_id: UUID, *, actor: str) -> Workflow:
         """Archive the specified workflow."""
 
+    async def publish_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        require_login: bool,
+        actor: str,
+    ) -> Workflow:
+        """Mark the workflow as public."""
+
+    async def revoke_publish(self, workflow_id: UUID, *, actor: str) -> Workflow:
+        """Revoke public access for the workflow."""
+
     async def create_version(
         self,
         workflow_id: UUID,

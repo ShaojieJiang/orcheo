@@ -13,6 +13,24 @@ def test_get_api_client_with_env_vars(mock_env: None) -> None:
     assert client.base_url == "http://api.test"
     assert settings.api_url == "http://api.test"
     assert settings.service_token == "test-token"
+    assert settings.chatkit_public_base_url is None
+    assert client.public_base_url is None
+
+
+def test_get_api_client_uses_public_base(
+    mock_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ChatKit public base URL overrides share links."""
+    from orcheo_sdk.mcp_server.config import get_api_client
+
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
+        "https://canvas.example",
+    )
+
+    client, settings = get_api_client()
+    assert settings.chatkit_public_base_url == "https://canvas.example"
+    assert client.public_base_url == "https://canvas.example"
 
 
 def test_get_api_client_missing_url(monkeypatch: pytest.MonkeyPatch) -> None:

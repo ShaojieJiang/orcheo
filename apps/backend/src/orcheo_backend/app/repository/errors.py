@@ -19,9 +19,14 @@ class WorkflowRunNotFoundError(RepositoryError):
     """Raised when attempting to access an unknown workflow run."""
 
 
+class WorkflowPublishStateError(RepositoryError):
+    """Raised when publish state transitions are invalid."""
+
+
 __all__ = [
     "RepositoryError",
     "WorkflowNotFoundError",
     "WorkflowVersionNotFoundError",
     "WorkflowRunNotFoundError",
+    "WorkflowPublishStateError",
 ]

@@ -2,7 +2,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from RestrictedPython.PrintCollector import PrintCollector
 from orcheo.graph.state import State
-from orcheo.nodes.utility import PythonSandboxNode
+from orcheo.nodes.python_sandbox import PythonSandboxNode
 
 
 @pytest.mark.asyncio

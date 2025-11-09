@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import cast
 from pydantic import BaseModel, Field, field_validator, model_validator
+from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.types import CheckpointBackend, RepositoryBackend
 from orcheo.config.vault_settings import VaultSettings
@@ -29,6 +30,9 @@ class AppSettings(BaseModel):
     )
     chatkit_retention_days: int = Field(
         default=cast(int, _DEFAULTS["CHATKIT_RETENTION_DAYS"]), gt=0
+    )
+    chatkit_rate_limits: ChatKitRateLimitSettings = Field(
+        default_factory=ChatKitRateLimitSettings
     )
     postgres_dsn: str | None = None
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
@@ -131,6 +135,8 @@ class AppSettings(BaseModel):
         )
         if self.chatkit_retention_days <= 0:  # pragma: no cover - defensive
             self.chatkit_retention_days = cast(int, _DEFAULTS["CHATKIT_RETENTION_DAYS"])
+        if not isinstance(self.chatkit_rate_limits, ChatKitRateLimitSettings):
+            self.chatkit_rate_limits = ChatKitRateLimitSettings()
         self.host = self.host or cast(str, _DEFAULTS["HOST"])
         return self
 

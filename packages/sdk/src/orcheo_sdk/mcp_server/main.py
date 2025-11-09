@@ -48,6 +48,8 @@ _MODULE_EXPORTS: tuple[tuple[object, tuple[str, ...]], ...] = (
             "delete_workflow",
             "upload_workflow",
             "download_workflow",
+            "publish_workflow",
+            "unpublish_workflow",
         ),
     ),
     (_node_tools, ("list_nodes", "show_node")),

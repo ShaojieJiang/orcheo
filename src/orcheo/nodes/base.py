@@ -54,16 +54,14 @@ class BaseNode(BaseModel):
         path_str = value.strip("{}").strip()
         path_parts = path_str.split(".")
 
-        # Start from state["results"] for backwards compatibility
-        # unless the path explicitly starts with "results"
-        if path_parts[0] == "results":
-            result: Any = state
-        else:
-            result = state.get("results", {})
-
-        for part in path_parts:
-            if isinstance(result, dict):
+        result: Any = state
+        for index, part in enumerate(path_parts):
+            if isinstance(result, dict) and part in result:
                 result = result.get(part)
+                continue
+            fallback = self._fallback_to_results(path_parts, index, state)
+            if fallback is not None:
+                result = fallback
                 continue
             logger.warning(
                 "Node %s could not resolve template '%s' at segment '%s'; "
@@ -74,6 +72,20 @@ class BaseNode(BaseModel):
             )
             return value
         return result
+
+    @staticmethod
+    def _fallback_to_results(
+        path_parts: list[str],
+        index: int,
+        state: State,
+    ) -> Any | None:
+        """Return a fallback lookup within ``state['results']`` when applicable."""
+        if index != 0 or path_parts[0] == "results":
+            return None
+        results = state.get("results")
+        if not isinstance(results, dict):
+            return None
+        return results.get(path_parts[index])
 
     def _resolve_credential_reference(self, reference: CredentialReference) -> Any:
         """Return the materialised value for ``reference`` or raise an error."""

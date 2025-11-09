@@ -58,7 +58,8 @@ async def test_match_static_key_with_mismatched_kid() -> None:
     authenticator = Authenticator(settings, token_manager)
 
     # Try to match with wrong kid
-    key = authenticator._match_static_key("wrong-kid", "RS256")  # noqa: SLF001
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
+    key = jwt_auth._match_static_key("wrong-kid", "RS256")  # noqa: SLF001
 
     # Should return None
     assert key is None
@@ -105,7 +106,8 @@ async def test_match_static_key_with_mismatched_algorithm() -> None:
     authenticator = Authenticator(settings, token_manager)
 
     # Try to match with wrong algorithm
-    key = authenticator._match_static_key("test-kid", "RS384")  # noqa: SLF001
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
+    key = jwt_auth._match_static_key("test-kid", "RS384")  # noqa: SLF001
 
     # Should return None
     assert key is None
@@ -140,7 +142,8 @@ async def test_resolve_signing_key_returns_none_when_no_jwks_cache() -> None:
     authenticator = Authenticator(settings, token_manager)
 
     # Should return None when no static keys and no JWKS URL
-    key = await authenticator._resolve_signing_key({"kid": "test", "alg": "RS256"})  # noqa: SLF001
+    jwt_auth = authenticator._jwt_authenticator  # noqa: SLF001
+    key = await jwt_auth._resolve_signing_key({"kid": "test", "alg": "RS256"})  # noqa: SLF001
 
     assert key is None
 
@@ -174,4 +177,4 @@ def test_resolve_signing_key_without_jwks_cache() -> None:
     authenticator = Authenticator(settings, token_manager)
 
     # Verify no cache exists
-    assert authenticator._jwks_cache is None
+    assert authenticator._jwt_authenticator.jwks_cache is None  # noqa: SLF001

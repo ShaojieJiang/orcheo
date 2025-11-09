@@ -1,12 +1,16 @@
 from __future__ import annotations
 import asyncio
+import pathlib
 from datetime import UTC, datetime
 import pytest
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
-from orcheo_backend.app.repository import SqliteWorkflowRepository
+from orcheo_backend.app.repository import (
+    SqliteWorkflowRepository,
+    WorkflowPublishStateError,
+)
 
 
 @pytest.mark.asyncio()
@@ -141,5 +145,95 @@ async def test_sqlite_ensure_initialized_concurrent_calls(
             repository._ensure_initialized(),  # noqa: SLF001
         )
         assert repository._initialized is True  # noqa: SLF001
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_publish_revoke_workflow_lifecycle(
+    tmp_path: pathlib.Path,
+) -> None:
+    """publish/revoke roundtrip persists workflow state."""
+
+    db_path = tmp_path / "publish.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Lifecycle",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        published = await repository.publish_workflow(
+            workflow.id,
+            require_login=True,
+            actor="author",
+        )
+        assert published.is_public is True
+        assert published.require_login is True
+        stored = await repository.get_workflow(workflow.id)
+        assert stored.is_public is True
+
+        revoked = await repository.revoke_publish(workflow.id, actor="auditor")
+        assert revoked.is_public is False
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_publish_workflow_translates_value_error(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Publishing an already public workflow reports WorkflowPublishStateError."""
+
+    db_path = tmp_path / "publish-conflict.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Conflict",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.publish_workflow(
+            workflow.id,
+            require_login=False,
+            actor="author",
+        )
+
+        with pytest.raises(WorkflowPublishStateError):
+            await repository.publish_workflow(
+                workflow.id,
+                require_login=False,
+                actor="author",
+            )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_revoke_requires_published_state(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Revoke propagates WorkflowPublishStateError when unpublished."""
+
+    db_path = tmp_path / "publish-invalid.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Rotate Revoke",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+
+        with pytest.raises(WorkflowPublishStateError):
+            await repository.revoke_publish(workflow.id, actor="author")
     finally:
         await repository.reset()

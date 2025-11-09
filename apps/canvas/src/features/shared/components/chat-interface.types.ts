@@ -25,6 +25,7 @@ export interface ChatInterfaceProps {
   user: ChatParticipant;
   ai: ChatParticipant;
   backendBaseUrl?: string;
+  workflowId?: string | null;
   sessionPayload?: Record<string, unknown>;
   getClientSecret?: (currentSecret: string | null) => Promise<string>;
   chatkitOptions?: Partial<UseChatKitOptions>;

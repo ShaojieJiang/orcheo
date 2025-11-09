@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { buildBackendHttpUrl } from "@/lib/config";
 import type {
@@ -6,6 +6,13 @@ import type {
   NodeData,
   NodeStatus,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
+import {
+  requestWorkflowChatSession,
+  type WorkflowChatSession,
+} from "@features/chatkit/lib/workflow-session";
+import { recordChatTelemetry } from "@features/chatkit/lib/telemetry";
+
+export type ChatSessionStatus = "idle" | "loading" | "ready" | "error";
 
 type UseWorkflowChatArgs = {
   nodesRef: React.MutableRefObject<CanvasNode[]>;
@@ -14,6 +21,8 @@ type UseWorkflowChatArgs = {
   backendBaseUrl: string | null;
   userName: string;
 };
+
+const SESSION_REFRESH_BUFFER_MS = 30_000;
 
 export const useWorkflowChat = ({
   nodesRef,
@@ -25,6 +34,97 @@ export const useWorkflowChat = ({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatNodeId, setActiveChatNodeId] = useState<string | null>(null);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const [sessionStatus, setSessionStatus] = useState<ChatSessionStatus>("idle");
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const sessionRef = useRef<WorkflowChatSession | null>(null);
+  const pendingSessionRef = useRef<Promise<string> | null>(null);
+  const previousWorkflowIdRef = useRef<string | null | undefined>(workflowId);
+
+  const resetSession = useCallback(() => {
+    sessionRef.current = null;
+    pendingSessionRef.current = null;
+    setSessionStatus("idle");
+    setSessionError(null);
+  }, []);
+
+  useEffect(() => {
+    if (workflowId === previousWorkflowIdRef.current) {
+      return;
+    }
+    previousWorkflowIdRef.current = workflowId;
+    resetSession();
+  }, [resetSession, workflowId]);
+
+  const isSessionValid = useCallback((session: WorkflowChatSession | null) => {
+    if (!session?.clientSecret) {
+      return false;
+    }
+    if (!session.expiresAt) {
+      return true;
+    }
+    return Date.now() + SESSION_REFRESH_BUFFER_MS < session.expiresAt;
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    if (!workflowId) {
+      const message = "Save the workflow before opening ChatKit.";
+      setSessionStatus("error");
+      setSessionError(message);
+      recordChatTelemetry("canvas.chat.session.failure", {
+        reason: "missing_workflow",
+      });
+      throw new Error(message);
+    }
+
+    if (pendingSessionRef.current) {
+      return pendingSessionRef.current;
+    }
+
+    const pending = (async () => {
+      setSessionStatus("loading");
+      setSessionError(null);
+      try {
+        const session = await requestWorkflowChatSession(
+          workflowId,
+          backendBaseUrl ?? undefined,
+        );
+        sessionRef.current = session;
+        setSessionStatus("ready");
+        recordChatTelemetry("canvas.chat.session.success", { workflowId });
+        return session.clientSecret;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to start a ChatKit session.";
+        setSessionStatus("error");
+        setSessionError(message);
+        sessionRef.current = null;
+        recordChatTelemetry("canvas.chat.session.failure", {
+          workflowId,
+          message,
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        pendingSessionRef.current = null;
+      }
+    })();
+
+    pendingSessionRef.current = pending;
+    return pending;
+  }, [backendBaseUrl, workflowId]);
+
+  const getClientSecret = useCallback(
+    async (currentSecret: string | null) => {
+      void currentSecret;
+      const reusableSession = sessionRef.current;
+      if (reusableSession && isSessionValid(reusableSession)) {
+        return reusableSession.clientSecret;
+      }
+      return refreshSession();
+    },
+    [isSessionValid, refreshSession],
+  );
 
   const handleOpenChat = useCallback(
     (nodeId: string) => {
@@ -33,10 +133,21 @@ export const useWorkflowChat = ({
         setChatTitle(chatNode.data.label || "Chat");
         setActiveChatNodeId(nodeId);
         setIsChatOpen(true);
+        recordChatTelemetry("canvas.chat.open", {
+          workflowId,
+          nodeId,
+        });
+        void refreshSession();
       }
     },
-    [nodesRef],
+    [nodesRef, refreshSession, workflowId],
   );
+
+  const handleCloseChat = useCallback(() => {
+    setIsChatOpen(false);
+    setActiveChatNodeId(null);
+    recordChatTelemetry("canvas.chat.close", { workflowId });
+  }, [workflowId]);
 
   const handleChatResponseStart = useCallback(() => {
     if (!activeChatNodeId) {
@@ -158,9 +269,16 @@ export const useWorkflowChat = ({
     chatTitle,
     setChatTitle,
     handleOpenChat,
+    handleCloseChat,
     handleChatResponseStart,
     handleChatResponseEnd,
     handleChatClientTool,
     attachChatHandlerToNode,
+    getClientSecret,
+    refreshSession,
+    sessionStatus,
+    sessionError,
+    workflowId: workflowId ?? null,
+    backendBaseUrl,
   };
 };

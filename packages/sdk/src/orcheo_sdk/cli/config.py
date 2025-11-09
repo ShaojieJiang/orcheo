@@ -12,6 +12,7 @@ CONFIG_DIR_ENV = "ORCHEO_CONFIG_DIR"
 CACHE_DIR_ENV = "ORCHEO_CACHE_DIR"
 PROFILE_ENV = "ORCHEO_PROFILE"
 API_URL_ENV = "ORCHEO_API_URL"
+CHATKIT_PUBLIC_BASE_URL_ENV = "ORCHEO_CHATKIT_PUBLIC_BASE_URL"
 SERVICE_TOKEN_ENV = "ORCHEO_SERVICE_TOKEN"
 CONFIG_FILENAME = "cli.toml"
 DEFAULT_PROFILE = "default"
@@ -25,6 +26,7 @@ class CLISettings:
     service_token: str | None
     profile: str | None
     offline: bool = False
+    chatkit_public_base_url: str | None = None
 
 
 def get_config_dir() -> Path:
@@ -81,10 +83,14 @@ def resolve_settings(
         or os.getenv(SERVICE_TOKEN_ENV)
         or profile_data.get("service_token")
     )
+    resolved_public_base_url = os.getenv(
+        CHATKIT_PUBLIC_BASE_URL_ENV
+    ) or profile_data.get("chatkit_public_base_url")
 
     return CLISettings(
         api_url=resolved_api_url,
         service_token=resolved_token,
         profile=profile_name,
         offline=offline,
+        chatkit_public_base_url=resolved_public_base_url,
     )

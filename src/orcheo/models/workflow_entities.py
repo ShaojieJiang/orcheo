@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
 from orcheo.models.base import TimestampedAuditModel, _utcnow
@@ -30,14 +30,59 @@ def _slugify(value: str) -> str:
     return normalized or value.strip().lower() or str(uuid4())
 
 
+class WorkflowPublishMetadata(TypedDict):
+    """Audit metadata for workflow publish events."""
+
+    require_login: bool
+
+
+class WorkflowUnpublishedMetadata(TypedDict):
+    """Audit metadata for workflow unpublish events."""
+
+    require_login: bool
+
+
+class WorkflowRunFailedMetadata(TypedDict):
+    """Audit metadata captured when a workflow run fails."""
+
+    error: str
+
+
+class WorkflowRunCancelledMetadata(TypedDict, total=False):
+    """Audit metadata captured when a workflow run is cancelled."""
+
+    reason: NotRequired[str]
+
+
 class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
-    name: str
+    name: str = Field(min_length=1, max_length=128)
     slug: str = ""
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     is_archived: bool = False
+    is_public: bool = False
+    published_at: datetime | None = None
+    published_by: str | None = None
+    require_login: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _normalize_name(cls, value: object) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            msg = "Workflow name must not be empty."
+            raise ValueError(msg)
+        return candidate
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _normalize_description(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        return candidate or None
 
     @field_validator("tags", mode="after")
     @classmethod
@@ -60,6 +105,51 @@ class Workflow(TimestampedAuditModel):
             raise ValueError(msg)
         object.__setattr__(self, "slug", _slugify(slug_source))
         return self
+
+    # -- Publish management -------------------------------------------------
+    def publish(
+        self,
+        *,
+        require_login: bool,
+        actor: str,
+    ) -> None:
+        """Mark the workflow as publicly accessible."""
+        if self.is_public:
+            msg = "Workflow is already published."
+            raise ValueError(msg)
+
+        now = _utcnow()
+        metadata: WorkflowPublishMetadata = {
+            "require_login": require_login,
+        }
+        self.is_public = True
+        self.published_at = now
+        self.published_by = actor
+        self.require_login = require_login
+        self.record_event(
+            actor=actor,
+            action="workflow_published",
+            metadata=metadata,
+        )
+
+    def revoke_publish(self, *, actor: str) -> None:
+        """Revoke public access to the workflow."""
+        if not self.is_public:
+            msg = "Workflow is not currently published."
+            raise ValueError(msg)
+
+        metadata: WorkflowUnpublishedMetadata = {
+            "require_login": self.require_login,
+        }
+        self.is_public = False
+        self.published_at = None
+        self.published_by = None
+        self.require_login = False
+        self.record_event(
+            actor=actor,
+            action="workflow_unpublished",
+            metadata=metadata,
+        )
 
 
 class WorkflowVersion(TimestampedAuditModel):
@@ -142,7 +232,8 @@ class WorkflowRun(TimestampedAuditModel):
         self.status = WorkflowRunStatus.FAILED
         self.completed_at = _utcnow()
         self.error = error
-        self.record_event(actor=actor, action="run_failed", metadata={"error": error})
+        metadata: WorkflowRunFailedMetadata = {"error": error}
+        self.record_event(actor=actor, action="run_failed", metadata=metadata)
 
     def mark_cancelled(self, *, actor: str, reason: str | None = None) -> None:
         """Cancel the run from a non-terminal state."""
@@ -152,7 +243,7 @@ class WorkflowRun(TimestampedAuditModel):
         self.status = WorkflowRunStatus.CANCELLED
         self.completed_at = _utcnow()
         self.error = reason
-        metadata: dict[str, Any] = {}
+        metadata: WorkflowRunCancelledMetadata = {}
         if reason:
             metadata["reason"] = reason
         self.record_event(actor=actor, action="run_cancelled", metadata=metadata)

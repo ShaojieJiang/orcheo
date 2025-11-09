@@ -2,7 +2,7 @@ import copy
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.utility import SubWorkflowNode
+from orcheo.nodes.sub_workflow import SubWorkflowNode
 
 
 @pytest.mark.asyncio

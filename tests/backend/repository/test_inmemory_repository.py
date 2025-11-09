@@ -1,10 +1,13 @@
 from __future__ import annotations
 from datetime import UTC, datetime
+from uuid import uuid4
 import pytest
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
+    WorkflowNotFoundError,
+    WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
 
@@ -91,3 +94,66 @@ async def test_inmemory_cron_dispatch_skips_missing_versions() -> None:
         now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
     )
     assert runs == []
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_publish_workflow_missing_id_raises_not_found() -> None:
+    """publish_workflow raises WorkflowNotFoundError for unknown IDs."""
+
+    repository = InMemoryWorkflowRepository()
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.publish_workflow(
+            uuid4(),
+            require_login=False,
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_publish_workflow_translates_value_errors() -> None:
+    """ValueError from Workflow.publish is surfaced as WorkflowPublishStateError."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Publish Twice", slug=None, description=None, tags=None, actor="tester"
+    )
+    await repository.publish_workflow(
+        workflow.id,
+        require_login=False,
+        actor="tester",
+    )
+
+    with pytest.raises(WorkflowPublishStateError):
+        await repository.publish_workflow(
+            workflow.id,
+            require_login=False,
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_revoke_publish_missing_workflow() -> None:
+    """revoke_publish raises WorkflowNotFoundError for unknown workflows."""
+
+    repository = InMemoryWorkflowRepository()
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.revoke_publish(uuid4(), actor="tester")
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_revoke_publish_requires_published_state() -> None:
+    """revoke_publish also translates invalid state errors."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Revoke",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    with pytest.raises(WorkflowPublishStateError):
+        await repository.revoke_publish(workflow.id, actor="tester")

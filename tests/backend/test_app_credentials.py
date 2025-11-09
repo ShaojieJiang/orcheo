@@ -80,7 +80,7 @@ def test_create_credential_success() -> None:
     """Create credential endpoint creates and returns credential."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import create_credential
-    from orcheo_backend.app.schemas import CredentialCreateRequest
+    from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
 
     cred_id = uuid4()
 
@@ -120,7 +120,7 @@ def test_create_credential_success() -> None:
 def test_create_credential_validation_error() -> None:
     """Create credential handles validation errors."""
     from orcheo_backend.app import create_credential
-    from orcheo_backend.app.schemas import CredentialCreateRequest
+    from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
 
     class Vault:
         def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
@@ -146,7 +146,7 @@ def test_create_credential_access_override() -> None:
     """Create credential overrides access when request differs from inferred."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import create_credential
-    from orcheo_backend.app.schemas import CredentialCreateRequest
+    from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
 
     cred_id = uuid4()
     workflow_id = uuid4()

@@ -12,7 +12,7 @@ from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
 )
-from orcheo_backend.app.schemas import WorkflowVersionIngestRequest
+from orcheo_backend.app.schemas.workflows import WorkflowVersionIngestRequest
 
 
 def test_ingest_workflow_version_endpoint_creates_version() -> None:

@@ -81,11 +81,36 @@ def download_workflow(
     )
 
 
+@mcp.tool()
+def publish_workflow(
+    workflow_id: str,
+    require_login: bool = False,
+    profile: str | None = None,
+) -> dict:
+    """Publish a workflow for ChatKit access."""
+    return tools.publish_workflow(
+        workflow_id=workflow_id,
+        require_login=require_login,
+        profile=profile,
+    )
+
+
+@mcp.tool()
+def unpublish_workflow(
+    workflow_id: str,
+    profile: str | None = None,
+) -> dict:
+    """Revoke public ChatKit access for a workflow."""
+    return tools.unpublish_workflow(workflow_id=workflow_id, profile=profile)
+
+
 __all__ = [
     "delete_workflow",
     "download_workflow",
     "list_workflows",
+    "publish_workflow",
     "run_workflow",
     "show_workflow",
     "upload_workflow",
+    "unpublish_workflow",
 ]

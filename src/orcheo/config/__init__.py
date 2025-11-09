@@ -1,6 +1,7 @@
 """Runtime configuration helpers for Orcheo."""
 
 from orcheo.config.app_settings import AppSettings
+from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.loader import (
     _build_loader,
@@ -14,6 +15,7 @@ from orcheo.config.vault_settings import VaultSettings
 
 __all__ = [
     "AppSettings",
+    "ChatKitRateLimitSettings",
     "VaultSettings",
     "CheckpointBackend",
     "RepositoryBackend",

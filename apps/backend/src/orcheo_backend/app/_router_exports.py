@@ -1,6 +1,9 @@
+# mypy: ignore-errors
 """Router-level exports for :mod:`orcheo_backend.app`."""
 
 from __future__ import annotations
+from collections.abc import Callable
+from typing import Any
 from orcheo_backend.app.routers import (
     chatkit as _chatkit_routes,
 )
@@ -31,9 +34,15 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers.websocket import workflow_websocket
 
 
-chatkit_gateway = _chatkit_routes.chatkit_gateway
-create_chatkit_session_endpoint = _chatkit_routes.create_chatkit_session_endpoint
-trigger_chatkit_workflow = _chatkit_routes.trigger_chatkit_workflow
+chatkit_gateway: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.chatkit_gateway
+)
+create_chatkit_session_endpoint: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.create_chatkit_session_endpoint
+)
+trigger_chatkit_workflow: Callable[..., Any] = (  # type: ignore[assignment]
+    _chatkit_routes.trigger_chatkit_workflow
+)
 _resolve_chatkit_workspace_id = _chatkit_routes._resolve_chatkit_workspace_id
 
 list_credentials = _credentials_routes.list_credentials
@@ -62,6 +71,9 @@ create_workflow = _workflows_routes.create_workflow
 get_workflow = _workflows_routes.get_workflow
 update_workflow = _workflows_routes.update_workflow
 archive_workflow = _workflows_routes.archive_workflow
+publish_workflow = _workflows_routes.publish_workflow
+revoke_workflow_publish = _workflows_routes.revoke_workflow_publish
+create_workflow_chatkit_session = _workflows_routes.create_workflow_chatkit_session
 create_workflow_version = _workflows_routes.create_workflow_version
 ingest_workflow_version = _workflows_routes.ingest_workflow_version
 list_workflow_versions = _workflows_routes.list_workflow_versions
@@ -92,6 +104,9 @@ execute_node_endpoint = _nodes_routes.execute_node_endpoint
 __all__ = [
     "acknowledge_governance_alert",
     "archive_workflow",
+    "publish_workflow",
+    "revoke_workflow_publish",
+    "create_workflow_chatkit_session",
     "chatkit_gateway",
     "configure_cron_trigger",
     "configure_webhook_trigger",

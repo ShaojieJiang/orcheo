@@ -1,13 +1,19 @@
 """Application factory for the Orcheo FastAPI service."""
 
 from __future__ import annotations
+import json
+import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from orcheo.vault.oauth import OAuthCredentialService
-from orcheo_backend.app.authentication import authenticate_request
+from orcheo_backend.app.authentication import (
+    AuthenticationError,
+    authenticate_request,
+)
 from orcheo_backend.app.chatkit_runtime import (
     cancel_chatkit_cleanup_task,
     ensure_chatkit_cleanup_task,
@@ -27,9 +33,7 @@ from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
-    chatkit as chatkit_router,
-)
-from orcheo_backend.app.routers import (
+    auth,
     credential_alerts,
     credential_health,
     credential_templates,
@@ -39,6 +43,9 @@ from orcheo_backend.app.routers import (
     triggers,
     websocket,
     workflows,
+)
+from orcheo_backend.app.routers import (
+    chatkit as chatkit_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
@@ -52,22 +59,61 @@ configure_sensitive_logging(
 )
 
 
+async def _authentication_error_handler(request: Request, exc: Exception) -> Response:
+    """Translate AuthenticationError instances into structured HTTP responses."""
+    auth_error = cast(AuthenticationError, exc)
+    http_exc = auth_error.as_http_exception()
+    return await http_exception_handler(request, http_exc)
+
+
 def _build_api_router() -> APIRouter:
-    router = APIRouter(prefix="/api", dependencies=[Depends(authenticate_request)])
-    router.include_router(service_token_router)
+    router = APIRouter(prefix="/api")
+
+    protected_router = APIRouter(dependencies=[Depends(authenticate_request)])
+    protected_router.include_router(service_token_router)
+    protected_router.include_router(workflows.router)
+    protected_router.include_router(credentials.router)
+    protected_router.include_router(credential_templates.router)
+    protected_router.include_router(credential_alerts.router)
+    protected_router.include_router(credential_health.router)
+    protected_router.include_router(runs.router)
+    protected_router.include_router(triggers.router)
+    protected_router.include_router(nodes.router)
+
     router.include_router(chatkit_router.router)
-    router.include_router(workflows.router)
-    router.include_router(credentials.router)
-    router.include_router(credential_templates.router)
-    router.include_router(credential_alerts.router)
-    router.include_router(credential_health.router)
-    router.include_router(runs.router)
-    router.include_router(triggers.router)
-    router.include_router(nodes.router)
+    router.include_router(auth.router)
+    router.include_router(protected_router)
     return router
 
 
 api_router = _build_api_router()
+
+
+_DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+def _load_allowed_origins() -> list[str]:
+    """Return the list of CORS-allowed origins based on environment configuration."""
+    raw = os.getenv("ORCHEO_CORS_ALLOW_ORIGINS")
+    if not raw:
+        return list(_DEFAULT_ALLOWED_ORIGINS)
+    candidates: list[str] = []
+    parsed: list[str] | str | None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = raw
+
+    if isinstance(parsed, str):
+        candidates = [entry.strip() for entry in parsed.split(",")]
+    elif isinstance(parsed, list):
+        candidates = [str(entry).strip() for entry in parsed]
+
+    origins = [origin for origin in candidates if origin]  # pragma: no cover
+    return origins or list(_DEFAULT_ALLOWED_ORIGINS)
 
 
 def create_app(
@@ -91,9 +137,11 @@ def create_app(
 
     application = FastAPI(lifespan=lifespan)
 
+    allowed_origins = _load_allowed_origins()
+
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -121,6 +169,9 @@ def create_app(
 
     application.include_router(api_router)
     application.include_router(websocket.router)
+    application.add_exception_handler(
+        AuthenticationError, _authentication_error_handler
+    )
 
     return application
 

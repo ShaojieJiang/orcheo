@@ -120,11 +120,13 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
-| `orcheo workflow show <workflow>` | Print workflow summary, Mermaid graph, and latest runs. |
+| `orcheo workflow show <workflow>` | Print workflow summary, publish status/details, Mermaid graph, and latest runs. |
 | `orcheo workflow run <workflow> [--inputs <json>]` | Trigger a workflow execution and stream status to the console. |
 | `orcheo workflow upload <file> [--name <name>]` | Upload a workflow from Python or JSON file. |
 | `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
+| `orcheo workflow publish <workflow> [--require-login] [--chatkit-public-base-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
+| `orcheo workflow unpublish <workflow>` | Revoke public access and invalidate existing share links. |
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
@@ -135,6 +137,8 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo token revoke <token-id> [--reason <reason>]` | Immediately invalidate a service token. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
+
+Published workflows remain accessible until you run `orcheo workflow unpublish <workflow>` or toggle the `--require-login` flag to gate public chats behind OAuth.
 
 #### Offline Mode
 

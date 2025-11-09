@@ -55,7 +55,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Build basic nodes and utilities (If/Else, Switch, While, Set Variable, Delay, Sticky Note) with tests, docs, and templates.
 - [x] Add single-node execution API endpoint and frontend integration for testing individual nodes in isolation (includes backend endpoint, frontend API client, and Node Inspector UI integration).
 - [x] Launch LangGraph-aligned CLI tooling covering node discovery, workflow inspection with Mermaid output, and credential management (future MCP server reuse). See [CLI Tool Design](./cli_tool_design.md) for the full plan.
-- [x] Design and implement ChatKit integration across demo frontend, backend endpoint, LangGraph workflow, and SQLite persistence (see [ChatKit Integration Design](./chatkit_integration_design.md)).
+- [x] Design and implement ChatKit integration across demo frontend, backend endpoint, LangGraph workflow, and SQLite persistence (see [ChatKit Embedding Guide](./chatkit_embedding_guide.md)).
 - [x] Build Data & Logic nodes (HTTP Request, JSON Processing, Data Transform, Merge) plus Storage/Communication nodes (MongoDB, PostgreSQL, SQLite, Email, Slack, Telegram, Discord).
 - [x] Add utility nodes (Python/JavaScript execution sandbox, Debug, Sub-workflow orchestration) with tests, docs, and templates.
 - [x] Implement AgentNode with prompt management, MCP server connectivity, and latency guardrails.
@@ -63,6 +63,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 
 ### Milestone 6 – Observability, Testing & Launch Prep
 - [x] Implement end-to-end authentication layer (OIDC integration, service tokens, ChatKit session hardening, webhook signatures) per [Authentication System Design](./authentication_design.md).
+- [ ] ChatKit public page + workflow publish UX (CLI) and backend actions _(status will be updated through milestone subtasks once the implementation ships)_
 - [ ] Instrument execution viewer with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.

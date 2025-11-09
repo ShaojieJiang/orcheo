@@ -3,7 +3,13 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
-from orcheo.models import Workflow, WorkflowRun, WorkflowRunStatus, WorkflowVersion
+from pydantic import ValidationError
+from orcheo.models import (
+    Workflow,
+    WorkflowRun,
+    WorkflowRunStatus,
+    WorkflowVersion,
+)
 
 
 def test_workflow_slug_is_derived_from_name() -> None:
@@ -24,8 +30,21 @@ def test_workflow_record_event_updates_timestamp() -> None:
 
 
 def test_workflow_requires_name_or_slug() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         Workflow(name="", slug="")
+
+
+def test_workflow_slug_validator_requires_identifier() -> None:
+    workflow = Workflow.model_construct(name="", slug="")
+    with pytest.raises(ValueError):
+        workflow._populate_slug()
+
+
+def test_workflow_name_and_description_are_normalized() -> None:
+    workflow = Workflow(name="  Demo Flow  ", description="  Some description  ")
+
+    assert workflow.name == "Demo Flow"
+    assert workflow.description == "Some description"
 
 
 def test_workflow_tag_normalization() -> None:
@@ -104,3 +123,33 @@ def test_workflow_run_cancel_without_reason() -> None:
 
     assert run.error is None
     assert run.audit_log[-1].metadata == {}
+
+
+def test_workflow_publish_lifecycle() -> None:
+    workflow = Workflow(name="Publish Demo")
+
+    workflow.publish(require_login=True, actor="alice")
+
+    assert workflow.is_public is True
+    assert workflow.require_login is True
+    assert workflow.published_by == "alice"
+    assert workflow.published_at is not None
+    assert workflow.audit_log[-1].action == "workflow_published"
+
+    workflow.revoke_publish(actor="carol")
+    assert workflow.is_public is False
+    assert workflow.require_login is False
+    assert workflow.published_at is None
+    assert workflow.audit_log[-1].action == "workflow_unpublished"
+
+
+def test_workflow_publish_invalid_transitions() -> None:
+    workflow = Workflow(name="Bad Publish")
+
+    with pytest.raises(ValueError):
+        workflow.revoke_publish(actor="alice")
+
+    workflow.publish(require_login=False, actor="alice")
+
+    with pytest.raises(ValueError):
+        workflow.publish(require_login=False, actor="alice")

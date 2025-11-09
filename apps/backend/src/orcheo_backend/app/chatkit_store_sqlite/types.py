@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing helper only
-    from orcheo_backend.app.chatkit_service import ChatKitRequestContext as _Context
+    from orcheo_backend.app.chatkit import ChatKitRequestContext as _Context
 else:  # pragma: no cover - runtime fallback
     _Context = dict[str, Any]
 

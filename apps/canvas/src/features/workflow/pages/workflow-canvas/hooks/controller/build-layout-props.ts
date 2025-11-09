@@ -188,17 +188,23 @@ export function buildWorkflowLayoutProps(
           onCacheRuntime: execution.inspectorHandlers.handleCacheNodeRuntime,
         }
       : null,
-    chat: core.chat.isChatOpen
-      ? {
-          isChatOpen: core.chat.isChatOpen,
-          chatTitle: core.chat.chatTitle,
-          user: core.user,
-          ai: core.ai,
-          activeChatNodeId: core.chat.activeChatNodeId,
-          handleChatResponseStart: core.chat.handleChatResponseStart,
-          handleChatResponseEnd: core.chat.handleChatResponseEnd,
-          handleChatClientTool: core.chat.handleChatClientTool,
-        }
-      : null,
+    chat: {
+      isChatOpen: core.chat.isChatOpen,
+      chatTitle: core.chat.chatTitle,
+      user: core.user,
+      ai: core.ai,
+      activeChatNodeId: core.chat.activeChatNodeId,
+      workflowId: core.chat.workflowId,
+      backendBaseUrl: core.chat.backendBaseUrl,
+      handleChatResponseStart: core.chat.handleChatResponseStart,
+      handleChatResponseEnd: core.chat.handleChatResponseEnd,
+      handleChatClientTool: core.chat.handleChatClientTool,
+      getClientSecret: core.chat.getClientSecret,
+      refreshSession: core.chat.refreshSession,
+      sessionStatus: core.chat.sessionStatus,
+      sessionError: core.chat.sessionError,
+      handleCloseChat: core.chat.handleCloseChat,
+      setIsChatOpen: core.chat.setIsChatOpen,
+    },
   };
 }

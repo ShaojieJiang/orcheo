@@ -5,7 +5,10 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
-from orcheo_backend.app.repository.errors import WorkflowNotFoundError
+from orcheo_backend.app.repository.errors import (
+    WorkflowNotFoundError,
+    WorkflowPublishStateError,
+)
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
 
 
@@ -113,6 +116,39 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
             is_archived=True,
             actor=actor,
         )
+
+    async def publish_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        require_login: bool,
+        actor: str,
+    ) -> Workflow:
+        """Mark the workflow as public."""
+        async with self._lock:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+            try:
+                workflow.publish(
+                    require_login=require_login,
+                    actor=actor,
+                )
+            except ValueError as exc:
+                raise WorkflowPublishStateError(str(exc)) from exc
+            return workflow.model_copy(deep=True)
+
+    async def revoke_publish(self, workflow_id: UUID, *, actor: str) -> Workflow:
+        """Revoke public access for the workflow."""
+        async with self._lock:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+            try:
+                workflow.revoke_publish(actor=actor)
+            except ValueError as exc:
+                raise WorkflowPublishStateError(str(exc)) from exc
+            return workflow.model_copy(deep=True)
 
 
 __all__ = ["WorkflowCrudMixin"]

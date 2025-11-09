@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
+from orcheo_backend.app.repository.errors import WorkflowPublishStateError
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
 
 
@@ -20,7 +21,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 )
                 rows = await cursor.fetchall()
             workflows = [
-                Workflow.model_validate_json(row["payload"]).model_copy(deep=True)
+                self._deserialize_workflow(row["payload"]).model_copy(deep=True)
                 for row in rows
             ]
             if include_archived:
@@ -138,6 +139,61 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
             is_archived=True,
             actor=actor,
         )
+
+    async def publish_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        require_login: bool,
+        actor: str,
+    ) -> Workflow:
+        await self._ensure_initialized()
+        async with self._lock:
+            workflow = await self._get_workflow_locked(workflow_id)
+            try:
+                workflow.publish(
+                    require_login=require_login,
+                    actor=actor,
+                )
+            except ValueError as exc:
+                raise WorkflowPublishStateError(str(exc)) from exc
+            async with self._connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE workflows
+                       SET payload = ?, updated_at = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        self._dump_model(workflow),
+                        workflow.updated_at.isoformat(),
+                        str(workflow.id),
+                    ),
+                )
+            return workflow.model_copy(deep=True)
+
+    async def revoke_publish(self, workflow_id: UUID, *, actor: str) -> Workflow:
+        await self._ensure_initialized()
+        async with self._lock:
+            workflow = await self._get_workflow_locked(workflow_id)
+            try:
+                workflow.revoke_publish(actor=actor)
+            except ValueError as exc:
+                raise WorkflowPublishStateError(str(exc)) from exc
+            async with self._connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE workflows
+                       SET payload = ?, updated_at = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        self._dump_model(workflow),
+                        workflow.updated_at.isoformat(),
+                        str(workflow.id),
+                    ),
+                )
+            return workflow.model_copy(deep=True)
 
 
 __all__ = ["WorkflowRepositoryMixin"]

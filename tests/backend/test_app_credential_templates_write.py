@@ -17,7 +17,7 @@ from orcheo_backend.app import (
     delete_credential_template,
     update_credential_template,
 )
-from orcheo_backend.app.schemas import (
+from orcheo_backend.app.schemas.credentials import (
     CredentialTemplateCreateRequest,
     CredentialTemplateUpdateRequest,
 )

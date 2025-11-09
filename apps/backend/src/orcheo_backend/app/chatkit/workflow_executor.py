@@ -8,14 +8,12 @@ from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
+from orcheo.config import get_settings
+from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.persistence import create_checkpointer
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.vault import BaseCredentialVault
-from orcheo_backend.app.chatkit.legacy_support import (
-    call_build_graph,
-    call_get_settings,
-)
 from orcheo_backend.app.chatkit.message_utils import (
     build_initial_state,
     extract_reply_from_state,
@@ -61,13 +59,13 @@ class WorkflowExecutor:
             logger.exception("Failed to record workflow run metadata")
 
         graph_config = version.graph
-        settings = call_get_settings()
+        settings = get_settings()
         vault = self._vault_provider()
         credential_context = CredentialAccessContext(workflow_id=workflow_id)
         credential_resolver = CredentialResolver(vault, context=credential_context)
 
         async with create_checkpointer(settings) as checkpointer:
-            graph = call_build_graph(graph_config)
+            graph = build_graph(graph_config)
             compiled = graph.compile(checkpointer=checkpointer)
             initial_state = build_initial_state(graph_config, inputs)
             payload: Any = initial_state

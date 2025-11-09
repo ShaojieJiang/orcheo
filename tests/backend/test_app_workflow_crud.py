@@ -14,7 +14,10 @@ from orcheo_backend.app import (
     update_workflow,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas import WorkflowCreateRequest, WorkflowUpdateRequest
+from orcheo_backend.app.schemas.workflows import (
+    WorkflowCreateRequest,
+    WorkflowUpdateRequest,
+)
 
 
 @pytest.mark.asyncio()

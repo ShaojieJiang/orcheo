@@ -3,7 +3,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 import typer
-from orcheo_sdk.cli.output import render_json, render_table
+from orcheo_sdk.cli.output import format_datetime, render_json, render_table
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import WorkflowIdArgument, _state, workflow_app
 from orcheo_sdk.cli.workflow.inputs import _cache_notice
@@ -51,6 +51,20 @@ def show_workflow(
     workflow_details = data["workflow"]
     latest_version = data.get("latest_version")
     recent_runs = data.get("recent_runs", [])
+
+    state.console.print("[bold]Publish status[/bold]")
+    state.console.print(
+        f"Status: {'Public' if workflow_details.get('is_public') else 'Private'}"
+    )
+    state.console.print(
+        f"Require login: {'Yes' if workflow_details.get('require_login') else 'No'}"
+    )
+    published_at = workflow_details.get("published_at")
+    state.console.print(
+        f"Published at: {format_datetime(published_at) if published_at else '-'}"
+    )
+    share_url = workflow_details.get("share_url")
+    state.console.print(f"Share URL: {share_url or '-'}\n")
 
     render_json(state.console, workflow_details, title="Workflow")
 

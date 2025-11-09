@@ -8,7 +8,7 @@ from orcheo_backend.app import (
     list_workflow_execution_histories,
 )
 from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
-from orcheo_backend.app.schemas import RunReplayRequest
+from orcheo_backend.app.schemas.runs import RunReplayRequest
 
 
 @pytest.mark.asyncio()

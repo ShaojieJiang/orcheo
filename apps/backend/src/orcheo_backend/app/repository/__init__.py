@@ -6,6 +6,7 @@ from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo_backend.app.repository.errors import (
     RepositoryError,
     WorkflowNotFoundError,
+    WorkflowPublishStateError,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "VersionDiff",
     "Workflow",
     "WorkflowNotFoundError",
+    "WorkflowPublishStateError",
     "WorkflowRun",
     "WorkflowRunNotFoundError",
     "WorkflowVersion",

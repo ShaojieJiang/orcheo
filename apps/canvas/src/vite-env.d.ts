@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_ORCHEO_BACKEND_URL?: string;
+  readonly VITE_ORCHEO_CHATKIT_DOMAIN_KEY?: string;
 }
 
 interface ImportMeta {

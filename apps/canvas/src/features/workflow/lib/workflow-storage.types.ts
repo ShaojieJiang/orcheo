@@ -12,6 +12,10 @@ export interface ApiWorkflow {
   description: string | null;
   tags: string[];
   is_archived: boolean;
+  is_public: boolean;
+  require_login: boolean;
+  published_at: string | null;
+  published_by: string | null;
   created_at: string;
   updated_at: string;
 }
