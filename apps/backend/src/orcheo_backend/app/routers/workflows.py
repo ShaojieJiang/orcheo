@@ -316,7 +316,6 @@ def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
 
 def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
     """Return workspace identifiers encoded within workflow tags."""
-
     workspaces = {
         tag.split(":", 1)[1]
         for tag in workflow.tags
@@ -327,7 +326,6 @@ def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
 
 def _resolve_workflow_owner(workflow: Workflow) -> str | None:
     """Return the actor associated with the workflow's creation event."""
-
     if not workflow.audit_log:
         return None
     return workflow.audit_log[0].actor

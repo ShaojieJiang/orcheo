@@ -85,24 +85,6 @@ def test_load_chatkit_token_settings_with_signing_key() -> None:
     assert settings.algorithm == "HS512"
 
 
-def test_load_chatkit_token_settings_fallback_to_client_secret() -> None:
-    """load_chatkit_token_settings falls back to CHATKIT_CLIENT_SECRET."""
-    mock_settings = {
-        "CHATKIT_CLIENT_SECRET": "client-secret-key",
-    }
-
-    with patch(
-        "orcheo_backend.app.chatkit_tokens.get_settings", return_value=mock_settings
-    ):
-        settings = load_chatkit_token_settings()
-
-    assert settings.signing_key == "client-secret-key"
-    assert settings.issuer == "orcheo.chatkit"
-    assert settings.audience == "chatkit"
-    assert settings.ttl_seconds == 300
-    assert settings.algorithm == "HS256"
-
-
 def test_load_chatkit_token_settings_missing_key_raises_error() -> None:
     """load_chatkit_token_settings raises error when no signing key is configured."""
     mock_settings = {}

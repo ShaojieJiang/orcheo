@@ -143,11 +143,7 @@ def get_chatkit_server() -> OrcheoChatKitServer:
 def sensitive_logging_enabled() -> bool:
     """Return True when sensitive debug logging should be enabled."""
     dev_environments = {"development", "dev", "local"}
-    current_env = (
-        os.getenv("ORCHEO_ENV")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("NODE_ENV", "production")
-    )
+    current_env = os.getenv("ORCHEO_ENV") or os.getenv("NODE_ENV", "production")
     if (current_env or "").lower() in dev_environments:
         return True
     return os.getenv("LOG_SENSITIVE_DEBUG") == "1"

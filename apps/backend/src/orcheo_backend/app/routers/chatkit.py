@@ -461,8 +461,7 @@ async def create_chatkit_session_endpoint(
             detail={
                 "message": str(exc),
                 "hint": (
-                    "Set CHATKIT_TOKEN_SIGNING_KEY (or CHATKIT_CLIENT_SECRET) to "
-                    "enable ChatKit session issuance."
+                    "Set CHATKIT_TOKEN_SIGNING_KEY to enable ChatKit session issuance."
                 ),
             },
         ) from exc
@@ -472,8 +471,7 @@ async def create_chatkit_session_endpoint(
             detail={
                 "message": str(exc),
                 "hint": (
-                    "Set CHATKIT_TOKEN_SIGNING_KEY (or CHATKIT_CLIENT_SECRET) to "
-                    "enable ChatKit session issuance."
+                    "Set CHATKIT_TOKEN_SIGNING_KEY to enable ChatKit session issuance."
                 ),
             },
         ) from exc
