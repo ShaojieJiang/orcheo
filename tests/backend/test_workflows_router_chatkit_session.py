@@ -58,7 +58,7 @@ def _policy(scopes: set[str]) -> AuthorizationPolicy:
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_requires_authentication() -> None:
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-1"])
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(RequestContext.anonymous())
 
@@ -73,7 +73,7 @@ async def test_create_workflow_chatkit_session_requires_authentication() -> None
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_requires_permissions() -> None:
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-1"])
     repo = _WorkflowRepo(workflow)
     policy = _policy({"workflows:read"})  # missing execute scope
 
@@ -104,7 +104,7 @@ async def test_create_workflow_chatkit_session_validates_workflow_exists() -> No
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-1"])
     repo = _WorkflowRepo(workflow)
     policy = _policy({"workflows:read", "workflows:execute"})
     issuer = _issuer()
@@ -136,3 +136,57 @@ def test_select_primary_workspace_handles_multiple_workspaces() -> None:
     workspace_ids = frozenset({"ws-1", "ws-2"})
 
     assert workflows._select_primary_workspace(workspace_ids) is None
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_requires_workspace_match() -> None:
+    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-allowed"])
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset({"ws-denied"}),
+        )
+    )
+
+    with pytest.raises(AuthorizationError):
+        await workflows.create_workflow_chatkit_session(
+            workflow.id,
+            repo,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_falls_back_to_owner() -> None:
+    workflow = Workflow(name="Canvas Workflow")
+    workflow.record_event(actor="canvas-user", action="workflow_created")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        workflow.id,
+        repo,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workflow_id"] == str(workflow.id)

@@ -10,6 +10,7 @@ from orcheo.models.workflow import (
     WorkflowVersion,
 )
 from orcheo_backend.app.authentication import (
+    AuthorizationError,
     AuthorizationPolicy,
     get_authorization_policy,
 )
@@ -313,6 +314,25 @@ def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
     return None
 
 
+def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
+    """Return workspace identifiers encoded within workflow tags."""
+
+    workspaces = {
+        tag.split(":", 1)[1]
+        for tag in workflow.tags
+        if tag.startswith("workspace:") and ":" in tag
+    }
+    return frozenset(workspaces)
+
+
+def _resolve_workflow_owner(workflow: Workflow) -> str | None:
+    """Return the actor associated with the workflow's creation event."""
+
+    if not workflow.audit_log:
+        return None
+    return workflow.audit_log[0].actor
+
+
 @router.post(
     "/workflows/{workflow_id}/chatkit/session",
     response_model=ChatKitSessionResponse,
@@ -332,6 +352,26 @@ async def create_workflow_chatkit_session(
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+
+    workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+    if workflow_workspaces:
+        if not context.workspace_ids:
+            raise AuthorizationError(
+                "Workspace access required for workflow.",
+                code="auth.workspace_forbidden",
+            )
+        if not workflow_workspaces.intersection(context.workspace_ids):
+            raise AuthorizationError(
+                "Workspace access denied for workflow.",
+                code="auth.workspace_forbidden",
+            )
+    else:
+        owner = _resolve_workflow_owner(workflow)
+        if owner is not None and owner != context.subject:
+            raise AuthorizationError(
+                "Workflow access denied for caller.",
+                code="auth.forbidden",
+            )
 
     metadata = {
         "workflow_id": str(workflow.id),
