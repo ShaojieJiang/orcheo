@@ -190,6 +190,7 @@ export function CanvasChatBubble({
       workflowId,
       workflowLabel: title,
     },
+    workflowId: workflowId ?? null,
     title,
     user,
     ai,
