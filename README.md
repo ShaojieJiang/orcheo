@@ -308,6 +308,10 @@ The CLI reads configuration from:
 See [`docs/cli_tool_design.md`](docs/cli_tool_design.md) for detailed design,
 roadmap, and future MCP server integration plans.
 
+### Custom nodes and tools
+
+Learn how to extend Orcheo with your own nodes, tool integrations, and workflow helpers in [`docs/custom_nodes_and_tools.md`](docs/custom_nodes_and_tools.md).
+
 ### Workflow repository configuration
 
 The FastAPI backend now supports pluggable workflow repositories so local
