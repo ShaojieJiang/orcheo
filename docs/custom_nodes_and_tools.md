@@ -16,22 +16,37 @@ When the CLI lists available nodes or tools, it simply reads the already-populat
 ## Prepare a Custom Package
 
 1. Create a Python package (for example `~/orcheo-custom/orcheo_custom/`).
-2. Implement your nodes and tools inside that package, decorating each class or function with the appropriate registry decorator. Example:
+2. Implement your nodes and tools inside that package, decorating each class or function with the appropriate registry decorator. Nodes should inherit from one of the base classes such as `TaskNode`, `AINode`, or `BaseNode`, and both nodes and tools must be registered with their corresponding metadata objects. Agent tools often combine the Orcheo registry decorator with LangChain's `@tool` helper so they work seamlessly in both contexts. Example:
 
    ```python
    # ~/orcheo-custom/orcheo_custom/nodes/my_custom_node.py
-   from orcheo.nodes.registry import registry
+   from orcheo.nodes.base import TaskNode
+   from orcheo.nodes.registry import NodeMetadata, registry
 
-   @registry.register(name="my_custom_node", description="Demo node")
-   class MyCustomNode:
+   @registry.register(
+       NodeMetadata(
+           name="my_custom_node",
+           description="Demo node",
+           category="custom",
+       )
+   )
+   class MyCustomNode(TaskNode):
        ...
    ```
 
    ```python
    # ~/orcheo-custom/orcheo_custom/agent_tools/my_custom_tool.py
-   from orcheo.nodes.agent_tools.registry import tool_registry
+   from langchain_core.tools import tool
+   from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
 
-   @tool_registry.register(name="say_hello", description="Greets the user")
+   @tool_registry.register(
+       ToolMetadata(
+           name="say_hello",
+           description="Greets the user",
+           category="custom",
+       )
+   )
+   @tool
    def say_hello(name: str) -> str:
        return f"Hello, {name}!"
    ```
@@ -80,8 +95,8 @@ If you have many custom packages, you can expand this file to import each one or
 With the environment configured, run the standard Orcheo CLI commands. For example:
 
 ```bash
-uv run orcheo-cli nodes list
-uv run orcheo-cli agent-tools list
+orcheo node list
+orcheo agent-tool list
 ```
 
 Both commands should now include your custom entries. No modifications to the Orcheo repository are necessary—the `sitecustomize` hook ensures your modules register themselves ahead of time.
