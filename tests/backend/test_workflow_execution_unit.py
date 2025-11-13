@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 import pytest
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
-from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.history import RunHistoryError, RunHistoryStep
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -82,6 +82,75 @@ async def test_persist_failure_history_reports_store_errors(
     assert reports == [
         ("exec-2", span, failure, "record failure state"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_workflow_updates_emits_trace_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stream_workflow_updates should emit trace update payloads."""
+
+    step_at = datetime.now(tz=UTC)
+    history_store = AsyncMock()
+    history_store.append_step = AsyncMock(
+        return_value=RunHistoryStep(
+            index=0,
+            at=step_at,
+            payload={
+                "node-1": {
+                    "display_name": "Node",
+                    "status": "completed",
+                }
+            },
+        )
+    )
+
+    class DummyCompiled:
+        async def astream(self, *_: Any, **__: Any):  # pragma: no cover - test helper
+            yield {
+                "node-1": {
+                    "display_name": "Node",
+                    "status": "completed",
+                    "token_usage": {"input": 2, "output": 3},
+                }
+            }
+
+        async def aget_state(
+            self, *_: Any, **__: Any
+        ):  # pragma: no cover - test helper
+            return SimpleNamespace(values={})
+
+    messages: list[Any] = []
+
+    class DummyWebSocket:
+        async def send_json(self, payload: Any) -> None:
+            messages.append(payload)
+
+    monkeypatch.setattr(
+        workflow_execution, "record_workflow_step", lambda *args, **kwargs: None
+    )
+
+    await workflow_execution._stream_workflow_updates(
+        workflow_id="wf-1",
+        inputs={"foo": "bar"},
+        compiled_graph=DummyCompiled(),
+        state={},
+        config={},
+        history_store=history_store,  # type: ignore[arg-type]
+        execution_id="exec-1",
+        websocket=DummyWebSocket(),
+        tracer=object(),
+        trace_id="trace-1",
+        trace_started_at=step_at,
+    )
+
+    assert len(messages) == 2
+    assert messages[0]["node-1"]["display_name"] == "Node"
+    trace_message = messages[1]
+    assert trace_message["type"] == "trace:update"
+    assert trace_message["execution_id"] == "exec-1"
+    assert trace_message["trace_id"] == "trace-1"
+    assert trace_message["spans"]
 
 
 @pytest.mark.asyncio

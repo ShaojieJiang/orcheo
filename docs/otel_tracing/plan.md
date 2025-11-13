@@ -7,10 +7,10 @@
 - [x] Write unit tests covering span creation helpers and trace metadata persistence.
 
 ## Phase 2 – Trace Retrieval API & Realtime Updates
-- [ ] Implement `/executions/{execution_id}/trace` endpoint returning trace hierarchy, metrics, and artifact metadata.
-- [ ] Update serializers and schemas to expose trace data, ensuring compatibility with existing execution DTOs.
-- [ ] Enhance WebSocket or polling channels to deliver incremental span updates for active executions.
-- [ ] Add integration tests that simulate workflow runs and validate API responses and realtime payloads.
+- [x] Implement `/executions/{execution_id}/trace` endpoint returning trace hierarchy, metrics, and artifact metadata.
+- [x] Update serializers and schemas to expose trace data, ensuring compatibility with existing execution DTOs.
+- [x] Enhance WebSocket or polling channels to deliver incremental span updates for active executions.
+- [x] Add integration tests that simulate workflow runs and validate API responses and realtime payloads.
 
 ## Phase 3 – Canvas Trace Tab UI
 - [ ] Introduce a `Trace` tab in workflow canvas layout, updating tab navigation and default selection logic.

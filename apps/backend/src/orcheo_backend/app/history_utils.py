@@ -37,6 +37,10 @@ def history_to_response(
         error=record.error,
         inputs=record.inputs,
         steps=steps,
+        trace_id=record.trace_id,
+        trace_started_at=record.trace_started_at,
+        trace_completed_at=record.trace_completed_at,
+        trace_last_span_at=record.trace_last_span_at,
     )
 
 
