@@ -12,7 +12,7 @@ from orcheo_backend.app.dependencies import (
 )
 from orcheo_backend.app.errors import raise_conflict, raise_not_found
 from orcheo_backend.app.history import RunHistoryNotFoundError
-from orcheo_backend.app.history_utils import history_to_response
+from orcheo_backend.app.history_utils import history_to_response, trace_to_response
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
@@ -25,6 +25,7 @@ from orcheo_backend.app.schemas.runs import (
     RunHistoryResponse,
     RunReplayRequest,
     RunSucceedRequest,
+    RunTraceResponse,
 )
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 
@@ -189,6 +190,22 @@ async def get_execution_history(
     except RunHistoryNotFoundError as exc:
         raise_not_found("Execution history not found", exc)
     return history_to_response(record)
+
+
+@router.get(
+    "/executions/{execution_id}/trace",
+    response_model=RunTraceResponse,
+)
+async def get_execution_trace(
+    execution_id: str,
+    history_store: HistoryStoreDep,
+) -> RunTraceResponse:
+    """Return the trace metadata captured for a workflow execution."""
+    try:
+        record = await history_store.get_history(execution_id)
+    except RunHistoryNotFoundError as exc:
+        raise_not_found("Execution history not found", exc)
+    return trace_to_response(record)
 
 
 @router.post(

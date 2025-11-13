@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 import pytest
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
-from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryError
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -176,3 +176,76 @@ async def test_execute_workflow_reports_history_store_failure(
     assert execution_id == "exec-3"
     assert exc_arg is run_error
     assert context == "persist workflow history"
+
+
+@pytest.mark.asyncio
+async def test_stream_workflow_updates_emit_trace_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stream_workflow_updates should emit trace update messages."""
+
+    history_store = InMemoryRunHistoryStore()
+    execution_id = "exec-trace"
+
+    await history_store.start_run(
+        workflow_id="wf-1",
+        execution_id=execution_id,
+        inputs={},
+        trace_id="trace-abc",
+        trace_started_at=datetime.now(tz=UTC),
+    )
+
+    class DummyGraph:
+        def __init__(self) -> None:
+            self.values: list[dict[str, Any]] = [
+                {
+                    "llm": {
+                        "id": "node-1",
+                        "display_name": "LLM",
+                        "status": "completed",
+                        "token_usage": {"input": 3, "output": 2},
+                        "prompts": ["hello"],
+                    }
+                }
+            ]
+
+        async def astream(self, *_: Any, **__: Any):
+            for item in self.values:
+                yield item
+
+        async def aget_state(self, *_: Any, **__: Any) -> SimpleNamespace:
+            return SimpleNamespace(values={})
+
+    class DummyWebSocket:
+        def __init__(self) -> None:
+            self.messages: list[Any] = []
+
+        async def send_json(self, payload: Any) -> None:
+            self.messages.append(payload)
+
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_step",
+        lambda tracer, step: None,
+    )
+
+    websocket = DummyWebSocket()
+
+    graph = DummyGraph()
+
+    await workflow_execution._stream_workflow_updates(
+        graph,
+        state={},
+        config={},
+        history_store=history_store,
+        execution_id=execution_id,
+        websocket=websocket,  # type: ignore[arg-type]
+        tracer=SimpleNamespace(),
+    )
+
+    assert len(websocket.messages) == 2
+    assert websocket.messages[0] == graph.values[0]
+    trace_message = websocket.messages[1]
+    assert trace_message["type"] == "trace:update"
+    assert trace_message["trace_id"] == "trace-abc"
+    assert trace_message["spans"][0]["attributes"]["orcheo.token.input"] == 3
