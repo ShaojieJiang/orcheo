@@ -19,6 +19,7 @@ import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-
 
 import { CanvasTabContent } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
 import { ExecutionTabContent } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
+import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 
@@ -67,6 +68,7 @@ interface WorkflowCanvasLayoutProps {
   };
   canvasProps: CanvasTabContentProps;
   executionProps: ExecutionTabContentProps;
+  traceProps: React.ComponentProps<typeof TraceTabContent>;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
   nodeInspector: NodeInspectorState | null;
@@ -78,6 +80,7 @@ export function WorkflowCanvasLayout({
   tabsProps,
   canvasProps,
   executionProps,
+  traceProps,
   readinessProps,
   settingsProps,
   nodeInspector,
@@ -111,6 +114,13 @@ export function WorkflowCanvasLayout({
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
             <ExecutionTabContent {...executionProps} />
+          </TabsContent>
+
+          <TabsContent
+            value="trace"
+            className="flex-1 m-0 p-4 overflow-hidden min-h-0"
+          >
+            <TraceTabContent {...traceProps} />
           </TabsContent>
 
           <TabsContent value="readiness" className="m-0 p-4 overflow-auto">

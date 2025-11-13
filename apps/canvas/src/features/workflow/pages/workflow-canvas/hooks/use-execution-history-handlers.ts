@@ -26,6 +26,7 @@ interface UseExecutionHistoryHandlersParams {
     payload: Record<string, unknown>,
     graphToCanvas: Record<string, string>,
   ) => string;
+  setActiveTab: (value: string) => void;
 }
 
 export function useExecutionHistoryHandlers({
@@ -36,6 +37,7 @@ export function useExecutionHistoryHandlers({
   executions,
   determineLogLevel,
   describePayload,
+  setActiveTab,
 }: UseExecutionHistoryHandlersParams) {
   const handleViewExecutionDetails = useCallback(
     (execution: HistoryWorkflowExecution) => {
@@ -56,8 +58,9 @@ export function useExecutionHistoryHandlers({
       );
       setNodes(mappedNodes);
       setActiveExecutionId(execution.id);
+      setActiveTab("trace");
     },
-    [setActiveExecutionId, setNodes],
+    [setActiveExecutionId, setActiveTab, setNodes],
   );
 
   const handleCopyExecutionToEditor = useCallback(

@@ -16,6 +16,7 @@ import type {
   CanvasNode,
   WorkflowExecution,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { TraceUpdateMessage } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
 interface UseRunWorkflowParams {
   nodes: CanvasNode[];
@@ -32,6 +33,7 @@ interface UseRunWorkflowParams {
     payload: Record<string, unknown>,
     graphToCanvas: Record<string, string>,
   ) => void;
+  handleTraceUpdate: (update: TraceUpdateMessage) => void;
 }
 
 export function useRunWorkflow({
@@ -45,6 +47,7 @@ export function useRunWorkflow({
   isMountedRef,
   currentWorkflowId,
   applyExecutionUpdate,
+  handleTraceUpdate,
 }: UseRunWorkflowParams) {
   return useCallback(async () => {
     if (nodes.length === 0) {
@@ -118,6 +121,7 @@ export function useRunWorkflow({
       setIsRunning,
       setExecutions,
       websocketRef,
+      onTraceUpdate: handleTraceUpdate,
     });
   }, [
     nodes,
@@ -129,6 +133,7 @@ export function useRunWorkflow({
     websocketRef,
     currentWorkflowId,
     applyExecutionUpdate,
+    handleTraceUpdate,
     isMountedRef,
   ]);
 }
