@@ -1,6 +1,8 @@
 """Core SQLite run history store tests covering CRUD flows."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
 import pytest
 from orcheo_backend.app.history import (
@@ -8,6 +10,9 @@ from orcheo_backend.app.history import (
     RunHistoryNotFoundError,
     SqliteRunHistoryStore,
 )
+
+
+sqlite_store_module = import_module("orcheo_backend.app.history.sqlite_store")
 
 
 @pytest.mark.asyncio
@@ -32,6 +37,28 @@ async def test_sqlite_store_persists_history(tmp_path: Path) -> None:
     persisted = await store_reloaded.get_history("exec")
     assert persisted.status == "completed"
     assert persisted.steps[0].payload == {"status": "running"}
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_records_trace_metadata(tmp_path: Path) -> None:
+    db_path = tmp_path / "history.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    started_at = datetime.now(tz=UTC)
+
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        trace_id="trace-456",
+        trace_started_at=started_at,
+    )
+    step = await store.append_step("exec", {"status": "running"})
+    await store.mark_completed("exec")
+
+    history = await store.get_history("exec")
+    assert history.trace_id == "trace-456"
+    assert history.trace_started_at == started_at
+    assert history.trace_last_span_at == step.at
+    assert history.trace_completed_at is not None
 
 
 @pytest.mark.asyncio
@@ -85,6 +112,30 @@ async def test_sqlite_store_mark_completed(tmp_path: Path) -> None:
 
     history = await store.get_history("exec")
     assert history.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_mark_completed_sets_trace_last_span(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mark_completed should backfill trace_last_span_at when row lacks a value."""
+
+    db_path = tmp_path / "history-trace.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(workflow_id="wf", execution_id="exec")
+    original_row_to_record = sqlite_store_module.row_to_record
+
+    def _force_missing_trace_span(row, steps):
+        record = original_row_to_record(row, steps)
+        record.trace_last_span_at = None
+        return record
+
+    monkeypatch.setattr(sqlite_store_module, "row_to_record", _force_missing_trace_span)
+
+    result = await store.mark_completed("exec")
+    monkeypatch.setattr(sqlite_store_module, "row_to_record", original_row_to_record)
+
+    assert result.trace_last_span_at == result.trace_completed_at
 
 
 @pytest.mark.asyncio

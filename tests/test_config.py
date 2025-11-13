@@ -5,6 +5,7 @@ from dynaconf import Dynaconf
 from orcheo import config
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
+from orcheo.config.defaults import _DEFAULTS
 
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -30,6 +31,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORCHEO_VAULT_AWS_REGION", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_TOKEN_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
 
     settings = config.get_settings(refresh=True)
 
@@ -44,6 +47,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.vault_aws_region is None
     assert settings.vault_aws_kms_key_id is None
     assert settings.vault_token_ttl_seconds == 3600
+    assert settings.tracing_high_token_threshold == 1000
+    assert settings.tracing_preview_max_length == 512
 
 
 def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,6 +102,22 @@ def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_SQLITE_PATH", "updated.db")
     refreshed = config.get_settings(refresh=True)
     assert refreshed.sqlite_path == "updated.db"
+
+
+def test_tracing_settings_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tracing preview and threshold settings should be configurable."""
+
+    monkeypatch.setenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", "250")
+    monkeypatch.setenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", "256")
+
+    settings = config.get_settings(refresh=True)
+
+    assert settings.tracing_high_token_threshold == 250
+    assert settings.tracing_preview_max_length == 256
+
+    monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    config.get_settings(refresh=True)
 
 
 def test_invalid_vault_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -268,3 +289,101 @@ def test_app_settings_recovers_invalid_chatkit_rate_limits() -> None:
     validated = settings._validate_postgres_requirements()
 
     assert isinstance(validated.chatkit_rate_limits, ChatKitRateLimitSettings)
+
+
+def test_app_settings_rejects_unknown_tracing_exporter() -> None:
+    """Tracing exporter validator must reject unsupported options."""
+
+    with pytest.raises(ValueError):
+        AppSettings(tracing_exporter="zipkin")
+
+
+def test_app_settings_coerces_tracing_endpoint_and_ratio() -> None:
+    """Tracing endpoint and sample ratio accept loosely typed inputs."""
+
+    class Ratio:
+        def __str__(self) -> str:
+            return "0.5"
+
+    settings = AppSettings(tracing_endpoint=12345, tracing_sample_ratio=Ratio())
+
+    assert settings.tracing_endpoint == "12345"
+    assert settings.tracing_sample_ratio == 0.5
+
+
+def test_app_settings_enforces_sample_ratio_range() -> None:
+    """Tracing sample ratio must fall within [0, 1]."""
+
+    with pytest.raises(ValueError):
+        AppSettings(tracing_sample_ratio=2)
+
+
+def test_app_settings_coerces_tracing_insecure_strings() -> None:
+    """String values for tracing_insecure should be interpreted leniently."""
+
+    settings_true = AppSettings(tracing_insecure="YES")
+    settings_false = AppSettings(tracing_insecure="off")
+
+    assert settings_true.tracing_insecure is True
+    assert settings_false.tracing_insecure is False
+
+
+def test_app_settings_coerces_tracing_insecure_with_bool_cast() -> None:
+    """Non-string, non-bool values should fall back to Python's truthiness."""
+
+    settings_truthy = AppSettings(tracing_insecure=5)
+    settings_falsey = AppSettings(tracing_insecure=0)
+
+    assert settings_truthy.tracing_insecure is True
+    assert settings_falsey.tracing_insecure is False
+
+
+def test_app_settings_tracing_insecure_handles_unknown_strings() -> None:
+    """Unexpected string values should fall back to truthy evaluation."""
+
+    settings_truthy = AppSettings(tracing_insecure="maybe")
+    settings_falsey = AppSettings(tracing_insecure="")
+
+    assert settings_truthy.tracing_insecure is True
+    assert settings_falsey.tracing_insecure is False
+
+
+def test_app_settings_coerces_thresholds_from_custom_objects() -> None:
+    """Threshold validators should convert arbitrary objects via str()."""
+
+    class Numeric:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def __str__(self) -> str:
+            return self._value
+
+    settings = AppSettings(
+        tracing_high_token_threshold=Numeric("2048"),
+        tracing_preview_max_length=Numeric("1024"),
+    )
+
+    assert settings.tracing_high_token_threshold == 2048
+    assert settings.tracing_preview_max_length == 1024
+
+
+def test_app_settings_validator_restores_tracing_defaults() -> None:
+    """Model validator should backfill tracing defaults when values unset."""
+
+    settings = AppSettings()
+    settings.tracing_exporter = ""
+    settings.tracing_service_name = ""
+    settings.tracing_high_token_threshold = 0
+    settings.tracing_preview_max_length = -1
+
+    validated = settings._validate_postgres_requirements()
+
+    assert validated.tracing_exporter == _DEFAULTS["TRACING_EXPORTER"]
+    assert validated.tracing_service_name == _DEFAULTS["TRACING_SERVICE_NAME"]
+    assert (
+        validated.tracing_high_token_threshold
+        == _DEFAULTS["TRACING_HIGH_TOKEN_THRESHOLD"]
+    )
+    assert (
+        validated.tracing_preview_max_length == _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]
+    )

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 import aiosqlite
@@ -20,6 +21,7 @@ from orcheo_backend.app.history.sqlite_utils import (
     LIST_HISTORIES_SQL,
     SELECT_CURRENT_STEP_INDEX_SQL,
     UPDATE_HISTORY_STATUS_SQL,
+    UPDATE_TRACE_LAST_SPAN_SQL,
     connect_sqlite,
     ensure_sqlite_schema,
     fetch_record_row,
@@ -44,11 +46,14 @@ class SqliteRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         await self._ensure_initialized()
         async with self._lock:
             started_at = _utcnow()
+            trace_started = trace_started_at or started_at
             payload = json.dumps(dict(inputs or {}))
             async with connect_sqlite(self._database_path) as conn:
                 try:
@@ -60,6 +65,10 @@ class SqliteRunHistoryStore:
                             payload,
                             "running",
                             started_at.isoformat(),
+                            trace_id,
+                            trace_started.isoformat() if trace_started else None,
+                            None,
+                            trace_started.isoformat() if trace_started else None,
                         ),
                     )
                     await conn.commit()
@@ -73,6 +82,9 @@ class SqliteRunHistoryStore:
             status="running",
             started_at=started_at,
             steps=[],
+            trace_id=trace_id,
+            trace_started_at=trace_started,
+            trace_last_span_at=trace_started,
         )
 
     async def append_step(
@@ -104,6 +116,13 @@ class SqliteRunHistoryStore:
                         next_index,
                         at.isoformat(),
                         json.dumps(dict(payload)),
+                    ),
+                )
+                await conn.execute(
+                    UPDATE_TRACE_LAST_SPAN_SQL,
+                    (
+                        at.isoformat(),
+                        execution_id,
                     ),
                 )
                 await conn.commit()
@@ -191,6 +210,8 @@ class SqliteRunHistoryStore:
                         status,
                         completed_at.isoformat(),
                         error,
+                        completed_at.isoformat(),
+                        completed_at.isoformat(),
                         execution_id,
                     ),
                 )
@@ -207,6 +228,9 @@ class SqliteRunHistoryStore:
         record.completed_at = completed_at
         record.status = status
         record.error = error
+        record.trace_completed_at = completed_at
+        if record.trace_last_span_at is None:
+            record.trace_last_span_at = completed_at
         return record
 
     async def _ensure_initialized(self) -> None:

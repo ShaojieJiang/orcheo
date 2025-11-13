@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from orcheo.tracing import configure_tracing
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -53,6 +54,7 @@ from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 
 load_dotenv()
 configure_logging()
+configure_tracing()
 
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),

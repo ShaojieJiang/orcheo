@@ -9,16 +9,25 @@ from typing import Any, cast
 from uuid import UUID
 from fastapi import WebSocket
 from langchain_core.runnables import RunnableConfig
+from opentelemetry.trace import Span, Tracer
 from orcheo.config import get_settings
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from orcheo.tracing import (
+    get_tracer,
+    record_workflow_cancellation,
+    record_workflow_completion,
+    record_workflow_failure,
+    record_workflow_step,
+    workflow_span,
+)
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_history_store,
     get_vault,
 )
-from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
 
 
 logger = logging.getLogger(__name__)
@@ -71,35 +80,71 @@ async def _stream_workflow_updates(
     history_store: RunHistoryStore,
     execution_id: str,
     websocket: WebSocket,
+    tracer: Tracer,
 ) -> None:
     """Stream workflow updates to the client while recording history."""
-    try:
-        async for step in compiled_graph.astream(
-            state,
-            config=config,  # type: ignore[arg-type]
-            stream_mode="updates",
-        ):  # pragma: no cover
-            _log_step_debug(step)
-            await history_store.append_step(execution_id, step)
-            try:
-                await websocket.send_json(step)
-            except Exception as exc:  # pragma: no cover
-                logger.error("Error processing messages: %s", exc)
-                raise
+    async for step in compiled_graph.astream(
+        state,
+        config=config,  # type: ignore[arg-type]
+        stream_mode="updates",
+    ):  # pragma: no cover
+        _log_step_debug(step)
+        record_workflow_step(tracer, step)
+        await history_store.append_step(execution_id, step)
+        try:
+            await websocket.send_json(step)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Error processing messages: %s", exc)
+            raise
 
-        final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
-        _log_final_state_debug(final_state.values)
-    except asyncio.CancelledError as exc:
-        reason = str(exc) or "Workflow execution cancelled"
-        cancellation_payload = {"status": "cancelled", "reason": reason}
-        await history_store.append_step(execution_id, cancellation_payload)
-        await history_store.mark_cancelled(execution_id, reason=reason)
-        raise
-    except Exception as exc:
-        error_payload = {"status": "error", "error": str(exc)}
-        await history_store.append_step(execution_id, error_payload)
-        await history_store.mark_failed(execution_id, str(exc))
-        raise
+    final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
+    _log_final_state_debug(final_state.values)
+
+
+def _report_history_error(
+    execution_id: str,
+    span: Span,
+    exc: Exception,
+    *,
+    context: str,
+) -> None:
+    """Record tracing metadata and log a run history persistence failure."""
+    record_workflow_failure(span, exc)
+    logger.exception("Failed to %s for execution %s", context, execution_id)
+
+
+async def _persist_failure_history(
+    history_store: RunHistoryStore,
+    execution_id: str,
+    payload: Mapping[str, Any],
+    error_message: str,
+    span: Span,
+) -> None:
+    """Persist failure metadata while tolerating run history errors."""
+    try:
+        await history_store.append_step(execution_id, payload)
+        await history_store.mark_failed(execution_id, error_message)
+    except RunHistoryError as history_exc:
+        _report_history_error(
+            execution_id,
+            span,
+            history_exc,
+            context="record failure state",
+        )
+
+
+def _build_initial_state(
+    graph_config: Mapping[str, Any],
+    inputs: dict[str, Any],
+) -> Any:
+    """Return the starting runtime state for a workflow execution."""
+    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+        return inputs
+    return {
+        "messages": [],
+        "results": {},
+        "inputs": inputs,
+    }
 
 
 async def execute_workflow(
@@ -125,41 +170,74 @@ async def execute_workflow(
         pass
     credential_context = credential_context_from_workflow(workflow_uuid)
     resolver = CredentialResolver(vault, context=credential_context)
-    await history_store.start_run(
+    tracer = get_tracer(__name__)
+
+    with workflow_span(
+        tracer,
         workflow_id=workflow_id,
         execution_id=execution_id,
         inputs=inputs,
-    )
+    ) as span_context:
+        await history_store.start_run(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=inputs,
+            trace_id=span_context.trace_id,
+            trace_started_at=span_context.started_at,
+        )
 
-    with credential_resolution(resolver):
-        async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled_graph = graph.compile(checkpointer=checkpointer)
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(checkpointer=checkpointer)
 
-            if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-                state: Any = inputs
-            else:
-                state = {
-                    "messages": [],
-                    "results": {},
-                    "inputs": inputs,
-                }
-            _log_sensitive_debug("Initial state: %s", state)
+                state = _build_initial_state(graph_config, inputs)
+                _log_sensitive_debug("Initial state: %s", state)
 
-            config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
-            await _stream_workflow_updates(
-                compiled_graph,
-                state,
-                config,
-                history_store,
-                execution_id,
-                websocket,
-            )
+                config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
+                try:
+                    await _stream_workflow_updates(
+                        compiled_graph,
+                        state,
+                        config,
+                        history_store,
+                        execution_id,
+                        websocket,
+                        tracer,
+                    )
+                except asyncio.CancelledError as exc:
+                    reason = str(exc) or "Workflow execution cancelled"
+                    record_workflow_cancellation(span_context.span, reason=reason)
+                    cancellation_payload = {"status": "cancelled", "reason": reason}
+                    await history_store.append_step(execution_id, cancellation_payload)
+                    await history_store.mark_cancelled(execution_id, reason=reason)
+                    raise
+                except RunHistoryError as exc:
+                    _report_history_error(
+                        execution_id,
+                        span_context.span,
+                        exc,
+                        context="persist workflow history",
+                    )
+                    raise
+                except Exception as exc:
+                    record_workflow_failure(span_context.span, exc)
+                    error_message = str(exc)
+                    error_payload = {"status": "error", "error": error_message}
+                    await _persist_failure_history(
+                        history_store,
+                        execution_id,
+                        error_payload,
+                        error_message,
+                        span_context.span,
+                    )
+                    raise
 
-    completion_payload = {"status": "completed"}
-    await history_store.append_step(execution_id, completion_payload)
-    await history_store.mark_completed(execution_id)
-    await websocket.send_json(completion_payload)  # pragma: no cover
+        completion_payload = {"status": "completed"}
+        record_workflow_completion(span_context.span)
+        await history_store.append_step(execution_id, completion_payload)
+        await history_store.mark_completed(execution_id)
+        await websocket.send_json(completion_payload)  # pragma: no cover
 
 
 async def execute_node(
