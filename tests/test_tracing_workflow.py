@@ -1,28 +1,43 @@
 """Tests for workflow tracing helpers."""
 
 from __future__ import annotations
-
-from typing import Tuple
-
+from typing import Any
 import pytest
-
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import Tracer
-
+from opentelemetry.trace import StatusCode, Tracer
 from orcheo import config
+from orcheo.tracing import workflow as workflow_module
 from orcheo.tracing.workflow import record_workflow_step, workflow_span
 
 
-def _build_tracer() -> Tuple[Tracer, InMemorySpanExporter]:
+def _build_tracer() -> tuple[Tracer, InMemorySpanExporter]:
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     tracer = provider.get_tracer(__name__)
     return tracer, exporter
+
+
+class _RecordingSpan:
+    """Lightweight span stub that records events and attributes for assertions."""
+
+    def __init__(self) -> None:
+        self.status: Any = None
+        self.attributes: dict[str, Any] = {}
+        self.events: list[tuple[str, dict[str, Any] | None]] = []
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attributes[key] = value
+
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        self.events.append((name, attributes))
+
+    def set_status(self, status: Any) -> None:
+        self.status = status
 
 
 def test_record_workflow_step_creates_child_span() -> None:
@@ -136,3 +151,166 @@ def test_preview_text_redacts_sensitive_information(
 
     monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
     config.get_settings(refresh=True)
+
+
+def test_record_workflow_step_records_error_metadata_and_messages() -> None:
+    tracer, exporter = _build_tracer()
+    config.get_settings(refresh=True)
+    long_error = "x" * 600
+    step_payload = {
+        "node-1": {
+            "display_name": "LLM Node",
+            "kind": "tool",
+            "state": "ERROR",
+            "duration_ms": "42",
+            "error": {"code": "E123", "message": long_error},
+            "messages": [
+                {"role": "user", "content": "hello world"},
+                "fallback message",
+            ],
+            "prompt": {"text": "secret=should-redact"},
+            "prompts": ["extra prompt"],
+            "responses": ["response-one"],
+            "response": "single response",
+            "artifacts": [
+                {"id": "artifact-2"},
+                {"name": "no-id"},
+                "artifact-3",
+            ],
+            "usage": {"completion": "7"},
+            "usage_metadata": {"prompt_tokens": "5"},
+            "input_tokens": "3",
+        }
+    }
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    child = next(span for span in spans if span.name != "workflow.execution")
+    assert child.attributes["orcheo.node.kind"] == "tool"
+    assert child.attributes["orcheo.node.status"] == "error"
+    assert child.attributes["orcheo.node.latency_ms"] == 42
+    assert child.attributes["orcheo.error.code"] == "E123"
+    assert child.attributes["orcheo.token.input"] == 5
+    assert child.attributes["orcheo.token.output"] == 7
+    assert child.attributes["orcheo.artifact.ids"] == (
+        "artifact-2",
+        "{'name': 'no-id'}",
+        "artifact-3",
+    )
+    error_details = [event for event in child.events if event.name == "error.detail"]
+    assert error_details
+    preview_length = config.get_settings().tracing_preview_max_length
+    assert error_details[0].attributes["message"].endswith("…")
+    assert len(error_details[0].attributes["message"]) == preview_length
+    message_events = [event for event in child.events if event.name == "message"]
+    assert len(message_events) == 2
+    prompt_events = [event for event in child.events if event.name == "prompt"]
+    assert prompt_events
+    response_events = [event for event in child.events if event.name == "response"]
+    assert response_events
+    assert child.status.status_code is StatusCode.ERROR
+
+
+def test_node_attributes_omits_status_when_missing() -> None:
+    attributes = workflow_module._node_attributes(
+        "node-1",
+        {"display_name": "LLM Node", "kind": "llm"},
+    )
+
+    assert "orcheo.node.status" not in attributes
+
+
+def test_apply_message_events_ignores_non_sequence_messages() -> None:
+    span = _RecordingSpan()
+
+    workflow_module._apply_message_events(span, {"messages": 123})
+
+    assert not span.events
+
+
+def test_apply_status_returns_when_status_missing() -> None:
+    span = _RecordingSpan()
+    workflow_module._apply_status(span, {})
+
+    assert span.status is None
+    assert not span.events
+
+
+def test_apply_status_handles_string_error_message() -> None:
+    span = _RecordingSpan()
+
+    workflow_module._apply_status(span, {"status": "error", "error": "string failure"})
+
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description == "string failure"
+    error_events = [event for event in span.events if event[0] == "error.detail"]
+    assert error_events
+    assert error_events[0][1]["message"].startswith("string failure")
+
+
+def test_apply_status_handles_error_code_without_message() -> None:
+    span = _RecordingSpan()
+
+    workflow_module._apply_status(
+        span,
+        {
+            "status": "error",
+            "error": {"code": "E321"},
+        },
+    )
+
+    assert span.attributes["orcheo.error.code"] == "E321"
+    assert not [event for event in span.events if event[0] == "error.detail"]
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description == "error"
+
+
+def test_apply_status_handles_missing_error_object() -> None:
+    span = _RecordingSpan()
+
+    workflow_module._apply_status(span, {"status": "error"})
+
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description == "error"
+    assert not span.events
+
+
+def test_extract_token_usage_prefers_nested_sources() -> None:
+    payload = {
+        "token_usage": {"input_tokens": "9", "output_tokens": 2},
+        "usage": {"completion": "7"},
+        "usage_metadata": {"prompt_tokens": "5"},
+    }
+
+    input_tokens, output_tokens = workflow_module._extract_token_usage(payload)
+
+    assert input_tokens == 9
+    assert output_tokens == 2
+
+
+def test_extract_token_usage_falls_back_to_top_level_fields() -> None:
+    payload = {
+        "token_usage": None,
+        "usage": None,
+        "usage_metadata": "not-a-mapping",
+        "input_tokens": "4",
+        "completion_tokens": 3,
+    }
+
+    input_tokens, output_tokens = workflow_module._extract_token_usage(payload)
+
+    assert input_tokens == 4
+    assert output_tokens == 3
+
+
+def test_preview_text_truncates_long_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    settings = config.get_settings(refresh=True)
+    value = "a" * (settings.tracing_preview_max_length + 25)
+
+    preview = workflow_module._preview_text(value)
+
+    assert preview.endswith("…")
+    assert len(preview) == settings.tracing_preview_max_length
