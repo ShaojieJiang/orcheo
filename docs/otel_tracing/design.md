@@ -3,10 +3,15 @@
 ## Architectural Overview
 The tracing feature spans backend instrumentation, storage, API surfacing, and frontend rendering. We adopt OpenTelemetry for span generation and rely on an external collector/trace store (e.g., Tempo, Jaeger, Honeycomb) to persist data. The Orcheo backend captures trace IDs and exposes a read-optimized view of traces for the Canvas UI while also allowing operators to pivot into external dashboards.
 
-```
-Workflow Run -> Execution Engine -> OpenTelemetry SDK -> Collector -> Trace Store
-                                      |                         |
-                                      +--> Trace Metadata Store +--> Canvas Trace API
+```mermaid
+flowchart LR
+    WorkflowRun[Workflow Run] --> ExecutionEngine[Execution Engine]
+    ExecutionEngine --> OTEL[OpenTelemetry SDK]
+    OTEL --> Collector
+    Collector --> TraceStore[Trace Store]
+    ExecutionEngine --> MetadataStore[Trace Metadata Store]
+    MetadataStore --> CanvasAPI[Canvas Trace API]
+    Collector --> CanvasAPI
 ```
 
 ## Components
@@ -75,7 +80,7 @@ Workflow Run -> Execution Engine -> OpenTelemetry SDK -> Collector -> Trace Stor
 ## Alternatives Considered
 1. **Persist full trace data in Orcheo DB**: rejected due to storage/maintenance burden and duplication of existing tracing backends.
 2. **Frontend-only integration with external dashboards**: rejected because users need in-app visibility without leaving Canvas.
-3. **Custom tracing implementation**: rejected in favor of OpenTelemetry standardization and ecosystem tooling.
+3. **Custom tracing implementation**: rejected because building and operating bespoke instrumentation would duplicate vendor-integration work, fragment tracing semantics across services, and slow adoption of community tooling compared to the OpenTelemetry standard.
 
 ## Open Questions
 - Which collector/storage backend will the initial deployment target (Tempo vs. Jaeger vs. Honeycomb)?

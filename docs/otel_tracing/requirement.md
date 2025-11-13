@@ -17,7 +17,7 @@ The observability initiative for Milestone 6 is shifting toward a dedicated trac
 - Documentation updates covering setup, configuration, and user guidance for tracing.
 
 ## Out of Scope
-- Long-term storage and retention policies beyond the MVP retention window (to be defined later).
+- Long-term storage and retention policies beyond the MVP retention window (targeting 14 days for the initial release, with longer-term retention to be defined later).
 - Third-party collector deployment or hosted tracing infrastructure; the MVP targets compatibility with an existing OpenTelemetry collector endpoint provided by operators.
 - Retrofitting legacy execution viewers outside the Canvas workflow page.
 
@@ -44,6 +44,6 @@ The observability initiative for Milestone 6 is shifting toward a dedicated trac
 - UI complexity leading to confusing trace navigation without careful UX design.
 
 ## Compliance & Security Considerations
-- Sensitive prompt or response content must be redacted or protected in accordance with data handling policies.
+- Sensitive prompt or response content must be redacted or protected in accordance with data handling policies outlined in the [Milestone 3 Security Review](../milestone3_security_review.md).
 - Trace endpoints must enforce the same authorization scope as execution history APIs.
 - Token and artifact data should respect existing audit logging and access controls.
