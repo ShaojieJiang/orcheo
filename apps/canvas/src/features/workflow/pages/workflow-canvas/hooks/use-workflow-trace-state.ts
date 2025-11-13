@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import { buildBackendHttpUrl } from "@/lib/config";
@@ -25,6 +25,8 @@ interface TraceEntryState {
 
 type TraceStateMap = Record<string, TraceEntryState>;
 
+const MAX_TRACE_CACHE_ENTRIES = 20;
+
 interface UseWorkflowTraceStateParams {
   executions: WorkflowExecution[];
 }
@@ -33,6 +35,29 @@ export function useWorkflowTraceState({
   executions,
 }: UseWorkflowTraceStateParams) {
   const [traces, setTraces] = useState<TraceStateMap>({});
+  const traceOrderRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    setTraces((prev) => {
+      if (Object.keys(prev).length === 0) {
+        return prev;
+      }
+
+      const allowedIds = new Set(executions.map((execution) => execution.id));
+      const next: TraceStateMap = {};
+      const nextOrder: string[] = [];
+
+      traceOrderRef.current.forEach((id) => {
+        if (allowedIds.has(id) && prev[id]) {
+          next[id] = prev[id];
+          nextOrder.push(id);
+        }
+      });
+
+      traceOrderRef.current = nextOrder;
+      return next;
+    });
+  }, [executions]);
 
   const executionMetadataLookup = useMemo(() => {
     const map = new Map<string, TraceExecutionMetadata>();
@@ -67,15 +92,42 @@ export function useWorkflowTraceState({
     [executionMetadataLookup],
   );
 
+  const updateTraceEntry = useCallback(
+    (
+      executionId: string,
+      recipe: (current: TraceEntryState | undefined) => TraceEntryState,
+    ) => {
+      setTraces((prev) => {
+        const nextEntry = recipe(prev[executionId]);
+        const updated: TraceStateMap = {
+          ...prev,
+          [executionId]: nextEntry,
+        };
+
+        const nextOrder = traceOrderRef.current
+          .filter((id) => id !== executionId)
+          .concat(executionId);
+
+        while (nextOrder.length > MAX_TRACE_CACHE_ENTRIES) {
+          const removedId = nextOrder.shift();
+          if (removedId) {
+            delete updated[removedId];
+          }
+        }
+
+        traceOrderRef.current = nextOrder;
+        return updated;
+      });
+    },
+    [],
+  );
+
   const loadTrace = useCallback(
     async (executionId: string) => {
-      setTraces((prev) => ({
-        ...prev,
-        [executionId]: {
-          ...ensureEntry(executionId, prev[executionId]),
-          loading: true,
-          error: null,
-        },
+      updateTraceEntry(executionId, (current) => ({
+        ...ensureEntry(executionId, current),
+        loading: true,
+        error: null,
       }));
 
       const url = buildBackendHttpUrl(`/api/executions/${executionId}/trace`);
@@ -92,15 +144,12 @@ export function useWorkflowTraceState({
         }
 
         const payload = (await response.json()) as TraceResponse;
-        setTraces((prev) => {
-          const existing = ensureEntry(executionId, prev[executionId]);
+        updateTraceEntry(executionId, (current) => {
+          const existing = ensureEntry(executionId, current);
           return {
-            ...prev,
-            [executionId]: {
-              entry: mergeTraceResponse(existing.entry ?? undefined, payload),
-              loading: false,
-              error: null,
-            },
+            entry: mergeTraceResponse(existing.entry ?? undefined, payload),
+            loading: false,
+            error: null,
           };
         });
       } catch (error) {
@@ -116,38 +165,32 @@ export function useWorkflowTraceState({
             variant: "destructive",
           });
         }
-        setTraces((prev) => ({
-          ...prev,
-          [executionId]: {
-            ...ensureEntry(executionId, prev[executionId]),
-            loading: false,
-            error:
-              status === 404
-                ? "Trace data is not yet available. Please try again shortly."
-                : message,
-          },
+        updateTraceEntry(executionId, (current) => ({
+          ...ensureEntry(executionId, current),
+          loading: false,
+          error:
+            status === 404
+              ? "Trace data is not yet available. Please try again shortly."
+              : message,
         }));
       }
     },
-    [ensureEntry],
+    [ensureEntry, updateTraceEntry],
   );
 
   const applyTraceUpdate = useCallback(
     (update: TraceUpdateMessage) => {
-      setTraces((prev) => {
-        const executionId = update.execution_id;
-        const baseline = ensureEntry(executionId, prev[executionId]);
+      const executionId = update.execution_id;
+      updateTraceEntry(executionId, (current) => {
+        const baseline = ensureEntry(executionId, current);
         return {
-          ...prev,
-          [executionId]: {
-            entry: mergeTraceUpdate(baseline.entry!, update),
-            loading: baseline.loading,
-            error: baseline.error,
-          },
+          entry: mergeTraceUpdate(baseline.entry!, update),
+          loading: baseline.loading,
+          error: baseline.error,
         };
       });
     },
-    [ensureEntry],
+    [ensureEntry, updateTraceEntry],
   );
 
   const getViewerData = useCallback(

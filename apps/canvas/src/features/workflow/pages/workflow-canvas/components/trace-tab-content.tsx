@@ -1,5 +1,6 @@
 import { TraceViewer } from "@/components/agent-prism/TraceViewer/TraceViewer";
 import { TraceViewerPlaceholder } from "@/components/agent-prism/TraceViewer/TraceViewerPlaceholder";
+import { TraceViewerErrorBoundary } from "@/components/agent-prism/TraceViewer/TraceViewerErrorBoundary";
 import { Button } from "@/design-system/ui/button";
 
 import type { TraceViewerData } from "@/components/agent-prism/TraceViewer/TraceViewer";
@@ -46,8 +47,22 @@ export function TraceTabContent({
         <TraceViewerPlaceholder
           title={
             loading
-              ? "Loading trace data..."
+              ? "Loading trace metadata..."
               : "Trace data will appear here once spans are recorded."
+          }
+        />
+      </div>
+    );
+  }
+
+  if (viewerData.spans.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <TraceViewerPlaceholder
+          title={
+            loading
+              ? "Loading trace spans..."
+              : "Trace spans will appear here once they are recorded."
           }
         />
       </div>
@@ -56,10 +71,12 @@ export function TraceTabContent({
 
   return (
     <div className="h-full overflow-hidden">
-      <TraceViewer
-        data={[viewerData]}
-        spanCardViewOptions={{ expandButton: "inside" }}
-      />
+      <TraceViewerErrorBoundary resetKey={viewerData.traceRecord.id}>
+        <TraceViewer
+          data={[viewerData]}
+          spanCardViewOptions={{ expandButton: "inside" }}
+        />
+      </TraceViewerErrorBoundary>
     </div>
   );
 }

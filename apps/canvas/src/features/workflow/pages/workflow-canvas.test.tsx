@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
+import type { TraceViewerData } from "@/components/agent-prism/TraceViewer/TraceViewer";
 import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 
 class ResizeObserverMock {
@@ -195,5 +196,45 @@ describe("WorkflowCanvas editing history", () => {
     expect(
       screen.getByText(/select an execution to view its trace/i),
     ).toBeInTheDocument();
+  });
+
+  it("shows a metadata loading message while the trace is fetched", () => {
+    render(
+      <TraceTabContent
+        activeExecutionId="exec-1"
+        viewerData={null}
+        loading
+        error={null}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/loading trace metadata/i)).toBeInTheDocument();
+  });
+
+  it("shows a spans loading message when metadata is loaded but spans are pending", () => {
+    const viewerData: TraceViewerData = {
+      traceRecord: {
+        id: "exec-2",
+        name: "Execution 2",
+        spansCount: 0,
+        durationMs: 0,
+        agentDescription: "Status: running",
+        startTime: Date.now(),
+      },
+      spans: [],
+    };
+
+    render(
+      <TraceTabContent
+        activeExecutionId="exec-2"
+        viewerData={viewerData}
+        loading
+        error={null}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/loading trace spans/i)).toBeInTheDocument();
   });
 });
