@@ -4,7 +4,7 @@
 - Finalize configuration for enabling tracing and document new environment variables.
 - Add OpenTelemetry dependencies to backend projects and bootstrap tracer provider with OTLP + persistence exporters.
 - Implement root/node span instrumentation in workflow execution paths with feature flag to disable tracing.
-- Draft database migration scripts (trace tables, run metadata columns) and review with infra team.
+- Draft database migrations (trace tables, run metadata columns) and review with infra team.
 
 ## Phase 2 – Persistence & API (Week 2)
 - Implement repositories/services that persist spans and associate them with workflow executions.

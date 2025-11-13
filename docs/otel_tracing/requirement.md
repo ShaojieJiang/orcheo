@@ -15,16 +15,16 @@ Provide end-to-end visibility into workflow executions by introducing a dedicate
 - Supporting non-Canvas consumers (CLI, SDK) in this iteration.
 
 ## Functional Requirements
-1. **Trace Generation**: Each workflow execution creates a root span with child spans representing workflow nodes, tool calls, and downstream services. Each span includes timing, status, prompt/response metadata (for LLM nodes), token counts, and artifact references.
-2. **Trace Persistence**: The backend stores trace identifiers, span metadata, and links to artifacts/metrics so they can be retrieved after execution completes.
-3. **Trace Retrieval API**: Expose REST endpoints that return trace trees for a given execution ID, with pagination options for large runs.
-4. **Trace Tab UI**: Add a "Trace" tab (after "Execution") on the workflow Canvas page that renders span timelines, prompts/responses, token metrics charts, and artifact download links. The tab must respond to execution selection changes.
+1. **Trace Generation**: Each workflow execution creates a root span with child spans representing workflow nodes, tool calls, and downstream services. Each span includes timing, status, prompt/response metadata (for LLM nodes), token counts, and artifact references. Implementation guidance lives in [Backend Components](./design.md#backend-components).
+2. **Trace Persistence**: The backend stores trace identifiers, span metadata, and links to artifacts/metrics so they can be retrieved after execution completes. The proposed schema is summarized in [Trace Persistence Layer](./design.md#backend-components).
+3. **Trace Retrieval API**: Expose REST endpoints that return trace trees for a given execution ID, with pagination options for large runs. DTO details appear in [Trace Retrieval API](./design.md#backend-components).
+4. **Trace Tab UI**: Add a "Trace" tab (after "Execution") on the workflow Canvas page that renders span timelines, prompts/responses, token metrics charts, and artifact download links. The tab must respond to execution selection changes. See [Trace Tab UI](./design.md#frontend-components) for the planned interactions.
 5. **Monitoring Links**: Provide deep links from spans or the Trace tab header to external dashboards (e.g., OpenTelemetry collector, metrics monitors) when configured.
 6. **Access Control**: Respect existing workflow access permissions; only authorized users can load traces.
 
 ## Quality Attributes
-- **Performance**: Loading a trace for a typical execution (≤500 spans) should complete within 1 second in the UI with cached API responses.
-- **Reliability**: Trace capture must not fail the workflow execution; fall back to logging when collectors are unavailable.
+- **Performance**: Loading a trace for a typical execution (defined as a run with ≤60 nodes, ≤10 tool calls per node, and ≤500 spans) should complete within 1 second in the UI with cached API responses.
+- **Reliability**: Trace capture must not fail the workflow execution; fall back to logging when collectors are unavailable and follow the degraded experience described in [Telemetry & Error Handling](./design.md#backend-components).
 - **Security & Privacy**: Sensitive prompt/response content must honor redaction rules; artifacts download only for authorized roles.
 - **Observability**: Emit backend metrics on trace generation, storage, and retrieval success/failure rates.
 

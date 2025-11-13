@@ -25,9 +25,13 @@ Frontend Canvas ◀─ Trace API ◀──────────┘
 
 3. **Trace Persistence Layer**
    - Extend existing run history models with trace metadata (trace ID, span counts, artifact IDs).
-   - Introduce a `trace_spans` table storing span hierarchy, timing, attributes, and references.
+   - Introduce a `trace_spans` table storing span hierarchy, timing, attributes, and references. The initial schema will include
+     columns for `span_id`, `parent_span_id`, `execution_id`, `node_id`, `name`, `status`, `start_time`, `end_time`, `duration_ms`,
+     `attributes` (JSONB), and `events` (JSONB). Large prompt/response payloads will continue to live in the artifact store and
+     be referenced by ID.
    - Provide repository methods to persist spans as they complete, using bulk upserts for efficiency.
-   - Implement retention policies (e.g., configurable TTL) and pruning jobs.
+   - Implement retention policies (e.g., configurable TTL) and pruning jobs. Detailed migration steps are outlined in
+     [Phase 1 of the implementation plan](./plan.md#phase-1--foundations-week-1).
 
 4. **Trace Retrieval API**
    - Add FastAPI routes under `/executions/{execution_id}/trace` returning span trees.
@@ -37,11 +41,14 @@ Frontend Canvas ◀─ Trace API ◀──────────┘
 
 5. **Telemetry & Error Handling**
    - Emit metrics for trace emission success/failure, API latencies, and data volume.
-   - Ensure workflows proceed if tracing fails; log warnings and degrade gracefully.
+   - Ensure workflows proceed if tracing fails; log warnings and degrade gracefully by disabling further span exports for the
+     impacted execution, surfacing a banner in the Trace tab, and falling back to execution history data.
 
 ## Frontend Components
 1. **State Management**
-   - Extend Canvas state (`useCanvasUiState`, selectors, controllers) to track the selected Trace tab and active execution ID.
+   - Extend or introduce Canvas state primitives (e.g., `useCanvasUiState`, selectors, controllers) to track the selected Trace
+     tab and active execution ID. If equivalent hooks do not exist, create dedicated Trace tab state modules as part of
+     implementation.
    - Add a trace data cache keyed by execution ID to avoid redundant fetches.
 
 2. **Data Access**
@@ -68,7 +75,7 @@ Frontend Canvas ◀─ Trace API ◀──────────┘
    - End-to-end scenario covering trace display for a sample workflow.
 
 ## Deployment Considerations
-- Provide migration scripts for new trace tables/columns.
+- Provide database migrations for new trace tables/columns (aligned with [Phase 1 tasks](./plan.md#phase-1--foundations-week-1)).
 - Document environment variables for enabling/disabling tracing and configuring the OTLP endpoint.
 - Validate compatibility with existing observability stack; ensure collectors can ingest spans without schema changes.
 
