@@ -85,6 +85,7 @@ list_workflow_runs = _runs_routes.list_workflow_runs
 get_workflow_run = _runs_routes.get_workflow_run
 list_workflow_execution_histories = _runs_routes.list_workflow_execution_histories
 get_execution_history = _runs_routes.get_execution_history
+get_execution_trace = _runs_routes.get_execution_trace
 replay_execution = _runs_routes.replay_execution
 mark_run_started = _runs_routes.mark_run_started
 mark_run_succeeded = _runs_routes.mark_run_succeeded
@@ -125,6 +126,7 @@ __all__ = [
     "get_cron_trigger_config",
     "get_credential_template",
     "get_execution_history",
+    "get_execution_trace",
     "get_webhook_trigger_config",
     "get_workflow",
     "get_workflow_credential_health",

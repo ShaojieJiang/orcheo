@@ -9,7 +9,8 @@ from typing import Any
 from unittest.mock import AsyncMock
 import pytest
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
-from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.history import RunHistoryError, RunHistoryStep
+from orcheo_backend.app.schemas.runs import TraceUpdateMessage
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -71,7 +72,7 @@ async def test_persist_failure_history_reports_store_errors(
         ),
     )
 
-    await _persist_failure_history(
+    history_step, record = await _persist_failure_history(
         history_store,
         "exec-2",
         {"status": "error"},
@@ -82,6 +83,8 @@ async def test_persist_failure_history_reports_store_errors(
     assert reports == [
         ("exec-2", span, failure, "record failure state"),
     ]
+    assert history_step is None
+    assert record is None
 
 
 @pytest.mark.asyncio
@@ -91,8 +94,16 @@ async def test_execute_workflow_reports_history_store_failure(
     """execute_workflow should surface RunHistoryError exceptions with telemetry."""
 
     history_store = AsyncMock()
-    history_store.start_run = AsyncMock()
-    history_store.append_step = AsyncMock()
+    history_store.start_run = AsyncMock(
+        return_value=SimpleNamespace(trace_started_at=None)
+    )
+    history_store.append_step = AsyncMock(
+        return_value=RunHistoryStep(
+            index=0,
+            at=datetime.now(tz=UTC),
+            payload={},
+        )
+    )
     history_store.mark_cancelled = AsyncMock()
     history_store.mark_failed = AsyncMock()
     history_store.mark_completed = AsyncMock()
@@ -144,6 +155,16 @@ async def test_execute_workflow_reports_history_store_failure(
     run_error = RunHistoryError("history store unavailable")
     stream_mock = AsyncMock(side_effect=run_error)
     monkeypatch.setattr(workflow_execution, "_stream_workflow_updates", stream_mock)
+    monkeypatch.setattr(
+        workflow_execution,
+        "trace_update_message",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "trace_completion_message",
+        lambda record: None,
+    )
     reports: list[tuple[str, Any, Exception, str]] = []
     monkeypatch.setattr(
         workflow_execution,
@@ -176,3 +197,66 @@ async def test_execute_workflow_reports_history_store_failure(
     assert execution_id == "exec-3"
     assert exc_arg is run_error
     assert context == "persist workflow history"
+
+
+@pytest.mark.asyncio
+async def test_stream_workflow_updates_emits_trace_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stream_workflow_updates should send trace update envelopes."""
+
+    history_step = RunHistoryStep(
+        index=0,
+        at=datetime.now(tz=UTC),
+        payload={"node": {"display_name": "Node"}},
+    )
+    history_store = AsyncMock()
+    history_store.append_step = AsyncMock(return_value=history_step)
+
+    async def fake_astream(*args: Any, **kwargs: Any):
+        yield {"node": {"display_name": "Node"}}
+
+    async def fake_get_state(*args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(values={})
+
+    compiled_graph = SimpleNamespace(astream=fake_astream, aget_state=fake_get_state)
+    monkeypatch.setattr(workflow_execution, "record_workflow_step", lambda *args: None)
+
+    messages: list[Any] = []
+
+    class DummyWebSocket:
+        async def send_json(self, payload: Any) -> None:
+            messages.append(payload)
+
+    trace_calls: list[dict[str, Any]] = []
+
+    def fake_trace_update_message(**kwargs: Any) -> TraceUpdateMessage:
+        trace_calls.append(kwargs)
+        return TraceUpdateMessage(
+            execution_id=kwargs["execution_id"],
+            trace_id=kwargs.get("trace_id"),
+            spans=[],
+        )
+
+    monkeypatch.setattr(
+        workflow_execution, "trace_update_message", fake_trace_update_message
+    )
+
+    await workflow_execution._stream_workflow_updates(
+        compiled_graph,
+        state={},
+        config={},
+        history_store=history_store,
+        execution_id="exec-trace",
+        workflow_id="wf-trace",
+        websocket=DummyWebSocket(),  # type: ignore[arg-type]
+        tracer=object(),  # type: ignore[arg-type]
+        trace_id="trace-1",
+        trace_started_at=datetime.now(tz=UTC),
+    )
+
+    assert trace_calls, "expected trace update helper to be invoked"
+    assert any(
+        isinstance(message, dict) and message.get("type") == "trace:update"
+        for message in messages
+    )
