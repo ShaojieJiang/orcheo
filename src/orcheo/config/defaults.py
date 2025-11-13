@@ -30,6 +30,8 @@ _DEFAULTS: dict[str, object] = {
     "TRACING_SERVICE_NAME": "orcheo-backend",
     "TRACING_SAMPLE_RATIO": 1.0,
     "TRACING_INSECURE": False,
+    "TRACING_HIGH_TOKEN_THRESHOLD": 1000,
+    "TRACING_PREVIEW_MAX_LENGTH": 512,
 }
 
 __all__ = ["_DEFAULTS"]

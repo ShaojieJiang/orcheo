@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Tuple
 
+import pytest
+
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -11,6 +13,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import Tracer
 
+from orcheo import config
 from orcheo.tracing.workflow import record_workflow_step, workflow_span
 
 
@@ -69,3 +72,67 @@ def test_workflow_span_captures_execution_metadata() -> None:
     assert root.attributes["orcheo.workflow.id"] == "wf"
     assert root.attributes["orcheo.execution.input_keys"] == ("foo",)
     assert trace_id
+
+
+def test_high_token_threshold_uses_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", "10")
+    config.get_settings(refresh=True)
+
+    tracer, exporter = _build_tracer()
+    step_payload = {
+        "node-1": {
+            "display_name": "LLM Node",
+            "status": "success",
+            "token_usage": {"input": 11, "output": 3},
+        }
+    }
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    child = next(span for span in spans if span.name != "workflow.execution")
+    token_events = [event for event in child.events if event.name == "token.chunk"]
+    assert token_events and token_events[0].attributes["input"] == 11
+
+    monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
+    config.get_settings(refresh=True)
+
+
+def test_preview_text_redacts_sensitive_information(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", "128")
+    config.get_settings(refresh=True)
+
+    tracer, exporter = _build_tracer()
+    step_payload = {
+        "node-1": {
+            "display_name": "LLM Node",
+            "status": "success",
+            "responses": ["Contact us at user@example.com"],
+            "messages": [
+                {"role": "system", "content": "api_token = super-secret-value"}
+            ],
+        }
+    }
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    child = next(span for span in spans if span.name != "workflow.execution")
+    for event in child.events:
+        for value in event.attributes.values():
+            assert "user@example.com" not in str(value)
+            assert "super-secret-value" not in str(value)
+    redactions = [
+        attr
+        for event in child.events
+        for attr in event.attributes.values()
+        if "[REDACTED]" in str(attr)
+    ]
+    assert redactions
+
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    config.get_settings(refresh=True)

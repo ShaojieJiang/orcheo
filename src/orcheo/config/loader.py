@@ -71,6 +71,14 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             tracing_insecure=source.get(
                 "TRACING_INSECURE", _DEFAULTS["TRACING_INSECURE"]
             ),
+            tracing_high_token_threshold=source.get(
+                "TRACING_HIGH_TOKEN_THRESHOLD",
+                _DEFAULTS["TRACING_HIGH_TOKEN_THRESHOLD"],
+            ),
+            tracing_preview_max_length=source.get(
+                "TRACING_PREVIEW_MAX_LENGTH",
+                _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"],
+            ),
         )
     except ValidationError as exc:  # pragma: no cover - defensive
         raise ValueError(str(exc)) from exc
@@ -103,6 +111,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("TRACING_SERVICE_NAME", settings.tracing_service_name)
     normalized.set("TRACING_SAMPLE_RATIO", settings.tracing_sample_ratio)
     normalized.set("TRACING_INSECURE", settings.tracing_insecure)
+    normalized.set(
+        "TRACING_HIGH_TOKEN_THRESHOLD", settings.tracing_high_token_threshold
+    )
+    normalized.set("TRACING_PREVIEW_MAX_LENGTH", settings.tracing_preview_max_length)
 
     return normalized
 

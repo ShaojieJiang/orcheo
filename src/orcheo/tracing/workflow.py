@@ -1,15 +1,26 @@
 """Workflow-specific tracing helpers."""
 
 from __future__ import annotations
+import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
+from orcheo.config import get_settings
 
 
-_MAX_PREVIEW_LENGTH = 512
+_DEFAULT_MAX_PREVIEW_LENGTH = 512
+_DEFAULT_HIGH_USAGE_THRESHOLD = 1000
+_SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),
+    re.compile(r"\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b"),
+    re.compile(r"\b(?:\d[ -.]?){13,16}\b"),
+)
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(?P<label>(?:api|secret|token|key)[\w-]*)\s*(?P<sep>[:=])\s*(?P<value>[A-Z0-9\-_=]{8,})"
+)
 
 
 @dataclass(slots=True)
@@ -116,7 +127,8 @@ def _apply_token_metrics(span: Span, payload: Mapping[str, Any]) -> None:
         span.set_attribute("orcheo.token.input", input_tokens)
     if output_tokens is not None:
         span.set_attribute("orcheo.token.output", output_tokens)
-    if (input_tokens or 0) > 1000 or (output_tokens or 0) > 1000:
+    threshold = _token_usage_threshold()
+    if (input_tokens or 0) > threshold or (output_tokens or 0) > threshold:
         span.add_event(
             "token.chunk",
             {
@@ -266,9 +278,45 @@ def _add_text_events(span: Span, event_name: str, value: Any) -> None:
 
 def _preview_text(value: Any) -> str:
     text = "" if value is None else str(value)
-    if len(text) <= _MAX_PREVIEW_LENGTH:
-        return text
-    return text[: _MAX_PREVIEW_LENGTH - 1] + "…"
+    sanitized = _sanitize_text(text)
+    max_length = _preview_max_length()
+    if len(sanitized) <= max_length:
+        return sanitized
+    return sanitized[: max_length - 1] + "…"
+
+
+def _token_usage_threshold() -> int:
+    settings = get_settings()
+    value = settings.get("TRACING_HIGH_TOKEN_THRESHOLD", _DEFAULT_HIGH_USAGE_THRESHOLD)
+    try:
+        threshold = int(value)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return _DEFAULT_HIGH_USAGE_THRESHOLD
+    return threshold if threshold > 0 else _DEFAULT_HIGH_USAGE_THRESHOLD
+
+
+def _preview_max_length() -> int:
+    settings = get_settings()
+    value = settings.get("TRACING_PREVIEW_MAX_LENGTH", _DEFAULT_MAX_PREVIEW_LENGTH)
+    try:
+        length = int(value)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return _DEFAULT_MAX_PREVIEW_LENGTH
+    return length if length > 0 else _DEFAULT_MAX_PREVIEW_LENGTH
+
+
+def _sanitize_text(text: str) -> str:
+    sanitized = text
+    for pattern in _SENSITIVE_PATTERNS:
+        sanitized = pattern.sub("[REDACTED]", sanitized)
+
+    def _replace_secret(match: re.Match[str]) -> str:
+        label = match.group("label")
+        separator = match.group("sep")
+        return f"{label}{separator} [REDACTED]"
+
+    sanitized = _SECRET_ASSIGNMENT_PATTERN.sub(_replace_secret, sanitized)
+    return sanitized
 
 
 __all__ = [

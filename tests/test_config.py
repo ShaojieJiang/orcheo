@@ -30,6 +30,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORCHEO_VAULT_AWS_REGION", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_TOKEN_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
 
     settings = config.get_settings(refresh=True)
 
@@ -44,6 +46,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.vault_aws_region is None
     assert settings.vault_aws_kms_key_id is None
     assert settings.vault_token_ttl_seconds == 3600
+    assert settings.tracing_high_token_threshold == 1000
+    assert settings.tracing_preview_max_length == 512
 
 
 def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,6 +101,22 @@ def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_SQLITE_PATH", "updated.db")
     refreshed = config.get_settings(refresh=True)
     assert refreshed.sqlite_path == "updated.db"
+
+
+def test_tracing_settings_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tracing preview and threshold settings should be configurable."""
+
+    monkeypatch.setenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", "250")
+    monkeypatch.setenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", "256")
+
+    settings = config.get_settings(refresh=True)
+
+    assert settings.tracing_high_token_threshold == 250
+    assert settings.tracing_preview_max_length == 256
+
+    monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    config.get_settings(refresh=True)
 
 
 def test_invalid_vault_backend(monkeypatch: pytest.MonkeyPatch) -> None:

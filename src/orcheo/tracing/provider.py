@@ -76,8 +76,12 @@ def _build_exporter(exporter_name: str, settings: Any) -> SpanExporter | None:
         return ConsoleSpanExporter()
     if exporter_name == "otlp":
         if OTLPSpanExporter is None:  # pragma: no cover - dependency missing
-            logger.warning("OTLP exporter requested but dependency unavailable")
-            return None
+            msg = (
+                "OTLP exporter requested but dependency unavailable. "
+                "Install 'opentelemetry-exporter-otlp' to enable OTLP tracing."
+            )
+            logger.error(msg)
+            raise RuntimeError(msg)
         endpoint = settings.get("TRACING_ENDPOINT")
         insecure = bool(settings.get("TRACING_INSECURE", False))
         exporter_kwargs: dict[str, Any] = {}

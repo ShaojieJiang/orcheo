@@ -9,7 +9,7 @@ from typing import Any, cast
 from uuid import UUID
 from fastapi import WebSocket
 from langchain_core.runnables import RunnableConfig
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import Span, Tracer
 from orcheo.config import get_settings
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
@@ -27,7 +27,7 @@ from orcheo_backend.app.dependencies import (
     get_history_store,
     get_vault,
 )
-from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,52 @@ async def _stream_workflow_updates(
     _log_final_state_debug(final_state.values)
 
 
+def _report_history_error(
+    execution_id: str,
+    span: Span,
+    exc: Exception,
+    *,
+    context: str,
+) -> None:
+    """Record tracing metadata and log a run history persistence failure."""
+    record_workflow_failure(span, exc)
+    logger.exception("Failed to %s for execution %s", context, execution_id)
+
+
+async def _persist_failure_history(
+    history_store: RunHistoryStore,
+    execution_id: str,
+    payload: Mapping[str, Any],
+    error_message: str,
+    span: Span,
+) -> None:
+    """Persist failure metadata while tolerating run history errors."""
+    try:
+        await history_store.append_step(execution_id, payload)
+        await history_store.mark_failed(execution_id, error_message)
+    except RunHistoryError as history_exc:
+        _report_history_error(
+            execution_id,
+            span,
+            history_exc,
+            context="record failure state",
+        )
+
+
+def _build_initial_state(
+    graph_config: Mapping[str, Any],
+    inputs: dict[str, Any],
+) -> Any:
+    """Return the starting runtime state for a workflow execution."""
+    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+        return inputs
+    return {
+        "messages": [],
+        "results": {},
+        "inputs": inputs,
+    }
+
+
 async def execute_workflow(
     workflow_id: str,
     graph_config: dict[str, Any],
@@ -145,14 +191,7 @@ async def execute_workflow(
                 graph = build_graph(graph_config)
                 compiled_graph = graph.compile(checkpointer=checkpointer)
 
-                if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-                    state: Any = inputs
-                else:
-                    state = {
-                        "messages": [],
-                        "results": {},
-                        "inputs": inputs,
-                    }
+                state = _build_initial_state(graph_config, inputs)
                 _log_sensitive_debug("Initial state: %s", state)
 
                 config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
@@ -173,11 +212,25 @@ async def execute_workflow(
                     await history_store.append_step(execution_id, cancellation_payload)
                     await history_store.mark_cancelled(execution_id, reason=reason)
                     raise
+                except RunHistoryError as exc:
+                    _report_history_error(
+                        execution_id,
+                        span_context.span,
+                        exc,
+                        context="persist workflow history",
+                    )
+                    raise
                 except Exception as exc:
                     record_workflow_failure(span_context.span, exc)
-                    error_payload = {"status": "error", "error": str(exc)}
-                    await history_store.append_step(execution_id, error_payload)
-                    await history_store.mark_failed(execution_id, str(exc))
+                    error_message = str(exc)
+                    error_payload = {"status": "error", "error": error_message}
+                    await _persist_failure_history(
+                        history_store,
+                        execution_id,
+                        error_payload,
+                        error_message,
+                        span_context.span,
+                    )
                     raise
 
         completion_payload = {"status": "completed"}
