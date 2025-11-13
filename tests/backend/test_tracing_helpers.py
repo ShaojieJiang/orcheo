@@ -35,6 +35,42 @@ def test_build_step_span_attributes_extracts_metadata() -> None:
     assert attributes["orcheo.step.token_usage.completion_tokens"] == 5.0
 
 
+def _install_in_memory_exporter() -> tuple[
+    InMemorySpanExporter, TracerProvider, SimpleSpanProcessor
+]:
+    exporter = InMemorySpanExporter()
+    processor = SimpleSpanProcessor(exporter)
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+    provider.add_span_processor(processor)
+    exporter.clear()
+    return exporter, provider, processor
+
+
+def test_build_step_span_attributes_truncates_large_collections() -> None:
+    prompts = [f"prompt-{index}" for index in range(30)]
+    payload: dict[str, Any] = {
+        "node-1": {
+            "prompts": prompts,
+            "responses": ["response" * 1000],
+        }
+    }
+
+    attributes = build_step_span_attributes(payload)
+
+    prompt_attributes = attributes["orcheo.step.prompts"]
+    assert len(prompt_attributes) == 26
+    assert prompt_attributes[-1] == "...(+5 more)"
+    assert prompt_attributes[0] == "prompt-0"
+    assert prompt_attributes[24] == "prompt-24"
+
+    response_attributes = attributes["orcheo.step.responses"]
+    assert response_attributes[0].endswith("…")
+    assert len(response_attributes[0]) == 2048
+
+
 def test_derive_step_span_name_prefers_node_identifier() -> None:
     payload = {"node-a": {"status": "running"}}
     assert derive_step_span_name(3, payload) == "workflow.step.node-a"
@@ -42,11 +78,7 @@ def test_derive_step_span_name_prefers_node_identifier() -> None:
 
 
 def test_workflow_execution_span_provides_trace_ids() -> None:
-    original_provider = trace.get_tracer_provider()
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
+    exporter, provider, processor = _install_in_memory_exporter()
 
     try:
         with workflow_execution_span(
@@ -64,7 +96,34 @@ def test_workflow_execution_span_provides_trace_ids() -> None:
             ) as span:
                 assert span is not None
                 assert trace_ctx.span_id(span) is not None
+        provider.force_flush()
         finished = exporter.get_finished_spans()
         assert any(span.name == "workflow.execution" for span in finished)
     finally:
-        trace.set_tracer_provider(original_provider)
+        processor.shutdown()
+
+
+def test_workflow_execution_span_truncates_large_attributes() -> None:
+    exporter, provider, processor = _install_in_memory_exporter()
+    large_payload = {"data": "x" * 3000}
+
+    try:
+        with workflow_execution_span(
+            "wf-id",
+            "exec-id",
+            inputs=large_payload,
+        ) as trace_ctx:
+            trace_ctx.set_final_state(large_payload)
+
+        provider.force_flush()
+        finished = exporter.get_finished_spans()
+        root_span = next(span for span in finished if span.name == "workflow.execution")
+        inputs_attr = root_span.attributes["orcheo.workflow.inputs"]
+        final_state_attr = root_span.attributes["orcheo.workflow.final_state"]
+
+        assert len(inputs_attr) == 2048
+        assert inputs_attr.endswith("…")
+        assert len(final_state_attr) == 2048
+        assert final_state_attr.endswith("…")
+    finally:
+        processor.shutdown()

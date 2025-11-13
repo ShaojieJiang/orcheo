@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace.export import (
     ConsoleSpanExporter,
     SpanExporter,
 )
+from requests import RequestException
 from orcheo.config.tracing_settings import TracingSettings
 
 
@@ -61,8 +62,12 @@ def _build_exporter(settings: TracingSettings) -> SpanExporter | None:
                 headers=settings.exporter_headers or None,
                 timeout=settings.exporter_timeout,
             )
-        except Exception as exc:  # pragma: no cover - defensive
-            _logger.error("Failed to configure OTLP exporter: %s", exc)
+        except (
+            RequestException,
+            TypeError,
+            ValueError,
+        ) as exc:  # pragma: no cover - defensive
+            _logger.exception("Failed to configure OTLP exporter: %s", exc)
             return None
 
     _logger.warning("Unsupported OpenTelemetry exporter configured: %s", exporter_kind)

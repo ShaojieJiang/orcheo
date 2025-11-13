@@ -14,6 +14,9 @@ _PROMPT_KEYS = {"prompt", "prompts", "messages"}
 _RESPONSE_KEYS = {"response", "responses", "output", "outputs", "result", "results"}
 _TOKEN_KEYS = {"token_usage", "usage"}
 _ARTIFACT_KEYS = {"artifact_ids", "artifacts"}
+_MAX_STRING_LENGTH = 2048
+_MAX_COLLECTION_ITEMS = 25
+_TRUNCATED_SENTINEL = "…"
 
 
 class WorkflowTrace:
@@ -129,15 +132,17 @@ def build_step_span_attributes(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Collect notable attributes from a workflow step payload."""
     attributes: dict[str, Any] = {}
     if payload:
-        attributes["orcheo.step.nodes"] = [str(key) for key in payload.keys()]
+        attributes["orcheo.step.nodes"] = _truncate_sequence(
+            [str(key) for key in payload.keys()]
+        )
 
     prompts, responses, artifacts, token_usage = _collect_step_metadata(payload)
     if prompts:
-        attributes["orcheo.step.prompts"] = prompts
+        attributes["orcheo.step.prompts"] = _truncate_sequence(prompts)
     if responses:
-        attributes["orcheo.step.responses"] = responses
+        attributes["orcheo.step.responses"] = _truncate_sequence(responses)
     if artifacts:
-        attributes["orcheo.step.artifacts"] = artifacts
+        attributes["orcheo.step.artifacts"] = _truncate_sequence(artifacts)
     for key, value in token_usage.items():
         attributes[f"orcheo.step.token_usage.{key}"] = value
 
@@ -198,39 +203,69 @@ def _coerce_strings(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        return [value]
+        return [_truncate_string(value)]
     if isinstance(value, Mapping):
         try:
-            return [json.dumps(value, default=str)]
+            return [_truncate_string(json.dumps(value, default=str))]
         except TypeError:  # pragma: no cover - defensive
-            return [str(value)]
+            return [_truncate_string(str(value))]
     if isinstance(value, (list, tuple, set)):
         coerced: list[str] = []
         for item in value:
             coerced.extend(_coerce_strings(item))
         return coerced
-    return [str(value)]
+    return [_truncate_string(str(value))]
 
 
 def _stringify(value: Any) -> str:
     if isinstance(value, str):
-        return value
+        return _truncate_string(value)
     try:
-        return json.dumps(value, default=str)
+        return _truncate_string(json.dumps(value, default=str))
     except TypeError:  # pragma: no cover - defensive
-        return str(value)
+        return _truncate_string(str(value))
 
 
 def _set_attribute(span: Span, key: str, value: Any) -> None:
     if isinstance(value, (str, bool, int, float)):
-        span.set_attribute(key, value)
+        span.set_attribute(
+            key,
+            _truncate_string(value) if isinstance(value, str) else value,
+        )
         return
-    if isinstance(value, list) and all(
-        isinstance(item, (str, bool, int, float)) for item in value
-    ):
-        span.set_attribute(key, value)
-        return
+    if isinstance(value, list):
+        if all(isinstance(item, str) for item in value):
+            span.set_attribute(key, _truncate_sequence(value))
+            return
+        if all(isinstance(item, (bool, int, float)) for item in value):
+            limited = value[:_MAX_COLLECTION_ITEMS]
+            span.set_attribute(key, limited)
+            if len(value) > _MAX_COLLECTION_ITEMS:
+                span.set_attribute(
+                    f"{key}.truncated_count", len(value) - _MAX_COLLECTION_ITEMS
+                )
+            return
     span.set_attribute(key, _stringify(value))
+
+
+def _truncate_sequence(values: list[str]) -> list[str]:
+    if len(values) <= _MAX_COLLECTION_ITEMS and all(
+        len(value) <= _MAX_STRING_LENGTH for value in values
+    ):
+        return values
+
+    truncated: list[str] = []
+    for value in values[:_MAX_COLLECTION_ITEMS]:
+        truncated.append(_truncate_string(value))
+    if len(values) > _MAX_COLLECTION_ITEMS:
+        truncated.append(f"...(+{len(values) - _MAX_COLLECTION_ITEMS} more)")
+    return truncated
+
+
+def _truncate_string(value: str) -> str:
+    if len(value) <= _MAX_STRING_LENGTH:
+        return value
+    return value[: _MAX_STRING_LENGTH - 1] + _TRUNCATED_SENTINEL
 
 
 __all__ = [
