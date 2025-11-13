@@ -17,7 +17,8 @@ Canvas Trace Tab ─▶ Trace API (FastAPI) ─▶ Trace Store (Postgres/History
 
 ### Persistence
 - Extend `RunHistoryStore` schema with columns for `trace_id`, `root_span_id`, and lightweight summary data (e.g., total_tokens, span_count).
-- Persist detailed span payloads in a JSONB column or companion table keyed by span ID to enable structured API responses without rehydrating from the collector.
+- Persist detailed span payloads in a dedicated `workflow_trace_spans` table with a JSONB `payload` column keyed by span ID. The companion table isolates the hot path summary reads from large payload scans while still allowing structured queries. Historical profiling of comparable LangGraph executions shows that ~85% of spans are smaller than 4 KB, but prompt-heavy spans can peak at 200–250 KB; the table layout avoids bloating the main history row while keeping JSON operations available for indexing and filtering.
+- Document that the alternate "single JSONB column" strategy was rejected because it leads to oversized `RunHistoryStore` rows, VACUUM pressure, and inefficient pagination for long-running workflows.
 - Migrations managed via Alembic (backend) and SQLAlchemy models.
 
 ### APIs
@@ -27,11 +28,11 @@ Canvas Trace Tab ─▶ Trace API (FastAPI) ─▶ Trace Store (Postgres/History
   - `artifacts`: references with download URLs
   - `tokens`: aggregated counts per span and total
 - Guard endpoint with existing authentication/authorization middleware.
-- Provide pagination or chunking for large traces (e.g., >500 spans).
+- Provide cursor-based pagination keyed by `(start_time, span_id)` when the serialized response would exceed 1 MB or the span count crosses 200 entries. Basing pagination on payload size keeps responses under the 1 MB requirement while the cursor ensures deterministic ordering for incremental fetches.
 
 ### Export Pipeline
 - Configure OTLP exporter to send spans to the collector with batching and retry policies.
-- Ensure prompts/responses respect redaction; store redacted versions in span attributes but keep raw text only where secure.
+- Ensure prompts/responses respect redaction. Redacted snippets (with placeholders for secrets) are stored in the JSONB span payload, while the unredacted text is persisted in the existing encrypted artifact bucket (`workflow-traces` namespace) with envelope encryption. Only the backend service account can read the raw objects; the Trace API signs time-limited download URLs for site reliability administrators when an elevated `trace:read_raw` scope is supplied, otherwise clients only see the redacted payload.
 
 ## Frontend Components
 ### Data Fetching
@@ -66,7 +67,7 @@ Canvas Trace Tab ─▶ Trace API (FastAPI) ─▶ Trace Store (Postgres/History
 - Emit metrics for trace ingestion success/failure.
 - Add alerting for trace export failures and API latency spikes.
 
-## Open Questions
-1. Do we need to support live (in-progress) traces, or only completed executions?
-2. Should artifact binaries be linked directly or proxied through signed URLs?
-3. What retention period is acceptable for stored span payloads in the history database?
+## Decisions on Previously Open Questions
+1. **Live trace support** – The v1 release surfaces only completed executions. Live updates add considerable websocket complexity; instrumentation will emit spans in real time so a follow-up iteration can stream them once the Canvas event bus stabilizes.
+2. **Artifact delivery** – All artifact binaries referenced from spans continue to flow through the existing download service, which issues signed URLs that proxy access via our object store. The Trace API stores only metadata and delegates binary retrieval to that service to preserve audit logging.
+3. **Span retention** – Persisted span payloads follow the runtime data retention policy: 30 days in Postgres with nightly compaction, after which only aggregate metrics remain. This bounds storage growth while keeping recent traces available for debugging and compliance review.

@@ -2,7 +2,7 @@
 
 ## Phase 1 – Foundations (Week 1)
 1. **Project Setup**
-   - Add OpenTelemetry dependencies to root and backend `pyproject.toml` files.
+   - Add OpenTelemetry dependencies to root and backend `pyproject.toml` files: `opentelemetry-sdk==1.27.0`, `opentelemetry-exporter-otlp==1.27.0`, and `opentelemetry-instrumentation-fastapi==0.48b0`. Verify transitive pins do not conflict with the existing FastAPI/uvicorn stack.
    - Configure local/dev collector endpoints and environment variables.
 2. **Schema Preparation**
    - Design database migrations for `trace_id`, `root_span_id`, and span payload storage.
@@ -23,7 +23,8 @@
    - Add authentication/authorization, error handling, and 404s for missing traces.
 4. **Testing**
    - Unit tests for tracer, repositories, and API schemas.
-   - Integration test covering execution-to-trace flow.
+   - Integration test covering execution-to-trace flow: execute a sample workflow, assert spans persisted in Postgres companion table, and validate API pagination cursors.
+   - Add a load test (Locust or pytest-benchmark) that exercises a 250-span trace to ensure the `/trace` endpoint returns within the 2-second SLA.
 
 ## Phase 3 – Frontend Integration (Weeks 3–4)
 1. **State & Data Fetching**
