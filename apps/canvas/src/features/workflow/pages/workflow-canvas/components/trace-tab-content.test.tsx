@@ -11,12 +11,10 @@ vi.mock(
   { virtual: true },
 );
 
+const traceViewerMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@features/workflow/components/trace/agent-prism", () => ({
-  TraceViewer: ({ data }: { data: unknown }) => (
-    <div data-testid="trace-viewer">
-      {Array.isArray(data) ? data.length : 0}
-    </div>
-  ),
+  TraceViewer: traceViewerMock,
 }));
 
 const sampleViewerData: TraceViewerData = {
@@ -34,12 +32,31 @@ const sampleViewerData: TraceViewerData = {
 
 describe("TraceTabContent", () => {
   beforeEach(() => {
+    traceViewerMock.mockImplementation(
+      ({
+        data,
+        activeTraceId,
+      }: {
+        data: TraceViewerData[];
+        activeTraceId?: string;
+      }) => (
+        <div data-testid="trace-viewer">
+          <span data-testid="trace-viewer-count">
+            {Array.isArray(data) ? data.length : 0}
+          </span>
+          <span data-testid="trace-viewer-active-id">
+            {activeTraceId ?? "none"}
+          </span>
+        </div>
+      ),
+    );
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    traceViewerMock.mockReset();
   });
 
   it("shows loading skeleton when trace is loading", () => {
@@ -95,8 +112,28 @@ describe("TraceTabContent", () => {
     );
 
     expect(screen.getByTestId("trace-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("trace-viewer-count")).toHaveTextContent("1");
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getByText("84")).toBeInTheDocument();
+  });
+
+  it("passes the active trace id to the viewer", () => {
+    render(
+      <TraceTabContent
+        status="ready"
+        error={undefined}
+        viewerData={[sampleViewerData]}
+        activeViewer={sampleViewerData}
+        onRefresh={vi.fn()}
+        summary={{ spanCount: 2, totalTokens: 10 }}
+        lastUpdatedAt={undefined}
+        isLive={false}
+      />,
+    );
+
+    expect(screen.getByTestId("trace-viewer-active-id")).toHaveTextContent(
+      sampleViewerData.traceRecord.id,
+    );
   });
 
   it("calls refresh handler when refresh button is clicked", async () => {
