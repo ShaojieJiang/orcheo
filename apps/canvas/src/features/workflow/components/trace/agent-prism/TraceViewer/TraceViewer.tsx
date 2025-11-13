@@ -4,7 +4,13 @@ import {
   filterSpansRecursively,
   flattenSpans,
 } from "@evilmartians/agent-prism-data";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { DetailsViewProps } from "../DetailsView/DetailsView";
 import { type BadgeProps } from "../Badge";
@@ -24,15 +30,29 @@ export interface TraceViewerProps {
   data: Array<TraceViewerData>;
   spanCardViewOptions?: SpanCardViewOptions;
   detailsViewProps?: Partial<DetailsViewProps>;
+  activeTraceId?: string;
 }
 
 export const TraceViewer = ({
   data,
   spanCardViewOptions,
   detailsViewProps,
+  activeTraceId,
 }: TraceViewerProps) => {
   const isMobile = useIsMobile();
   const hasInitialized = React.useRef(false);
+
+  const initialTraceData = useMemo(() => {
+    if (activeTraceId) {
+      const activeTrace = data.find(
+        (item) => item.traceRecord.id === activeTraceId,
+      );
+      if (activeTrace) {
+        return activeTrace;
+      }
+    }
+    return data[0];
+  }, [activeTraceId, data]);
 
   const [selectedSpan, setSelectedSpan] = useState<TraceSpan | undefined>();
   const [searchValue, setSearchValue] = useState("");
@@ -41,16 +61,23 @@ export const TraceViewer = ({
   const [selectedTrace, setSelectedTrace] = useState<
     TraceRecordWithDisplayData | undefined
   >(
-    data[0]
+    initialTraceData
       ? {
-          ...data[0].traceRecord,
-          badges: data[0].badges,
-          spanCardViewOptions: data[0].spanCardViewOptions,
+          ...initialTraceData.traceRecord,
+          badges: initialTraceData.badges,
+          spanCardViewOptions: initialTraceData.spanCardViewOptions,
         }
       : undefined,
   );
   const [selectedTraceSpans, setSelectedTraceSpans] = useState<TraceSpan[]>(
-    data[0]?.spans || [],
+    initialTraceData?.spans ?? [],
+  );
+  const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(
+    initialTraceData?.traceRecord.id,
+  );
+  const [hasUserSelection, setHasUserSelection] = useState(false);
+  const previousTraceIdRef = useRef<string | undefined>(
+    initialTraceData?.traceRecord.id,
   );
 
   const traceRecords: TraceRecordWithDisplayData[] = useMemo(() => {
@@ -79,6 +106,103 @@ export const TraceViewer = ({
   }, [allIds]);
 
   useEffect(() => {
+    if (!activeTraceId) {
+      return;
+    }
+
+    const hasActiveTrace = data.some(
+      (item) => item.traceRecord.id === activeTraceId,
+    );
+
+    if (hasActiveTrace && activeTraceId !== selectedTraceId) {
+      setHasUserSelection(false);
+      setSelectedTraceId(activeTraceId);
+    }
+  }, [activeTraceId, data, selectedTraceId]);
+
+  useEffect(() => {
+    if (data.length === 0) {
+      setSelectedTrace(undefined);
+      setSelectedTraceSpans([]);
+      setSelectedTraceId(undefined);
+      setHasUserSelection(false);
+      if (previousTraceIdRef.current) {
+        previousTraceIdRef.current = undefined;
+        setSelectedSpan(undefined);
+        setExpandedSpansIds([]);
+      }
+      return;
+    }
+
+    if (!selectedTraceId) {
+      if (!hasUserSelection) {
+        const firstTrace = data[0];
+        if (firstTrace) {
+          setSelectedTraceId(firstTrace.traceRecord.id);
+        }
+        return;
+      }
+      setSelectedTrace(undefined);
+      setSelectedTraceSpans([]);
+      if (previousTraceIdRef.current) {
+        previousTraceIdRef.current = undefined;
+        setSelectedSpan(undefined);
+        setExpandedSpansIds([]);
+      }
+      return;
+    }
+
+    const traceData = data.find(
+      (item) => item.traceRecord.id === selectedTraceId,
+    );
+
+    if (!traceData) {
+      const fallback = data[0];
+      if (fallback && fallback.traceRecord.id !== selectedTraceId) {
+        setSelectedTraceId(fallback.traceRecord.id);
+      } else {
+        setSelectedTrace(undefined);
+        setSelectedTraceSpans([]);
+        setHasUserSelection(false);
+        if (previousTraceIdRef.current) {
+          previousTraceIdRef.current = undefined;
+          setSelectedSpan(undefined);
+          setExpandedSpansIds([]);
+        }
+      }
+      return;
+    }
+
+    const nextTrace: TraceRecordWithDisplayData = {
+      ...traceData.traceRecord,
+      badges: traceData.badges,
+      spanCardViewOptions: traceData.spanCardViewOptions,
+    };
+
+    setSelectedTrace((prev) => {
+      if (
+        prev &&
+        prev.id === nextTrace.id &&
+        prev.badges === nextTrace.badges &&
+        prev.spanCardViewOptions === nextTrace.spanCardViewOptions
+      ) {
+        return prev;
+      }
+      return nextTrace;
+    });
+
+    setSelectedTraceSpans((prev) =>
+      prev === traceData.spans ? prev : traceData.spans,
+    );
+
+    if (previousTraceIdRef.current !== traceData.traceRecord.id) {
+      previousTraceIdRef.current = traceData.traceRecord.id;
+      setSelectedSpan(undefined);
+      setExpandedSpansIds([]);
+    }
+  }, [data, selectedTraceId, hasUserSelection]);
+
+  useEffect(() => {
     if (!hasInitialized.current) {
       hasInitialized.current = true;
     }
@@ -96,23 +220,19 @@ export const TraceViewer = ({
     setExpandedSpansIds([]);
   }, []);
 
-  const handleTraceSelect = useCallback(
-    (trace: TraceRecord) => {
-      setSelectedSpan(undefined);
-      setExpandedSpansIds([]);
-      setSelectedTrace(trace);
-      setSelectedTraceSpans(
-        data.find((item) => item.traceRecord.id === trace.id)?.spans ?? [],
-      );
-    },
-    [data],
-  );
+  const handleTraceSelect = useCallback((trace: TraceRecord) => {
+    setHasUserSelection(true);
+    setSelectedTraceId(trace.id);
+  }, []);
 
   const handleClearTraceSelection = useCallback(() => {
+    previousTraceIdRef.current = undefined;
+    setHasUserSelection(true);
     setSelectedTrace(undefined);
     setSelectedTraceSpans([]);
     setSelectedSpan(undefined);
     setExpandedSpansIds([]);
+    setSelectedTraceId(undefined);
   }, []);
 
   const props: TraceViewerLayoutProps = {
@@ -120,7 +240,7 @@ export const TraceViewer = ({
     traceListExpanded,
     setTraceListExpanded,
     selectedTrace,
-    selectedTraceId: selectedTrace?.id,
+    selectedTraceId: selectedTraceId,
     selectedSpan,
     setSelectedSpan,
     searchValue,

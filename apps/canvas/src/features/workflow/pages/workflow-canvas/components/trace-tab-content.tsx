@@ -169,6 +169,7 @@ export function TraceTabContent({
         <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
           <TraceViewer
             data={viewerData}
+            activeTraceId={activeViewer?.traceRecord.id}
             detailsViewProps={{
               headerActions: renderArtifactActions,
             }}
