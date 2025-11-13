@@ -3,7 +3,11 @@
 from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import blake2b
+from typing import Any
+import pytest
+from orcheo_backend.app import trace_utils
 from orcheo_backend.app.history.models import RunHistoryRecord
+from orcheo_backend.app.schemas.traces import TraceSpanResponse
 from orcheo_backend.app.trace_utils import build_trace_response, build_trace_update
 
 
@@ -145,3 +149,163 @@ def test_trace_update_root_span_uses_digest_when_missing_trace_id() -> None:
     ).hexdigest()
     assert root_span.span_id == expected_root_id
     assert update.trace_id == expected_root_id
+
+
+def test_trace_update_short_trace_id_still_generates_digest_span() -> None:
+    """Trace updates should fall back to digest spans when trace_id is too short."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-short",
+        execution_id="exec-short",
+        status="running",
+        trace_id="abcd-1234",
+    )
+    record.trace_started_at = _timestamp()
+
+    update = build_trace_update(record, include_root=True)
+
+    assert update is not None
+    assert len(update.spans) == 1
+    expected_root_id = blake2b(
+        f"{record.execution_id}:root".encode(), digest_size=8
+    ).hexdigest()
+    assert update.spans[0].span_id == expected_root_id
+    assert update.trace_id == record.trace_id
+
+
+def test_node_attributes_include_status_and_latency() -> None:
+    """_node_attributes should surface normalized status and latency metadata."""
+
+    payload = {"id": "node", "status": "SUCCESS", "latency_ms": 37}
+
+    attributes = trace_utils._node_attributes("node", payload)
+
+    assert attributes["orcheo.node.status"] == "success"
+    assert attributes["orcheo.node.latency_ms"] == 37
+
+
+def test_extract_artifact_ids_handles_non_mapping_entries() -> None:
+    """_extract_artifact_ids should coerce non-mapping artifacts to strings."""
+
+    payload = {"artifacts": ["artifact-a", {"id": "artifact-b"}]}
+
+    artifact_ids = trace_utils._extract_artifact_ids(payload)
+
+    assert artifact_ids == ["artifact-a", "artifact-b"]
+
+
+def test_build_text_events_for_sequence_values() -> None:
+    """_build_text_events should emit an event per list entry."""
+
+    default_time = _timestamp()
+
+    events = trace_utils._build_text_events(
+        "response",
+        ["first", "second"],
+        default_time,
+    )
+
+    assert [event.attributes["preview"] for event in events] == ["first", "second"]
+
+
+def test_status_from_payload_handles_missing_status() -> None:
+    """_status_from_payload should return UNSET when no status metadata is present."""
+
+    status = trace_utils._status_from_payload({})
+
+    assert status.code == "UNSET"
+    assert status.message is None
+
+
+def test_status_from_payload_handles_cancellation_reason() -> None:
+    """_status_from_payload should surface cancellation reasons in status message."""
+
+    status = trace_utils._status_from_payload(
+        {"status": "cancelled", "reason": "user request"}
+    )
+
+    assert status.code == "ERROR"
+    assert status.message == "user request"
+
+
+def test_extract_error_message_handles_primitives_and_missing() -> None:
+    """Should stringify primitives and return None when absent."""
+
+    assert trace_utils._extract_error_message({"error": 404}) == "404"
+    assert trace_utils._extract_error_message({}) is None
+
+
+def test_build_spans_for_step_skips_none_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_build_spans_for_step should ignore nodes that returned no span."""
+
+    record = RunHistoryRecord(workflow_id="wf", execution_id="exec", status="running")
+    step = record.append_step({"node-a": {}, "node-b": {}}, at=_timestamp())
+
+    def fake_build_node_span(
+        record_arg: RunHistoryRecord,
+        step_arg: Any,
+        node_key: str,
+        payload: dict[str, Any],
+        parent_id: str,
+    ) -> TraceSpanResponse | None:
+        if node_key == "node-a":
+            return None
+        return TraceSpanResponse(
+            span_id="child",
+            parent_span_id=parent_id,
+            name=node_key,
+        )
+
+    monkeypatch.setattr(trace_utils, "_build_node_span", fake_build_node_span)
+
+    spans = trace_utils._build_spans_for_step(record, step, "root")
+
+    assert [span.name for span in spans] == ["node-b"]
+
+
+def test_node_attributes_omits_optional_metadata() -> None:
+    """_node_attributes should skip status/latency keys when unavailable."""
+
+    attributes = trace_utils._node_attributes("node", {})
+
+    assert "orcheo.node.status" not in attributes
+    assert "orcheo.node.latency_ms" not in attributes
+
+
+def test_build_text_events_handles_scalars() -> None:
+    """_build_text_events should cover scalar fallbacks for preview strings."""
+
+    default_time = _timestamp()
+
+    events = trace_utils._build_text_events("prompt", "answer", default_time)
+
+    assert len(events) == 1
+    assert events[0].attributes["preview"] == "answer"
+
+
+def test_status_from_payload_returns_unset_for_unknown_states() -> None:
+    """_status_from_payload should default to UNSET for non terminal states."""
+
+    status = trace_utils._status_from_payload({"status": "pending"})
+
+    assert status.code == "UNSET"
+
+
+def test_extract_error_message_prefers_mapping_message() -> None:
+    """_extract_error_message should prefer nested mapping messages."""
+
+    message = trace_utils._extract_error_message(
+        {"error": {"message": "detailed boom", "code": 500}}
+    )
+
+    assert message == "detailed boom"
+
+
+def test_extract_error_message_falls_back_to_mapping_repr() -> None:
+    """_extract_error_message should stringify mapping payloads without message."""
+
+    message = trace_utils._extract_error_message({"error": {"code": "MISSING"}})
+
+    assert message == "{'code': 'MISSING'}"
