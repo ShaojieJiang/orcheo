@@ -16,11 +16,13 @@ import type { CanvasTabContentProps } from "@features/workflow/pages/workflow-ca
 import type { ExecutionTabContentProps } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+import type { TraceTabContentProps } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 
 import { CanvasTabContent } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
 import { ExecutionTabContent } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 
 interface NodeInspectorState {
   selectedNode: CanvasNode | null;
@@ -69,6 +71,7 @@ interface WorkflowCanvasLayoutProps {
   executionProps: ExecutionTabContentProps;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
+  traceProps: TraceTabContentProps;
   nodeInspector: NodeInspectorState | null;
   chat: ChatState | null;
 }
@@ -80,6 +83,7 @@ export function WorkflowCanvasLayout({
   executionProps,
   readinessProps,
   settingsProps,
+  traceProps,
   nodeInspector,
   chat,
 }: WorkflowCanvasLayoutProps) {
@@ -111,6 +115,13 @@ export function WorkflowCanvasLayout({
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
             <ExecutionTabContent {...executionProps} />
+          </TabsContent>
+
+          <TabsContent
+            value="trace"
+            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
+          >
+            <TraceTabContent {...traceProps} />
           </TabsContent>
 
           <TabsContent value="readiness" className="m-0 p-4 overflow-auto">

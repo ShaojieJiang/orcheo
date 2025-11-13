@@ -2,6 +2,7 @@ import type { CanvasTabContentProps } from "@features/workflow/pages/workflow-ca
 import type { ExecutionTabContentProps } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+import type { TraceTabContentProps } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
@@ -23,6 +24,7 @@ export interface WorkflowLayoutProps {
   executionProps: ExecutionTabContentProps;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
+  traceProps: TraceTabContentProps;
   nodeInspector: {
     selectedNode: CanvasTabContentProps["flowHandlers"]["nodes"][number] | null;
     nodes: CanvasTabContentProps["flowHandlers"]["nodes"];
@@ -157,6 +159,27 @@ export function buildWorkflowLayoutProps(
     onSaveWorkflow: resources.saver.handleSaveWorkflow,
   };
 
+  const activeExecutionId = core.execution.activeExecutionId;
+  const activeTraceState =
+    activeExecutionId !== null
+      ? (execution.trace.traces[activeExecutionId] ?? null)
+      : null;
+
+  const traceProps: TraceTabContentProps = {
+    activeExecutionId,
+    viewerData:
+      activeExecutionId !== null
+        ? execution.trace.getViewerData(activeExecutionId)
+        : null,
+    loading: Boolean(activeTraceState?.loading),
+    error: activeTraceState?.error ?? null,
+    onRetry: () => {
+      if (activeExecutionId) {
+        void execution.trace.loadTrace(activeExecutionId);
+      }
+    },
+  };
+
   return {
     topNavigationProps: {
       currentWorkflow: {
@@ -177,6 +200,7 @@ export function buildWorkflowLayoutProps(
     executionProps,
     readinessProps,
     settingsProps,
+    traceProps,
     nodeInspector: selectedNode
       ? {
           selectedNode,

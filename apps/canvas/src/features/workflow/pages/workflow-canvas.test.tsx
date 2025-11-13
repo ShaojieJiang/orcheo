@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
+import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 
 class ResizeObserverMock {
   observe() {}
@@ -178,5 +179,21 @@ describe("WorkflowCanvas editing history", () => {
     const searchPanels = await screen.findAllByTestId("workflow-search");
 
     expect(searchPanels.length).toBeGreaterThan(0);
+  });
+
+  it("shows a placeholder in the trace tab when no execution is selected", () => {
+    render(
+      <TraceTabContent
+        activeExecutionId={null}
+        viewerData={null}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/select an execution to view its trace/i),
+    ).toBeInTheDocument();
   });
 });

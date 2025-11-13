@@ -1,3 +1,5 @@
+@import "./components/agent-prism/theme/theme.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

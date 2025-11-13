@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { Connection } from "@xyflow/react";
 import { addEdge, MarkerType } from "@xyflow/react";
 import { convertPersistedEdgesToCanvas } from "@features/workflow/pages/workflow-canvas/helpers/transformers";
@@ -9,6 +9,7 @@ import { useNodeCreation } from "@features/workflow/pages/workflow-canvas/hooks/
 import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-keybindings";
 import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
 import { useExecutionHistoryHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-history-handlers";
+import { useWorkflowTraceState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-trace-state";
 import {
   createHandleCreateSubworkflow,
   createHandleDeleteSubworkflow,
@@ -40,6 +41,7 @@ export interface WorkflowCanvasExecution {
     onEnter: (_event: React.MouseEvent<Element>, edge: CanvasEdge) => void;
     onLeave: (event: React.MouseEvent<Element>, edge: CanvasEdge) => void;
   };
+  trace: ReturnType<typeof useWorkflowTraceState>;
 }
 export function useWorkflowCanvasExecution(
   core: WorkflowCanvasCore,
@@ -54,6 +56,11 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
   });
 
+  const trace = useWorkflowTraceState({
+    executions: core.execution.executions,
+  });
+  const { loadTrace: loadTraceTrace, traces: traceEntries } = trace;
+
   const handleRunWorkflow = useRunWorkflow({
     nodes: core.history.nodes,
     edges: core.history.edges,
@@ -65,6 +72,7 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
     currentWorkflowId: core.metadata.currentWorkflowId,
     applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
+    applyTraceUpdate: trace.applyTraceUpdate,
   });
 
   const handlePauseWorkflow = usePauseWorkflow({
@@ -124,6 +132,18 @@ export function useWorkflowCanvasExecution(
     determineLogLevel: executionUpdates.determineLogLevel,
     describePayload: executionUpdates.describePayload,
   });
+
+  useEffect(() => {
+    const executionId = core.execution.activeExecutionId;
+    if (!executionId) {
+      return;
+    }
+    const state = traceEntries[executionId];
+    if (state?.loading || state?.entry) {
+      return;
+    }
+    void loadTraceTrace(executionId);
+  }, [core.execution.activeExecutionId, loadTraceTrace, traceEntries]);
 
   const handleCreateSubworkflow = useMemo(
     () =>
@@ -247,5 +267,6 @@ export function useWorkflowCanvasExecution(
     handleInsertSubworkflow,
     handleConnect,
     edgeHoverHandlers,
+    trace,
   };
 }
