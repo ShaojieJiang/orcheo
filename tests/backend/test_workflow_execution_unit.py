@@ -176,3 +176,26 @@ async def test_execute_workflow_reports_history_store_failure(
     assert execution_id == "exec-3"
     assert exc_arg is run_error
     assert context == "persist workflow history"
+
+
+@pytest.mark.asyncio
+async def test_emit_trace_update_ignores_history_errors() -> None:
+    """_emit_trace_update should swallow RunHistoryError exceptions."""
+
+    history_store = AsyncMock()
+    history_store.get_history = AsyncMock(side_effect=RunHistoryError("missing"))
+
+    class DummyWebSocket:
+        def __init__(self) -> None:
+            self.send_json = AsyncMock()
+
+    websocket = DummyWebSocket()
+
+    await workflow_execution._emit_trace_update(
+        history_store,
+        websocket,
+        execution_id="exec-missing",
+    )
+
+    history_store.get_history.assert_awaited_once_with("exec-missing")
+    assert websocket.send_json.await_count == 0
