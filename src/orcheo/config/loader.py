@@ -58,6 +58,19 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 ),
             ),
             chatkit_rate_limits=rate_limits,
+            tracing_exporter=source.get(
+                "TRACING_EXPORTER", _DEFAULTS["TRACING_EXPORTER"]
+            ),
+            tracing_endpoint=source.get("TRACING_ENDPOINT"),
+            tracing_service_name=source.get(
+                "TRACING_SERVICE_NAME", _DEFAULTS["TRACING_SERVICE_NAME"]
+            ),
+            tracing_sample_ratio=source.get(
+                "TRACING_SAMPLE_RATIO", _DEFAULTS["TRACING_SAMPLE_RATIO"]
+            ),
+            tracing_insecure=source.get(
+                "TRACING_INSECURE", _DEFAULTS["TRACING_INSECURE"]
+            ),
         )
     except ValidationError as exc:  # pragma: no cover - defensive
         raise ValueError(str(exc)) from exc
@@ -85,6 +98,11 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
+    normalized.set("TRACING_EXPORTER", settings.tracing_exporter)
+    normalized.set("TRACING_ENDPOINT", settings.tracing_endpoint)
+    normalized.set("TRACING_SERVICE_NAME", settings.tracing_service_name)
+    normalized.set("TRACING_SAMPLE_RATIO", settings.tracing_sample_ratio)
+    normalized.set("TRACING_INSECURE", settings.tracing_insecure)
 
     return normalized
 

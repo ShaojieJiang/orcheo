@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 from orcheo_backend.app.history.models import (
     RunHistoryError,
@@ -26,6 +27,8 @@ class InMemoryRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         async with self._lock:
@@ -33,11 +36,19 @@ class InMemoryRunHistoryStore:
                 msg = f"History already exists for execution_id={execution_id}"
                 raise RunHistoryError(msg)
 
+            effective_trace_started = trace_started_at
             record = RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
                 inputs=dict(inputs or {}),
+                trace_id=trace_id,
+                trace_started_at=effective_trace_started,
+                trace_last_span_at=effective_trace_started,
             )
+            if record.trace_started_at is None:
+                record.trace_started_at = record.started_at
+            if record.trace_last_span_at is None:
+                record.trace_last_span_at = record.trace_started_at
             self._histories[execution_id] = record
             return record.model_copy(deep=True)
 
