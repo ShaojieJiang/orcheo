@@ -5,6 +5,7 @@ from typing import cast
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.telemetry_settings import TelemetrySettings
 from orcheo.config.types import CheckpointBackend, RepositoryBackend
 from orcheo.config.vault_settings import VaultSettings
 
@@ -38,6 +39,7 @@ class AppSettings(BaseModel):
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
+    telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
 
     @field_validator("checkpoint_backend", mode="before")
     @classmethod

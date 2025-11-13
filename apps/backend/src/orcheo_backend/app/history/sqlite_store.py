@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 import aiosqlite
@@ -172,6 +173,50 @@ class SqliteRunHistoryStore:
                 steps = await fetch_steps(conn, row["execution_id"])
                 records.append(row_to_record(row, steps))
         return records
+
+    async def update_trace_metadata(
+        self,
+        execution_id: str,
+        *,
+        trace_id: str | None = None,
+        started_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> RunHistoryRecord:
+        """Persist trace identifiers and timestamps for the execution."""
+        await self._ensure_initialized()
+        async with self._lock:
+            assignments: list[str] = []
+            params: list[object] = []
+            if trace_id is not None:
+                assignments.append("trace_id = ?")
+                params.append(trace_id)
+            if started_at is not None:
+                assignments.append("trace_started_at = ?")
+                params.append(started_at.isoformat())
+            if updated_at is not None:
+                assignments.append("trace_updated_at = ?")
+                params.append(updated_at.isoformat())
+
+            async with connect_sqlite(self._database_path) as conn:
+                if assignments:
+                    assignments_sql = ", ".join(assignments)
+                    params.append(execution_id)
+                    query = (
+                        "UPDATE execution_history SET "
+                        f"{assignments_sql} WHERE execution_id = ?"
+                    )
+                    cursor = await conn.execute(query, tuple(params))
+                    if cursor.rowcount == 0:
+                        msg = f"History not found for execution_id={execution_id}"
+                        raise RunHistoryNotFoundError(msg)
+                    await conn.commit()
+
+                record_row = await fetch_record_row(conn, execution_id)
+                if record_row is None:
+                    msg = f"History not found for execution_id={execution_id}"
+                    raise RunHistoryNotFoundError(msg)
+                steps = await fetch_steps(conn, execution_id)
+                return row_to_record(record_row, steps)
 
     async def _update_status(
         self,

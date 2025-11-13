@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 from orcheo_backend.app.history.models import (
     RunHistoryError,
@@ -106,6 +107,22 @@ class InMemoryRunHistoryStore:
         if limit is not None:
             return records[:limit]
         return records
+
+    async def update_trace_metadata(
+        self,
+        execution_id: str,
+        *,
+        trace_id: str | None = None,
+        started_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> RunHistoryRecord:
+        """Persist trace metadata for the given execution."""
+        async with self._lock:
+            record = self._require_record(execution_id)
+            record.update_trace_metadata(
+                trace_id=trace_id, started_at=started_at, updated_at=updated_at
+            )
+            return record.model_copy(deep=True)
 
     def _require_record(self, execution_id: str) -> RunHistoryRecord:
         """Return the record or raise an error if missing."""

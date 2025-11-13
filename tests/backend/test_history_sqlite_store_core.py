@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 from pathlib import Path
+from datetime import UTC, datetime
+
 import pytest
+
 from orcheo_backend.app.history import (
     RunHistoryError,
     RunHistoryNotFoundError,
@@ -117,3 +120,27 @@ async def test_sqlite_store_mark_cancelled(tmp_path: Path) -> None:
     history = await store.get_history("exec")
     assert history.status == "cancelled"
     assert history.error == "shutdown"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_update_trace_metadata(tmp_path: Path) -> None:
+    db_path = tmp_path / "history-trace.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    started_at = datetime.now(tz=UTC)
+    updated_at = started_at.replace(microsecond=0)
+
+    result = await store.update_trace_metadata(
+        "exec",
+        trace_id="trace-1",
+        started_at=started_at,
+        updated_at=updated_at,
+    )
+
+    assert result.trace_id == "trace-1"
+    assert result.trace_started_at == started_at
+    assert result.trace_updated_at == updated_at
+
+    fetched = await store.get_history("exec")
+    assert fetched.trace_id == "trace-1"

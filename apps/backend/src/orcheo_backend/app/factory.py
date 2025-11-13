@@ -3,12 +3,16 @@
 from __future__ import annotations
 import json
 import os
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from orcheo.config import get_settings
+from orcheo.config.telemetry_settings import TelemetrySettings
+from orcheo.tracing import configure_global_tracing
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -57,6 +61,15 @@ configure_logging()
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),
 )
+
+_settings = get_settings()
+_telemetry_raw = _settings.get("TELEMETRY")
+_telemetry_settings = (
+    TelemetrySettings.from_mapping(_telemetry_raw)
+    if isinstance(_telemetry_raw, Mapping)
+    else TelemetrySettings.from_mapping(_settings)
+)
+configure_global_tracing(_telemetry_settings)
 
 
 async def _authentication_error_handler(request: Request, exc: Exception) -> Response:

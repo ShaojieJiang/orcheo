@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import WebSocket
 from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
+from orcheo.config.telemetry_settings import TelemetrySettings
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
@@ -19,6 +20,7 @@ from orcheo_backend.app.dependencies import (
     get_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.tracing import WorkflowTraceManager
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ async def _stream_workflow_updates(
     history_store: RunHistoryStore,
     execution_id: str,
     websocket: WebSocket,
+    trace_manager: WorkflowTraceManager | None,
 ) -> None:
     """Stream workflow updates to the client while recording history."""
     try:
@@ -81,6 +84,8 @@ async def _stream_workflow_updates(
         ):  # pragma: no cover
             _log_step_debug(step)
             await history_store.append_step(execution_id, step)
+            if trace_manager is not None:
+                await trace_manager.record_step(step)
             try:
                 await websocket.send_json(step)
             except Exception as exc:  # pragma: no cover
@@ -131,30 +136,58 @@ async def execute_workflow(
         inputs=inputs,
     )
 
+    telemetry_raw = settings.get("TELEMETRY")
+    telemetry_settings = (
+        TelemetrySettings.from_mapping(telemetry_raw)
+        if isinstance(telemetry_raw, Mapping)
+        else TelemetrySettings.from_mapping(settings)
+    )
+    trace_manager = WorkflowTraceManager(
+        history_store,
+        workflow_id=workflow_id,
+        execution_id=execution_id,
+        settings=telemetry_settings,
+    )
+
     with credential_resolution(resolver):
-        async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled_graph = graph.compile(checkpointer=checkpointer)
+        async with trace_manager.workflow_span():
+            try:
+                async with create_checkpointer(settings) as checkpointer:
+                    graph = build_graph(graph_config)
+                    compiled_graph = graph.compile(checkpointer=checkpointer)
 
-            if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-                state: Any = inputs
-            else:
-                state = {
-                    "messages": [],
-                    "results": {},
-                    "inputs": inputs,
-                }
-            _log_sensitive_debug("Initial state: %s", state)
+                    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+                        state: Any = inputs
+                    else:
+                        state = {
+                            "messages": [],
+                            "results": {},
+                            "inputs": inputs,
+                        }
+                    _log_sensitive_debug("Initial state: %s", state)
 
-            config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
-            await _stream_workflow_updates(
-                compiled_graph,
-                state,
-                config,
-                history_store,
-                execution_id,
-                websocket,
-            )
+                    config: RunnableConfig = {
+                        "configurable": {"thread_id": execution_id}
+                    }
+                    await _stream_workflow_updates(
+                        compiled_graph,
+                        state,
+                        config,
+                        history_store,
+                        execution_id,
+                        websocket,
+                        trace_manager,
+                    )
+                    await trace_manager.mark_workflow_status("completed", finalize=True)
+            except asyncio.CancelledError as exc:
+                reason = str(exc) or "Workflow execution cancelled"
+                await trace_manager.mark_workflow_status(
+                    "cancelled", reason=reason, finalize=True
+                )
+                raise
+            except Exception as exc:
+                await trace_manager.record_workflow_error(exc)
+                raise
 
     completion_payload = {"status": "completed"}
     await history_store.append_step(execution_id, completion_payload)

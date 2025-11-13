@@ -43,6 +43,9 @@ class RunHistoryRecord(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     steps: list[RunHistoryStep] = Field(default_factory=list)
+    trace_id: str | None = None
+    trace_started_at: datetime | None = None
+    trace_updated_at: datetime | None = None
 
     def append_step(self, payload: Mapping[str, Any]) -> RunHistoryStep:
         """Append a step to the history with an auto-incremented index."""
@@ -67,6 +70,21 @@ class RunHistoryRecord(BaseModel):
         self.status = "cancelled"
         self.completed_at = _utcnow()
         self.error = reason
+
+    def update_trace_metadata(
+        self,
+        *,
+        trace_id: str | None = None,
+        started_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> None:
+        """Update the stored trace metadata for the execution."""
+        if trace_id is not None:
+            self.trace_id = trace_id
+        if started_at is not None:
+            self.trace_started_at = started_at
+        if updated_at is not None:
+            self.trace_updated_at = updated_at
 
 
 class RunHistoryStore(Protocol):
@@ -119,6 +137,16 @@ class RunHistoryStore(Protocol):
         limit: int | None = None,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
+
+    async def update_trace_metadata(
+        self,
+        execution_id: str,
+        *,
+        trace_id: str | None = None,
+        started_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> RunHistoryRecord:
+        """Persist trace identifiers and timestamps for the execution."""
 
 
 __all__ = [

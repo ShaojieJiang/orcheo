@@ -1,6 +1,9 @@
 """Unit tests for the RunHistoryRecord dataclass behavior."""
 
 from __future__ import annotations
+
+from datetime import UTC, datetime
+
 from orcheo_backend.app.history import RunHistoryRecord
 
 
@@ -42,3 +45,17 @@ def test_run_history_record_mark_completed_clears_error() -> None:
     assert record.status == "completed"
     assert record.error is None
     assert record.completed_at is not None
+
+
+def test_run_history_record_update_trace_metadata() -> None:
+    record = RunHistoryRecord(workflow_id="wf", execution_id="exec")
+    started_at = datetime.now(tz=UTC)
+    updated_at = started_at.replace(microsecond=0)
+
+    record.update_trace_metadata(
+        trace_id="trace-xyz", started_at=started_at, updated_at=updated_at
+    )
+
+    assert record.trace_id == "trace-xyz"
+    assert record.trace_started_at == started_at
+    assert record.trace_updated_at == updated_at

@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS execution_history (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    error TEXT
+    error TEXT,
+    trace_id TEXT,
+    trace_started_at TEXT,
+    trace_updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS execution_history_steps (
     execution_id TEXT NOT NULL,
@@ -43,9 +46,12 @@ INSERT INTO execution_history (
     status,
     started_at,
     completed_at,
-    error
+    error,
+    trace_id,
+    trace_started_at,
+    trace_updated_at
 )
-VALUES (?, ?, ?, ?, ?, NULL, NULL)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
 """
 
 SELECT_CURRENT_STEP_INDEX_SQL = """
@@ -65,7 +71,8 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, error "
+    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, "
+    "error, trace_id, trace_started_at, trace_updated_at "
     "FROM execution_history WHERE workflow_id = ? ORDER BY started_at DESC"
 )
 
@@ -95,6 +102,7 @@ async def ensure_sqlite_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with connect_sqlite(database_path) as conn:
         await conn.executescript(SCHEMA_SQL)
+        await _ensure_trace_columns(conn)
         await conn.commit()
 
 
@@ -106,7 +114,7 @@ async def fetch_record_row(
     cursor = await conn.execute(
         """
         SELECT execution_id, workflow_id, inputs, status, started_at,
-               completed_at, error
+               completed_at, error, trace_id, trace_started_at, trace_updated_at
           FROM execution_history
          WHERE execution_id = ?
         """,
@@ -147,11 +155,9 @@ def row_to_record(
     steps: list[RunHistoryStep],
 ) -> RunHistoryRecord:
     """Convert a SQLite row into a RunHistoryRecord instance."""
-    completed_at = (
-        datetime.fromisoformat(row["completed_at"])
-        if row["completed_at"] is not None
-        else None
-    )
+    completed_at = _parse_optional_datetime(row["completed_at"])
+    trace_started_at = _parse_optional_datetime(row["trace_started_at"])
+    trace_updated_at = _parse_optional_datetime(row["trace_updated_at"])
     return RunHistoryRecord(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
@@ -161,7 +167,35 @@ def row_to_record(
         completed_at=completed_at,
         error=row["error"],
         steps=steps,
+        trace_id=row["trace_id"],
+        trace_started_at=trace_started_at,
+        trace_updated_at=trace_updated_at,
     )
+
+
+async def _ensure_trace_columns(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("PRAGMA table_info(execution_history)")
+    rows = await cursor.fetchall()
+    column_names = {row["name"] for row in rows}
+    statements: list[str] = []
+    if "trace_id" not in column_names:
+        statements.append("ALTER TABLE execution_history ADD COLUMN trace_id TEXT")
+    if "trace_started_at" not in column_names:
+        statements.append(
+            "ALTER TABLE execution_history ADD COLUMN trace_started_at TEXT"
+        )
+    if "trace_updated_at" not in column_names:
+        statements.append(
+            "ALTER TABLE execution_history ADD COLUMN trace_updated_at TEXT"
+        )
+    for statement in statements:
+        await conn.execute(statement)
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    return datetime.fromisoformat(value)
 
 
 __all__ = [

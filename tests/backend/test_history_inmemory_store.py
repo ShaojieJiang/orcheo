@@ -1,7 +1,11 @@
 """Tests for the in-memory run history store implementation."""
 
 from __future__ import annotations
+
+from datetime import UTC, datetime
+
 import pytest
+
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryError,
@@ -140,3 +144,28 @@ async def test_in_memory_list_histories_filters_and_limits() -> None:
     records_limited = await store.list_histories("wf-a", limit=1)
     assert len(records_limited) == 1
     assert records_limited[0].execution_id == "exec-1"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_update_trace_metadata() -> None:
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    started_at = datetime.now(tz=UTC)
+    updated_at = started_at.replace(microsecond=0)
+
+    result = await store.update_trace_metadata(
+        "exec",
+        trace_id="abc123",
+        started_at=started_at,
+        updated_at=updated_at,
+    )
+
+    assert result.trace_id == "abc123"
+    assert result.trace_started_at == started_at
+    assert result.trace_updated_at == updated_at
+
+    history = await store.get_history("exec")
+    assert history.trace_id == "abc123"
+    assert history.trace_started_at == started_at
+    assert history.trace_updated_at == updated_at
