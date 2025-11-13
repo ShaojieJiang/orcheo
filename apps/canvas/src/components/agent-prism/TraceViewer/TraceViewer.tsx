@@ -49,6 +49,7 @@ export const TraceViewer = ({
   const [selectedTraceSpans, setSelectedTraceSpans] = useState<TraceSpan[]>(
     data[0]?.spans || [],
   );
+  const selectedTraceId = selectedTrace?.id;
 
   const traceRecords: TraceRecordWithDisplayData[] = useMemo(() => {
     return data.map((item) => ({
@@ -74,6 +75,38 @@ export const TraceViewer = ({
   useEffect(() => {
     setExpandedSpansIds(allIds);
   }, [allIds]);
+
+  useEffect(() => {
+    if (data.length === 0) {
+      setSelectedTrace(undefined);
+      setSelectedTraceSpans([]);
+      setSelectedSpan(undefined);
+      setExpandedSpansIds([]);
+      return;
+    }
+
+    const existingSelection =
+      selectedTraceId &&
+      data.find((item) => item.traceRecord.id === selectedTraceId);
+
+    const nextSelection = existingSelection ?? data[0];
+    const nextTrace: TraceRecordWithDisplayData = {
+      ...nextSelection.traceRecord,
+      badges: nextSelection.badges,
+      spanCardViewOptions: nextSelection.spanCardViewOptions,
+    };
+
+    const shouldResetSelection =
+      !selectedTraceId || selectedTraceId !== nextSelection.traceRecord.id;
+
+    if (shouldResetSelection) {
+      setSelectedSpan(undefined);
+      setExpandedSpansIds([]);
+    }
+
+    setSelectedTrace(nextTrace);
+    setSelectedTraceSpans(nextSelection.spans);
+  }, [data, selectedTraceId]);
 
   useEffect(() => {
     if (!hasInitialized.current) {
