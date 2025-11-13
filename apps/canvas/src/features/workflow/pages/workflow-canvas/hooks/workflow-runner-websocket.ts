@@ -7,6 +7,7 @@ import type {
   NodeStatus,
   WorkflowExecution,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { TraceUpdateMessage } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
 interface WebSocketParams {
   ws: WebSocket;
@@ -24,6 +25,7 @@ interface WebSocketParams {
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
   setExecutions: React.Dispatch<React.SetStateAction<WorkflowExecution[]>>;
   websocketRef: MutableRefObject<WebSocket | null>;
+  onTraceUpdate?: (update: TraceUpdateMessage) => void;
 }
 
 export function setupExecutionWebSocket({
@@ -38,6 +40,7 @@ export function setupExecutionWebSocket({
   setIsRunning,
   setExecutions,
   websocketRef,
+  onTraceUpdate,
 }: WebSocketParams) {
   const startTime = new Date();
 
@@ -67,6 +70,10 @@ export function setupExecutionWebSocket({
     }
     try {
       const data = JSON.parse(event.data) as Record<string, unknown>;
+      if (data?.type === "trace:update") {
+        onTraceUpdate?.(data as TraceUpdateMessage);
+        return;
+      }
       applyExecutionUpdate(executionId, data, graphToCanvas);
     } catch (error) {
       console.error("Failed to parse workflow update", error);

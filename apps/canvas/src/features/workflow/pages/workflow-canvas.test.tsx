@@ -179,4 +179,11 @@ describe("WorkflowCanvas editing history", () => {
 
     expect(searchPanels.length).toBeGreaterThan(0);
   });
+
+  it("renders the trace tab in the workflow tabs", async () => {
+    renderCanvas();
+
+    const traceTabs = await screen.findAllByRole("tab", { name: /trace/i });
+    expect(traceTabs.length).toBeGreaterThan(0);
+  });
 });

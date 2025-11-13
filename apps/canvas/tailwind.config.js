@@ -1,4 +1,5 @@
 import tailwindcssAnimate from "tailwindcss-animate";
+import { agentPrismTailwindColors } from "./src/features/workflow/components/trace/agent-prism/theme/index.js";
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -52,6 +53,7 @@ export default {
           4: "hsl(var(--chart-4))",
           5: "hsl(var(--chart-5))",
         },
+        ...agentPrismTailwindColors,
       },
     },
   },

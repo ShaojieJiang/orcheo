@@ -2,9 +2,11 @@ import type { CanvasTabContentProps } from "@features/workflow/pages/workflow-ca
 import type { ExecutionTabContentProps } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+import type { TraceTabContentProps } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
+import { summarizeTrace } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
 export interface WorkflowLayoutProps {
   topNavigationProps: {
@@ -21,6 +23,7 @@ export interface WorkflowLayoutProps {
   };
   canvasProps: CanvasTabContentProps;
   executionProps: ExecutionTabContentProps;
+  traceProps: TraceTabContentProps;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
   nodeInspector: {
@@ -132,6 +135,20 @@ export function buildWorkflowLayoutProps(
     setActiveExecutionId: core.execution.setActiveExecutionId,
   };
 
+  const activeTrace = execution.trace.activeTrace;
+  const traceSummary = activeTrace ? summarizeTrace(activeTrace) : undefined;
+
+  const traceProps: TraceTabContentProps = {
+    status: execution.trace.status,
+    error: execution.trace.error,
+    viewerData: execution.trace.viewerData,
+    activeViewer: execution.trace.activeTraceViewer,
+    onRefresh: () => execution.trace.refresh(),
+    summary: traceSummary,
+    lastUpdatedAt: activeTrace?.lastUpdatedAt,
+    isLive: Boolean(activeTrace && !activeTrace.isComplete),
+  };
+
   const readinessProps: ReadinessTabContentProps = {
     subworkflows: core.subworkflowState.subworkflows,
     onCreateSubworkflow: execution.handleCreateSubworkflow,
@@ -175,6 +192,7 @@ export function buildWorkflowLayoutProps(
     },
     canvasProps,
     executionProps,
+    traceProps,
     readinessProps,
     settingsProps,
     nodeInspector: selectedNode
