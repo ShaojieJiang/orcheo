@@ -58,6 +58,19 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 ),
             ),
             chatkit_rate_limits=rate_limits,
+            tracing_exporter=source.get(
+                "TRACING_EXPORTER", _DEFAULTS["TRACING_EXPORTER"]
+            ),
+            tracing_service_name=source.get(
+                "TRACING_SERVICE_NAME", _DEFAULTS["TRACING_SERVICE_NAME"]
+            ),
+            otlp_endpoint=source.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+            otlp_headers=source.get(
+                "OTEL_EXPORTER_OTLP_HEADERS", _DEFAULTS["OTEL_EXPORTER_OTLP_HEADERS"]
+            ),
+            otlp_insecure=source.get(
+                "OTEL_EXPORTER_OTLP_INSECURE", _DEFAULTS["OTEL_EXPORTER_OTLP_INSECURE"]
+            ),
         )
     except ValidationError as exc:  # pragma: no cover - defensive
         raise ValueError(str(exc)) from exc
@@ -85,6 +98,11 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
+    normalized.set("TRACING_EXPORTER", settings.tracing_exporter)
+    normalized.set("TRACING_SERVICE_NAME", settings.tracing_service_name)
+    normalized.set("OTEL_EXPORTER_OTLP_ENDPOINT", settings.otlp_endpoint)
+    normalized.set("OTEL_EXPORTER_OTLP_HEADERS", settings.otlp_headers)
+    normalized.set("OTEL_EXPORTER_OTLP_INSECURE", settings.otlp_insecure)
 
     return normalized
 

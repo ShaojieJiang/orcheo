@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 import aiosqlite
@@ -44,11 +45,15 @@ class SqliteRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        root_span_id: str | None = None,
+        trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         await self._ensure_initialized()
         async with self._lock:
-            started_at = _utcnow()
+            started_at = trace_started_at or _utcnow()
+            span_started_at = trace_started_at or started_at
             payload = json.dumps(dict(inputs or {}))
             async with connect_sqlite(self._database_path) as conn:
                 try:
@@ -60,6 +65,9 @@ class SqliteRunHistoryStore:
                             payload,
                             "running",
                             started_at.isoformat(),
+                            trace_id,
+                            root_span_id,
+                            span_started_at.isoformat(),
                         ),
                     )
                     await conn.commit()
@@ -73,6 +81,9 @@ class SqliteRunHistoryStore:
             status="running",
             started_at=started_at,
             steps=[],
+            trace_id=trace_id,
+            root_span_id=root_span_id,
+            trace_started_at=span_started_at,
         )
 
     async def append_step(
@@ -191,6 +202,7 @@ class SqliteRunHistoryStore:
                         status,
                         completed_at.isoformat(),
                         error,
+                        completed_at.isoformat(),
                         execution_id,
                     ),
                 )
@@ -207,6 +219,7 @@ class SqliteRunHistoryStore:
         record.completed_at = completed_at
         record.status = status
         record.error = error
+        record.trace_completed_at = completed_at
         return record
 
     async def _ensure_initialized(self) -> None:

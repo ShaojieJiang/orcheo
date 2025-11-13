@@ -11,6 +11,7 @@ def test_run_history_record_mark_failed_sets_error() -> None:
     assert record.status == "error"
     assert record.error == "boom"
     assert record.completed_at is not None
+    assert record.trace_completed_at == record.completed_at
 
 
 def test_run_history_record_mark_cancelled_sets_status() -> None:
@@ -20,6 +21,7 @@ def test_run_history_record_mark_cancelled_sets_status() -> None:
     assert record.status == "cancelled"
     assert record.error == "shutdown"
     assert record.completed_at is not None
+    assert record.trace_completed_at == record.completed_at
 
 
 def test_run_history_record_append_step_increments_index() -> None:
@@ -42,3 +44,4 @@ def test_run_history_record_mark_completed_clears_error() -> None:
     assert record.status == "completed"
     assert record.error is None
     assert record.completed_at is not None
+    assert record.trace_completed_at == record.completed_at

@@ -48,6 +48,7 @@ from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
+from orcheo_backend.app.tracing import configure_tracing
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 
 
@@ -57,6 +58,7 @@ configure_logging()
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),
 )
+configure_tracing()
 
 
 async def _authentication_error_handler(request: Request, exc: Exception) -> Response:

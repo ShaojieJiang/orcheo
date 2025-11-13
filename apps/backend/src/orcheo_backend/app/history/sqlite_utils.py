@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS execution_history (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    error TEXT
+    error TEXT,
+    trace_id TEXT,
+    root_span_id TEXT,
+    trace_started_at TEXT,
+    trace_completed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS execution_history_steps (
     execution_id TEXT NOT NULL,
@@ -43,9 +47,13 @@ INSERT INTO execution_history (
     status,
     started_at,
     completed_at,
-    error
+    error,
+    trace_id,
+    root_span_id,
+    trace_started_at,
+    trace_completed_at
 )
-VALUES (?, ?, ?, ?, ?, NULL, NULL)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)
 """
 
 SELECT_CURRENT_STEP_INDEX_SQL = """
@@ -65,7 +73,8 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, error "
+    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, "
+    "error, trace_id, root_span_id, trace_started_at, trace_completed_at "
     "FROM execution_history WHERE workflow_id = ? ORDER BY started_at DESC"
 )
 
@@ -73,7 +82,8 @@ UPDATE_HISTORY_STATUS_SQL = """
 UPDATE execution_history
    SET status = ?,
        completed_at = ?,
-       error = ?
+       error = ?,
+       trace_completed_at = ?
  WHERE execution_id = ?
 """
 
@@ -95,6 +105,17 @@ async def ensure_sqlite_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with connect_sqlite(database_path) as conn:
         await conn.executescript(SCHEMA_SQL)
+        for statement in (
+            "ALTER TABLE execution_history ADD COLUMN trace_id TEXT",
+            "ALTER TABLE execution_history ADD COLUMN root_span_id TEXT",
+            "ALTER TABLE execution_history ADD COLUMN trace_started_at TEXT",
+            "ALTER TABLE execution_history ADD COLUMN trace_completed_at TEXT",
+        ):
+            try:
+                await conn.execute(statement)
+            except aiosqlite.OperationalError as exc:  # pragma: no cover - defensive
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         await conn.commit()
 
 
@@ -106,7 +127,8 @@ async def fetch_record_row(
     cursor = await conn.execute(
         """
         SELECT execution_id, workflow_id, inputs, status, started_at,
-               completed_at, error
+               completed_at, error, trace_id, root_span_id,
+               trace_started_at, trace_completed_at
           FROM execution_history
          WHERE execution_id = ?
         """,
@@ -152,6 +174,16 @@ def row_to_record(
         if row["completed_at"] is not None
         else None
     )
+    trace_started_at = (
+        datetime.fromisoformat(row["trace_started_at"])
+        if row["trace_started_at"] is not None
+        else None
+    )
+    trace_completed_at = (
+        datetime.fromisoformat(row["trace_completed_at"])
+        if row["trace_completed_at"] is not None
+        else None
+    )
     return RunHistoryRecord(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
@@ -161,6 +193,10 @@ def row_to_record(
         completed_at=completed_at,
         error=row["error"],
         steps=steps,
+        trace_id=row["trace_id"],
+        root_span_id=row["root_span_id"],
+        trace_started_at=trace_started_at,
+        trace_completed_at=trace_completed_at,
     )
 
 

@@ -1,10 +1,10 @@
 # Workflow Trace Tab Implementation Plan
 
 ## Phase 1 – Backend Instrumentation & Persistence
-- [ ] Add OpenTelemetry dependencies to backend and shared packages; configure tracer provider with environment-driven exporter settings.
-- [ ] Instrument workflow execution lifecycle to create root and child spans, capturing prompts, responses, token metrics, and artifact references.
-- [ ] Extend run history models and repositories to store trace IDs and timestamps; add migrations if necessary.
-- [ ] Write unit tests covering span creation helpers and trace metadata persistence.
+- [x] Add OpenTelemetry dependencies to backend and shared packages; configure tracer provider with environment-driven exporter settings.
+- [x] Instrument workflow execution lifecycle to create root and child spans, capturing prompts, responses, token metrics, and artifact references.
+- [x] Extend run history models and repositories to store trace IDs and timestamps; add migrations if necessary.
+- [x] Write unit tests covering span creation helpers and trace metadata persistence.
 
 ## Phase 2 – Trace Retrieval API & Realtime Updates
 - [ ] Implement `/executions/{execution_id}/trace` endpoint returning trace hierarchy, metrics, and artifact metadata.

@@ -49,6 +49,10 @@ class RunHistoryResponse(BaseModel):
     error: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     steps: list[RunHistoryStepResponse] = Field(default_factory=list)
+    trace_id: str | None = None
+    root_span_id: str | None = None
+    trace_started_at: datetime | None = None
+    trace_completed_at: datetime | None = None
 
 
 class RunReplayRequest(BaseModel):

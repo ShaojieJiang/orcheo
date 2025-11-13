@@ -1,7 +1,9 @@
 """Application-level configuration models."""
 
 from __future__ import annotations
-from typing import cast
+import json
+from collections.abc import Mapping
+from typing import Literal, cast
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
@@ -38,6 +40,17 @@ class AppSettings(BaseModel):
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
+    tracing_exporter: Literal["none", "console", "otlp"] = Field(
+        default=cast(Literal["none", "console", "otlp"], _DEFAULTS["TRACING_EXPORTER"])
+    )
+    tracing_service_name: str = Field(
+        default=cast(str, _DEFAULTS["TRACING_SERVICE_NAME"])
+    )
+    otlp_endpoint: str | None = None
+    otlp_headers: dict[str, str] = Field(default_factory=dict)
+    otlp_insecure: bool = Field(
+        default=cast(bool, _DEFAULTS["OTEL_EXPORTER_OTLP_INSECURE"])
+    )
 
     @field_validator("checkpoint_backend", mode="before")
     @classmethod
@@ -113,6 +126,75 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             raise ValueError("ORCHEO_PORT must be an integer.") from exc
 
+    @field_validator("tracing_exporter", mode="before")
+    @classmethod
+    def _coerce_tracing_exporter(
+        cls, value: object
+    ) -> Literal["none", "console", "otlp"]:
+        candidate = (
+            str(value).strip().lower()
+            if value is not None
+            else cast(str, _DEFAULTS["TRACING_EXPORTER"])
+        )
+        if candidate not in {"none", "console", "otlp"}:
+            msg = "ORCHEO_TRACING_EXPORTER must be one of 'none', 'console', or 'otlp'."
+            raise ValueError(msg)
+        return cast(Literal["none", "console", "otlp"], candidate)
+
+    @field_validator("tracing_service_name", mode="before")
+    @classmethod
+    def _coerce_tracing_service_name(cls, value: object) -> str:
+        candidate = value if value is not None else _DEFAULTS["TRACING_SERVICE_NAME"]
+        return str(candidate)
+
+    @field_validator("otlp_endpoint", mode="before")
+    @classmethod
+    def _coerce_otlp_endpoint(cls, value: object) -> str | None:
+        return str(value) if value is not None else None
+
+    @field_validator("otlp_headers", mode="before")
+    @classmethod
+    def _parse_otlp_headers(cls, value: object) -> dict[str, str]:
+        if value is None:
+            return {}
+        if isinstance(value, Mapping):
+            return {str(key): str(val) for key, val in value.items()}
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return {}
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = {}
+                for item in stripped.split(","):
+                    key, sep, val = item.partition("=")
+                    if not sep:
+                        continue
+                    header_key = key.strip()
+                    header_val = val.strip()
+                    if header_key:
+                        parsed[header_key] = header_val
+            if isinstance(parsed, Mapping):
+                return {str(key): str(val) for key, val in parsed.items()}
+        msg = "ORCHEO_OTEL_EXPORTER_OTLP_HEADERS must be a mapping or header string."
+        raise ValueError(msg)
+
+    @field_validator("otlp_insecure", mode="before")
+    @classmethod
+    def _coerce_otlp_insecure(cls, value: object) -> bool:
+        if value is None:
+            return cast(bool, _DEFAULTS["OTEL_EXPORTER_OTLP_INSECURE"])
+        if isinstance(value, bool):
+            return value
+        candidate = str(value).strip().lower()
+        if candidate in {"1", "true", "yes", "on"}:
+            return True
+        if candidate in {"0", "false", "no", "off"}:
+            return False
+        msg = "ORCHEO_OTEL_EXPORTER_OTLP_INSECURE must be a boolean value."
+        raise ValueError(msg)
+
     @model_validator(mode="after")
     def _validate_postgres_requirements(self) -> AppSettings:
         if self.checkpoint_backend == "postgres":
@@ -138,6 +220,11 @@ class AppSettings(BaseModel):
         if not isinstance(self.chatkit_rate_limits, ChatKitRateLimitSettings):
             self.chatkit_rate_limits = ChatKitRateLimitSettings()
         self.host = self.host or cast(str, _DEFAULTS["HOST"])
+        self.tracing_service_name = self.tracing_service_name or cast(
+            str, _DEFAULTS["TRACING_SERVICE_NAME"]
+        )
+        if not isinstance(self.otlp_headers, dict):  # pragma: no cover - defensive
+            self.otlp_headers = {}
         return self
 
 
