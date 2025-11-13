@@ -66,6 +66,17 @@ async def test_execute_workflow() -> None:
     assert [step.payload for step in history.steps[:-1]] == steps
     assert history.steps[-1].payload == {"status": "completed"}
 
+    trace_messages = [
+        call.args[0]
+        for call in mock_websocket.send_json.call_args_list
+        if call.args
+        and isinstance(call.args[0], dict)
+        and call.args[0].get("type") == "trace:update"
+    ]
+    assert trace_messages, "expected websocket trace updates"
+    assert trace_messages[0]["spans"][0]["name"] == "workflow.execution"
+    assert trace_messages[-1]["complete"] is True
+
 
 @pytest.mark.asyncio
 async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
