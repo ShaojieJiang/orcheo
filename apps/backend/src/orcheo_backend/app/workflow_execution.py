@@ -13,12 +13,19 @@ from orcheo.config import get_settings
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from orcheo.tracing import (
+    WorkflowTrace,
+    build_step_span_attributes,
+    derive_step_span_name,
+    workflow_execution_span,
+)
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_history_store,
     get_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.history.models import RunHistoryStep
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +71,44 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     app_logger.debug("=" * 80)
 
 
+async def _append_history_step(
+    history_store: RunHistoryStore,
+    execution_id: str,
+    payload: Mapping[str, Any],
+    *,
+    workflow_trace: WorkflowTrace | None,
+    span_name: str,
+) -> RunHistoryStep:
+    """Append a history step while optionally emitting a tracing span."""
+    trace_id = workflow_trace.trace_id if workflow_trace else None
+    parent_span_id = workflow_trace.root_span_id if workflow_trace else None
+
+    if workflow_trace is None or not workflow_trace.enabled:
+        return await history_store.append_step(
+            execution_id,
+            payload,
+            trace_id=trace_id,
+            span_id=None,
+            parent_span_id=parent_span_id,
+            span_name=span_name,
+        )
+
+    attributes = build_step_span_attributes(payload)
+    with workflow_trace.start_step_span(span_name, attributes=attributes) as span:
+        span_id = workflow_trace.span_id(span)
+        step = await history_store.append_step(
+            execution_id,
+            payload,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            span_name=span_name,
+        )
+        if span is not None:
+            span.set_attribute("orcheo.step.index", step.index)
+        return step
+
+
 async def _stream_workflow_updates(
     compiled_graph: Any,
     state: Any,
@@ -71,34 +116,63 @@ async def _stream_workflow_updates(
     history_store: RunHistoryStore,
     execution_id: str,
     websocket: WebSocket,
+    *,
+    workflow_trace: WorkflowTrace | None,
 ) -> None:
     """Stream workflow updates to the client while recording history."""
     try:
+        index = 0
         async for step in compiled_graph.astream(
             state,
             config=config,  # type: ignore[arg-type]
             stream_mode="updates",
         ):  # pragma: no cover
             _log_step_debug(step)
-            await history_store.append_step(execution_id, step)
+            span_name = derive_step_span_name(index, step)
+            await _append_history_step(
+                history_store,
+                execution_id,
+                step,
+                workflow_trace=workflow_trace,
+                span_name=span_name,
+            )
             try:
                 await websocket.send_json(step)
             except Exception as exc:  # pragma: no cover
                 logger.error("Error processing messages: %s", exc)
                 raise
+            index += 1
 
         final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
         _log_final_state_debug(final_state.values)
+        if workflow_trace is not None:
+            workflow_trace.set_final_state(final_state.values)
     except asyncio.CancelledError as exc:
         reason = str(exc) or "Workflow execution cancelled"
         cancellation_payload = {"status": "cancelled", "reason": reason}
-        await history_store.append_step(execution_id, cancellation_payload)
+        await _append_history_step(
+            history_store,
+            execution_id,
+            cancellation_payload,
+            workflow_trace=workflow_trace,
+            span_name="workflow.event.cancelled",
+        )
         await history_store.mark_cancelled(execution_id, reason=reason)
+        if workflow_trace is not None:
+            workflow_trace.set_execution_status("cancelled")
         raise
     except Exception as exc:
         error_payload = {"status": "error", "error": str(exc)}
-        await history_store.append_step(execution_id, error_payload)
+        await _append_history_step(
+            history_store,
+            execution_id,
+            error_payload,
+            workflow_trace=workflow_trace,
+            span_name="workflow.event.error",
+        )
         await history_store.mark_failed(execution_id, str(exc))
+        if workflow_trace is not None:
+            workflow_trace.set_execution_status("error")
         raise
 
 
@@ -125,41 +199,56 @@ async def execute_workflow(
         pass
     credential_context = credential_context_from_workflow(workflow_uuid)
     resolver = CredentialResolver(vault, context=credential_context)
-    await history_store.start_run(
-        workflow_id=workflow_id,
-        execution_id=execution_id,
+    with workflow_execution_span(
+        workflow_id,
+        execution_id,
         inputs=inputs,
-    )
+    ) as workflow_trace:
+        await history_store.start_run(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=inputs,
+            trace_id=workflow_trace.trace_id,
+            root_span_id=workflow_trace.root_span_id,
+        )
 
-    with credential_resolution(resolver):
-        async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled_graph = graph.compile(checkpointer=checkpointer)
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(checkpointer=checkpointer)
 
-            if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-                state: Any = inputs
-            else:
-                state = {
-                    "messages": [],
-                    "results": {},
-                    "inputs": inputs,
-                }
-            _log_sensitive_debug("Initial state: %s", state)
+                if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
+                    state: Any = inputs
+                else:
+                    state = {
+                        "messages": [],
+                        "results": {},
+                        "inputs": inputs,
+                    }
+                _log_sensitive_debug("Initial state: %s", state)
 
-            config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
-            await _stream_workflow_updates(
-                compiled_graph,
-                state,
-                config,
-                history_store,
-                execution_id,
-                websocket,
-            )
+                config: RunnableConfig = {"configurable": {"thread_id": execution_id}}
+                await _stream_workflow_updates(
+                    compiled_graph,
+                    state,
+                    config,
+                    history_store,
+                    execution_id,
+                    websocket,
+                    workflow_trace=workflow_trace,
+                )
 
-    completion_payload = {"status": "completed"}
-    await history_store.append_step(execution_id, completion_payload)
-    await history_store.mark_completed(execution_id)
-    await websocket.send_json(completion_payload)  # pragma: no cover
+        completion_payload = {"status": "completed"}
+        await _append_history_step(
+            history_store,
+            execution_id,
+            completion_payload,
+            workflow_trace=workflow_trace,
+            span_name="workflow.event.completed",
+        )
+        await history_store.mark_completed(execution_id)
+        workflow_trace.set_execution_status("completed")
+        await websocket.send_json(completion_payload)  # pragma: no cover
 
 
 async def execute_node(

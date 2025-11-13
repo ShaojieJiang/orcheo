@@ -98,6 +98,10 @@ export interface RunHistoryStep {
   index: number;
   at: string;
   payload: Record<string, unknown>;
+  trace_id?: string | null;
+  span_id?: string | null;
+  parent_span_id?: string | null;
+  span_name?: string | null;
 }
 
 export interface RunHistoryResponse {
@@ -109,6 +113,8 @@ export interface RunHistoryResponse {
   error?: string | null;
   inputs?: Record<string, unknown>;
   steps: RunHistoryStep[];
+  trace_id?: string | null;
+  root_span_id?: string | null;
 }
 
 export interface SidebarNodeDefinition {

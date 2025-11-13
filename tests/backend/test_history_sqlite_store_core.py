@@ -18,8 +18,17 @@ async def test_sqlite_store_persists_history(tmp_path: Path) -> None:
         workflow_id="wf",
         execution_id="exec",
         inputs={"foo": "bar"},
+        trace_id="trace-1",
+        root_span_id="root-1",
     )
-    await store.append_step("exec", {"status": "running"})
+    await store.append_step(
+        "exec",
+        {"status": "running"},
+        trace_id="trace-1",
+        span_id="span-1",
+        parent_span_id="root-1",
+        span_name="workflow.step.node",
+    )
     await store.mark_completed("exec")
 
     history = await store.get_history("exec")
@@ -27,6 +36,12 @@ async def test_sqlite_store_persists_history(tmp_path: Path) -> None:
     assert history.inputs == {"foo": "bar"}
     assert len(history.steps) == 1
     assert history.steps[0].payload == {"status": "running"}
+    assert history.trace_id == "trace-1"
+    assert history.root_span_id == "root-1"
+    assert history.steps[0].trace_id == "trace-1"
+    assert history.steps[0].span_id == "span-1"
+    assert history.steps[0].parent_span_id == "root-1"
+    assert history.steps[0].span_name == "workflow.step.node"
 
     store_reloaded = SqliteRunHistoryStore(str(db_path))
     persisted = await store_reloaded.get_history("exec")

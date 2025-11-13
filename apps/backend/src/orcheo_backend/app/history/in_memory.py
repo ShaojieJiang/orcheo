@@ -26,6 +26,8 @@ class InMemoryRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        root_span_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         async with self._lock:
@@ -37,6 +39,8 @@ class InMemoryRunHistoryStore:
                 workflow_id=workflow_id,
                 execution_id=execution_id,
                 inputs=dict(inputs or {}),
+                trace_id=trace_id,
+                root_span_id=root_span_id,
             )
             self._histories[execution_id] = record
             return record.model_copy(deep=True)
@@ -45,11 +49,22 @@ class InMemoryRunHistoryStore:
         self,
         execution_id: str,
         payload: Mapping[str, Any],
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        span_name: str | None = None,
     ) -> RunHistoryStep:
         """Append a step for the execution."""
         async with self._lock:
             record = self._require_record(execution_id)
-            return record.append_step(payload)
+            return record.append_step(
+                payload,
+                trace_id=trace_id,
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                span_name=span_name,
+            )
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

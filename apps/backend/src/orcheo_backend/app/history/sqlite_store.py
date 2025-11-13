@@ -44,6 +44,8 @@ class SqliteRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        root_span_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         await self._ensure_initialized()
@@ -60,6 +62,8 @@ class SqliteRunHistoryStore:
                             payload,
                             "running",
                             started_at.isoformat(),
+                            trace_id,
+                            root_span_id,
                         ),
                     )
                     await conn.commit()
@@ -73,12 +77,19 @@ class SqliteRunHistoryStore:
             status="running",
             started_at=started_at,
             steps=[],
+            trace_id=trace_id,
+            root_span_id=root_span_id,
         )
 
     async def append_step(
         self,
         execution_id: str,
         payload: Mapping[str, Any],
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        span_name: str | None = None,
     ) -> RunHistoryStep:
         """Append a step for the execution."""
         await self._ensure_initialized()
@@ -97,6 +108,8 @@ class SqliteRunHistoryStore:
                 row = await cursor.fetchone()
                 next_index = (row["current_index"] if row else -1) + 1
 
+                effective_trace_id = trace_id or record_row["trace_id"]
+
                 await conn.execute(
                     INSERT_EXECUTION_STEP_SQL,
                     (
@@ -104,10 +117,22 @@ class SqliteRunHistoryStore:
                         next_index,
                         at.isoformat(),
                         json.dumps(dict(payload)),
+                        effective_trace_id,
+                        span_id,
+                        parent_span_id,
+                        span_name,
                     ),
                 )
                 await conn.commit()
-        return RunHistoryStep(index=next_index, at=at, payload=dict(payload))
+        return RunHistoryStep(
+            index=next_index,
+            at=at,
+            payload=dict(payload),
+            trace_id=effective_trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            span_name=span_name,
+        )
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

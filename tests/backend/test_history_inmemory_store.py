@@ -140,3 +140,31 @@ async def test_in_memory_list_histories_filters_and_limits() -> None:
     records_limited = await store.list_histories("wf-a", limit=1)
     assert len(records_limited) == 1
     assert records_limited[0].execution_id == "exec-1"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_store_persists_trace_metadata() -> None:
+    store = InMemoryRunHistoryStore()
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        trace_id="trace-1",
+        root_span_id="root-1",
+    )
+
+    await store.append_step(
+        "exec",
+        {"status": "running"},
+        trace_id="trace-1",
+        span_id="span-1",
+        parent_span_id="root-1",
+        span_name="workflow.step.node",
+    )
+
+    history = await store.get_history("exec")
+    assert history.trace_id == "trace-1"
+    assert history.root_span_id == "root-1"
+    assert history.steps[0].trace_id == "trace-1"
+    assert history.steps[0].span_id == "span-1"
+    assert history.steps[0].parent_span_id == "root-1"
+    assert history.steps[0].span_name == "workflow.step.node"

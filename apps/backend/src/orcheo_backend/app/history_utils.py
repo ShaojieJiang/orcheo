@@ -25,6 +25,10 @@ def history_to_response(
             index=step.index,
             at=step.at,
             payload=step.payload,
+            trace_id=step.trace_id,
+            span_id=step.span_id,
+            parent_span_id=step.parent_span_id,
+            span_name=step.span_name,
         )
         for step in record.steps[from_step:]
     ]
@@ -37,6 +41,8 @@ def history_to_response(
         error=record.error,
         inputs=record.inputs,
         steps=steps,
+        trace_id=record.trace_id,
+        root_span_id=record.root_span_id,
     )
 
 

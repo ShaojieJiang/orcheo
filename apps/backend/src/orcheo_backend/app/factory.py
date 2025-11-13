@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from orcheo.config.loader import get_settings as load_settings
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -48,11 +49,13 @@ from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
+from orcheo_backend.app.tracing import configure_tracing as configure_backend_tracing
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 
 
 load_dotenv()
 configure_logging()
+configure_backend_tracing(load_settings().get("TRACING", {}))
 
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),

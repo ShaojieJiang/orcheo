@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.tracing_settings import TracingSettings
 from orcheo.config.vault_settings import VaultSettings
 
 
@@ -24,6 +25,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     """Validate and fill defaults on the raw Dynaconf settings."""
     try:
         rate_limits = ChatKitRateLimitSettings.from_mapping(source)
+        tracing = TracingSettings.from_mapping(source)
         settings = AppSettings(
             checkpoint_backend=source.get("CHECKPOINT_BACKEND"),
             sqlite_path=source.get("SQLITE_PATH", _DEFAULTS["SQLITE_PATH"]),
@@ -58,6 +60,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 ),
             ),
             chatkit_rate_limits=rate_limits,
+            tracing=tracing,
         )
     except ValidationError as exc:  # pragma: no cover - defensive
         raise ValueError(str(exc)) from exc
@@ -85,6 +88,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
+    normalized.set("TRACING", settings.tracing.model_dump())
 
     return normalized
 

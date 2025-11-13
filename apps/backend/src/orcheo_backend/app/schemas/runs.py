@@ -36,6 +36,10 @@ class RunHistoryStepResponse(BaseModel):
     index: int
     at: datetime
     payload: dict[str, Any]
+    trace_id: str | None = None
+    span_id: str | None = None
+    parent_span_id: str | None = None
+    span_name: str | None = None
 
 
 class RunHistoryResponse(BaseModel):
@@ -49,6 +53,8 @@ class RunHistoryResponse(BaseModel):
     error: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     steps: list[RunHistoryStepResponse] = Field(default_factory=list)
+    trace_id: str | None = None
+    root_span_id: str | None = None
 
 
 class RunReplayRequest(BaseModel):

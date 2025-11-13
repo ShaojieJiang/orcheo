@@ -28,6 +28,10 @@ class RunHistoryStep(BaseModel):
     index: int
     at: datetime = Field(default_factory=_utcnow)
     payload: dict[str, Any]
+    trace_id: str | None = None
+    span_id: str | None = None
+    parent_span_id: str | None = None
+    span_name: str | None = None
 
 
 class RunHistoryRecord(BaseModel):
@@ -43,11 +47,31 @@ class RunHistoryRecord(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     steps: list[RunHistoryStep] = Field(default_factory=list)
+    trace_id: str | None = None
+    root_span_id: str | None = None
 
-    def append_step(self, payload: Mapping[str, Any]) -> RunHistoryStep:
+    def append_step(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        span_name: str | None = None,
+    ) -> RunHistoryStep:
         """Append a step to the history with an auto-incremented index."""
-        step = RunHistoryStep(index=len(self.steps), payload=dict(payload))
+        step_trace_id = trace_id or self.trace_id
+        step = RunHistoryStep(
+            index=len(self.steps),
+            payload=dict(payload),
+            trace_id=step_trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            span_name=span_name,
+        )
         self.steps.append(step)
+        if step_trace_id and self.trace_id is None:
+            self.trace_id = step_trace_id
         return step
 
     def mark_completed(self) -> None:
@@ -78,6 +102,8 @@ class RunHistoryStore(Protocol):
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        root_span_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
 
@@ -85,6 +111,11 @@ class RunHistoryStore(Protocol):
         self,
         execution_id: str,
         payload: Mapping[str, Any],
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        span_name: str | None = None,
     ) -> RunHistoryStep:
         """Append a step for the execution."""
 
