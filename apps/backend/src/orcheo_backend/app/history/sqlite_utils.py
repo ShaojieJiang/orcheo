@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS execution_history (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    error TEXT
+    error TEXT,
+    trace_id TEXT,
+    trace_started_at TEXT,
+    trace_completed_at TEXT,
+    trace_last_span_at TEXT
 );
 CREATE TABLE IF NOT EXISTS execution_history_steps (
     execution_id TEXT NOT NULL,
@@ -43,9 +47,13 @@ INSERT INTO execution_history (
     status,
     started_at,
     completed_at,
-    error
+    error,
+    trace_id,
+    trace_started_at,
+    trace_completed_at,
+    trace_last_span_at
 )
-VALUES (?, ?, ?, ?, ?, NULL, NULL)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
 """
 
 SELECT_CURRENT_STEP_INDEX_SQL = """
@@ -65,7 +73,8 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, error "
+    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, "
+    "error, trace_id, trace_started_at, trace_completed_at, trace_last_span_at "
     "FROM execution_history WHERE workflow_id = ? ORDER BY started_at DESC"
 )
 
@@ -73,9 +82,30 @@ UPDATE_HISTORY_STATUS_SQL = """
 UPDATE execution_history
    SET status = ?,
        completed_at = ?,
-       error = ?
+       error = ?,
+       trace_completed_at = ?,
+       trace_last_span_at = COALESCE(trace_last_span_at, ?)
  WHERE execution_id = ?
 """
+
+UPDATE_TRACE_LAST_SPAN_SQL = """
+UPDATE execution_history
+   SET trace_last_span_at = ?
+ WHERE execution_id = ?
+"""
+
+_TRACE_COLUMN_ALTERS: dict[str, str] = {
+    "trace_id": "ALTER TABLE execution_history ADD COLUMN trace_id TEXT",
+    "trace_started_at": (
+        "ALTER TABLE execution_history ADD COLUMN trace_started_at TEXT"
+    ),
+    "trace_completed_at": (
+        "ALTER TABLE execution_history ADD COLUMN trace_completed_at TEXT"
+    ),
+    "trace_last_span_at": (
+        "ALTER TABLE execution_history ADD COLUMN trace_last_span_at TEXT"
+    ),
+}
 
 
 @asynccontextmanager
@@ -95,6 +125,7 @@ async def ensure_sqlite_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with connect_sqlite(database_path) as conn:
         await conn.executescript(SCHEMA_SQL)
+        await _ensure_trace_columns(conn)
         await conn.commit()
 
 
@@ -106,7 +137,8 @@ async def fetch_record_row(
     cursor = await conn.execute(
         """
         SELECT execution_id, workflow_id, inputs, status, started_at,
-               completed_at, error
+               completed_at, error, trace_id, trace_started_at,
+               trace_completed_at, trace_last_span_at
           FROM execution_history
          WHERE execution_id = ?
         """,
@@ -152,6 +184,9 @@ def row_to_record(
         if row["completed_at"] is not None
         else None
     )
+    trace_started_at = _parse_optional_datetime(row["trace_started_at"])
+    trace_completed_at = _parse_optional_datetime(row["trace_completed_at"])
+    trace_last_span_at = _parse_optional_datetime(row["trace_last_span_at"])
     return RunHistoryRecord(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
@@ -161,7 +196,28 @@ def row_to_record(
         completed_at=completed_at,
         error=row["error"],
         steps=steps,
+        trace_id=row["trace_id"],
+        trace_started_at=trace_started_at,
+        trace_completed_at=trace_completed_at,
+        trace_last_span_at=trace_last_span_at,
     )
+
+
+async def _ensure_trace_columns(conn: aiosqlite.Connection) -> None:
+    """Add trace metadata columns when upgrading existing databases."""
+    cursor = await conn.execute("PRAGMA table_info(execution_history)")
+    rows = await cursor.fetchall()
+    existing = {row["name"] for row in rows}
+    for column, statement in _TRACE_COLUMN_ALTERS.items():
+        if column not in existing:
+            await conn.execute(statement)
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp if present."""
+    if value is None:
+        return None
+    return datetime.fromisoformat(value)
 
 
 __all__ = [
@@ -171,6 +227,7 @@ __all__ = [
     "SCHEMA_SQL",
     "SELECT_CURRENT_STEP_INDEX_SQL",
     "UPDATE_HISTORY_STATUS_SQL",
+    "UPDATE_TRACE_LAST_SPAN_SQL",
     "connect_sqlite",
     "ensure_sqlite_schema",
     "fetch_record_row",

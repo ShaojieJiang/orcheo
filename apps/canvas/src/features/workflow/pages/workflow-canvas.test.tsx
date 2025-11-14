@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -94,6 +95,10 @@ beforeAll(() => {
   });
 });
 
+afterEach(() => {
+  cleanup();
+});
+
 const renderCanvas = () => {
   const initialNodes = [
     {
@@ -178,5 +183,12 @@ describe("WorkflowCanvas editing history", () => {
     const searchPanels = await screen.findAllByTestId("workflow-search");
 
     expect(searchPanels.length).toBeGreaterThan(0);
+  });
+
+  it("renders the trace tab in the workflow tabs", async () => {
+    renderCanvas();
+
+    const traceTabs = await screen.findAllByRole("tab", { name: /trace/i });
+    expect(traceTabs.length).toBeGreaterThan(0);
   });
 });

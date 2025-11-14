@@ -1,12 +1,32 @@
 """Tests for the in-memory run history store implementation."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
 import pytest
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryError,
     RunHistoryNotFoundError,
 )
+
+
+@pytest.mark.asyncio
+async def test_start_run_records_trace_metadata() -> None:
+    store = InMemoryRunHistoryStore()
+    started_at = datetime.now(tz=UTC)
+
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        trace_id="trace-123",
+        trace_started_at=started_at,
+    )
+
+    history = await store.get_history("exec")
+    assert history.trace_id == "trace-123"
+    assert history.trace_started_at == started_at
+    assert history.trace_last_span_at == started_at
+    assert history.trace_completed_at is None
 
 
 @pytest.mark.asyncio

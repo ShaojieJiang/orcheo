@@ -19,6 +19,13 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app ([config/loader.py](../src/orcheo/config/loader.py)). |
 | `ORCHEO_PORT` | `8000` | Integer (1‑65535) | TCP port exposed by the FastAPI service ([config/loader.py](../src/orcheo/config/loader.py)). |
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware ([factory.py](../apps/backend/src/orcheo_backend/app/factory.py)). |
+| `ORCHEO_TRACING_EXPORTER` | `none` | `none`, `console`, or `otlp` | Selects the tracing exporter configured by [tracing/provider.py](../src/orcheo/tracing/provider.py). |
+| `ORCHEO_TRACING_ENDPOINT` | _none_ | HTTP(S) URL | Optional OTLP/HTTP collector endpoint (include `/v1/traces`) consumed by [tracing/provider.py](../src/orcheo/tracing/provider.py). |
+| `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | String | Resource attribute attached to every span ([config/defaults.py](../src/orcheo/config/defaults.py)). |
+| `ORCHEO_TRACING_SAMPLE_RATIO` | `1.0` | Float `0.0`‑`1.0` | Probability used by the trace sampler ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_INSECURE` | `false` | Boolean (`1/0`, `true/false`, etc.) | Allows insecure OTLP connections when set to true ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Token usage threshold that emits `token.chunk` events ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
+| `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
 ## Vault configuration

@@ -9,6 +9,8 @@ import { useNodeCreation } from "@features/workflow/pages/workflow-canvas/hooks/
 import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-keybindings";
 import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
 import { useExecutionHistoryHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-history-handlers";
+import { useExecutionTrace } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-trace";
+import { getBackendBaseUrl } from "@/lib/config";
 import {
   createHandleCreateSubworkflow,
   createHandleDeleteSubworkflow,
@@ -29,6 +31,7 @@ export interface WorkflowCanvasExecution {
   nodeCreation: ReturnType<typeof useNodeCreation>;
   inspectorHandlers: ReturnType<typeof useNodeInspectorHandlers>;
   executionHistoryHandlers: ReturnType<typeof useExecutionHistoryHandlers>;
+  trace: ReturnType<typeof useExecutionTrace>;
   runPublishValidation: ReturnType<typeof createRunPublishValidation>;
   handleDismissValidation: ReturnType<typeof createHandleDismissValidation>;
   handleFixValidation: ReturnType<typeof createHandleFixValidation>;
@@ -54,6 +57,18 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
   });
 
+  const executionIds = useMemo(
+    () => core.execution.executions.map((execution) => execution.id),
+    [core.execution.executions],
+  );
+
+  const trace = useExecutionTrace({
+    backendBaseUrl: core.chat.backendBaseUrl ?? getBackendBaseUrl(),
+    activeExecutionId: core.execution.activeExecutionId,
+    isMountedRef: core.isMountedRef,
+    executionIds,
+  });
+
   const handleRunWorkflow = useRunWorkflow({
     nodes: core.history.nodes,
     edges: core.history.edges,
@@ -65,6 +80,7 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
     currentWorkflowId: core.metadata.currentWorkflowId,
     applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
+    handleTraceUpdate: trace.handleTraceUpdate,
   });
 
   const handlePauseWorkflow = usePauseWorkflow({
@@ -123,6 +139,7 @@ export function useWorkflowCanvasExecution(
     executions: core.execution.executions,
     determineLogLevel: executionUpdates.determineLogLevel,
     describePayload: executionUpdates.describePayload,
+    setActiveTab: core.ui.setActiveTab,
   });
 
   const handleCreateSubworkflow = useMemo(
@@ -239,6 +256,7 @@ export function useWorkflowCanvasExecution(
     nodeCreation,
     inspectorHandlers,
     executionHistoryHandlers,
+    trace,
     runPublishValidation,
     handleDismissValidation,
     handleFixValidation,

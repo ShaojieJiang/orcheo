@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@evilmartians/agent-prism-data": "^0.0.8",
+    "@evilmartians/agent-prism-types": "^0.0.8",
     "@monaco-editor/react": "^4.7.0",
     "@openai/chatkit-react": "^1.1.1",
     "@radix-ui/react-accordion": "^1.2.3",
@@ -50,6 +52,7 @@
     "aos": "^2.3.4",
     "canvas-confetti": "^1.9.3",
     "class-variance-authority": "^0.7.1",
+    "classnames": "^2.5.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "d3": "^7.9.0",
@@ -93,6 +96,7 @@
     "react-hook-form": "latest",
     "react-hot-toast": "latest",
     "react-intersection-observer": "latest",
+    "react-json-pretty": "^2.2.0",
     "react-konva": "latest",
     "react-leaflet": "latest",
     "react-markdown": "latest",
@@ -119,6 +123,7 @@
     "@eslint/js": "^9.21.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

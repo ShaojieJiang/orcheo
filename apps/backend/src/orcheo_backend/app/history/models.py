@@ -43,11 +43,27 @@ class RunHistoryRecord(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     steps: list[RunHistoryStep] = Field(default_factory=list)
+    trace_id: str | None = None
+    trace_started_at: datetime | None = None
+    trace_completed_at: datetime | None = None
+    trace_last_span_at: datetime | None = None
 
-    def append_step(self, payload: Mapping[str, Any]) -> RunHistoryStep:
+    def append_step(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        at: datetime | None = None,
+    ) -> RunHistoryStep:
         """Append a step to the history with an auto-incremented index."""
-        step = RunHistoryStep(index=len(self.steps), payload=dict(payload))
+        step = RunHistoryStep(
+            index=len(self.steps),
+            at=at or _utcnow(),
+            payload=dict(payload),
+        )
         self.steps.append(step)
+        self.trace_last_span_at = step.at
+        if self.trace_started_at is None:
+            self.trace_started_at = step.at
         return step
 
     def mark_completed(self) -> None:
@@ -55,18 +71,21 @@ class RunHistoryRecord(BaseModel):
         self.status = "completed"
         self.completed_at = _utcnow()
         self.error = None
+        self.trace_completed_at = self.completed_at
 
     def mark_failed(self, error: str) -> None:
         """Mark the execution as failed with the provided error."""
         self.status = "error"
         self.completed_at = _utcnow()
         self.error = error
+        self.trace_completed_at = self.completed_at
 
     def mark_cancelled(self, *, reason: str | None = None) -> None:
         """Mark the execution as cancelled with an optional reason."""
         self.status = "cancelled"
         self.completed_at = _utcnow()
         self.error = reason
+        self.trace_completed_at = self.completed_at
 
 
 class RunHistoryStore(Protocol):
@@ -78,6 +97,8 @@ class RunHistoryStore(Protocol):
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+        trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
 

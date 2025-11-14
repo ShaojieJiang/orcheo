@@ -25,6 +25,9 @@ export default function WorkflowTabs({
           >
             Execution
           </TabsTrigger>
+          <TabsTrigger value="trace" className="gap-1.5 text-sm px-3 py-1.5">
+            Trace
+          </TabsTrigger>
           <TabsTrigger
             value="readiness"
             className="gap-1.5 text-sm px-3 py-1.5"

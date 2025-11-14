@@ -26,7 +26,9 @@ from orcheo_backend.app.schemas.runs import (
     RunReplayRequest,
     RunSucceedRequest,
 )
+from orcheo_backend.app.schemas.traces import TraceResponse
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
+from orcheo_backend.app.trace_utils import build_trace_response
 
 
 router = APIRouter()
@@ -189,6 +191,22 @@ async def get_execution_history(
     except RunHistoryNotFoundError as exc:
         raise_not_found("Execution history not found", exc)
     return history_to_response(record)
+
+
+@router.get(
+    "/executions/{execution_id}/trace",
+    response_model=TraceResponse,
+)
+async def get_execution_trace(
+    execution_id: str,
+    history_store: HistoryStoreDep,
+) -> TraceResponse:
+    """Return the trace metadata assembled from execution history."""
+    try:
+        record = await history_store.get_history(execution_id)
+    except RunHistoryNotFoundError as exc:
+        raise_not_found("Execution history not found", exc)
+    return build_trace_response(record)
 
 
 @router.post(
