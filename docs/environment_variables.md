@@ -21,6 +21,18 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware ([factory.py](../apps/backend/src/orcheo_backend/app/factory.py)). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
+## Tracing configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `ORCHEO_TRACING_EXPORTER` | `none` | `none`, `otlp`, or `console` | Selects the tracing exporter used by [`tracing/provider.py`](../src/orcheo/tracing/provider.py). Set to `otlp` to forward spans to a collector, or `console` to log them locally. |
+| `ORCHEO_TRACING_ENDPOINT` | _none_ | HTTP(S) URL | OTLP/HTTP endpoint required when using the OTLP exporter (for example `https://otel-collector:4318/v1/traces`). |
+| `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | String | Service name reported in span resources, useful when multiple Orcheo clusters send data to the same backend. |
+| `ORCHEO_TRACING_SAMPLE_RATIO` | `1.0` | Float between 0 and 1 | Probability that a workflow trace is sampled. Lower the ratio in high-volume environments to control storage. |
+| `ORCHEO_TRACING_INSECURE` | `false` | Boolean | When true, disables TLS verification for OTLP exporters. Use only for local testing with self-signed collectors. |
+| `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Token count that highlights spans in the Canvas Trace tab metrics summary ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
+| `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer | Maximum number of characters shown for prompt/response previews in span detail panels ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
+
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |
