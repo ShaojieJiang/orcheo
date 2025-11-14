@@ -13,7 +13,7 @@ prefix. Defaults are defined in `src/orcheo/config/defaults.py` and validated by
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ORCHEO_TRACING_EXPORTER` | `none` | Chooses the exporter: `none` disables tracing, `console` writes spans to stdout, and `otlp` emits spans via the OTLP/HTTP protocol. |
-| `ORCHEO_TRACING_ENDPOINT` | _none_ | Custom collector endpoint. For OTLP/HTTP exporters the value should include the `/v1/traces` suffix, e.g. `https://collector:4318/v1/traces`. |
+| `ORCHEO_TRACING_ENDPOINT` | _none_ | Custom collector endpoint. For OTLP/HTTP exporters the value should include the `/v1/traces` suffix, e.g. `https://localhost:4318/v1/traces`. |
 | `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | Resource attribute attached to all spans. Set this to the deployment identifier (e.g. `orcheo-staging`). |
 | `ORCHEO_TRACING_SAMPLE_RATIO` | `1.0` | Probability (0.0–1.0) used by `TraceIdRatioBased` sampling. Lower the value to reduce volume in production. |
 | `ORCHEO_TRACING_INSECURE` | `false` | When `true`, disables TLS verification for OTLP exporters—useful for local collectors. Leave `false` in production. |
@@ -24,7 +24,7 @@ When using the OTLP exporter, ensure the optional dependency is installed alongs
 backend:
 
 ```bash
-uv pip install opentelemetry-exporter-otlp
+uv sync --all-groups
 ```
 
 Restart the backend after adjusting environment variables so the tracer provider can be
@@ -34,7 +34,7 @@ reconfigured.
 
 - **Collector placement** – Keep the collector near the backend to limit latency. The
   default OTLP exporter uses HTTP; expose port `4318` (HTTP) or configure gRPC by
-  installing the gRPC exporter (`pip install opentelemetry-exporter-otlp[grpc]`).
+  installing the gRPC exporter (`uv add "opentelemetry-exporter-otlp[grpc]"`).
 - **Authentication** – Fronted collectors (e.g., Tempo, Honeycomb) often require API
   tokens. Inject them via environment variables supported by the collector or a reverse
   proxy rather than patching Orcheo code.
@@ -62,6 +62,57 @@ reconfigured.
 The Trace tab streams updates for active runs via WebSocket messages. Closed runs load
 from the `/executions/{execution_id}/trace` endpoint and respect collector pagination.
 
+## Installing the OpenTelemetry Collector
+
+Before deploying a collector, install the `otelcol` binary using one of the methods below.
+
+### Option 1: Download Binary (Recommended for macOS)
+
+Download the latest release directly from GitHub. Choose the appropriate binary for your
+architecture:
+
+```bash
+# Check your architecture
+uname -m  # Returns arm64 (Apple Silicon) or x86_64 (Intel)
+
+# For Apple Silicon (ARM64)
+curl -L -o otelcol.tar.gz \
+  https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.114.0/otelcol_0.114.0_darwin_arm64.tar.gz
+
+# For Intel (x86_64)
+curl -L -o otelcol.tar.gz \
+  https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.114.0/otelcol_0.114.0_darwin_amd64.tar.gz
+
+# Extract and install
+tar -xzf otelcol.tar.gz
+chmod +x otelcol
+sudo mv otelcol /usr/local/bin/
+rm otelcol.tar.gz
+
+# Verify installation
+otelcol --version
+```
+
+For the latest version or Linux/Windows binaries, visit the [OpenTelemetry Collector
+releases page](https://github.com/open-telemetry/opentelemetry-collector-releases/releases).
+
+### Option 2: Using Docker
+
+Run the collector in a container without installing binaries on your host. Use the
+`contrib` image which includes additional exporters like Jaeger:
+
+```bash
+docker run -d \
+  --name otel-collector \
+  -p 4318:4318 \
+  -v $(pwd)/otel-collector.yaml:/etc/otelcol-contrib/config.yaml \
+  otel/opentelemetry-collector-contrib:latest \
+  --config=/etc/otelcol-contrib/config.yaml
+```
+
+This approach keeps your system clean and makes it easy to upgrade by pulling newer
+images. For production deployments, use a specific version tag instead of `latest`.
+
 ## Sample collector configuration
 
 The following minimal configuration works for the OpenTelemetry Collector receiving data
@@ -73,17 +124,26 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+
 exporters:
-  jaeger:
-    endpoint: jaeger:14250
-    insecure: true
+  # For local development without Jaeger, use debug exporter to see traces in logs
+  debug:
+    verbosity: detailed
+  # If you have Jaeger running, uncomment this:
+  # jaeger:
+  #   endpoint: localhost:14250
+  #   tls:
+  #     insecure: true
+
 processors:
   batch: {}
-pipelines:
-  traces:
-    receivers: [otlp]
-    processors: [batch]
-    exporters: [jaeger]
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]  # Change to [jaeger] if using Jaeger
 ```
 
 Start the collector with:
@@ -91,10 +151,6 @@ Start the collector with:
 ```bash
 otelcol --config otel-collector.yaml
 ```
-
-Point Orcheo at the collector by setting
-`ORCHEO_TRACING_EXPORTER=otlp` and `ORCHEO_TRACING_ENDPOINT=http://collector:4318/v1/traces`
-(note the required `/v1/traces` suffix).
 
 ## Troubleshooting
 
