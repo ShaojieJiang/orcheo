@@ -19,6 +19,7 @@ export function useWorkflowCanvasLifecycle(
     setWorkflowTags: core.metadata.setWorkflowTags,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
     setExecutions: core.execution.setExecutions,
+    setActiveExecutionId: core.execution.setActiveExecutionId,
     convertPersistedNodesToCanvas: core.convertPersistedNodesToCanvas,
     convertPersistedEdgesToCanvas,
     applySnapshot: core.history.applySnapshot,

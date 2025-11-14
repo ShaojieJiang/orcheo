@@ -22,6 +22,7 @@ interface UseWorkflowLoaderParams<TNode, TEdge> {
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setExecutions: Dispatch<SetStateAction<WorkflowExecution[]>>;
+  setActiveExecutionId: Dispatch<SetStateAction<string | null>>;
   convertPersistedNodesToCanvas: (nodes: PersistedWorkflowNode[]) => TNode[];
   convertPersistedEdgesToCanvas: (edges: PersistedWorkflowEdge[]) => TEdge[];
   applySnapshot: (
@@ -38,6 +39,7 @@ export function useWorkflowLoader<TNode, TEdge>({
   setWorkflowTags,
   setWorkflowVersions,
   setExecutions,
+  setActiveExecutionId,
   convertPersistedNodesToCanvas,
   convertPersistedEdgesToCanvas,
   applySnapshot,
@@ -52,6 +54,7 @@ export function useWorkflowLoader<TNode, TEdge>({
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
       setExecutions([]);
+      setActiveExecutionId(null);
       applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
     };
 
@@ -84,10 +87,12 @@ export function useWorkflowLoader<TNode, TEdge>({
             });
             if (isMounted) {
               setExecutions(history);
+              setActiveExecutionId(history[0]?.id ?? null);
             }
           } catch (historyError) {
             if (isMounted) {
               setExecutions([]);
+              setActiveExecutionId(null);
               toast({
                 title: "Failed to load execution history",
                 description:
@@ -110,6 +115,7 @@ export function useWorkflowLoader<TNode, TEdge>({
             variant: "destructive",
           });
           setExecutions([]);
+          setActiveExecutionId(null);
         }
       }
 
@@ -125,6 +131,7 @@ export function useWorkflowLoader<TNode, TEdge>({
         setWorkflowTags(template.tags.filter((tag) => tag !== "template"));
         setWorkflowVersions([]);
         setExecutions([]);
+        setActiveExecutionId(null);
         const canvasNodes = convertPersistedNodesToCanvas(template.nodes);
         const canvasEdges = convertPersistedEdgesToCanvas(template.edges);
         applySnapshot(
@@ -157,6 +164,7 @@ export function useWorkflowLoader<TNode, TEdge>({
     convertPersistedNodesToCanvas,
     setCurrentWorkflowId,
     setExecutions,
+    setActiveExecutionId,
     setWorkflowDescription,
     setWorkflowName,
     setWorkflowTags,

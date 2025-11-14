@@ -57,10 +57,16 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
   });
 
+  const executionIds = useMemo(
+    () => core.execution.executions.map((execution) => execution.id),
+    [core.execution.executions],
+  );
+
   const trace = useExecutionTrace({
     backendBaseUrl: core.chat.backendBaseUrl ?? getBackendBaseUrl(),
     activeExecutionId: core.execution.activeExecutionId,
     isMountedRef: core.isMountedRef,
+    executionIds,
   });
 
   const handleRunWorkflow = useRunWorkflow({

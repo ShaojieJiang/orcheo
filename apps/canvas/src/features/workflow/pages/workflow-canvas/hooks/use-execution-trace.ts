@@ -25,6 +25,7 @@ export interface UseExecutionTraceParams {
   backendBaseUrl: string;
   activeExecutionId: string | null;
   isMountedRef: MutableRefObject<boolean>;
+  executionIds?: string[];
 }
 
 export interface ExecutionTraceResult {
@@ -38,23 +39,80 @@ export interface ExecutionTraceResult {
   handleTraceUpdate: (update: TraceUpdateMessage) => void;
 }
 
+const MAX_TRACE_FETCH_RETRIES = 2;
+const RETRY_DELAY_BASE_MS = 300;
+
 const buildTraceUrl = (backendBaseUrl: string, executionId: string): string =>
   buildBackendHttpUrl(`/api/executions/${executionId}/trace`, backendBaseUrl);
 
 const buildArtifactResolver =
-  (backendBaseUrl: string) => (artifactId: string) =>
-    buildBackendHttpUrl(
-      `/api/artifacts/${encodeURIComponent(artifactId)}/download`,
+  (backendBaseUrl: string) => (artifactId: string) => {
+    const normalizedId =
+      typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!normalizedId) {
+      throw new Error("Invalid artifact identifier provided.");
+    }
+    return buildBackendHttpUrl(
+      `/api/artifacts/${encodeURIComponent(normalizedId)}/download`,
       backendBaseUrl,
     );
+  };
+
+const delay = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+class TraceRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "TraceRequestError";
+  }
+}
+
+const createTraceRequestError = async (
+  response: Response,
+  executionId: string,
+): Promise<TraceRequestError> => {
+  const detail = (await response.text()).trim();
+  const statusText = `${response.status} ${response.statusText}`.trim();
+  const baseMessage = `Trace fetch for execution ${executionId} failed (${statusText})`;
+  const message = detail ? `${baseMessage}: ${detail}` : baseMessage;
+  return new TraceRequestError(message, response.status);
+};
+
+const normalizeTraceError = (
+  error: unknown,
+  executionId: string,
+): TraceRequestError => {
+  if (error instanceof TraceRequestError) {
+    return error;
+  }
+  if (error instanceof Error) {
+    return new TraceRequestError(
+      `Network error while fetching trace for execution ${executionId}: ${error.message}`,
+    );
+  }
+  return new TraceRequestError(
+    `Unknown error while fetching trace for execution ${executionId}.`,
+  );
+};
+
+const formatTraceErrorMessage = (error: TraceRequestError): string =>
+  error.message;
 
 export function useExecutionTrace({
   backendBaseUrl,
   activeExecutionId,
   isMountedRef,
+  executionIds,
 }: UseExecutionTraceParams): ExecutionTraceResult {
   const [traces, setTraces] = useState<ExecutionTraceState>({});
   const fetchingRef = useRef(new Set<string>());
+  const primedExecutionsRef = useRef(new Set<string>());
 
   const resolveArtifactUrl = useMemo(
     () => buildArtifactResolver(backendBaseUrl),
@@ -78,37 +136,59 @@ export function useExecutionTrace({
         ),
       }));
       try {
-        const response = await fetch(
-          buildTraceUrl(backendBaseUrl, executionId),
+        let lastError: TraceRequestError | undefined;
+        let succeeded = false;
+
+        for (
+          let attempt = 0;
+          attempt <= MAX_TRACE_FETCH_RETRIES;
+          attempt += 1
+        ) {
+          try {
+            const response = await fetch(
+              buildTraceUrl(backendBaseUrl, executionId),
+            );
+            if (!response.ok) {
+              throw await createTraceRequestError(response, executionId);
+            }
+            const payload = (await response.json()) as TraceResponse;
+            if (!isMountedRef.current) {
+              return;
+            }
+            setTraces((prev) => {
+              const current =
+                prev[executionId] ?? createEmptyTraceEntry(executionId);
+              const next = applyTraceResponse(current, payload);
+              return {
+                ...prev,
+                [executionId]: next,
+              };
+            });
+            succeeded = true;
+            lastError = undefined;
+            break;
+          } catch (error) {
+            lastError = normalizeTraceError(error, executionId);
+            if (attempt < MAX_TRACE_FETCH_RETRIES) {
+              await delay(RETRY_DELAY_BASE_MS * (attempt + 1));
+            }
+          }
+        }
+
+        if (succeeded || !isMountedRef.current) {
+          return;
+        }
+
+        const errorMessage = formatTraceErrorMessage(
+          lastError ??
+            new TraceRequestError(
+              `Unknown error while fetching trace for execution ${executionId}.`,
+            ),
         );
-        if (!response.ok) {
-          const detail = await response.text();
-          throw new Error(
-            detail || `Failed to load trace for execution ${executionId}`,
-          );
-        }
-        const payload = (await response.json()) as TraceResponse;
-        if (!isMountedRef.current) {
-          return;
-        }
-        setTraces((prev) => {
-          const current =
-            prev[executionId] ?? createEmptyTraceEntry(executionId);
-          const next = applyTraceResponse(current, payload);
-          return {
-            ...prev,
-            [executionId]: next,
-          };
-        });
-      } catch (error) {
-        if (!isMountedRef.current) {
-          return;
-        }
-        const message =
-          error instanceof Error ? error.message : "Failed to load trace";
+
         toast({
           title: "Trace fetch failed",
-          description: message,
+          description: errorMessage,
           variant: "destructive",
         });
         setTraces((prev) => {
@@ -119,7 +199,7 @@ export function useExecutionTrace({
             [executionId]: {
               ...current,
               status: "error",
-              error: message,
+              error: errorMessage,
             },
           };
         });
@@ -141,6 +221,32 @@ export function useExecutionTrace({
       };
     });
   }, []);
+
+  useEffect(() => {
+    if (!executionIds?.length) {
+      return;
+    }
+    setTraces((prev) => {
+      let next: ExecutionTraceState | undefined;
+      for (const executionId of executionIds) {
+        if (prev[executionId]) {
+          continue;
+        }
+        if (!next) {
+          next = { ...prev };
+        }
+        next[executionId] = createEmptyTraceEntry(executionId);
+      }
+      return next ?? prev;
+    });
+    for (const executionId of executionIds) {
+      if (primedExecutionsRef.current.has(executionId)) {
+        continue;
+      }
+      primedExecutionsRef.current.add(executionId);
+      void refresh(executionId);
+    }
+  }, [executionIds, refresh]);
 
   useEffect(() => {
     if (!activeExecutionId) {

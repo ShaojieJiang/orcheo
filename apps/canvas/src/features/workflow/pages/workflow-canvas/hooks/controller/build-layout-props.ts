@@ -144,6 +144,7 @@ export function buildWorkflowLayoutProps(
     viewerData: execution.trace.viewerData,
     activeViewer: execution.trace.activeTraceViewer,
     onRefresh: () => execution.trace.refresh(),
+    onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
     summary: traceSummary,
     lastUpdatedAt: activeTrace?.lastUpdatedAt,
     isLive: Boolean(activeTrace && !activeTrace.isComplete),
