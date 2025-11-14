@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react";
+import {
+  applyAccentColor,
+  applyHighContrast,
+  applyReducedMotion,
+  applyTheme,
+} from "@/lib/theme";
 
 type ThemeOption = "light" | "dark" | "system";
 
@@ -9,16 +15,6 @@ interface UseThemePreferencesArgs {
 }
 
 const isBrowser = () => typeof window !== "undefined";
-
-const getSystemTheme = (): ThemeOption => {
-  if (!isBrowser()) {
-    return "light";
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-};
 
 const getStoredTheme = (): ThemeOption => {
   if (!isBrowser()) {
@@ -64,8 +60,7 @@ export const useThemePreferences = ({
     }
 
     localStorage.setItem("theme", theme);
-    const nextTheme = theme === "system" ? getSystemTheme() : theme;
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    applyTheme(theme);
     onThemeChange?.(theme);
   }, [theme, onThemeChange]);
 
@@ -75,7 +70,7 @@ export const useThemePreferences = ({
     }
 
     localStorage.setItem("reducedMotion", String(reducedMotion));
-    document.documentElement.classList.toggle("reduce-motion", reducedMotion);
+    applyReducedMotion(reducedMotion);
     onReducedMotionChange?.(reducedMotion);
   }, [reducedMotion, onReducedMotionChange]);
 
@@ -85,7 +80,7 @@ export const useThemePreferences = ({
     }
 
     localStorage.setItem("highContrast", String(highContrast));
-    document.documentElement.classList.toggle("high-contrast", highContrast);
+    applyHighContrast(highContrast);
     onHighContrastChange?.(highContrast);
   }, [highContrast, onHighContrastChange]);
 
@@ -95,7 +90,7 @@ export const useThemePreferences = ({
     }
 
     localStorage.setItem("accentColor", accentColor);
-    document.documentElement.setAttribute("data-accent", accentColor);
+    applyAccentColor(accentColor);
   }, [accentColor]);
 
   return {

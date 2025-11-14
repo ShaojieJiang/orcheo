@@ -85,8 +85,20 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-cover bg-center bg-[url('https://picsum.photos/seed/orcheocanvas/1920/1080')] dark:bg-[url('https://picsum.photos/seed/orcheocanvasdark/1920/1080')]">
-      <Card className="mx-auto min-w-80 max-w-md backdrop-blur-xl bg-primary/5 border-primary/25">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 text-foreground dark:bg-slate-950">
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 dark:from-slate-950 dark:via-slate-900/80 dark:to-black"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 opacity-60 mix-blend-soft-light"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.12), transparent 45%), radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.15), transparent 50%), radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.12), transparent 55%)",
+        }}
+        aria-hidden="true"
+      />
+      <Card className="relative z-10 mx-auto min-w-80 max-w-md border-primary/25 bg-primary/5 backdrop-blur-xl">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-2">
             <Link to="/" className="flex items-center gap-2 font-semibold">

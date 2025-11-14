@@ -26,10 +26,12 @@ if (!scripts[command]) {
 
 const [cmd, cmdArgs] = scripts[command];
 
+const shouldUseShell = process.platform === 'win32';
+
 const child = spawn(cmd, cmdArgs, {
   cwd: projectRoot,
   stdio: 'inherit',
-  shell: true,
+  shell: shouldUseShell,
 });
 
 child.on('exit', (code) => {
