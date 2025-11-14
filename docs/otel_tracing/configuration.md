@@ -62,6 +62,24 @@ service:
 
 Deploy the collector close to the backend to avoid exporting spans over the public internet. When testing locally, run the collector alongside the backend and point `ORCHEO_TRACING_ENDPOINT` to `http://localhost:4318`.
 
+### Collector performance planning
+
+- **Right-size the deployment** – As a starting point, allocate at least 1 vCPU and 512 MiB of memory per 2,000 spans per second for production workloads. Increase resources when you enable advanced processors such as tail-based sampling or span metrics.
+- **Scale horizontally** – When sustained throughput exceeds the limits of a single replica, run the collector behind a load balancer and enable the [OpenTelemetry `k8scluster` receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/k8sclusterreceiver) or another service discovery mechanism to distribute load.
+- **Tune batching** – Adjust the `batch` processor settings (`timeout`, `send_batch_size`) to smooth bursty workloads. Longer timeouts reduce CPU usage at the cost of higher latency before spans are exported.
+
+### Secure collector access
+
+- **Require authentication** – Enable mTLS or an authenticating reverse proxy (e.g., Envoy with JWT validation) on the collector ingress when exposing OTLP endpoints beyond a private cluster. Never leave the collector accessible on the public internet without authentication.
+- **Restrict network access** – Limit inbound connections to trusted backends using Kubernetes NetworkPolicies, security groups, or firewall rules. Only the Orcheo backend and authorised observability tooling should be allowed to submit spans.
+- **Rotate credentials** – If you rely on API keys (for example, when forwarding to third-party vendors), store them in secret managers and rotate them periodically. Monitor for failed authentication attempts to catch misconfigurations early.
+
+### Monitor the collector
+
+- **Enable health checks** – Configure liveness and readiness probes (or Docker health checks) so orchestration platforms can restart unhealthy collectors automatically.
+- **Export collector metrics** – Turn on the [`prometheus` exporter](https://opentelemetry.io/docs/collector/configuration/#prometheus) or another metrics backend to track queue depth, exporter errors, and processor load. Alert on sustained error ratios or queue saturation.
+- **Log at appropriate levels** – Keep the `logging` exporter at `info` in production to avoid excessive disk usage. Raise the verbosity temporarily during incident response to gather detailed span export diagnostics.
+
 ## Troubleshooting
 
 1. **Trace tab stays empty** – Confirm that the backend exporter is enabled (`ORCHEO_TRACING_EXPORTER` not `none`) and that the collector is accepting spans. The backend logs a warning if the exporter fails to initialise or the OTLP dependency is missing.
