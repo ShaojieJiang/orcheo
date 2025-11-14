@@ -19,7 +19,7 @@
 - [x] Write frontend tests (Vitest + React Testing Library) for tab rendering, data loading, and interaction states.
 
 ## Phase 4 – Configuration, Documentation, & QA
-- [ ] Document OpenTelemetry configuration, deployment considerations, and Trace tab usage in docs.
-- [ ] Provide sample collector configuration and troubleshooting guidance.
-- [ ] Run full lint/test suites (backend + canvas) and address performance or accessibility findings.
-- [ ] Prepare release notes and rollout checklist for enabling the Trace tab in staging and production environments.
+- [x] Document OpenTelemetry configuration, deployment considerations, and Trace tab usage in docs.
+- [x] Provide sample collector configuration and troubleshooting guidance.
+- [x] Run full lint/test suites (backend + canvas) and address performance or accessibility findings.
+- [x] Prepare release notes and rollout checklist for enabling the Trace tab in staging and production environments.

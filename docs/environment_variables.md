@@ -21,6 +21,18 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware ([factory.py](../apps/backend/src/orcheo_backend/app/factory.py)). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
+## Tracing configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `ORCHEO_TRACING_EXPORTER` | `none` | `none`, `console`, `otlp` | Chooses the span exporter. `console` writes spans to stdout, while `otlp` streams spans to an OTLP/HTTP endpoint ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_ENDPOINT` | _none_ | HTTP URL | Optional OTLP collector endpoint forwarded to the exporter when `otlp` is selected ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | String | Resource name advertised with each span for downstream attribution ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_SAMPLE_RATIO` | `1.0` | Float 0.0–1.0 | Probability-based sampler applied to workflow traces. Values outside the range raise validation errors ([config/app_settings.py](../src/orcheo/config/app_settings.py)). |
+| `ORCHEO_TRACING_INSECURE` | `false` | Boolean | Allows connecting to collectors with self-signed certificates when set to `true` ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
+| `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Threshold for raising `token.chunk` events whenever a node consumes or emits more tokens than expected ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
+| `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer | Maximum number of prompt/response characters persisted for previewing inside the Trace tab ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
+
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |
