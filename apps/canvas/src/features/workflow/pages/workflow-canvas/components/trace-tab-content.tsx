@@ -6,13 +6,7 @@ import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/design-system/ui/card";
+import { Card, CardDescription, CardTitle } from "@/design-system/ui/card";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
@@ -24,12 +18,17 @@ interface TraceSummary {
   totalTokens: number;
 }
 
+const SUMMARY_CARD_CLASS = "px-3 py-2";
+const SUMMARY_CARD_BODY_CLASS =
+  "flex w-full items-center justify-between gap-3 text-sm";
+
 export interface TraceTabContentProps {
   status: TraceEntryStatus;
   error?: string;
   viewerData: TraceViewerData[];
   activeViewer?: TraceViewerData;
   onRefresh: () => void;
+  onSelectTrace?: (traceId: string) => void;
   summary?: TraceSummary;
   lastUpdatedAt?: string;
   isLive: boolean;
@@ -86,6 +85,7 @@ export function TraceTabContent({
   viewerData,
   activeViewer,
   onRefresh,
+  onSelectTrace,
   summary,
   lastUpdatedAt,
   isLive,
@@ -115,32 +115,50 @@ export function TraceTabContent({
 
       {summary && (
         <div className="grid gap-3 md:grid-cols-3">
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-base">Spans</CardTitle>
-              <CardDescription>Recorded nodes and events</CardDescription>
-            </CardHeader>
-            <CardContent className="text-2xl font-semibold">
-              {summary.spanCount}
-            </CardContent>
+          <Card className={SUMMARY_CARD_CLASS}>
+            <div className={SUMMARY_CARD_BODY_CLASS}>
+              <div className="space-y-0.5">
+                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
+                  Spans
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Recorded nodes and events
+                </CardDescription>
+              </div>
+              <span className="text-sm font-semibold text-foreground">
+                {summary.spanCount}
+              </span>
+            </div>
           </Card>
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-base">Total tokens</CardTitle>
-              <CardDescription>Input + output consumption</CardDescription>
-            </CardHeader>
-            <CardContent className="text-2xl font-semibold">
-              {summary.totalTokens}
-            </CardContent>
+          <Card className={SUMMARY_CARD_CLASS}>
+            <div className={SUMMARY_CARD_BODY_CLASS}>
+              <div className="space-y-0.5">
+                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
+                  Total tokens
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Input + output consumption
+                </CardDescription>
+              </div>
+              <span className="text-sm font-semibold text-foreground">
+                {summary.totalTokens}
+              </span>
+            </div>
           </Card>
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-base">Last update</CardTitle>
-              <CardDescription>{isLive ? "Live" : "Completed"}</CardDescription>
-            </CardHeader>
-            <CardContent className="text-2xl font-semibold">
-              {formatTimestamp(lastUpdatedAt)}
-            </CardContent>
+          <Card className={SUMMARY_CARD_CLASS}>
+            <div className={SUMMARY_CARD_BODY_CLASS}>
+              <div className="space-y-0.5">
+                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
+                  Last update
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  {isLive ? "Live" : "Completed"}
+                </CardDescription>
+              </div>
+              <span className="text-xs font-semibold text-foreground">
+                {formatTimestamp(lastUpdatedAt)}
+              </span>
+            </div>
           </Card>
         </div>
       )}
@@ -170,6 +188,9 @@ export function TraceTabContent({
           <TraceViewer
             data={viewerData}
             activeTraceId={activeViewer?.traceRecord.id}
+            onTraceSelect={(trace) => {
+              onSelectTrace?.(trace.id);
+            }}
             detailsViewProps={{
               headerActions: renderArtifactActions,
             }}

@@ -25,6 +25,7 @@ export interface UseExecutionTraceParams {
   backendBaseUrl: string;
   activeExecutionId: string | null;
   isMountedRef: MutableRefObject<boolean>;
+  executionIds?: string[];
 }
 
 export interface ExecutionTraceResult {
@@ -52,9 +53,11 @@ export function useExecutionTrace({
   backendBaseUrl,
   activeExecutionId,
   isMountedRef,
+  executionIds,
 }: UseExecutionTraceParams): ExecutionTraceResult {
   const [traces, setTraces] = useState<ExecutionTraceState>({});
   const fetchingRef = useRef(new Set<string>());
+  const primedExecutionsRef = useRef(new Set<string>());
 
   const resolveArtifactUrl = useMemo(
     () => buildArtifactResolver(backendBaseUrl),
@@ -141,6 +144,32 @@ export function useExecutionTrace({
       };
     });
   }, []);
+
+  useEffect(() => {
+    if (!executionIds?.length) {
+      return;
+    }
+    setTraces((prev) => {
+      let next: ExecutionTraceState | undefined;
+      for (const executionId of executionIds) {
+        if (prev[executionId]) {
+          continue;
+        }
+        if (!next) {
+          next = { ...prev };
+        }
+        next[executionId] = createEmptyTraceEntry(executionId);
+      }
+      return next ?? prev;
+    });
+    for (const executionId of executionIds) {
+      if (primedExecutionsRef.current.has(executionId)) {
+        continue;
+      }
+      primedExecutionsRef.current.add(executionId);
+      void refresh(executionId);
+    }
+  }, [executionIds, refresh]);
 
   useEffect(() => {
     if (!activeExecutionId) {

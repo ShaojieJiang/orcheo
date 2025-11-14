@@ -158,4 +158,25 @@ describe("TraceViewer", () => {
       screen.getAllByTestId("span-count").map((element) => element.textContent),
     ).toContain("2");
   });
+
+  it("invokes onTraceSelect when a user picks a trace", () => {
+    const initialData = [
+      createViewerData("trace-1", 1),
+      createViewerData("trace-2", 1),
+    ];
+    const handleTraceSelect = vi.fn();
+
+    render(
+      <TraceViewer data={initialData} onTraceSelect={handleTraceSelect} />,
+    );
+
+    const lastCall = desktopLayoutMock.mock.calls.at(
+      -1,
+    )?.[0] as LayoutMockProps;
+    lastCall.handleTraceSelect(lastCall.traceRecords.at(-1)!);
+
+    expect(handleTraceSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "trace-2" }),
+    );
+  });
 });

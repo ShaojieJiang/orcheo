@@ -67,6 +67,7 @@ describe("TraceTabContent", () => {
         viewerData={[]}
         activeViewer={undefined}
         onRefresh={vi.fn()}
+        onSelectTrace={vi.fn()}
         summary={undefined}
         lastUpdatedAt={undefined}
         isLive={false}
@@ -87,6 +88,7 @@ describe("TraceTabContent", () => {
         viewerData={[]}
         activeViewer={undefined}
         onRefresh={vi.fn()}
+        onSelectTrace={vi.fn()}
         summary={undefined}
         lastUpdatedAt={undefined}
         isLive={false}
@@ -105,6 +107,7 @@ describe("TraceTabContent", () => {
         viewerData={[sampleViewerData]}
         activeViewer={sampleViewerData}
         onRefresh={vi.fn()}
+        onSelectTrace={vi.fn()}
         summary={{ spanCount: 5, totalTokens: 84 }}
         lastUpdatedAt="2024-01-01T12:00:00Z"
         isLive={false}
@@ -125,6 +128,7 @@ describe("TraceTabContent", () => {
         viewerData={[sampleViewerData]}
         activeViewer={sampleViewerData}
         onRefresh={vi.fn()}
+        onSelectTrace={vi.fn()}
         summary={{ spanCount: 2, totalTokens: 10 }}
         lastUpdatedAt={undefined}
         isLive={false}
@@ -146,6 +150,7 @@ describe("TraceTabContent", () => {
         viewerData={[sampleViewerData]}
         activeViewer={sampleViewerData}
         onRefresh={onRefresh}
+        onSelectTrace={vi.fn()}
         summary={{ spanCount: 1, totalTokens: 10 }}
         lastUpdatedAt={undefined}
         isLive
@@ -155,5 +160,45 @@ describe("TraceTabContent", () => {
     const [refreshButton] = screen.getAllByRole("button", { name: /refresh/i });
     await user.click(refreshButton);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onSelectTrace when the viewer requests a trace change", () => {
+    const onSelectTrace = vi.fn();
+    traceViewerMock.mockImplementation(
+      ({
+        onTraceSelect,
+      }: {
+        onTraceSelect?: (trace: TraceViewerData["traceRecord"]) => void;
+      }) => (
+        <div data-testid="trace-viewer">
+          <button
+            type="button"
+            onClick={() => {
+              onTraceSelect?.(sampleViewerData.traceRecord);
+            }}
+          >
+            select-trace
+          </button>
+        </div>
+      ),
+    );
+
+    const { getByRole } = render(
+      <TraceTabContent
+        status="ready"
+        error={undefined}
+        viewerData={[sampleViewerData]}
+        activeViewer={sampleViewerData}
+        onRefresh={vi.fn()}
+        onSelectTrace={onSelectTrace}
+        summary={{ spanCount: 1, totalTokens: 10 }}
+        lastUpdatedAt={undefined}
+        isLive={false}
+      />,
+    );
+
+    getByRole("button", { name: /select-trace/i }).click();
+
+    expect(onSelectTrace).toHaveBeenCalledWith(sampleViewerData.traceRecord.id);
   });
 });

@@ -31,6 +31,7 @@ export interface TraceViewerProps {
   spanCardViewOptions?: SpanCardViewOptions;
   detailsViewProps?: Partial<DetailsViewProps>;
   activeTraceId?: string;
+  onTraceSelect?: (trace: TraceRecord) => void;
 }
 
 export const TraceViewer = ({
@@ -38,6 +39,7 @@ export const TraceViewer = ({
   spanCardViewOptions,
   detailsViewProps,
   activeTraceId,
+  onTraceSelect,
 }: TraceViewerProps) => {
   const isMobile = useIsMobile();
   const hasInitialized = React.useRef(false);
@@ -220,10 +222,14 @@ export const TraceViewer = ({
     setExpandedSpansIds([]);
   }, []);
 
-  const handleTraceSelect = useCallback((trace: TraceRecord) => {
-    setHasUserSelection(true);
-    setSelectedTraceId(trace.id);
-  }, []);
+  const handleTraceSelect = useCallback(
+    (trace: TraceRecord) => {
+      setHasUserSelection(true);
+      setSelectedTraceId(trace.id);
+      onTraceSelect?.(trace);
+    },
+    [onTraceSelect],
+  );
 
   const handleClearTraceSelection = useCallback(() => {
     previousTraceIdRef.current = undefined;
