@@ -30,7 +30,7 @@ stakeholders.
    `opentelemetry-exporter-otlp` installed and ensure Canvas includes the Trace tab UI.
 2. **Configure tracing** – Set `ORCHEO_TRACING_EXPORTER=otlp` and point
    `ORCHEO_TRACING_ENDPOINT` at the staging collector. Use a reduced sample ratio (e.g.,
-   `0.25`).
+   `0.25`). Verify backend startup logs show successful tracer provider initialization.
 3. **Provision collector** – Apply the sample collector configuration (see
    [configuration.md](configuration.md)) or reuse the shared observability cluster. Verify
    spans arrive in the backend by inspecting the collector UI.
@@ -48,8 +48,9 @@ stakeholders.
 3. **Update configuration** – Set production-specific values for exporter endpoint,
    service name, and sampling rate. Confirm TLS certificates or `ORCHEO_TRACING_INSECURE`
    overrides as needed.
-4. **Monitor rollout** – During the first 24 hours, monitor collector load, token usage
-   events, and Canvas performance. Adjust sampling if ingestion volume exceeds limits.
+4. **Monitor rollout** – During the first 24 hours, monitor collector load, span ingestion
+   rate, token usage events, Canvas performance, and any OTLP export errors in backend
+   logs. Adjust sampling if ingestion volume exceeds limits.
 5. **Enable external links** – If external observability dashboards are available, add the
    URLs to the Canvas configuration so users can pivot directly from the Trace tab.
 6. **Document completion** – Mark the Phase 4 tasks in [plan.md](plan.md) as complete and

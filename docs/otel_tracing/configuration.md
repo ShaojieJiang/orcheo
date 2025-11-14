@@ -34,7 +34,7 @@ reconfigured.
 
 - **Collector placement** – Keep the collector near the backend to limit latency. The
   default OTLP exporter uses HTTP; expose port `4318` (HTTP) or configure gRPC by
-  installing the gRPC exporter.
+  installing the gRPC exporter (`pip install opentelemetry-exporter-otlp[grpc]`).
 - **Authentication** – Fronted collectors (e.g., Tempo, Honeycomb) often require API
   tokens. Inject them via environment variables supported by the collector or a reverse
   proxy rather than patching Orcheo code.
@@ -93,7 +93,8 @@ otelcol --config otel-collector.yaml
 ```
 
 Point Orcheo at the collector by setting
-`ORCHEO_TRACING_EXPORTER=otlp` and `ORCHEO_TRACING_ENDPOINT=http://collector:4318/v1/traces`.
+`ORCHEO_TRACING_EXPORTER=otlp` and `ORCHEO_TRACING_ENDPOINT=http://collector:4318/v1/traces`
+(note the required `/v1/traces` suffix).
 
 ## Troubleshooting
 
