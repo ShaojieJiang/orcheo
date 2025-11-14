@@ -390,10 +390,19 @@ const attachMetadataToSpan = (
   if (meta) {
     span.metadata = {
       ...meta,
-      artifacts: meta.artifacts.map((artifact) => ({
-        id: artifact.id,
-        downloadUrl: resolver ? resolver(artifact.id) : undefined,
-      })),
+      artifacts: meta.artifacts.map((artifact) => {
+        if (!resolver) {
+          return { id: artifact.id };
+        }
+        try {
+          return {
+            id: artifact.id,
+            downloadUrl: resolver(artifact.id),
+          };
+        } catch {
+          return { id: artifact.id };
+        }
+      }),
     };
   }
   if (span.children?.length) {

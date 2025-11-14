@@ -4,13 +4,7 @@ import {
   filterSpansRecursively,
   flattenSpans,
 } from "@evilmartians/agent-prism-data";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DetailsViewProps } from "../DetailsView/DetailsView";
 import { type BadgeProps } from "../Badge";
@@ -18,6 +12,7 @@ import { useIsMobile } from "../shared";
 import { type SpanCardViewOptions } from "../SpanCard/SpanCard";
 import { TraceViewerDesktopLayout } from "./TraceViewerDesktopLayout";
 import { TraceViewerMobileLayout } from "./TraceViewerMobileLayout";
+import { useTraceSelection } from "./useTraceSelection";
 
 export interface TraceViewerData {
   traceRecord: TraceRecord;
@@ -42,7 +37,6 @@ export const TraceViewer = ({
   onTraceSelect,
 }: TraceViewerProps) => {
   const isMobile = useIsMobile();
-  const hasInitialized = React.useRef(false);
 
   const initialTraceData = useMemo(() => {
     if (activeTraceId) {
@@ -60,27 +54,17 @@ export const TraceViewer = ({
   const [searchValue, setSearchValue] = useState("");
   const [traceListExpanded, setTraceListExpanded] = useState(true);
 
-  const [selectedTrace, setSelectedTrace] = useState<
-    TraceRecordWithDisplayData | undefined
-  >(
-    initialTraceData
-      ? {
-          ...initialTraceData.traceRecord,
-          badges: initialTraceData.badges,
-          spanCardViewOptions: initialTraceData.spanCardViewOptions,
-        }
-      : undefined,
-  );
-  const [selectedTraceSpans, setSelectedTraceSpans] = useState<TraceSpan[]>(
-    initialTraceData?.spans ?? [],
-  );
-  const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(
-    initialTraceData?.traceRecord.id,
-  );
-  const [hasUserSelection, setHasUserSelection] = useState(false);
-  const previousTraceIdRef = useRef<string | undefined>(
-    initialTraceData?.traceRecord.id,
-  );
+  const {
+    selectedTrace,
+    selectedTraceId,
+    selectedTraceSpans,
+    traceChangeToken,
+    selectTrace,
+    clearSelection,
+  } = useTraceSelection({
+    data,
+    initialTraceData,
+  });
 
   const traceRecords: TraceRecordWithDisplayData[] = useMemo(() => {
     return data.map((item) => ({
@@ -90,12 +74,17 @@ export const TraceViewer = ({
     }));
   }, [data]);
 
+  const normalizedSearchValue = useMemo(
+    () => searchValue.trim(),
+    [searchValue],
+  );
+
   const filteredSpans = useMemo(() => {
-    if (!searchValue.trim()) {
+    if (!normalizedSearchValue) {
       return selectedTraceSpans;
     }
-    return filterSpansRecursively(selectedTraceSpans, searchValue);
-  }, [selectedTraceSpans, searchValue]);
+    return filterSpansRecursively(selectedTraceSpans, normalizedSearchValue);
+  }, [normalizedSearchValue, selectedTraceSpans]);
 
   const allIds = useMemo(() => {
     return flattenSpans(selectedTraceSpans).map((span) => span.id);
@@ -117,98 +106,19 @@ export const TraceViewer = ({
     );
 
     if (hasActiveTrace && activeTraceId !== selectedTraceId) {
-      setHasUserSelection(false);
-      setSelectedTraceId(activeTraceId);
+      selectTrace(activeTraceId, { source: "external" });
     }
-  }, [activeTraceId, data, selectedTraceId]);
+  }, [activeTraceId, data, selectTrace, selectedTraceId]);
 
   useEffect(() => {
-    if (data.length === 0) {
-      setSelectedTrace(undefined);
-      setSelectedTraceSpans([]);
-      setSelectedTraceId(undefined);
-      setHasUserSelection(false);
-      if (previousTraceIdRef.current) {
-        previousTraceIdRef.current = undefined;
-        setSelectedSpan(undefined);
-        setExpandedSpansIds([]);
-      }
+    if (traceChangeToken === 0) {
       return;
     }
-
-    if (!selectedTraceId) {
-      if (!hasUserSelection) {
-        const firstTrace = data[0];
-        if (firstTrace) {
-          setSelectedTraceId(firstTrace.traceRecord.id);
-        }
-        return;
-      }
-      setSelectedTrace(undefined);
-      setSelectedTraceSpans([]);
-      if (previousTraceIdRef.current) {
-        previousTraceIdRef.current = undefined;
-        setSelectedSpan(undefined);
-        setExpandedSpansIds([]);
-      }
-      return;
-    }
-
-    const traceData = data.find(
-      (item) => item.traceRecord.id === selectedTraceId,
-    );
-
-    if (!traceData) {
-      const fallback = data[0];
-      if (fallback && fallback.traceRecord.id !== selectedTraceId) {
-        setSelectedTraceId(fallback.traceRecord.id);
-      } else {
-        setSelectedTrace(undefined);
-        setSelectedTraceSpans([]);
-        setHasUserSelection(false);
-        if (previousTraceIdRef.current) {
-          previousTraceIdRef.current = undefined;
-          setSelectedSpan(undefined);
-          setExpandedSpansIds([]);
-        }
-      }
-      return;
-    }
-
-    const nextTrace: TraceRecordWithDisplayData = {
-      ...traceData.traceRecord,
-      badges: traceData.badges,
-      spanCardViewOptions: traceData.spanCardViewOptions,
-    };
-
-    setSelectedTrace((prev) => {
-      if (
-        prev &&
-        prev.id === nextTrace.id &&
-        prev.badges === nextTrace.badges &&
-        prev.spanCardViewOptions === nextTrace.spanCardViewOptions
-      ) {
-        return prev;
-      }
-      return nextTrace;
-    });
-
-    setSelectedTraceSpans((prev) =>
-      prev === traceData.spans ? prev : traceData.spans,
-    );
-
-    if (previousTraceIdRef.current !== traceData.traceRecord.id) {
-      previousTraceIdRef.current = traceData.traceRecord.id;
-      setSelectedSpan(undefined);
-      setExpandedSpansIds([]);
-    }
-  }, [data, selectedTraceId, hasUserSelection]);
+    setSelectedSpan(undefined);
+    setExpandedSpansIds([]);
+  }, [traceChangeToken]);
 
   useEffect(() => {
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-    }
-
     if (!isMobile && selectedTraceSpans.length > 0 && !selectedSpan) {
       setSelectedSpan(selectedTraceSpans[0]);
     }
@@ -224,22 +134,17 @@ export const TraceViewer = ({
 
   const handleTraceSelect = useCallback(
     (trace: TraceRecord) => {
-      setHasUserSelection(true);
-      setSelectedTraceId(trace.id);
+      selectTrace(trace.id, { source: "user" });
       onTraceSelect?.(trace);
     },
-    [onTraceSelect],
+    [onTraceSelect, selectTrace],
   );
 
   const handleClearTraceSelection = useCallback(() => {
-    previousTraceIdRef.current = undefined;
-    setHasUserSelection(true);
-    setSelectedTrace(undefined);
-    setSelectedTraceSpans([]);
+    clearSelection();
     setSelectedSpan(undefined);
     setExpandedSpansIds([]);
-    setSelectedTraceId(undefined);
-  }, []);
+  }, [clearSelection]);
 
   const props: TraceViewerLayoutProps = {
     traceRecords,
