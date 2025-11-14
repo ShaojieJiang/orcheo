@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -92,6 +93,10 @@ beforeAll(() => {
     value: vi.fn(),
     configurable: true,
   });
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 const renderCanvas = () => {

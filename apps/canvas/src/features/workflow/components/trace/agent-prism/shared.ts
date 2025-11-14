@@ -143,6 +143,15 @@ export const useIsMobile = () => {
   useEffect(() => {
     setMounted(true);
 
+    // Bail out in SSR/Node-style environments where window isn't available.
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      setIsMobile(false);
+      return;
+    }
+
     // TODO: replace with something more beautiful and correct (tailwind screens?)
     const mediaQuery = window.matchMedia("(max-width: 1023px)");
 
