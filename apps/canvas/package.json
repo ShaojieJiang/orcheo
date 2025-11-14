@@ -1,8 +1,16 @@
 {
   "name": "orcheo-canvas",
-  "private": true,
-  "version": "0.0.0",
+  "private": false,
+  "version": "0.0.1",
   "type": "module",
+  "description": "Canvas UI for Orcheo workflow orchestration platform",
+  "keywords": ["orcheo", "workflow", "canvas", "ui", "react"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orcheo-ai/orcheo.git",
+    "directory": "apps/canvas"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
