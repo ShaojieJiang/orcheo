@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coverage-badge.samuelcolvin.workers.dev/ShaojieJiang/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/ShaojieJiang/orcheo)
-[![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?label=core)](https://pypi.org/project/orcheo/)
-[![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?label=backend)](https://pypi.org/project/orcheo-backend/)
-[![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?label=sdk)](https://pypi.org/project/orcheo-sdk/)
+[![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?logo=python&label=core)](https://pypi.org/project/orcheo/)
+[![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
+[![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
+[![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
 
 Orcheo is a tool for creating and running workflows.
 
@@ -269,6 +270,42 @@ codex add server Orcheo \
 ```
 
 **Note:** Replace `/path/to/uvx` with your actual `uvx` binary path (find it with `which uvx`).
+
+### Canvas (Visual Workflow Designer)
+
+Orcheo Canvas is the visual workflow designer for creating and managing workflows through a drag-and-drop interface.
+
+#### Installation
+
+```bash
+# Install globally
+npm install -g orcheo-canvas
+
+# Or install locally in your project
+npm install orcheo-canvas
+```
+
+#### Usage
+
+After installation, start the Canvas interface:
+
+```bash
+# Start preview server (production mode)
+orcheo-canvas
+
+# Start development server
+orcheo-canvas dev
+
+# Build for production
+orcheo-canvas build
+
+# Preview production build
+orcheo-canvas preview
+```
+
+The Canvas application will be available at `http://localhost:5173` (dev mode) or the configured preview port (production mode).
+
+For more details, see [apps/canvas/README.md](apps/canvas/README.md).
 
 ## For developers
 
