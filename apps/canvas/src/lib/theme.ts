@@ -26,9 +26,9 @@ export function initializeTheme(): void {
   const highContrast = localStorage.getItem("highContrast") === "true";
   const accentColor = localStorage.getItem("accentColor") || "blue";
 
-  document.documentElement.classList.toggle("reduce-motion", reducedMotion);
-  document.documentElement.classList.toggle("high-contrast", highContrast);
-  document.documentElement.setAttribute("data-accent", accentColor);
+  applyReducedMotion(reducedMotion);
+  applyHighContrast(highContrast);
+  applyAccentColor(accentColor);
 }
 
 /**
@@ -47,6 +47,27 @@ export function applyTheme(theme: Theme): void {
     // Use explicit theme
     document.documentElement.classList.toggle("dark", theme === "dark");
   }
+}
+
+/**
+ * Apply the reduced motion preference to the document root.
+ */
+export function applyReducedMotion(enabled: boolean): void {
+  document.documentElement.classList.toggle("reduce-motion", enabled);
+}
+
+/**
+ * Apply the high contrast preference to the document root.
+ */
+export function applyHighContrast(enabled: boolean): void {
+  document.documentElement.classList.toggle("high-contrast", enabled);
+}
+
+/**
+ * Apply the accent color preference to the document root.
+ */
+export function applyAccentColor(color: string): void {
+  document.documentElement.setAttribute("data-accent", color);
 }
 
 /**

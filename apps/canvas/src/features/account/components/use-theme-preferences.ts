@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react";
+import {
+  applyAccentColor,
+  applyHighContrast,
+  applyReducedMotion,
+  applyTheme,
+} from "@/lib/theme";
 
 type ThemeOption = "light" | "dark" | "system";
 
@@ -8,14 +14,30 @@ interface UseThemePreferencesArgs {
   onHighContrastChange?: (enabled: boolean) => void;
 }
 
-const getSystemTheme = (): ThemeOption => {
-  if (typeof window === "undefined") {
-    return "light";
+const isBrowser = () => typeof window !== "undefined";
+
+const getStoredTheme = (): ThemeOption => {
+  if (!isBrowser()) {
+    return "system";
   }
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return (localStorage.getItem("theme") as ThemeOption | null) ?? "system";
+};
+
+const getStoredBoolean = (key: string): boolean => {
+  if (!isBrowser()) {
+    return false;
+  }
+
+  return localStorage.getItem(key) === "true";
+};
+
+const getStoredAccentColor = (): string => {
+  if (!isBrowser()) {
+    return "blue";
+  }
+
+  return localStorage.getItem("accentColor") || "blue";
 };
 
 export const useThemePreferences = ({
@@ -23,72 +45,52 @@ export const useThemePreferences = ({
   onReducedMotionChange,
   onHighContrastChange,
 }: UseThemePreferencesArgs) => {
-  const [theme, setTheme] = useState<ThemeOption>("system");
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [highContrast, setHighContrast] = useState(false);
-  const [accentColor, setAccentColor] = useState("blue");
+  const [theme, setTheme] = useState<ThemeOption>(() => getStoredTheme());
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    getStoredBoolean("reducedMotion"),
+  );
+  const [highContrast, setHighContrast] = useState(() =>
+    getStoredBoolean("highContrast"),
+  );
+  const [accentColor, setAccentColor] = useState(() => getStoredAccentColor());
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const savedTheme =
-      (localStorage.getItem("theme") as ThemeOption | null) ?? "system";
-    setTheme(savedTheme);
-
-    const initialTheme =
-      savedTheme === "system" ? getSystemTheme() : savedTheme;
-    document.documentElement.classList.toggle("dark", initialTheme === "dark");
-
-    const savedReducedMotion = localStorage.getItem("reducedMotion") === "true";
-    setReducedMotion(savedReducedMotion);
-
-    const savedHighContrast = localStorage.getItem("highContrast") === "true";
-    setHighContrast(savedHighContrast);
-
-    const savedAccentColor = localStorage.getItem("accentColor") || "blue";
-    setAccentColor(savedAccentColor);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
     localStorage.setItem("theme", theme);
-    const nextTheme = theme === "system" ? getSystemTheme() : theme;
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    applyTheme(theme);
     onThemeChange?.(theme);
   }, [theme, onThemeChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
     localStorage.setItem("reducedMotion", String(reducedMotion));
-    document.documentElement.classList.toggle("reduce-motion", reducedMotion);
+    applyReducedMotion(reducedMotion);
     onReducedMotionChange?.(reducedMotion);
   }, [reducedMotion, onReducedMotionChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
     localStorage.setItem("highContrast", String(highContrast));
-    document.documentElement.classList.toggle("high-contrast", highContrast);
+    applyHighContrast(highContrast);
     onHighContrastChange?.(highContrast);
   }, [highContrast, onHighContrastChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
     localStorage.setItem("accentColor", accentColor);
-    document.documentElement.setAttribute("data-accent", accentColor);
+    applyAccentColor(accentColor);
   }, [accentColor]);
 
   return {

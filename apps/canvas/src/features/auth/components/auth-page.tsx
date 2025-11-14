@@ -85,25 +85,24 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-cover bg-center bg-[url('https://picsum.photos/seed/orcheocanvas/1920/1080')] dark:bg-[url('https://picsum.photos/seed/orcheocanvasdark/1920/1080')]">
-      <Card className="mx-auto min-w-80 max-w-md backdrop-blur-xl bg-primary/5 border-primary/25">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 text-foreground dark:bg-slate-950">
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 dark:from-slate-950 dark:via-slate-900/80 dark:to-black"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 opacity-60 mix-blend-soft-light"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.12), transparent 45%), radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.15), transparent 50%), radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.12), transparent 55%)",
+        }}
+        aria-hidden="true"
+      />
+      <Card className="relative z-10 mx-auto min-w-80 max-w-md border-primary/25 bg-primary/5 backdrop-blur-xl">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-2">
             <Link to="/" className="flex items-center gap-2 font-semibold">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4"
-                >
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                </svg>
-              </div>
+              <img src="/favicon.png" alt="Orcheo Logo" className="h-8 w-8" />
               <span className="text-xl font-bold">Orcheo Canvas</span>
             </Link>
           </div>
