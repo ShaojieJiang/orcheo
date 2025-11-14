@@ -3,7 +3,7 @@
 This guide explains how to configure OpenTelemetry tracing in Orcheo, how the
 backend and Canvas UI collaborate to surface workflow traces, and what to do
 when instrumentation misbehaves. Combine this document with the
-[environment variable reference](../environment_variables.md) when rolling out
+[environment variable reference](../environment_variables.md#tracing-configuration) when rolling out
 tracing to new environments.
 
 ## Backend configuration
@@ -19,7 +19,7 @@ networking, and UI thresholds:
 | `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | Service name reported in span resources. Override when running multiple Orcheo clusters. |
 | `ORCHEO_TRACING_SAMPLE_RATIO` | `1.0` | Probability (0‑1) that a trace will be recorded. Reduce in high-traffic environments to control cardinality. |
 | `ORCHEO_TRACING_INSECURE` | `false` | When `true`, disables TLS verification for the OTLP exporter (useful for local collectors with self-signed certificates). |
-| `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Token count that marks span metrics as "high usage" in the Trace tab summary. |
+| `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Token count that marks span metrics as "high usage" in the Trace tab summary. When a span exceeds this value the backend emits a `token.chunk` event with `reason="high_usage"`, prompting the Trace tab to highlight the span's token totals. |
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Maximum number of characters shown for prompt/response previews within span details. |
 
 > **Tip:** For containerized deployments, mount a config map or secret with the
@@ -91,6 +91,10 @@ Deploy the collector alongside the backend and set
    are truncated using `ORCHEO_TRACING_PREVIEW_MAX_LENGTH`.
 4. Use the metrics summary to identify spans with elevated token usage and
    download attachments when available.
+
+Spans that emit the `token.chunk` event because they crossed
+`ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` appear with a warning badge in the
+metrics summary so operators can review them first.
 
 WebSocket updates stream new spans into the tree while a run is in progress; the
 final state is cached by the trace retrieval API for historical review.

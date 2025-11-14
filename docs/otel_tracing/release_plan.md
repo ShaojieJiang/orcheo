@@ -4,6 +4,12 @@ This document captures the user-facing release notes for the Trace tab along
 with the steps required to enable OpenTelemetry tracing safely in staging and
 production.
 
+### Release identifiers
+
+- Backend: `backend-v0.10.0`
+- Canvas bundle: build from commit matching `backend-v0.10.0` (update if the
+  frontend tag differs at release time).
+
 ## Release notes
 
 - Introduces a **Trace** tab on the workflow Canvas that streams OpenTelemetry
