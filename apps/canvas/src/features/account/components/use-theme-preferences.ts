@@ -8,8 +8,10 @@ interface UseThemePreferencesArgs {
   onHighContrastChange?: (enabled: boolean) => void;
 }
 
+const isBrowser = () => typeof window !== "undefined";
+
 const getSystemTheme = (): ThemeOption => {
-  if (typeof window === "undefined") {
+  if (!isBrowser()) {
     return "light";
   }
 
@@ -18,41 +20,46 @@ const getSystemTheme = (): ThemeOption => {
     : "light";
 };
 
+const getStoredTheme = (): ThemeOption => {
+  if (!isBrowser()) {
+    return "system";
+  }
+
+  return (localStorage.getItem("theme") as ThemeOption | null) ?? "system";
+};
+
+const getStoredBoolean = (key: string): boolean => {
+  if (!isBrowser()) {
+    return false;
+  }
+
+  return localStorage.getItem(key) === "true";
+};
+
+const getStoredAccentColor = (): string => {
+  if (!isBrowser()) {
+    return "blue";
+  }
+
+  return localStorage.getItem("accentColor") || "blue";
+};
+
 export const useThemePreferences = ({
   onThemeChange,
   onReducedMotionChange,
   onHighContrastChange,
 }: UseThemePreferencesArgs) => {
-  const [theme, setTheme] = useState<ThemeOption>("system");
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [highContrast, setHighContrast] = useState(false);
-  const [accentColor, setAccentColor] = useState("blue");
+  const [theme, setTheme] = useState<ThemeOption>(() => getStoredTheme());
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    getStoredBoolean("reducedMotion"),
+  );
+  const [highContrast, setHighContrast] = useState(() =>
+    getStoredBoolean("highContrast"),
+  );
+  const [accentColor, setAccentColor] = useState(() => getStoredAccentColor());
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const savedTheme =
-      (localStorage.getItem("theme") as ThemeOption | null) ?? "system";
-    setTheme(savedTheme);
-
-    const initialTheme =
-      savedTheme === "system" ? getSystemTheme() : savedTheme;
-    document.documentElement.classList.toggle("dark", initialTheme === "dark");
-
-    const savedReducedMotion = localStorage.getItem("reducedMotion") === "true";
-    setReducedMotion(savedReducedMotion);
-
-    const savedHighContrast = localStorage.getItem("highContrast") === "true";
-    setHighContrast(savedHighContrast);
-
-    const savedAccentColor = localStorage.getItem("accentColor") || "blue";
-    setAccentColor(savedAccentColor);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
@@ -63,7 +70,7 @@ export const useThemePreferences = ({
   }, [theme, onThemeChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
@@ -73,7 +80,7 @@ export const useThemePreferences = ({
   }, [reducedMotion, onReducedMotionChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
@@ -83,7 +90,7 @@ export const useThemePreferences = ({
   }, [highContrast, onHighContrastChange]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!isBrowser()) {
       return;
     }
 
