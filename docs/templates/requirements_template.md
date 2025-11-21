@@ -1,22 +1,25 @@
-# PRD Template
+# Requirements Document Template
 
 ## METADATA
 - **Authors:**
-- **Project name (if applicable):**
-- **Product Summary:**
+- **Project/Feature Name:**
+- **Type:** Product | Feature | Enhancement
+- **Summary:**
 - **Owner (if different than authors):**
 - **Date Started:**
 
 ## RELEVANT LINKS & STAKEHOLDERS
+_[Include only the documents relevant to your project/feature scope]_
+
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
 | Prior Artifacts | [Add link] | PM | [Insert name] |
-| PRD / Design Review | Deck | PM | [Insert name] |
+| Design Review | Deck | PM | [Insert name] |
 | Design File/Deck | Figma | Designer | [Insert name] |
 | Eng Requirement Doc | ERD | Tech Lead | [Insert name] |
-| Marketing Requirement Doc | MRD | PMM | [Insert name] |
-| Experiment Plan | link | DS | [Insert name] |
-| Product Rollout Docs | GTM & Launch Documentation | Product Ops | [Insert name] |
+| Marketing Requirement Doc (if applicable) | MRD | PMM | [Insert name] |
+| Experiment Plan (if applicable) | link | DS | [Insert name] |
+| Rollout Docs (if applicable) | GTM & Launch Documentation | Product Ops | [Insert name] |
 
 ## PROBLEM DEFINITION
 ### Objectives
@@ -62,27 +65,32 @@ _[Briefly summarize the overall impact on various products, parties, and functio
 ## TECHNICAL CONSIDERATIONS
 _[The goal of this section is to outline the high level engineering requirement to facilitate the engineering resource planning. Detailed engineering requirements or system design is out of scope for this section.]_
 
-### Why AI?
-_[Explain why AI is required/preferred for solving this problem]_
+### Architecture Overview
+_[For features: How does this fit into the existing system? For products: High-level system design]_
 [Insert text or link here]
 
-### Data Requirements
-_[What type of data is required for training the AI model? How do you plan to collect them?]_
+### Technical Requirements
+_[Key technical constraints, dependencies, and implementation considerations]_
 [Insert text or link here]
 
-### Algorithm selection
+### AI/ML Considerations (if applicable)
+_[Only include this section if AI/ML is part of the solution]_
+
+#### Data Requirements
+_[What type of data is required? How do you plan to collect it?]_
+[Insert text or link here]
+
+#### Algorithm selection
 _[Describe your initial thoughts on model selection, and why]_
 [Insert text or link here]
 
-### Model performance requirements
-_[Based on the product design, what’s the requirements on model performance? e.g. accuracy, recall, precision]_
+#### Model performance requirements
+_[What are the requirements on model performance? e.g. accuracy, recall, precision]_
 [Insert text or link here]
 
-### Engineering resource
-_[Estimate of # of DS, MLE, BE, FE, Designer, etc, and eng weeks]_
-[Insert text or link here]
+## MARKET DEFINITION (for products or large features)
+_[Skip this section for internal features or enhancements without external market impact]_
 
-## MARKET DEFINITION
 ### Total Addressable Market
 _[What is your TAM?]_
 _[What markets are not addressable by this product and why?]_
@@ -96,10 +104,7 @@ _[An exclusion request for specific markets captured in the TAM above.]_
 |--------|--------|--------------------------|
 | [Insert Region, Country, City, etc.] | [Insert Status: No launch/will launch/in discussion] | [Insert Text Here - briefly summarize why this market was requested for exclusion. Provide any relevant links] |
 
-## LAUNCH PLAN
-### Experiment Plan
-_[Provide an overview of the overall experiment approach. A/B test? Switchback? Pre-post? Holdout groups? The details of the experiment should be captured in the experiment plan driven by DS. Document where your XP will launch and should consider a market in each mega-region covered by your TAM]_
-[Insert text or link here]
+## LAUNCH/ROLLOUT PLAN
 
 ### Success metrics
 | KPIs | Target & Rationale |
@@ -108,17 +113,21 @@ _[Provide an overview of the overall experiment approach. A/B test? Switchback? 
 | [Secondary] [KPI 2] | [Goal] |
 | [Guardrail] [KPI 3] | [Goal] |
 
-### Estimated Geo Launch Phases (if applicable)
-_[Enter the estimated timeline using the expected month for each step. The intent is less on date precision but articulating why this product may need to roll out in phases to the TAM outlined above. The sum of all launch phases should equal the TAM minus any approved exclusion requests]_
-
-| XP launch | [Insert Month] | [Insert Text Here] |
-|-----------|----------------|---------------------|
-| **Phase 1 Launch** | [Insert Estimated Month or Quarter] | [Insert Text Here] _[List markets that will receive the feature in this phase. Outline why any markets will **not** receive this feature in this phase]_ |
-| **Phase 2 Launch** | [Insert Estimated Month or Quarter] | [Insert Text Here] _[List markets that will receive the feature in this phase. Outline why any markets will **not** receive this feature in this phase]_ |
-
-### Pricing strategy (if applicable)
-_[How do you price your product and why]_
+### Rollout Strategy
+_[For features: How will this be released? (feature flag, gradual rollout, etc.) For products: Full launch plan]_
 [Insert text or link here]
+
+### Experiment Plan (if applicable)
+_[Provide an overview of the overall experiment approach. A/B test? Switchback? Pre-post? Holdout groups?]_
+[Insert text or link here]
+
+### Estimated Launch Phases (if applicable)
+_[For phased rollouts, describe each phase and criteria for progression]_
+
+| Phase | Target | Description |
+|-------|--------|-------------|
+| **Phase 1** | [Insert target: users/markets/percentage] | [Insert Text Here] |
+| **Phase 2** | [Insert target] | [Insert Text Here] |
 
 ## HYPOTHESIS & RISKS
 _[Each hypothesis/risk should be limited to 2-3 sentences (i.e., one sentence for hypothesis, one sentence for confidence in hypothesis). Generally, PRDs should be focused on validating a single hypothesis and no more than two hypotheses.]_

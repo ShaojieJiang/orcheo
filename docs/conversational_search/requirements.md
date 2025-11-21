@@ -1,252 +1,175 @@
-# Conversational Search Node Package Requirements
+# PRD: Conversational Search Node Package
 
-## Overview
-This document captures the functional and non-functional requirements for a reusable package of Orcheo nodes dedicated to conversational search scenarios. The package targets workflows where users engage in natural-language dialogue to retrieve, refine, and ground knowledge from heterogeneous data sources.
+## METADATA
+- **Authors:** Shaojie Jiang
+- **Project/Feature Name:** Conversational Search Node Package
+- **Type:** Product
+- **Summary:** Reusable package of graph-ready Orcheo nodes covering ingestion, retrieval, ranking, grounding, and answer generation for conversational search workflows where users issue natural-language queries across heterogeneous knowledge.
+- **Owner (if different than authors):** TBD
+- **Date Started:** TBD
 
-## Objectives
-1. Provide a cohesive set of graph-ready nodes for ingestion, retrieval, ranking, grounding, and answer generation.
-2. Ensure nodes are composable so builders can swap models, retrievers, or memory stores without rewriting glue logic.
-3. Offer observability hooks and guardrails that make it easy to operate conversational search agents in production.
+## RELEVANT LINKS & STAKEHOLDERS
+_[Include only the documents relevant to your project/feature scope]_
 
-## Scope
-- Nodes intended for inclusion under `orcheo.nodes.conversational_search`.
-- Shared utilities that the nodes depend upon (e.g., schema validators, telemetry wrappers).
-- Documentation and examples necessary for teams to adopt the nodes.
+| Documents | Link | Owner | Name |
+|-----------|------|-------|------|
+| Prior Artifacts | [Roadmap](../roadmap.md) | PM | TBD |
+| Design Review | [This document](requirements.md) | PM | TBD |
+| Design File/Deck | TBD | Designer | TBD |
+| Eng Requirement Doc | TBD | Tech Lead | TBD |
+| Marketing Requirement Doc (if applicable) | N/A | PMM | N/A |
+| Experiment Plan (if applicable) | TBD | DS | TBD |
+| Rollout Docs (if applicable) | TBD | Product Ops | TBD |
 
-Out of scope: custom UI surfaces, data labeling tooling, or vendor-specific orchestration outside of node contracts.
+## PROBLEM DEFINITION
+### Objectives
+Deliver a cohesive package of conversational search nodes that lets builders compose ingestion, retrieval, grounding, and generative steps without bespoke glue code. Provide observability hooks and guardrails so production teams can operate and iterate on conversational agents confidently.
 
-## Functional Requirements
+### Target users
+Graph builders, applied researchers, and operations engineers who assemble conversational search workflows inside Orcheo. They need modular components to ingest data, search heterogeneous sources, craft responses, and monitor deployed agents.
 
-### Node Overview Summary
+### User Stories
+| As a... | I want to... | So that... | Priority | Acceptance Criteria |
+|---------|--------------|------------|----------|---------------------|
+| Workflow builder | Drop in nodes for ingestion, chunking, retrieval, fusion, and generation | I can launch conversational search experiments without rewriting infrastructure | P0 | DocumentLoaderNode, ChunkingStrategyNode, EmbeddingIndexerNode, VectorRetrieverNode, BM25RetrieverNode, HybridFusionNode, and GroundedGeneratorNode available with configs |
+| Retrieval researcher | Swap retrievers, rankers, and planners while reusing shared interfaces | I can benchmark new strategies quickly | P0 | Base abstractions for retrievers/vector stores/memory plus configurable nodes that are independently testable |
+| Operations lead | Enable observability, guardrails, and compliance across conversations | I can safely run conversational agents in production | P1 | Guard nodes (HallucinationGuardNode, PolicyComplianceNode), and session/memory controls exposed |
 
-The following table provides a quick reference of all proposed nodes organized by category and priority:
+### Context, Problems, Opportunities
+Teams currently hand-roll conversational search flows, creating duplicated work, inconsistent abstractions, and limited observability. There is an opportunity to standardize on Orcheo nodes that cover ingestion through evaluation, expose configuration-first APIs, and make it trivial to plug different vendors, memory stores, or retrievers into a conversation-aware loop.
 
+### Product goals and Non-goals
+**Goals:** Provide modular nodes for conversational search, ensure composability through shared interfaces, and bake in guardrails that ease production operations.
+**Non-goals:** Custom UI surfaces, data labeling tooling, or vendor-specific orchestration beyond the defined node contracts remain out of scope.
+
+## PRODUCT DEFINITION
+### Requirements
+Conversational search functionality will live under `orcheo.nodes.conversational_search`, along with shared utilities (schema validators) and the docs/examples needed for adoption. Requirements are split between core conversational search (Priority 0/1) and research, compliance, and operations (Priority 2).
+
+#### Node Overview Summary
 | Category | Node | Priority | Purpose |
 |----------|------|----------|---------|
-| **Data Ingestion** | DocumentLoaderNode | P1 | Load and normalize documents from various sources |
-| | ChunkingStrategyNode | P1 | Apply configurable chunking strategies for optimal indexing |
-| | MetadataExtractorNode | P1 | Extract structured metadata to enrich chunks |
-| | EmbeddingIndexerNode | P1 | Generate embeddings and write to vector stores |
-| | IncrementalIndexerNode | P2 | Handle delta updates without full reindexing |
-| | SyncMonitorNode | P2 | Monitor ingestion pipeline health |
-| **Retrieval** | VectorRetrieverNode | P1 | Dense vector similarity search |
-| | BM25RetrieverNode | P1 | Traditional keyword-based retrieval |
-| | HybridFusionNode | P1 | Merge results from multiple retrievers |
-| | WebSearchNode | P1 | Integrate live web search results |
-| | ReRankerNode | P2 | Apply cross-encoder reranking |
-| | SourceRouterNode | P2 | Route queries to appropriate knowledge sources |
-| **Query Processing** | QueryRewriteNode | P1 | Expand/rewrite queries using conversation context |
-| | CoreferenceResolverNode | P1 | Resolve pronouns and references |
-| | QueryClassifierNode | P1 | Classify query intent for routing |
-| | ContextCompressorNode | P1 | Deduplicate and compress context |
-| **Conversation** | ConversationStateNode | P1 | Maintain dialog state and history |
-| | ConversationHistoryCompressorNode | P1 | Compress long conversation histories |
-| | TopicShiftDetectorNode | P1 | Detect conversation topic changes |
-| | MemorySummarizerNode | P2 | Summarize histories into episodic memory |
-| | SessionManagementNode | P2 | Handle session lifecycle and isolation |
-| **Generation** | GroundedGeneratorNode | P1 | Generate answers with citations |
-| | QueryClarificationNode | P1 | Generate clarifying questions |
-| | StreamingGeneratorNode | P2 | Token-by-token streaming responses |
-| | HallucinationGuardNode | P2 | Validate answers against facts |
-| | CitationsFormatterNode | P2 | Format citations for UI |
-| **Planning & Routing** | MultiHopPlannerNode | P2 | Plan multi-step retrieval tasks |
-| | FollowUpClassifierNode | P2 | Determine next action in conversation |
-| **Caching & Optimization** | AnswerCachingNode | P2 | Cache similar query results |
-| **Evaluation** | RetrievalEvaluationNode | P3 | Compute retrieval metrics (Recall@k, MRR, NDCG) |
-| | AnswerQualityEvaluationNode | P3 | LLM-as-a-judge answer evaluation |
-| | TurnAnnotationNode | P3 | Capture success/intent labels |
-| | SyntheticJudgeNode | P3 | Automated answer evaluation |
-| | DataAugmentationNode | P3 | Generate synthetic training data |
-| | FailureAnalysisNode | P3 | Categorize and analyze failures |
-| **Analytics** | UserFeedbackCollectionNode | P3 | Collect implicit/explicit feedback |
-| | FeedbackIngestionNode | P3 | Ingest user feedback |
-| | ABTestingNode | P3 | Support A/B testing workflows |
-| | TelemetryExportNode | P3 | Export OpenTelemetry data |
-| | AnalyticsExportNode | P3 | Export analytics to data warehouses |
-| **Compliance** | PolicyComplianceNode | P3 | Enforce content filters and policies |
-| | MemoryPrivacyNode | P3 | Apply redaction and retention policies |
+| **Data Ingestion** | DocumentLoaderNode | P0 | Load and normalize documents from various sources |
+| | ChunkingStrategyNode | P0 | Apply configurable chunking strategies for optimal indexing |
+| | MetadataExtractorNode | P0 | Extract structured metadata to enrich chunks |
+| | EmbeddingIndexerNode | P0 | Generate embeddings and write to vector stores |
+| | IncrementalIndexerNode | P1 | Handle delta updates without full reindexing |
+| | SyncMonitorNode | P1 | Monitor ingestion pipeline health |
+| **Retrieval** | VectorRetrieverNode | P0 | Dense vector similarity search |
+| | BM25RetrieverNode | P0 | Traditional keyword-based retrieval |
+| | HybridFusionNode | P0 | Merge results from multiple retrievers |
+| | WebSearchNode | P0 | Integrate live web search results |
+| | ReRankerNode | P1 | Apply cross-encoder reranking |
+| | SourceRouterNode | P1 | Route queries to appropriate knowledge sources |
+| **Query Processing** | QueryRewriteNode | P0 | Expand/rewrite queries using conversation context |
+| | CoreferenceResolverNode | P0 | Resolve pronouns and references |
+| | QueryClassifierNode | P0 | Classify query intent for routing |
+| | ContextCompressorNode | P0 | Deduplicate and compress context |
+| **Conversation** | ConversationStateNode | P0 | Maintain dialog state and history |
+| | ConversationHistoryCompressorNode | P0 | Compress long conversation histories |
+| | TopicShiftDetectorNode | P0 | Detect conversation topic changes |
+| | MemorySummarizerNode | P1 | Maintain episodic memory beyond the current turn |
+| **Generation & Guardrails** | GroundedGeneratorNode | P0 | Generate grounded answers with citations |
+| | StreamingGeneratorNode | P1 | Stream token-by-token responses |
+| | HallucinationGuardNode | P1 | Validate answers vs. retrieved facts |
+| | CitationsFormatterNode | P1 | Emit structured citations for UIs |
+| | QueryClarificationNode | P1 | Solicit clarifying information before answering |
+| **Memory & Optimization** | AnswerCachingNode | P1 | Cache responses for repeated or similar questions |
+| | SessionManagementNode | P1 | Handle session lifecycle and resource limits |
+| | MultiHopPlannerNode | P1 | Support planned multi-hop retrieval |
+| **Observability & Compliance** | PolicyComplianceNode | P1 | Enforce content filters |
+| | MemoryPrivacyNode | P1 | Apply redaction/retention policies |
+| | SyncMonitorNode | P1 | Emit ingestion health metrics |
+| **Evaluation & Tooling** | RetrievalEvaluationNode | P2 | Measure recall, MRR, NDCG, MAP |
+| | AnswerQualityEvaluationNode | P2 | Score generated answers |
+| | TurnAnnotationNode | P2 | Capture structured annotations |
+| | SyntheticJudgeNode | P2 | Run LLM evaluators |
+| | DataAugmentationNode | P2 | Generate synthetic training data |
+| | FailureAnalysisNode | P2 | Categorize failure modes |
+| | UserFeedbackCollectionNode | P2 | Collect implicit/explicit feedback |
+| | FeedbackIngestionNode | P2 | Persist feedback to sinks |
+| | ABTestingNode | P2 | Manage experiment traffic |
+| | AnalyticsExportNode | P2 | Export analytics data |
 
-**Priority Legend**: P1 = Essential (MVP), P2 = Production-Ready, P3 = Research & Operations
+#### Priority 0/1: Core Conversational Search
+**Data Ingestion**
+- **DocumentLoaderNode:** Connectors for file, web, and API sources with format normalization.
+- **ChunkingStrategyNode:** Configurable character/token rules with overlap control for optimal indexing.
+- **MetadataExtractorNode:** Attaches structured metadata (title, source, tags) powering filters and ranking.
+- **EmbeddingIndexerNode:** Runs embedding models, writes to supported vector stores, and validates schema.
+- **IncrementalIndexerNode:** Delta-sync pipeline that detects adds/updates/deletes without full reindexing.
+- **SyncMonitorNode:** Emits ingestion telemetry (success, error, retry counts) for observability dashboards.
 
-### Detailed Node Specifications
+**Query Processing & Conversation**
+- **ConversationStateNode:** Maintains per-session context, participants, and runtime state objects.
+- **ConversationHistoryCompressorNode:** Summarizes long histories with token budgets for downstream nodes.
+- **TopicShiftDetectorNode:** Flags when queries diverge enough to warrant search resets.
+- **QueryRewriteNode:** Uses conversation memories to rewrite or expand user questions.
+- **CoreferenceResolverNode:** Resolves pronouns/entities for precise retrieval.
+- **QueryClassifierNode:** Routes queries (search vs. clarifying question vs. finalization) using classifiers.
+- **ContextCompressorNode:** Deduplicates retrieved context and enforces token budgets.
+- **QueryClarificationNode:** Requests additional details from the user when intent is ambiguous.
 
-The nodes are organized into three priority tiers to guide implementation:
+**Retrieval & Ranking**
+- **VectorRetrieverNode:** Dense similarity search built atop the base vector store abstraction.
+- **BM25RetrieverNode:** Keyword retrieval for sparse/deterministic matching.
+- **HybridFusionNode:** Weighted/RRF fusion layer merging retriever outputs.
+- **WebSearchNode:** Optional live search for freshness.
+- **ReRankerNode:** Cross-encoder or LLM scoring pipeline for top-k results.
+- **SourceRouterNode:** Chooses the right knowledge source via heuristics or learned models.
+- **MultiHopPlannerNode:** Plans sequential retrieval hops when questions require decomposition.
 
-### Priority 1: Essential Nodes (MVP for conversational search research)
+**Generation & Guardrails**
+- **GroundedGeneratorNode:** Core generative responder that cites retrieved context.
+- **StreamingGeneratorNode:** Streams responses via async iterators for responsive UX.
+- **HallucinationGuardNode:** Validates responses using entailment or rule-based checks with fallback routing.
+- **CitationsFormatterNode:** Produces structured reference payloads (URL, title, snippet).
 
-These nodes form the minimal viable conversational search loop and should be implemented first.
+**Memory, Optimization, and Operations**
+- **MemorySummarizerNode:** Writes episodic memory back into `BaseMemoryStore` for personalization.
+- **AnswerCachingNode:** Caches semantically similar Q&A pairs with TTL and similarity policies.
+- **SessionManagementNode:** Controls lifecycle, concurrency, and cleanup for session workloads.
+- **PolicyComplianceNode & MemoryPrivacyNode:** Enforce content, retention, and redaction policies aligned with compliance requirements.
 
-#### Data Ingestion
-- **DocumentLoaderNode**: Accepts file blobs or URLs, normalizes into chunked `Document` objects, and emits metadata (source, mime type, checksum).
-- **ChunkingStrategyNode**: Applies configurable chunking strategies (fixed-size, semantic, sentence-based, sliding window) to documents. Supports overlap configuration and metadata preservation. Essential for indexing quality experimentation.
-- **MetadataExtractorNode**: Extracts structured metadata from documents (title, date, author, section hierarchy, document type). Enriches chunks with contextual information for improved retrieval.
-- **EmbeddingIndexerNode**: Consumes normalized documents, batches them, computes embeddings (configurable model), and writes to a vector store interface (`BaseVectorStore`). Must support upsert semantics.
-
-#### Retrieval & Ranking
-- **VectorRetrieverNode**: Queries vector stores using dense embeddings. Supports configurable similarity metrics (cosine, dot product, euclidean) and top-k selection.
-- **BM25RetrieverNode**: Performs traditional keyword-based retrieval using BM25/Lucene. Essential for low-cost baseline experiments and handling keyword-heavy queries.
-- **HybridFusionNode**: Merges results from multiple retrievers (vector + BM25) using configurable fusion strategies (RRF - Reciprocal Rank Fusion, weighted scoring, or learned fusion). Critical for optimal retrieval performance.
-- **WebSearchNode**: Integrates live web search APIs (e.g., Google, Bing, SerpAPI) to augment retrieved knowledge with fresh web content. Returns normalized search results compatible with vector store outputs. Essential for hybrid retrieval experiments and accessing fresh information.
-
-#### Query Processing
-- **QueryRewriteNode**: Expands or rewrites user queries using conversational context to improve recall (synonym expansion, entity resolution, language normalization) before retrieval runs.
-- **CoreferenceResolverNode**: Resolves pronouns and references in conversational context ("it", "that document", "the previous one") to explicit entities. Essential for multi-turn conversations where users reference prior context.
-- **QueryClassifierNode**: Classifies query intent and type (factual, navigational, clarification needed, multi-hop) to route to appropriate retrieval strategies. Enables conditional workflow branching.
-- **ContextCompressorNode**: Deduplicates and compresses context while preserving citations. Critical for working within token limits during research experimentation.
-
-#### Conversation Management
-- **ConversationStateNode**: Maintains dialog state (turn history, entity store, user profile). Pluggable persistence (Redis, Postgres, in-memory) with TTL management.
-- **ConversationHistoryCompressorNode**: Compresses long conversation histories while preserving key information. Uses summarization or selective retention strategies to manage token budgets in multi-turn dialogs.
-- **TopicShiftDetectorNode**: Detects when conversation topic changes to trigger context reset or new search sessions. Prevents irrelevant prior context from polluting current queries.
-
-#### Answer Generation
-- **GroundedGeneratorNode**: Invokes LLMs with retrieved context, enforces citation attachment, and emits confidence scores.
-- **QueryClarificationNode**: Generates clarifying questions when query ambiguity is detected. Prevents incorrect assumptions and improves answer accuracy through user interaction.
-
-### Priority 2: Production-Ready Enhancements
-
-These nodes add robustness, quality, and scalability for production deployments.
-
-#### Query Planning & Routing
-- **SourceRouterNode**: Chooses among heterogeneous knowledge sources (vector stores, scalar/BM25 indexes, web search, graph stores) and fuses their results based on confidence and freshness signals.
-- **MultiHopPlannerNode**: Breaks complex user intents into ordered retrieval/generation steps and emits sub-task directives for downstream nodes.
-
-#### Retrieval & Ranking
-- **ReRankerNode**: Applies LLM or cross-encoder re-ranking; configurable top-k, threshold, and fallback modes. Valuable for production quality but not required for basic research prototypes.
-
-#### Quality & Grounding
-- **HallucinationGuardNode**: Validates generated answers against retrieved facts using entailment or rule-based checks; routes to fallback strategies when confidence < threshold.
-- **CitationsFormatterNode**: Produces structured references (URL, title, snippet) suitable for UI consumption.
-
-#### Conversation Flow
-- **FollowUpClassifierNode**: Determines whether the next action is retrieval, clarification, or final answer. Useful for production but simple heuristics suffice for research.
-
-#### Memory & Optimization
-- **MemorySummarizerNode**: Periodically summarizes long histories into episodic memory slots stored via `BaseMemoryStore`.
-- **AnswerCachingNode**: Caches semantically similar queries and their answers to reduce latency and LLM costs. Uses configurable similarity thresholds and TTL policies.
-- **SessionManagementNode**: Handles session lifecycle events (creation, timeout, cleanup), manages multi-user session isolation, and enforces resource limits per session.
-
-#### User Experience
-- **StreamingGeneratorNode**: Extends GroundedGeneratorNode to support token-by-token streaming responses for real-time user experience. Emits partial results via async iterators. UX enhancement rather than research necessity.
-
-#### Data Ingestion Monitoring
-- **SyncMonitorNode**: Emits status events for ingestion pipelines (success/failure counts, retry schedules).
-- **IncrementalIndexerNode**: Handles delta/incremental updates to existing indexes. Detects document changes (add/update/delete) and efficiently updates vector stores without full reindexing.
-
-### Priority 3: Research, Compliance & Operations
-
+#### Priority 2: Research, Compliance & Operations
 These nodes support evaluation, compliance, and production operations but are not required for core conversational search functionality.
 
-#### Evaluation & Research
-- **RetrievalEvaluationNode**: Computes standard retrieval metrics (Recall@k, MRR, NDCG, MAP) given ground truth relevance labels. Essential for systematic retrieval quality assessment.
-- **AnswerQualityEvaluationNode**: Evaluates generated answers using LLM-as-a-judge or rule-based metrics (faithfulness, relevance, completeness). Supports both reference-based and reference-free evaluation.
-- **TurnAnnotationNode**: Captures structured success/intent labels (e.g., answer quality, follow-up need) either from human feedback loops or scripted heuristics and emits them to evaluation stores.
-- **SyntheticJudgeNode**: Runs LLM-based evaluators on generated answers vs. references to support offline experimentation and regression gating.
-- **DataAugmentationNode**: Generates synthetic training data (query variations, negative samples, paraphrases) for model fine-tuning and evaluation dataset expansion.
-- **FailureAnalysisNode**: Identifies and categorizes failure modes in retrieval and generation (no results, irrelevant results, hallucinations, formatting errors). Emits structured failure reports for systematic improvement.
+**Evaluation & Research**
+- **RetrievalEvaluationNode:** Computes Recall@k, MRR, NDCG, MAP using relevance labels.
+- **AnswerQualityEvaluationNode:** Scores answers via LLM-as-a-judge or rule-based metrics (faithfulness, relevance, completeness).
+- **TurnAnnotationNode:** Captures structured success/intent labels from human or heuristic sources.
+- **SyntheticJudgeNode:** Runs LLM evaluators on answers vs. references for offline experimentation and regression gating.
+- **DataAugmentationNode:** Generates synthetic training data (query variations, negatives, paraphrases) for fine-tuning and evaluation.
+- **FailureAnalysisNode:** Categorizes failure modes (no results, irrelevant results, hallucinations, formatting errors) and emits reports.
 
-#### Tooling & Integration
-- **UserFeedbackCollectionNode**: Collects both implicit (click-through, dwell time, reformulation) and explicit (thumbs up/down, ratings, comments) user feedback signals for evaluation and model improvement.
-- **FeedbackIngestionNode**: Accepts explicit user feedback (thumbs up/down, free-form text) and writes to analytics sinks.
-- **ABTestingNode**: Supports A/B testing of different retrieval or generation configurations. Routes traffic, tracks variant assignments, and exports comparison metrics.
-- **TelemetryExportNode**: Exposes OpenTelemetry spans/metrics with node-level attributes (latency, token usage, result quality).
-- **AnalyticsExportNode**: Exports structured analytics data (query patterns, performance metrics, user behavior) to data warehouses or analysis tools for offline research.
+**Tooling & Integration**
+- **UserFeedbackCollectionNode:** Collects implicit (clicks, reformulations) and explicit (thumbs, ratings) feedback.
+- **FeedbackIngestionNode:** Persists explicit feedback to analytics sinks for aggregation.
+- **ABTestingNode:** Routes traffic between configurations, tracks variant assignments, and exports comparison metrics.
+- **AnalyticsExportNode:** Sends structured analytics data (query patterns, performance metrics, user behavior) to warehouses or research tools.
 
-#### Compliance & Security
-- **PolicyComplianceNode**: Enforces content filters (PII, toxicity) with configurable policies and audit logging.
-- **MemoryPrivacyNode**: Applies configurable redaction and retention policies to stored dialog state to meet regional compliance requirements before persistence.
+**Compliance & Security**
+- **PolicyComplianceNode:** Enforces content filters (PII, toxicity) with configurable policies and audit logging.
+- **MemoryPrivacyNode:** Applies configurable redaction and retention policies to stored dialog state per regional requirements.
 
-## Non-Functional Requirements
-1. **Configurability**: Each node must expose a `NodeConfig` dataclass with validation and serde; defaults documented.
-2. **Observability**: Nodes emit structured events through Orcheo's tracing utilities and support correlation IDs.
-3. **Error Handling**: Graceful retries with exponential backoff for transient failures; surfaced via `NodeResult.status`.
-4. **Performance**: Baseline targets — ingestion throughput ≥ 500 documents/minute, retrieval p95 latency ≤ 1.5s, generation p95 ≤ 4s (assuming standard GPU-backed LLMs).
-5. **Security**: All nodes handling credentials must rely on Orcheo's secret manager bindings and redact sensitive values from logs.
-6. **Testing**: Provide unit tests per node plus integration tests for a reference conversational search graph defined under `tests/nodes/conversational_search/`.
+#### Implementation Roadmap
+##### Phase 1: MVP (Weeks 1-4)
+**Goal:** Enable basic conversational search research.
+Core retrieval loop: DocumentLoaderNode, ChunkingStrategyNode, EmbeddingIndexerNode, QueryRewriteNode, ContextCompressorNode, VectorRetrieverNode, BM25RetrieverNode, HybridFusionNode, and GroundedGeneratorNode.
 
-## Deliverables
-- Node implementations with docstrings and typing.
-- Example graph demonstrating ingestion → retrieval → generation pipeline.
-- MkDocs reference page summarizing configuration tables and usage notes.
-- Automated tests and fixtures.
+##### Phase 2: Conversational Features (Weeks 5-8)
+**Goal:** Add conversation-aware capabilities.
+Add conversation handling (ConversationStateNode, ConversationHistoryCompressorNode), advanced query processing (CoreferenceResolverNode, QueryClassifierNode, TopicShiftDetectorNode), clarification (QueryClarificationNode), and metadata enrichment (MetadataExtractorNode, WebSearchNode).
 
-## Architecture Considerations
+##### Phase 3: Quality & Production (Weeks 9-12)
+**Goal:** Deliver production-ready quality improvements.
+Add ranking (ReRankerNode), routing (SourceRouterNode, MultiHopPlannerNode), quality gates (HallucinationGuardNode, CitationsFormatterNode), optimization (AnswerCachingNode, IncrementalIndexerNode), and UX (StreamingGeneratorNode).
 
-### Node Composition Patterns
-The conversational search nodes are designed to compose into flexible workflows:
+##### Phase 4: Research & Operations (Ongoing)
+**Goal:** Enable systematic improvement.
+Add evaluation (RetrievalEvaluationNode, AnswerQualityEvaluationNode, FailureAnalysisNode), data generation (DataAugmentationNode), feedback (UserFeedbackCollectionNode, ABTestingNode), analytics (AnalyticsExportNode), and compliance (PolicyComplianceNode, MemoryPrivacyNode).
 
-1. **Basic RAG Pipeline**: DocumentLoader → Chunking → Indexer → VectorRetriever → GroundedGenerator
-2. **Hybrid Search**: (VectorRetriever + BM25Retriever) → HybridFusion → ReRanker → GroundedGenerator
-3. **Conversational Search**: ConversationState → QueryRewrite → CoreferenceResolver → Retrieval → GroundedGenerator
-4. **Multi-hop Reasoning**: MultiHopPlanner → (QueryRewrite → Retrieval)* → ContextCompressor → GroundedGenerator
-5. **Research Pipeline**: Retrieval → RetrievalEvaluation + AnswerQualityEvaluation → FailureAnalysis
-
-### Node Granularity Decisions
-
-Some capabilities are intentionally separated for flexibility:
-
-- **VectorRetrieverNode** and **BM25RetrieverNode** are separate to allow independent configuration and benchmarking
-- **HybridFusionNode** is explicit rather than embedded in retrievers to support experimentation with fusion strategies
-- **ChunkingStrategyNode** is separate from DocumentLoader to enable chunking strategy research without re-loading documents
-- **QueryClassifierNode** enables conditional workflow branching based on query type
-
-Nodes can be combined in implementations where separation isn't needed for a specific use case.
-
-## Implementation Recommendations
-
-### Phase 1: MVP (Weeks 1-4)
-**Goal**: Enable basic conversational search research
-
-Core retrieval loop:
-1. **Data Ingestion**: DocumentLoaderNode, ChunkingStrategyNode, EmbeddingIndexerNode
-2. **Query Processing**: QueryRewriteNode, ContextCompressorNode
-3. **Retrieval**: VectorRetrieverNode, BM25RetrieverNode, HybridFusionNode
-4. **Generation**: GroundedGeneratorNode
-
-This minimal set enables:
-- Document ingestion and indexing
-- Hybrid retrieval experimentation
-- Basic answer generation with citations
-- Query rewriting research
-
-### Phase 2: Conversational Features (Weeks 5-8)
-**Goal**: Add conversation-aware capabilities
-
-Add conversation handling:
-1. **Conversation Management**: ConversationStateNode, ConversationHistoryCompressorNode
-2. **Advanced Query Processing**: CoreferenceResolverNode, QueryClassifierNode, TopicShiftDetectorNode
-3. **Clarification**: QueryClarificationNode
-4. **External Knowledge**: WebSearchNode
-5. **Metadata**: MetadataExtractorNode
-
-This phase enables:
-- Multi-turn conversation handling
-- Reference resolution ("it", "that document")
-- Ambiguity handling through clarification
-- Fresh information via web search
-
-### Phase 3: Quality & Production (Weeks 9-12)
-**Goal**: Production-ready quality improvements
-
-Add quality and robustness:
-1. **Ranking**: ReRankerNode
-2. **Routing**: SourceRouterNode, MultiHopPlannerNode
-3. **Quality Gates**: HallucinationGuardNode, CitationsFormatterNode
-4. **Optimization**: AnswerCachingNode, IncrementalIndexerNode
-5. **UX**: StreamingGeneratorNode
-
-### Phase 4: Research & Operations (Ongoing)
-**Goal**: Enable systematic improvement
-
-Add evaluation and analytics:
-1. **Evaluation**: RetrievalEvaluationNode, AnswerQualityEvaluationNode, FailureAnalysisNode
-2. **Data Generation**: DataAugmentationNode
-3. **Feedback**: UserFeedbackCollectionNode, ABTestingNode
-4. **Analytics**: TelemetryExportNode, AnalyticsExportNode
-5. **Compliance**: PolicyComplianceNode, MemoryPrivacyNode
-
-### Key Dependencies
-
+#### Key Dependencies
 ```
 Phase 1 (MVP)
 └─ Phase 2 (Conversational)
@@ -258,14 +181,101 @@ Parallel tracks after Phase 1:
 - Compliance nodes can be added as needed
 ```
 
-### Technical Priorities
+#### Deliverables
+- Node implementations with docstrings and typing.
+- Example graph demonstrating ingestion → retrieval → generation pipeline.
+- MkDocs reference page summarizing configuration tables and usage notes.
+- Automated unit tests per node and an integration test for a reference conversational search graph.
 
-1. **Interfaces First**: Define `BaseRetriever`, `BaseVectorStore`, `BaseMemoryStore` abstractions before node implementations
-2. **Composability**: Each node should be independently testable and configurable
-3. **Evaluation Early**: Build RetrievalEvaluationNode in Phase 2 to measure progress
-4. **Incremental Complexity**: Start with rule-based/simple approaches, then add ML-based variants
+### Designs (if applicable)
+No dedicated UI designs; relies on node reference docs and example graphs. Figma artifacts TBD as UI or orchestration surfaces emerge.
 
-## Open Questions
+### Other Teams Impacted
+- **Docs & Education:** Requires coordination for MkDocs reference pages and adoption guides.
+- **Security & Compliance:** PolicyComplianceNode and MemoryPrivacyNode demand alignment with security/legal reviews.
+
+## TECHNICAL CONSIDERATIONS
+_[The goal of this section is to outline the high level engineering requirement to facilitate the engineering resource planning. Detailed engineering requirements or system design is out of scope for this section.]_
+
+### Architecture Overview
+Conversational search nodes plug into Orcheo graphs as modular steps for ingestion, retrieval, planning, generation, and observability. Each node exposes a typed `NodeConfig`, shares telemetry and tracing contracts, and interoperates with shared abstractions (vector stores, memory stores, message buses). The package also ships reference graphs plus schema validators demonstrating how flows connect.
+
+### Technical Requirements
+- **Configurability:** Every node exposes validated configs with documented defaults and schema enforcement.
+- **Observability:** Nodes integrate with Orcheo telemetry, emitting structured events, correlation IDs, and health metrics (e.g., SyncMonitorNode).
+- **Error Handling:** Implement graceful retries with exponential backoff for transient failures via `NodeResult.status` semantics.
+- **Performance Targets:** Meet ingestion throughput (≥ 500 docs/minute), retrieval p95 latency (≤ 1.5s), and generation p95 latency (≤ 4s) assuming GPU-backed LLMs.
+- **Security:** Nodes handling credentials rely on Orcheo secret bindings and redact sensitive values in logs/storage.
+- **Testing:** Provide unit tests per node plus integration coverage for a reference conversational search graph located under `tests/nodes/conversational_search/`.
+- **Resourcing:** Roadmap assumes a cross-functional pod (backend, MLE, DS, DX writers) delivering sequential phases outlined above.
+
+### AI/ML Considerations (if applicable)
+#### Data Requirements
+Nodes must ingest heterogeneous corpora (files, URLs, web search) enriched with metadata, store conversation histories for personalization, and capture user feedback/annotations for evaluation. Evaluation nodes rely on golden datasets with relevance labels, while synthetic data generation nodes create paraphrases/negatives to expand coverage.
+
+#### Algorithm selection
+Baseline algorithms combine dense vector retrieval with BM25 keyword search, fused via RRF or weighted strategies. Re-ranking leverages cross-encoders or LLM checkers, while conversation understanding uses coreference resolution, intent classification, and topic shift detection. Generation nodes employ LLMs constrained by retrieved evidence with optional streaming transports.
+
+#### Model performance requirements
+- Ingestion throughput ≥ 500 documents/minute.
+- Retrieval p95 latency ≤ 1.5 seconds.
+- Generation p95 latency ≤ 4 seconds (GPU-backed LLM assumption).
+
+## MARKET DEFINITION (for products or large features)
+### Total Addressable Market
+Primary consumers are Orcheo users building conversational retrieval applications across enterprise and consumer scenarios. This includes both internal teams and external customers who use Orcheo as their workflow orchestration platform, while bespoke vendor-managed stacks remain out of scope.
+
+### Launch Exceptions
+| Market | Status | Considerations & Summary |
+|--------|--------|--------------------------|
+| None | N/A | Package is a building block for all Orcheo users; no geo-dependent exclusions identified. |
+
+## LAUNCH/ROLLOUT PLAN
+### Success metrics
+| KPIs | Target & Rationale |
+|------|--------------------|
+| [Primary] Retrieval latency | p95 ≤ 1.5s to keep conversations responsive during hybrid retrieval |
+| [Secondary] Generation latency | p95 ≤ 4s with citations attached for final responses |
+| [Guardrail] Ingestion throughput | ≥ 500 documents/minute while maintaining observability and retry semantics |
+
+### Rollout Strategy
+Roll out sequential phases that move from MVP ingestion/retrieval/generation to conversation features, production hardening, and ongoing research/operations. Each phase unlocks a distinct user outcome (experimentation, multi-turn quality, production readiness, continuous improvement) while keeping dependencies manageable.
+
+### Experiment Plan (if applicable)
+Evaluation is driven by RetrievalEvaluationNode, AnswerQualityEvaluationNode, SyntheticJudgeNode, and FailureAnalysisNode, enabling offline recall/NDCG checks plus LLM-as-a-judge answer assessment. Traffic experiments use ABTestingNode with holdouts for new retrieval/generation strategies once Phase 2 components land.
+
+### Estimated Launch Phases (if applicable)
+| Phase | Target | Description |
+|-------|--------|-------------|
+| **Phase 1** | Research pods (Weeks 1-4) | Deliver MVP ingestion, query processing, retrieval, and generation loop for experimentation. |
+| **Phase 2** | Early adopters (Weeks 5-8) | Layer conversation management, coreference resolution, clarification, and metadata enrichment. |
+| **Phase 3** | Production teams (Weeks 9-12) | Ship quality, routing, optimization, and UX upgrades for production readiness. |
+| **Phase 4** | Broad rollout (Ongoing) | Continue evaluation, analytics, compliance, and feedback capabilities as incremental releases. |
+
+## HYPOTHESIS & RISKS
+_[Each hypothesis/risk should be limited to 2-3 sentences (i.e., one sentence for hypothesis, one sentence for confidence in hypothesis). Generally, PRDs should be focused on validating a single hypothesis and no more than two hypotheses.]_
+_[Hypothesis: what do you believe to be true, and what do you think will happen if you are correct? Recommend framing your hypothesis in a customer-centric way, while also describing how the user problem impacts metrics.]_
+_[Risk: what are potential risk areas for this feature and what could be some unintended consequences?]_
+- **Hypothesis:** Providing modular conversational search nodes with shared interfaces will cut graph assembly time by enabling plug-and-play ingestion, retrieval, and generation; confidence is medium pending adoption metrics.
+- **Hypothesis:** Built-in guardrails will accelerate production rollouts because operations teams can observe, triage, and gate deployments; confidence is medium once Phase 3 components exist.
+- **Risk:** Vector store and external connector support (e.g., Pinecone vs. LanceDB) may not match team expectations, slowing adoption until adapters land.
+- **Risk:** Compliance/privacy requirements across regions could delay MemoryPrivacyNode and PolicyComplianceNode if legal guidance is late; mitigation involves early partner reviews.
+
+## APPENDIX
+### Node Composition Patterns
+1. **Basic RAG Pipeline:** DocumentLoader → Chunking → Indexer → VectorRetriever → GroundedGenerator.
+2. **Hybrid Search:** (VectorRetriever + BM25Retriever) → HybridFusion → ReRanker → GroundedGenerator.
+3. **Conversational Search:** ConversationState → QueryRewrite → CoreferenceResolver → Retrieval → GroundedGenerator.
+4. **Multi-hop Reasoning:** MultiHopPlanner → (QueryRewrite → Retrieval)* → ContextCompressor → GroundedGenerator.
+5. **Research Pipeline:** Retrieval → RetrievalEvaluation + AnswerQualityEvaluation → FailureAnalysis.
+
+### Node Granularity Decisions
+- **VectorRetrieverNode** and **BM25RetrieverNode** stay separate for independent configuration/benchmarking.
+- **HybridFusionNode** remains explicit to support experimentation with fusion strategies.
+- **ChunkingStrategyNode** is separate from DocumentLoaderNode for independent chunking research.
+- **QueryClassifierNode** powers conditional branching without embedding logic inside retrievers.
+
+### Open Questions
 1. Which vector store adapters must be supported in v1 (e.g., Pinecone, PGVector, LanceDB, Chroma)?
 2. Preferred hallucination detection approach (LLM judge vs. rule-based)?
 3. Data retention requirements for stored conversation history across geographies.

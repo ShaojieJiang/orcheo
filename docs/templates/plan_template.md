@@ -14,7 +14,7 @@
 Brief summary of the project scope, objectives, and expected outcomes. Reference the related PRD and Design documents if available.
 
 **Related Documents:**
-- PRD: [Link]
+- Requirements: [Link]
 - Design: [Link]
 
 ---
