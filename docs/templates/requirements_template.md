@@ -1,5 +1,7 @@
 # Requirements Document Template
 
+**Developer note:** Remove any guidance text written in the `_[text]_` format when producing the final requirements document.
+
 ## METADATA
 - **Authors:**
 - **Project/Feature Name:**
