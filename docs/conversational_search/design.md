@@ -4,7 +4,7 @@
 
 - **Version:** 0.1
 - **Author:** Shaojie Jiang
-- **Date:** 2025-11-18
+- **Date:** 2025-11-22
 - **Status:** Draft
 
 ---
@@ -215,4 +215,4 @@ Feature flags control node availability and fusion strategies; maintain backward
 
 | Date | Author | Changes |
 |------|--------|---------|
-| 2025-11-18 | Shaojie Jiang | Initial draft |
+| 2025-11-22 | Shaojie Jiang | Initial draft |
