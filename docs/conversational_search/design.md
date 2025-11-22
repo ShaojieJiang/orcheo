@@ -228,6 +228,33 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 ## API Contracts
 
+### REST/HTTP Endpoints
+
+| Method | Endpoint | Purpose | Request | Response |
+|--------|----------|---------|---------|----------|
+| POST | `/api/conversational-search/ingest` | Ingest documents through `DocumentLoaderNode` and `EmbeddingIndexerNode` | `{ "sources": [...], "metadata": {...} }` | `{ "ingested_count": 120, "skipped": 3, "errors": [] }` |
+| POST | `/api/conversational-search/query` | Run conversational RAG flow (rewrite → retrieval → generation) | `{ "query": "...", "session_id": "...", "filters": {...}, "stream": false }` | `{ "response": "...", "citations": [...], "tokens_used": 523 }` |
+| GET  | `/api/conversational-search/sessions/{session_id}` | Fetch conversation state via `ConversationStateNode` | none | `{ "session_id": "...", "turns": [...], "metadata": {...} }` |
+| DELETE | `/api/conversational-search/sessions/{session_id}` | Trigger `SessionManagementNode` cleanup and TTL enforcement | none | `{ "deleted": true, "turns_removed": 42 }` |
+| POST | `/api/conversational-search/evaluate` | Execute evaluation flow using `DatasetNode` and `RetrievalEvaluationNode` | `{ "dataset_id": "...", "graph_id": "..." }` | `{ "job_id": "eval_123", "status": "queued" }` |
+
+HTTP requests include bearer tokens in the `Authorization` header. Idempotency keys are supported via `Idempotency-Key` header for ingestion. Responses follow the error schema below on non-2xx status codes.
+
+### WebSocket Streaming Protocol
+
+- Endpoint: `GET /ws/conversational-search/stream`
+- Subprotocol: `orcheo.conversational-search.v1`
+- Message envelope:
+  ```json
+  { "event": "start|token|complete|error", "session_id": "...", "message_id": "...", "payload": { ... } }
+  ```
+- Flow:
+  1. Client sends `{ "event": "start", "query": "...", "session_id": "..." }`.
+  2. Server streams `{ "event": "token", "payload": { "text": "partial token" } }` from `StreamingGeneratorNode`.
+  3. On finish, server emits `{ "event": "complete", "payload": { "response": "...", "citations": [...] } }`.
+  4. Errors use `{ "event": "error", "payload": { "code": "GENERATION_TIMEOUT", "message": "..." } }`.
+- Heartbeats: server sends `{ "event": "ping" }` every 20s; clients respond with `{ "event": "pong" }`.
+
 ### Node Configuration Schema
 
 All nodes follow a consistent configuration pattern:
@@ -244,6 +271,27 @@ class RetryConfig(BaseModel):
     max_retries: int = 3
     backoff_base: float = 2.0
     max_delay: float = 60.0
+
+
+class CircuitBreakerConfig(BaseModel):
+    failure_threshold: int = 5
+    reset_timeout_seconds: int = 30
+    half_open_max_calls: int = 2
+
+
+class ErrorResponse(BaseModel):
+    code: Literal[
+        "VALIDATION_ERROR",
+        "AUTH_REQUIRED",
+        "FORBIDDEN",
+        "NOT_FOUND",
+        "UPSTREAM_ERROR",
+        "RATE_LIMITED",
+        "GENERATION_TIMEOUT",
+    ]
+    message: str
+    details: dict | None = None
+    retryable: bool = False
 ```
 
 ### DocumentLoaderNode
@@ -313,6 +361,7 @@ class GroundedGeneratorConfig(NodeConfig):
     citation_style: Literal["inline", "footnote", "endnote"] = "inline"
     max_tokens: int = 1024
     temperature: float = 0.1
+    circuit_breaker: CircuitBreakerConfig = CircuitBreakerConfig()
 
 # Input State
 {
@@ -330,6 +379,17 @@ class GroundedGeneratorConfig(NodeConfig):
     "tokens_used": 523
 }
 ```
+
+### Error Handling & Fallback Behaviors
+
+- HTTP endpoints return `ErrorResponse` payloads with appropriate HTTP status codes (400 validation, 401/403 auth, 404 missing resources, 409 idempotency conflict, 429 rate limited, 5xx upstream failures).
+- Nodes share retry semantics via `RetryConfig`; non-retryable errors short-circuit the graph and bubble up immediately.
+- Circuit breakers wrap outbound calls (vector store, LLMs, web search) with `failure_threshold=5` and `reset_timeout_seconds=30` defaults. Half-open probes use `half_open_max_calls=2` to re-test availability.
+- Fallback routes:
+  - `HallucinationGuardNode` -> return clarification prompt if hallucination detected.
+  - `GroundedGeneratorNode` -> downgrade to non-streaming generation on WebSocket failure.
+  - `HybridFusionNode` -> degrade to single retriever if one backend fails.
+  - `SessionManagementNode` -> graceful session cleanup when token validation fails or TTL expiry hits.
 
 ### HybridFusionNode
 
@@ -487,6 +547,10 @@ class BaseMemoryStore(ABC):
         session_id: str,
         limit: int
     ) -> list[Turn]: ...
+
+    @abstractmethod
+    async def cleanup(self, session_id: str) -> None:
+        """Remove session state, cached summaries, and associated secrets."""
 ```
 
 ## Security Considerations
@@ -496,18 +560,23 @@ class BaseMemoryStore(ABC):
 - Vector store credentials managed via Orcheo secret bindings
 - Session tokens validated on each conversation turn
 - Role-based access control for sensitive operations (memory deletion, policy override)
+- JWT validation uses issuer/audience checks, `kid`-pinned JWKS, and 5-minute clock-skew tolerance
+- Session tokens carry tenant + role claims; `SessionManagementNode` enforces TTL and idle timeouts
 
 ### Data Privacy & Redaction
 - **MemoryPrivacyNode** applies configurable redaction patterns (PII, credentials)
 - Conversation histories support field-level encryption
 - Retention policies enforce automatic deletion after TTL
 - Audit logging for all data access and modifications
+- PII detection leverages pattern library: emails (`[\w.+-]+@[\w-]+\.[\w.-]+`), phone numbers (`\+?[0-9 .()-]{7,}`), SSN (`\b\d{3}-\d{2}-\d{4}\b`), API keys (`sk-[A-Za-z0-9]{32,}`)
+- Redaction strategies configurable as mask (`****`), hash, or drop; defaults to mask before persistence
 
 ### Input Validation & Sanitization
 - All node configs validated via Pydantic schemas
 - Query inputs sanitized to prevent injection attacks
 - Document content scanned for malicious payloads before indexing
 - Token limits enforced to prevent resource exhaustion
+- Configuration validation examples: enforce `top_k <= 50`, reject empty `source_config`, require TLS for vector store endpoints
 
 ### Secrets Management
 - API keys and credentials never logged or stored in state
@@ -520,6 +589,7 @@ class BaseMemoryStore(ABC):
 - Configurable blocklists and allowlists per deployment
 - Content moderation hooks for custom policies
 - Audit trail for compliance verification
+- Guardrail fallback: when blocked, return redacted rationale and route to `QueryClarificationNode` for safe re-prompt
 
 ## Performance Considerations
 
@@ -564,12 +634,15 @@ class BaseMemoryStore(ABC):
 - Vector store adapter integration (Pinecone, PGVector)
 - LLM provider integration with rate limiting
 - Session management lifecycle tests
+- Failure mode coverage: vector store timeouts, LLM 429/5xx retries, missing citations, guardrail blocks
 
 ### Performance Tests
 - Latency benchmarks against target metrics
 - Throughput tests for ingestion pipelines
 - Load tests for concurrent session handling
 - Memory profiling for long-running sessions
+- Concurrency goals: sustain 200 concurrent conversations with p95 < 4s; soak test 1h with no memory leak >5%
+- Memory usage estimates: ~30 MB baseline per worker + 1.5 KB per conversation turn retained in Redis-backed memory store
 
 ### Evaluation Tests
 - Golden dataset tests with expected metric ranges
@@ -586,6 +659,9 @@ class BaseMemoryStore(ABC):
 - [ ] Citations link to correct source documents
 - [ ] Session state persists across turns
 - [ ] Streaming generation displays progressively
+- [ ] REST endpoints honor auth failures and return structured errors
+- [ ] WebSocket reconnects resume streaming without duplicate tokens
+- [ ] Guardrail blocks present sanitized rationale and fallback prompt
 
 ## Rollout Plan
 
@@ -657,7 +733,7 @@ class BaseMemoryStore(ABC):
 
 - [ ] **Vector Store Prioritization**: Need early adopter survey to determine adapter priority (Pinecone vs. PGVector vs. LanceDB)
 - [ ] **Compliance Review**: Legal/compliance review pending for MemoryPrivacyNode and PolicyComplianceNode regional policies
-- [ ] **Streaming Protocol**: WebSocket vs. SSE decision for StreamingGeneratorNode
+- [ ] **Streaming Protocol**: Evaluate SSE fallback; WebSocket protocol defined (see API Contracts)
 - [ ] **Memory Store Backend**: Redis vs. PostgreSQL for BaseMemoryStore default implementation
 - [ ] **Embedding Model Selection**: Default embedding model selection (OpenAI vs. open-source options)
 - [ ] **Multi-hop Complexity Limits**: Maximum hop count and total token budget for MultiHopPlannerNode
