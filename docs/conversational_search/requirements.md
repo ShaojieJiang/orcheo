@@ -1,7 +1,7 @@
 # PRD: Conversational Search Node Package
 
 ## METADATA
-- **Authors:** Shaojie Jiang
+- **Authors:** Codex
 - **Project/Feature Name:** Conversational Search Node Package
 - **Type:** Product
 - **Summary:** Reusable package of graph-ready Orcheo nodes covering ingestion, retrieval, ranking, grounding, and answer generation for conversational search workflows where users issue natural-language queries across heterogeneous knowledge.

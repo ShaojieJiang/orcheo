@@ -28,13 +28,10 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 #### Task Checklist
 
 - [ ] Task 1.1: <Task description>
-  - Owner: <name>
   - Dependencies: <list any blockers or prerequisites>
 - [ ] Task 1.2: <Task description>
-  - Owner: <name>
   - Dependencies: None
 - [ ] Task 1.3: <Task description>
-  - Owner: <name>
   - Dependencies: Task 1.1
 
 ---
@@ -46,13 +43,10 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 #### Task Checklist
 
 - [ ] Task 2.1: <Task description>
-  - Owner: <name>
   - Dependencies: Milestone 1
 - [ ] Task 2.2: <Task description>
-  - Owner: <name>
   - Dependencies: None
 - [ ] Task 2.3: <Task description>
-  - Owner: <name>
   - Dependencies: Task 2.1
 
 ---
@@ -64,10 +58,8 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 #### Task Checklist
 
 - [ ] Task 3.1: <Task description>
-  - Owner: <name>
   - Dependencies: Milestone 2
 - [ ] Task 3.2: <Task description>
-  - Owner: <name>
   - Dependencies: None
 
 ---
