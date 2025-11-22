@@ -23,10 +23,6 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 
 ### Milestone 1: <Milestone Name>
 
-**Target Date:** <date>
-**Owner:** <owner>
-**Status:** Not Started | In Progress | Completed | Blocked
-
 **Description:** Brief description of what this milestone achieves and its success criteria.
 
 #### Task Checklist
@@ -45,10 +41,6 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 
 ### Milestone 2: <Milestone Name>
 
-**Target Date:** <date>
-**Owner:** <owner>
-**Status:** Not Started | In Progress | Completed | Blocked
-
 **Description:** Brief description of what this milestone achieves and its success criteria.
 
 #### Task Checklist
@@ -66,10 +58,6 @@ Brief summary of the project scope, objectives, and expected outcomes. Reference
 ---
 
 ### Milestone 3: <Milestone Name>
-
-**Target Date:** <date>
-**Owner:** <owner>
-**Status:** Not Started | In Progress | Completed | Blocked
 
 **Description:** Brief description of what this milestone achieves and its success criteria.
 
