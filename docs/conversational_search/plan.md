@@ -3,7 +3,7 @@
 ## For Conversational Search Node Package
 
 - **Version:** 0.1
-- **Author:** ChatGPT
+- **Author:** Codex
 - **Date:** 2025-11-25
 - **Status:** Draft
 
@@ -97,4 +97,4 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 
 | Date | Author | Changes |
 |------|--------|---------|
-| 2025-11-25 | ChatGPT | Initial draft |
+| 2025-11-25 | Codex | Initial draft |
