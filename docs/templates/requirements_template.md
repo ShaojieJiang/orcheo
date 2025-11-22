@@ -1,6 +1,6 @@
 # Requirements Document Template
 
-**Developer note:** Remove any guidance text written in the `_[text]_` format when producing the final requirements document.
+> **Developer note:** Remove any guidance text written in the `_[text]_` format when producing the final requirements document.
 
 ## METADATA
 - **Authors:**
@@ -135,6 +135,7 @@ _[For phased rollouts, describe each phase and criteria for progression]_
 _[Each hypothesis/risk should be limited to 2-3 sentences (i.e., one sentence for hypothesis, one sentence for confidence in hypothesis). Generally, PRDs should be focused on validating a single hypothesis and no more than two hypotheses.]_
 _[Hypothesis: what do you believe to be true, and what do you think will happen if you are correct? Recommend framing your hypothesis in a customer-centric way, while also describing how the user problem impacts metrics.]_
 _[Risk: what are potential risk areas for this feature and what could be some unintended consequences?]_
+_[Risk Mitigation: for each identified risk, describe the mitigation strategy or contingency plan to address it.]_
 [Insert text here]
 
 ## APPENDIX

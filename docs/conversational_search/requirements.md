@@ -10,15 +10,15 @@
 
 ## RELEVANT LINKS & STAKEHOLDERS
 
-| Documents | Link | Owner | Name |
-|-----------|------|-------|------|
-| Prior Artifacts | [Roadmap](../roadmap.md) | PM | TBD |
-| Design Review | [This document](requirements.md) | PM | TBD |
-| Design File/Deck | TBD | Designer | TBD |
-| Eng Requirement Doc | TBD | Tech Lead | TBD |
-| Marketing Requirement Doc (if applicable) | N/A | PMM | N/A |
-| Experiment Plan (if applicable) | TBD | DS | TBD |
-| Rollout Docs (if applicable) | TBD | Product Ops | TBD |
+| Documents | Link |
+|-----------|------|
+| Prior Artifacts | [Roadmap](../roadmap.md) |
+| Design Review | [This document](requirements.md) |
+| Design File/Deck | TBD |
+| Eng Requirement Doc | TBD |
+| Marketing Requirement Doc (if applicable) | N/A |
+| Experiment Plan (if applicable) | TBD |
+| Rollout Docs (if applicable) | TBD |
 
 ## PROBLEM DEFINITION
 ### Objectives
@@ -172,7 +172,9 @@ Evaluation is driven by RetrievalEvaluationNode, AnswerQualityEvaluationNode, LL
 - **Hypothesis:** Providing modular conversational search nodes with shared interfaces will cut graph assembly time by enabling plug-and-play ingestion, retrieval, and generation; confidence is medium pending adoption metrics.
 - **Hypothesis:** Built-in guardrails will accelerate production rollouts because operations teams can observe, triage, and gate deployments; confidence is medium once Phase 3 components exist.
 - **Risk:** Vector store and external connector support (e.g., Pinecone vs. LanceDB) may not match team expectations, slowing adoption until adapters land.
-- **Risk:** Compliance/privacy requirements across regions could delay MemoryPrivacyNode and PolicyComplianceNode if legal guidance is late; mitigation involves early partner reviews.
+  - **Mitigation:** Prioritize adapter development based on early adopter surveys; provide abstract interface documentation so teams can contribute custom adapters while official support is in progress.
+- **Risk:** Compliance/privacy requirements across regions could delay MemoryPrivacyNode and PolicyComplianceNode if legal guidance is late.
+  - **Mitigation:** Initiate early partner reviews with legal/compliance teams; design nodes with configurable policy hooks so regional rules can be injected without code changes.
 
 ## APPENDIX
 ### Node Composition Patterns
