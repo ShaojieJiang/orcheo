@@ -3,7 +3,7 @@
 ## For Conversational Search Node Package
 
 - **Version:** 0.1
-- **Author:** Shaojie Jiang
+- **Author:** Claude
 - **Date:** 2025-11-22
 - **Status:** Draft
 
@@ -228,32 +228,132 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 ## API Contracts
 
-### REST/HTTP Endpoints
+### Workflow-Based Operations
 
-| Method | Endpoint | Purpose | Request | Response |
-|--------|----------|---------|---------|----------|
-| POST | `/api/conversational-search/ingest` | Ingest documents through `DocumentLoaderNode` and `EmbeddingIndexerNode` | `{ "sources": [...], "metadata": {...} }` | `{ "ingested_count": 120, "skipped": 3, "errors": [] }` |
-| POST | `/api/conversational-search/query` | Run conversational RAG flow (rewrite → retrieval → generation) | `{ "query": "...", "session_id": "...", "filters": {...}, "stream": false }` | `{ "response": "...", "citations": [...], "tokens_used": 523 }` |
-| GET  | `/api/conversational-search/sessions/{session_id}` | Fetch conversation state via `ConversationStateNode` | none | `{ "session_id": "...", "turns": [...], "metadata": {...} }` |
-| DELETE | `/api/conversational-search/sessions/{session_id}` | Trigger `SessionManagementNode` cleanup and TTL enforcement | none | `{ "deleted": true, "turns_removed": 42 }` |
-| POST | `/api/conversational-search/evaluate` | Execute evaluation flow using `DatasetNode` and `RetrievalEvaluationNode` | `{ "dataset_id": "...", "graph_id": "..." }` | `{ "job_id": "eval_123", "status": "queued" }` |
+All conversational search operations are composed as Orcheo workflows rather than dedicated HTTP endpoints. This approach:
+- Maintains consistency with Orcheo's workflow-first architecture
+- Enables reusability and composition of index-building logic
+- Leverages existing workflow observability, monitoring, and error handling
+- Allows chaining with other nodes (e.g., fetch documents → build index → notify)
 
-HTTP requests include bearer tokens in the `Authorization` header. Idempotency keys are supported via `Idempotency-Key` header for ingestion. Responses follow the error schema below on non-2xx status codes.
+#### Index Building Workflow
 
-### WebSocket Streaming Protocol
+Create a workflow that ingests documents and builds the vector index:
 
-- Endpoint: `GET /ws/conversational-search/stream`
-- Subprotocol: `orcheo.conversational-search.v1`
-- Message envelope:
-  ```json
-  { "event": "start|token|complete|error", "session_id": "...", "message_id": "...", "payload": { ... } }
-  ```
-- Flow:
-  1. Client sends `{ "event": "start", "query": "...", "session_id": "..." }`.
-  2. Server streams `{ "event": "token", "payload": { "text": "partial token" } }` from `StreamingGeneratorNode`.
-  3. On finish, server emits `{ "event": "complete", "payload": { "response": "...", "citations": [...] } }`.
-  4. Errors use `{ "event": "error", "payload": { "code": "GENERATION_TIMEOUT", "message": "..." } }`.
-- Heartbeats: server sends `{ "event": "ping" }` every 20s; clients respond with `{ "event": "pong" }`.
+```yaml
+# workflows/build-search-index.yaml
+name: build-search-index
+nodes:
+  - id: load_docs
+    type: document_loader
+    config:
+      source_type: file
+      source_config:
+        path: "{{inputs.source_path}}"
+      format_handlers: ["pdf", "html", "txt", "docx"]
+
+  - id: chunk
+    type: chunking_strategy
+    config:
+      strategy: "token"
+      chunk_size: 512
+      overlap: 50
+
+  - id: extract_metadata
+    type: metadata_extractor
+    config:
+      extract_fields: ["title", "author", "date"]
+
+  - id: index
+    type: embedding_indexer
+    config:
+      vector_store: "{{inputs.vector_store_id}}"
+      embedding_model: "text-embedding-3-small"
+      batch_size: 100
+
+edges:
+  - from: load_docs
+    to: chunk
+  - from: chunk
+    to: extract_metadata
+  - from: extract_metadata
+    to: index
+```
+
+Trigger manually or via webhook:
+```bash
+orcheo workflow run build-search-index \
+  --input source_path=/data/documents \
+  --input vector_store_id=my-pinecone-index
+```
+
+#### Conversational Search Workflow
+
+Reference the pre-built index in your search workflow:
+
+```yaml
+# workflows/conversational-search.yaml
+name: conversational-search
+nodes:
+  - id: load_state
+    type: conversation_state
+    config:
+      memory_store: "redis"
+      session_ttl: 3600
+
+  - id: rewrite
+    type: query_rewrite
+
+  - id: search
+    type: vector_search
+    config:
+      vector_store: "{{inputs.vector_store_id}}"
+      top_k: 10
+
+  - id: generate
+    type: grounded_generator
+    config:
+      citation_style: "inline"
+      max_tokens: 1024
+
+edges:
+  - from: load_state
+    to: rewrite
+  - from: rewrite
+    to: search
+  - from: search
+    to: generate
+```
+
+#### Evaluation Workflow
+
+Run evaluations as a separate workflow:
+
+```yaml
+# workflows/evaluate-search.yaml
+name: evaluate-search
+nodes:
+  - id: load_dataset
+    type: dataset
+    config:
+      dataset_id: "{{inputs.dataset_id}}"
+
+  - id: run_retrieval
+    type: vector_search
+    config:
+      vector_store: "{{inputs.vector_store_id}}"
+
+  - id: evaluate
+    type: retrieval_evaluation
+    config:
+      metrics: ["recall_at_k", "mrr", "ndcg"]
+
+edges:
+  - from: load_dataset
+    to: run_retrieval
+  - from: run_retrieval
+    to: evaluate
+```
 
 ### Node Configuration Schema
 
@@ -382,12 +482,12 @@ class GroundedGeneratorConfig(NodeConfig):
 
 ### Error Handling & Fallback Behaviors
 
-- HTTP endpoints return `ErrorResponse` payloads with appropriate HTTP status codes (400 validation, 401/403 auth, 404 missing resources, 409 idempotency conflict, 429 rate limited, 5xx upstream failures).
+- Nodes return `ErrorResponse` payloads with appropriate error codes (validation, auth, not found, upstream failures, rate limited, generation timeout).
 - Nodes share retry semantics via `RetryConfig`; non-retryable errors short-circuit the graph and bubble up immediately.
 - Circuit breakers wrap outbound calls (vector store, LLMs, web search) with `failure_threshold=5` and `reset_timeout_seconds=30` defaults. Half-open probes use `half_open_max_calls=2` to re-test availability.
 - Fallback routes:
   - `HallucinationGuardNode` -> return clarification prompt if hallucination detected.
-  - `GroundedGeneratorNode` -> downgrade to non-streaming generation on WebSocket failure.
+  - `GroundedGeneratorNode` -> downgrade to non-streaming generation on streaming failure.
   - `HybridFusionNode` -> degrade to single retriever if one backend fails.
   - `SessionManagementNode` -> graceful session cleanup when token validation fails or TTL expiry hits.
 
@@ -659,8 +759,8 @@ class BaseMemoryStore(ABC):
 - [ ] Citations link to correct source documents
 - [ ] Session state persists across turns
 - [ ] Streaming generation displays progressively
-- [ ] REST endpoints honor auth failures and return structured errors
-- [ ] WebSocket reconnects resume streaming without duplicate tokens
+- [ ] Workflow errors return structured error responses
+- [ ] Streaming reconnects resume without duplicate tokens
 - [ ] Guardrail blocks present sanitized rationale and fallback prompt
 
 ## Rollout Plan
@@ -733,7 +833,7 @@ class BaseMemoryStore(ABC):
 
 - [ ] **Vector Store Prioritization**: Need early adopter survey to determine adapter priority (Pinecone vs. PGVector vs. LanceDB)
 - [ ] **Compliance Review**: Legal/compliance review pending for MemoryPrivacyNode and PolicyComplianceNode regional policies
-- [ ] **Streaming Protocol**: Evaluate SSE fallback; WebSocket protocol defined (see API Contracts)
+- [ ] **Streaming Protocol**: Evaluate SSE vs WebSocket for StreamingGeneratorNode output
 - [ ] **Memory Store Backend**: Redis vs. PostgreSQL for BaseMemoryStore default implementation
 - [ ] **Embedding Model Selection**: Default embedding model selection (OpenAI vs. open-source options)
 - [ ] **Multi-hop Complexity Limits**: Maximum hop count and total token budget for MultiHopPlannerNode
@@ -744,4 +844,4 @@ class BaseMemoryStore(ABC):
 
 | Date | Author | Changes |
 |------|--------|---------|
-| 2025-11-22 | Shaojie Jiang | Initial draft |
+| 2025-11-22 | Claude | Initial draft |
