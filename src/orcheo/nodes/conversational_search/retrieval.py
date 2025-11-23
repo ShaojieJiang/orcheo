@@ -173,7 +173,9 @@ class BM25SearchNode(TaskNode):
             if isinstance(source, dict) and self.documents_field in source:
                 payload = source[self.documents_field]
             else:
-                payload = source or results.get(self.documents_field)
+                payload = (
+                    results.get(self.documents_field) if source is None else source
+                )
         else:
             payload = results.get(self.documents_field)
         if payload is None:

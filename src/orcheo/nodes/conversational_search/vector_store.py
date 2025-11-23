@@ -148,22 +148,43 @@ class PineconeVectorStore(BaseVectorStore):
         )
         if inspect.iscoroutine(response):
             response = await response
-        matches = getattr(response, "matches", []) or response.get("matches", [])
+        matches = getattr(response, "matches", None)
+        if matches is None:
+            if isinstance(response, dict):
+                matches = response.get("matches", [])
+            else:
+                matches = getattr(response, "get", lambda *_: [])("matches", [])
+        matches = matches or []
         results: list[SearchResult] = []
         for match in matches:
-            metadata = match.get("metadata", {}) or {}
+            metadata = self._get_match_field(match, "metadata", {}) or {}
+            if hasattr(metadata, "model_dump"):
+                metadata = metadata.model_dump()
+            elif not isinstance(metadata, dict):
+                metadata = dict(metadata) if hasattr(metadata, "items") else {}
             text = metadata.get("text", "")
             results.append(
                 SearchResult(
-                    id=str(match.get("id")),
+                    id=str(self._get_match_field(match, "id")),
                     content=text,
                     metadata=metadata,
-                    score=float(match.get("score", 0.0)),
+                    score=float(self._get_match_field(match, "score", 0.0)),
                     source="vector",
                     sources=["vector"],
                 )
             )
         return results
+
+    @staticmethod
+    def _get_match_field(match: Any, field: str, default: Any = None) -> Any:
+        if hasattr(match, field):
+            return getattr(match, field)
+        if isinstance(match, dict):
+            return match.get(field, default)
+        getter = getattr(match, "get", None)
+        if callable(getter):
+            return getter(field, default)
+        return default
 
     def _resolve_client(self) -> Any:
         if self.client is not None:
