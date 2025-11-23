@@ -1,5 +1,6 @@
 """Conversational search nodes and utilities."""
 
+from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkingStrategyNode,
     DocumentLoaderNode,
@@ -32,6 +33,7 @@ __all__ = [
     "ChunkingStrategyNode",
     "MetadataExtractorNode",
     "EmbeddingIndexerNode",
+    "GroundedGeneratorNode",
     "QueryRewriteNode",
     "CoreferenceResolverNode",
     "QueryClassifierNode",

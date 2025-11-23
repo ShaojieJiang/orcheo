@@ -1,5 +1,4 @@
 import pytest
-
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.conversational_search.query_processing import (
