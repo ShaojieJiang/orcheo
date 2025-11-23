@@ -261,3 +261,45 @@ class ContextCompressorNode(TaskNode):
     @staticmethod
     def _token_count(text: str) -> int:
         return len(text.split())
+
+
+@registry.register(
+    NodeMetadata(
+        name="MultiHopPlannerNode",
+        description="Derive sequential sub-queries for multi-hop answering.",
+        category="conversational_search",
+    )
+)
+class MultiHopPlannerNode(TaskNode):
+    """Decompose complex queries into sequential hop plans."""
+
+    query_key: str = Field(
+        default="query", description="Key within inputs containing the question"
+    )
+    max_hops: int = Field(default=3, gt=0)
+    delimiter: str = Field(default=" and ", description="Delimiter used for splitting")
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Derive sequential hop plan from a composite query."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "MultiHopPlannerNode requires a non-empty query"
+            raise ValueError(msg)
+
+        raw_parts = [
+            part.strip() for part in query.split(self.delimiter) if part.strip()
+        ]
+        if not raw_parts:
+            raw_parts = [query.strip()]
+
+        hops: list[dict[str, Any]] = []
+        for index, part in enumerate(raw_parts[: self.max_hops]):
+            hops.append(
+                {
+                    "id": f"hop-{index + 1}",
+                    "query": part,
+                    "depends_on": hops[-1]["id"] if hops else None,
+                }
+            )
+
+        return {"plan": hops, "hop_count": len(hops)}
