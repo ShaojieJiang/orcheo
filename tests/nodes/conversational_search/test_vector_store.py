@@ -4,7 +4,10 @@ import sys
 import types
 import pytest
 from orcheo.nodes.conversational_search.models import VectorRecord
-from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
+from orcheo.nodes.conversational_search.vector_store import (
+    InMemoryVectorStore,
+    PineconeVectorStore,
+)
 
 
 class _DummyIndex:
@@ -34,6 +37,24 @@ class _SyncIndex:
 
     def upsert(self, vectors: list[dict], namespace: str | None) -> None:
         self.calls.append((vectors, namespace))
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_search_ranks_results() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(id="doc-1", values=[1.0, 0.0], text="a", metadata={}),
+            VectorRecord(id="doc-2", values=[0.0, 1.0], text="b", metadata={}),
+            VectorRecord(
+                id="doc-3", values=[1.0, 1.0], text="c", metadata={"kind": "keep"}
+            ),
+        ]
+    )
+
+    results = await store.search([1.0, 0.0], top_k=2, filter_metadata={"kind": "keep"})
+
+    assert [result.id for result in results] == ["doc-3"]
 
 
 @pytest.mark.asyncio

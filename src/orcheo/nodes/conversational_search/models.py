@@ -71,3 +71,28 @@ class VectorRecord(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SearchResult(BaseModel):
+    """Search hit returned by a retriever."""
+
+    id: str = Field(description="Identifier of the retrieved document or chunk")
+    score: float = Field(description="Retriever-specific relevance score")
+    text: str = Field(description="Retrieved text body")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata persisted alongside the retrieved text",
+    )
+    source: str | None = Field(
+        default=None, description="Optional label describing the retrieval backend"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FusedSearchResult(SearchResult):
+    """Result produced by a fusion strategy combining multiple retrievers."""
+
+    sources: list[str] = Field(
+        default_factory=list, description="Retrievers that contributed to the hit"
+    )
