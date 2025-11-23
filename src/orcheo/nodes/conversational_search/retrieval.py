@@ -4,6 +4,7 @@ from __future__ import annotations
 import inspect
 import math
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -331,3 +332,109 @@ class HybridFusionNode(TaskNode):
                 if source not in fused_entry.sources:
                     fused_entry.sources.append(source)
         return fused
+
+
+@registry.register(
+    NodeMetadata(
+        name="ReRankerNode",
+        description="Apply secondary scoring to retrieval results for better ranking.",
+        category="conversational_search",
+    )
+)
+class ReRankerNode(TaskNode):
+    """Node that reorders search results using a reranking function."""
+
+    source_result_key: str = Field(
+        default="retriever", description="Result entry holding retrieval output"
+    )
+    results_field: str = Field(
+        default="results", description="Field containing SearchResult entries"
+    )
+    rerank_function: Callable[[SearchResult], float] | None = Field(default=None)
+    top_k: int = Field(default=10, gt=0)
+    length_penalty: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Penalty applied per token to discourage long passages.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Rerank retrieval results using a scoring function."""
+        entries = self._resolve_results(state)
+        reranked: list[SearchResult] = []
+        for entry in entries:
+            score = self._score(entry)
+            reranked.append(
+                SearchResult(
+                    id=entry.id,
+                    score=score,
+                    text=entry.text,
+                    metadata=entry.metadata,
+                    source=entry.source,
+                    sources=entry.sources,
+                )
+            )
+        reranked.sort(key=lambda item: item.score, reverse=True)
+        return {"results": reranked[: self.top_k]}
+
+    def _resolve_results(self, state: State) -> list[SearchResult]:
+        results = state.get("results", {})
+        payload = results.get(self.source_result_key, {})
+        if isinstance(payload, dict) and self.results_field in payload:
+            entries = payload[self.results_field]
+        else:
+            entries = payload
+        if not isinstance(entries, list):
+            msg = "ReRankerNode requires a list of retrieval results"
+            raise ValueError(msg)
+        return [SearchResult.model_validate(item) for item in entries]
+
+    def _score(self, entry: SearchResult) -> float:
+        base_score = entry.score
+        if self.rerank_function:
+            base_score = self.rerank_function(entry)
+        length_penalty = self.length_penalty * len(entry.text.split())
+        return base_score - length_penalty
+
+
+@registry.register(
+    NodeMetadata(
+        name="SourceRouterNode",
+        description="Route fused results into per-source buckets with filtering.",
+        category="conversational_search",
+    )
+)
+class SourceRouterNode(TaskNode):
+    """Partition search results into source-specific groupings."""
+
+    source_result_key: str = Field(
+        default="retriever", description="Result entry containing retrieval items"
+    )
+    results_field: str = Field(default="results")
+    min_score: float = Field(
+        default=0.0, ge=0.0, description="Minimum score required to retain entries"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Group results into per-source buckets while filtering by score."""
+        entries = self._resolve_results(state)
+        routed: dict[str, list[SearchResult]] = {}
+        for entry in entries:
+            source = entry.source or "unknown"
+            bucket = routed.setdefault(source, [])
+            if entry.score < self.min_score:
+                continue
+            bucket.append(entry)
+        return {"routed": routed}
+
+    def _resolve_results(self, state: State) -> list[SearchResult]:
+        results = state.get("results", {})
+        payload = results.get(self.source_result_key, {})
+        if isinstance(payload, dict) and self.results_field in payload:
+            entries = payload[self.results_field]
+        else:
+            entries = payload
+        if not isinstance(entries, list):
+            msg = "SourceRouterNode requires a list of retrieval results"
+            raise ValueError(msg)
+        return [SearchResult.model_validate(item) for item in entries]
