@@ -1,7 +1,10 @@
-import asyncio
+from typing import Any
 import pytest
 from orcheo.graph.state import State
-from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
+from orcheo.nodes.conversational_search.generation import (
+    GroundedGeneratorNode,
+    _truncate_snippet,
+)
 from orcheo.nodes.conversational_search.models import SearchResult
 
 
@@ -108,3 +111,88 @@ async def test_grounded_generator_rejects_non_list_context_payload() -> None:
         ValueError, match="Context payload must be a list of retrieval results"
     ):
         await node.run(state, {})
+
+
+def test_truncate_snippet_enforces_length_and_removes_newlines() -> None:
+    text = "  first line\nsecond line third line extra \n"
+    snippet = _truncate_snippet(text, limit=25)
+
+    assert "second line" in snippet
+    assert "\n" not in snippet
+    assert snippet.endswith("…")
+    assert len(snippet) <= 25
+
+
+def test_truncate_snippet_returns_empty_when_limit_non_positive() -> None:
+    assert _truncate_snippet("Should be ignored", limit=0) == ""
+
+
+def test_truncate_snippet_returns_ellipsis_for_minimum_limit() -> None:
+    assert _truncate_snippet("visible", limit=1) == "…"
+
+
+def test_truncate_snippet_handles_truncated_whitespace() -> None:
+    class FakeText:
+        def strip(self) -> str:  # return whitespace even after strip
+            return "    "
+
+    assert _truncate_snippet(FakeText(), limit=3) == "…"
+
+
+def test_attach_citations_returns_completion_when_no_markers() -> None:
+    node = GroundedGeneratorNode(name="generator")
+
+    assert node._attach_citations("answer", []) == "answer"
+
+
+def test_attach_citations_handles_footnote_style() -> None:
+    node = GroundedGeneratorNode(name="generator", citation_style="footnote")
+    citations = [
+        {
+            "id": "1",
+            "source_id": "chunk-1",
+            "snippet": "text",
+            "sources": [],
+        }
+    ]
+
+    result = node._attach_citations("answer", citations)
+
+    assert result == "answer\n\nFootnotes: [1]"
+
+
+def test_attach_citations_handles_endnote_style() -> None:
+    node = GroundedGeneratorNode(name="generator", citation_style="endnote")
+    citations = [
+        {
+            "id": "1",
+            "source_id": "chunk-1",
+            "snippet": "text",
+            "sources": [],
+        }
+    ]
+
+    result = node._attach_citations("answer", citations)
+
+    assert result == "answer\n\nEndnotes: [1]"
+
+
+@pytest.mark.asyncio
+async def test_generate_with_retries_raises_when_no_attempts() -> None:
+    node = GroundedGeneratorNode(name="generator")
+    node.max_retries = -1
+
+    with pytest.raises(RuntimeError, match="Generation failed after 0 attempts"):
+        await node._generate_with_retries("prompt")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_result", [123, "   "])
+async def test_invoke_llm_rejects_invalid_response(invalid_result) -> None:
+    def invalid_llm(prompt: str, max_tokens: int, temperature: float) -> Any:
+        return invalid_result
+
+    node = GroundedGeneratorNode(name="generator", llm=invalid_llm)
+
+    with pytest.raises(ValueError, match="LLM callable must return a non-empty string"):
+        await node._invoke_llm("prompt")

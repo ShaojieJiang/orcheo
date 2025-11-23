@@ -18,9 +18,20 @@ LLMCallable = Callable[[str, int, float], str | Awaitable[str]]
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
     snippet = text.strip().replace("\n", " ")
+    if limit <= 0:
+        return ""
     if len(snippet) <= limit:
         return snippet
-    return f"{snippet[:limit].rstrip()}…"
+
+    ellipsis = "…"
+    if limit <= len(ellipsis):
+        return ellipsis if limit >= len(ellipsis) else snippet[:limit]
+
+    available = limit - len(ellipsis)
+    truncated = snippet[:available].rstrip()
+    if not truncated:
+        return ellipsis
+    return f"{truncated}{ellipsis}"
 
 
 @registry.register(
