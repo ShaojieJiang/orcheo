@@ -31,7 +31,7 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
   - Dependencies: Access to embedding model provider and Pinecone credentials.
 - [x] Task 1.2: Ship retrieval stack (VectorSearchNode, BM25SearchNode) plus HybridFusionNode with RRF/weighted strategies.
   - Dependencies: Task 1.1 indexed corpus; BaseVectorStore abstraction.
-- [ ] Task 1.3: Add core query processing (QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode) to improve retrieval quality.
+- [x] Task 1.3: Add core query processing (QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode) to improve retrieval quality.
   - Dependencies: Conversation state schema; Task 1.2 retrievers.
 - [ ] Task 1.4: Deliver GroundedGeneratorNode with citation emission and backoff/retry semantics.
   - Dependencies: Retrieved context from Task 1.2; LLM provider access.
