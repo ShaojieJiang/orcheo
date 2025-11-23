@@ -172,7 +172,8 @@ class RetrievalEvaluationNode(TaskNode):
         maps: list[float] = []
 
         for record in dataset:
-            retrieved = retrieval_index.get(record.query, [])[: self.k]
+            retrieved = retrieval_index.get(record.query) or retrieval_index.get("", [])
+            retrieved = retrieved[: self.k]
             metrics = self._compute_metrics(record, retrieved)
             per_query.append({"query": record.query, **metrics})
             recalls.append(metrics["recall_at_k"])

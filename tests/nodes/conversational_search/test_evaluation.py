@@ -80,6 +80,31 @@ async def test_retrieval_evaluation_computes_metrics() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieval_evaluation_handles_single_query_results_list() -> None:
+    dataset = [{"query": "what is orcheo?", "relevant_ids": ["d1"]}]
+    retrieval_results = [
+        {"id": "d1", "score": 0.9},
+        {"id": "d2", "score": 0.7},
+    ]
+    state = {
+        "inputs": {},
+        "results": {
+            "dataset": {"dataset": dataset},
+            "retrieval_results": {"results": retrieval_results},
+        },
+    }
+
+    node = RetrievalEvaluationNode(name="retrieval_evaluation", k=3)
+    result = await node(state, RunnableConfig())
+    metrics = result["results"]["retrieval_evaluation"]["metrics"]
+
+    assert metrics["recall_at_k"] == 1.0
+    assert metrics["mrr"] == 1.0
+    assert metrics["ndcg"] == 1.0
+    assert metrics["map"] == 1.0
+
+
+@pytest.mark.asyncio
 async def test_answer_quality_scores_overlap_and_faithfulness() -> None:
     dataset = [
         {
