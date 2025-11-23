@@ -161,6 +161,35 @@ async def test_llm_judge_produces_verdicts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_llm_judge_applies_configurable_length_limit() -> None:
+    dataset = [
+        {
+            "query": "q1",
+            "relevant_ids": ["d1"],
+            "reference_answer": "A framework",
+        }
+    ]
+    answers = [
+        {
+            "query": "q1",
+            "answer": "A framework with extensive supporting detail",
+            "citations": ["d1"],
+        }
+    ]
+    state = {
+        "inputs": {},
+        "results": {"dataset": {"dataset": dataset}, "answers": {"answers": answers}},
+    }
+
+    node = LLMJudgeNode(name="llm_judge", threshold=0.97, max_answer_words=3)
+    result = await node(state, RunnableConfig())
+    verdicts = result["results"]["llm_judge"]["verdicts"]
+
+    assert verdicts[0]["verdict"] == "fail"
+    assert "overly long" in verdicts[0]["reason"]
+
+
+@pytest.mark.asyncio
 async def test_failure_analysis_flags_low_quality() -> None:
     retrieval_per_query = [
         {"query": "q1", "recall_at_k": 0.2, "mrr": 0.1, "ndcg": 0.2, "map": 0.1}

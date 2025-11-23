@@ -242,7 +242,11 @@ class RetrievalEvaluationNode(TaskNode):
             top_i = retrieved[:i]
             tp = sum(1 for item in top_i if str(item.get("id", "")).lower() in relevant)
             precisions.append(tp / i)
-        average_precision = sum(precisions[idx - 1] for idx in hits) / len(relevant)
+        average_precision = (
+            sum(precisions[idx - 1] for idx in hits) / len(relevant)
+            if relevant
+            else 0.0
+        )
 
         return {
             "recall_at_k": min(recall, 1.0),
@@ -360,6 +364,7 @@ class LLMJudgeNode(TaskNode):
     dataset_result_key: str = Field(default="dataset")
     dataset_field: str = Field(default="dataset")
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    max_answer_words: int = Field(default=120, gt=0)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Simulate LLM judging using deterministic heuristics."""
@@ -412,7 +417,7 @@ class LLMJudgeNode(TaskNode):
 
         citation_bonus = 0.1 if answer.citations else 0.0
         brevity_penalty = 0.0
-        if len(answer.answer.split()) > 120:
+        if len(answer.answer.split()) > self.max_answer_words:
             brevity_penalty = 0.15
 
         score = max(0.0, min(1.0, overlap + citation_bonus - brevity_penalty))
