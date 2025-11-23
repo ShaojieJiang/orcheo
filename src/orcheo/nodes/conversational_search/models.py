@@ -71,3 +71,25 @@ class VectorRecord(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SearchResult(BaseModel):
+    """Normalized retrieval result returned by search nodes."""
+
+    id: str = Field(description="Identifier of the retrieved record")
+    content: str = Field(description="Text content associated with the hit")
+    score: float = Field(ge=0.0, description="Relevance score for ranking")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata for the hit",
+    )
+    source: str | None = Field(
+        default=None,
+        description="Name of the retriever that produced the hit",
+    )
+    sources: list[str] = Field(
+        default_factory=list,
+        description="Retrievers that contributed to the fused result",
+    )
+
+    model_config = ConfigDict(extra="forbid")
