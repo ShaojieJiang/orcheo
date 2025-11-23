@@ -9,12 +9,27 @@ from orcheo.nodes.conversational_search.conversation import (
     QueryClarificationNode,
     TopicShiftDetectorNode,
 )
-from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
+from orcheo.nodes.conversational_search.generation import (
+    GroundedGeneratorNode,
+    StreamingGeneratorNode,
+)
+from orcheo.nodes.conversational_search.guardrails import (
+    CitationsFormatterNode,
+    HallucinationGuardNode,
+    ReRankerNode,
+    SourceRouterNode,
+)
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkingStrategyNode,
     DocumentLoaderNode,
     EmbeddingIndexerNode,
+    IncrementalIndexerNode,
     MetadataExtractorNode,
+)
+from orcheo.nodes.conversational_search.optimization import (
+    AnswerCachingNode,
+    MultiHopPlannerNode,
+    SessionManagementNode,
 )
 from orcheo.nodes.conversational_search.query_processing import (
     ContextCompressorNode,
@@ -47,7 +62,16 @@ __all__ = [
     "ChunkingStrategyNode",
     "MetadataExtractorNode",
     "EmbeddingIndexerNode",
+    "IncrementalIndexerNode",
     "GroundedGeneratorNode",
+    "StreamingGeneratorNode",
+    "HallucinationGuardNode",
+    "ReRankerNode",
+    "SourceRouterNode",
+    "CitationsFormatterNode",
+    "AnswerCachingNode",
+    "SessionManagementNode",
+    "MultiHopPlannerNode",
     "QueryRewriteNode",
     "CoreferenceResolverNode",
     "QueryClassifierNode",

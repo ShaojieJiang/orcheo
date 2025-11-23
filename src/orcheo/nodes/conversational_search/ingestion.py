@@ -1,9 +1,10 @@
 """Ingestion primitives for conversational search."""
 
 from __future__ import annotations
+import asyncio
 import hashlib
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -411,7 +412,171 @@ class EmbeddingIndexerNode(TaskNode):
         if not isinstance(chunks, list):
             msg = "chunks payload must be a list"
             raise ValueError(msg)
-        return [DocumentChunk.model_validate(chunk) for chunk in chunks]
+        normalized: list[DocumentChunk] = []
+        for chunk in chunks:
+            if isinstance(chunk, DocumentChunk):
+                normalized.append(chunk)
+                continue
+            if isinstance(chunk, dict):
+                cleaned = dict(chunk)
+                cleaned.pop("token_count", None)
+                normalized.append(DocumentChunk.model_validate(cleaned))
+                continue
+            msg = "chunks payload must contain DocumentChunk entries"
+            raise ValueError(msg)
+        return normalized
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        embedder = self.embedding_function or deterministic_embedding_function
+        result = embedder(texts)
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, list) or not all(
+            isinstance(row, list) for row in result
+        ):
+            msg = "Embedding function must return List[List[float]]"
+            raise ValueError(msg)
+        return result
+
+
+@registry.register(
+    NodeMetadata(
+        name="IncrementalIndexerNode",
+        description=(
+            "Index new or updated chunks in batches with retry and deduplication."
+        ),
+        category="conversational_search",
+    )
+)
+class IncrementalIndexerNode(TaskNode):
+    """Index chunks incrementally with retries and backpressure controls."""
+
+    source_result_key: str = Field(
+        default="chunking_strategy",
+        description="Name of the upstream result entry containing chunks.",
+    )
+    chunks_field: str = Field(
+        default="chunks", description="Field containing chunk payloads"
+    )
+    vector_store: BaseVectorStore = Field(
+        default_factory=InMemoryVectorStore,
+        description="Vector store adapter used for persistence",
+    )
+    embedding_function: EmbeddingFunction | None = Field(
+        default=None,
+        description="Callable that converts text batches into embedding vectors",
+    )
+    batch_size: int = Field(
+        default=64, gt=0, description="Maximum records processed per upsert batch"
+    )
+    max_retries: int = Field(
+        default=2, ge=0, description="Number of retry attempts for failed batches"
+    )
+    backoff_seconds: float = Field(
+        default=0.05,
+        ge=0.0,
+        description="Base delay between retries for failed batches",
+    )
+    deduplicate: bool = Field(
+        default=True,
+        description="Skip chunks that have already been indexed by this node instance",
+    )
+
+    indexed_ids: set[str] = Field(default_factory=set)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Embed unseen chunks and persist them in batches with retries."""
+        chunks = self._resolve_chunks(state)
+        if not chunks:
+            msg = "IncrementalIndexerNode requires at least one chunk"
+            raise ValueError(msg)
+
+        pending: list[DocumentChunk] = []
+        for chunk in chunks:
+            if self.deduplicate and chunk.id in self.indexed_ids:
+                continue
+            pending.append(chunk)
+
+        if not pending:
+            return {"indexed": 0, "skipped": len(chunks), "ids": []}
+
+        embeddings = await self._embed([chunk.content for chunk in pending])
+        if len(embeddings) != len(pending):
+            msg = (
+                "Embedding function returned "
+                f"{len(embeddings)} embeddings for {len(pending)} chunks"
+            )
+            raise ValueError(msg)
+
+        records = [
+            VectorRecord(
+                id=chunk.id,
+                values=vector,
+                text=chunk.content,
+                metadata=chunk.metadata,
+            )
+            for chunk, vector in zip(pending, embeddings, strict=True)
+        ]
+
+        await self._upsert_in_batches(records)
+        for record in records:
+            self.indexed_ids.add(record.id)
+
+        return {
+            "indexed": len(records),
+            "skipped": len(chunks) - len(pending),
+            "ids": [record.id for record in records],
+        }
+
+    async def _upsert_in_batches(self, records: list[VectorRecord]) -> None:
+        for start in range(0, len(records), self.batch_size):
+            batch = records[start : start + self.batch_size]
+            await self._retry_with_backoff(self.vector_store.upsert, batch)
+
+    async def _retry_with_backoff(
+        self, func: Callable[[Iterable[VectorRecord]], Any], batch: list[VectorRecord]
+    ) -> None:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                await func(batch)
+                return
+            except Exception as exc:  # pragma: no cover - tested via retries
+                last_error = exc
+                if attempt == self.max_retries:
+                    raise
+                delay = self.backoff_seconds * (2**attempt)
+                await asyncio.sleep(delay)
+        if last_error:
+            raise last_error
+
+    def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
+        results = state.get("results", {})
+        source = results.get(self.source_result_key, {})
+        if isinstance(source, dict) and self.chunks_field in source:
+            chunks = source[self.chunks_field]
+        else:
+            chunks = results.get(self.chunks_field)
+        if not chunks:
+            return []
+        if not isinstance(chunks, list):
+            msg = "chunks payload must be a list"
+            raise ValueError(msg)
+        normalized: list[DocumentChunk] = []
+        for chunk in chunks:
+            if isinstance(chunk, DocumentChunk):
+                normalized.append(chunk)
+                continue
+            if isinstance(chunk, dict):
+                cleaned = dict(chunk)
+                cleaned.pop("token_count", None)
+                normalized.append(DocumentChunk.model_validate(cleaned))
+                continue
+            msg = "chunks payload must contain DocumentChunk entries"
+            raise ValueError(msg)
+        return normalized
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
         embedder = self.embedding_function or deterministic_embedding_function

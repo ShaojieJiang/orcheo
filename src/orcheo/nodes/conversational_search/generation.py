@@ -3,7 +3,7 @@
 from __future__ import annotations
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -14,6 +14,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 LLMCallable = Callable[[str, int, float], str | Awaitable[str]]
+StreamCallable = Callable[[str, int, float], Any]
 
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
@@ -193,3 +194,151 @@ class GroundedGeneratorNode(TaskNode):
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
         return len((prompt + completion).split())
+
+
+@registry.register(
+    NodeMetadata(
+        name="StreamingGeneratorNode",
+        description=("Stream grounded responses with retry and backpressure controls."),
+        category="conversational_search",
+    )
+)
+class StreamingGeneratorNode(TaskNode):
+    """Generate responses as token streams with retry and buffer guards."""
+
+    query_key: str = Field(
+        default="query", description="Key within inputs holding the user query"
+    )
+    context_result_key: str = Field(
+        default="retriever",
+        description="Name of the upstream result entry containing retrieval output.",
+    )
+    context_field: str = Field(
+        default="results",
+        description=(
+            "Field name under the retrieval result that stores SearchResult items."
+        ),
+    )
+    system_prompt: str = Field(
+        default=(
+            "You are a streaming responder. Use the provided context to answer the "
+            "query and emit partial tokens promptly."
+        ),
+        description="Instruction prefix prepended to the prompt.",
+    )
+    max_tokens: int = Field(default=512, gt=0, description="Token cap for generation")
+    temperature: float = Field(
+        default=0.1, ge=0.0, description="Sampling temperature used by the model"
+    )
+    max_retries: int = Field(default=1, ge=0, description="Maximum retry attempts")
+    backoff_seconds: float = Field(
+        default=0.05, ge=0.0, description="Base backoff delay between retries"
+    )
+    max_buffer_size: int = Field(
+        default=64,
+        gt=0,
+        description="Maximum number of chunks retained before backpressure triggers",
+    )
+    llm_streamer: StreamCallable | None = Field(
+        default=None,
+        description=(
+            "Callable returning an async iterator or iterable yielding response chunks"
+        ),
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Stream a grounded response with retries and buffer enforcement."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "StreamingGeneratorNode requires a non-empty query string"
+            raise ValueError(msg)
+
+        context = self._resolve_context(state)
+        prompt = self._build_prompt(query.strip(), context)
+        tokens = await self._stream_with_retries(prompt)
+
+        response = " ".join(tokens).strip()
+        return {
+            "response": response,
+            "chunks": tokens,
+            "chunks_emitted": len(tokens),
+        }
+
+    def _resolve_context(self, state: State) -> list[SearchResult]:
+        results = state.get("results", {})
+        source = results.get(self.context_result_key, {})
+        if isinstance(source, dict) and self.context_field in source:
+            entries = source[self.context_field]
+        else:
+            entries = results.get(self.context_field)
+        if not entries:
+            return []
+        if not isinstance(entries, list):
+            msg = "Context payload must be a list of retrieval results"
+            raise ValueError(msg)
+        return [SearchResult.model_validate(item) for item in entries]
+
+    def _build_prompt(self, query: str, context: list[SearchResult]) -> str:
+        context_block = "\n".join(
+            f"[{index}] {entry.text}" for index, entry in enumerate(context, start=1)
+        )
+        return f"{self.system_prompt}\n\nQuestion: {query}\nContext:\n{context_block}"
+
+    async def _stream_with_retries(self, prompt: str) -> list[str]:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self._collect_stream(prompt)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                last_error = exc
+                if attempt == self.max_retries:
+                    raise
+                delay = self.backoff_seconds * (2**attempt)
+                await asyncio.sleep(delay)
+        if last_error:
+            raise last_error
+        return []
+
+    async def _collect_stream(self, prompt: str) -> list[str]:
+        streamer = self.llm_streamer or self._default_streamer
+        output = streamer(prompt, self.max_tokens, self.temperature)
+        tokens: list[str] = []
+        async for chunk in self._normalize_stream(output):
+            if not chunk:
+                continue
+            tokens.append(chunk)
+            if len(tokens) > self.max_buffer_size:
+                msg = "Stream backpressure limit exceeded"
+                raise OverflowError(msg)
+        return tokens
+
+    async def _normalize_stream(self, output: Any) -> AsyncIterator[str]:
+        if inspect.isawaitable(output):
+            output = await output
+        if hasattr(output, "__aiter__"):
+            async for chunk in output:  # type: ignore[misc]
+                yield self._coerce_chunk(chunk)
+            return
+        if isinstance(output, str):
+            for chunk in output.split():
+                yield chunk
+            return
+        if isinstance(output, Iterable):
+            for chunk in output:
+                yield self._coerce_chunk(chunk)
+            return
+        msg = "Streaming function must return an async iterator, iterable, or string"
+        raise TypeError(msg)
+
+    @staticmethod
+    def _coerce_chunk(chunk: Any) -> str:
+        if chunk is None:
+            return ""
+        return str(chunk).strip()
+
+    async def _default_streamer(
+        self, prompt: str, max_tokens: int, temperature: float
+    ) -> AsyncIterator[str]:
+        del temperature
+        for token in prompt.split()[:max_tokens]:
+            yield token
