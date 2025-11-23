@@ -2,17 +2,50 @@
 
 import sys
 import types
+
 import pytest
-from orcheo.nodes.conversational_search.models import VectorRecord
-from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
+
+from orcheo.nodes.conversational_search.models import SearchResult, VectorRecord
+from orcheo.nodes.conversational_search.vector_store import (
+    InMemoryVectorStore,
+    PineconeVectorStore,
+)
 
 
 class _DummyIndex:
     def __init__(self) -> None:
         self.calls: list[tuple[list[dict], str | None]] = []
+        self.queries: list[dict[str, object]] = []
 
     async def upsert(self, vectors: list[dict], namespace: str | None) -> None:
         self.calls.append((vectors, namespace))
+
+    def query(
+        self,
+        *,
+        vector: list[float],
+        top_k: int,
+        namespace: str | None,
+        include_metadata: bool,
+        filter: dict | None,
+    ) -> dict[str, object]:
+        payload = {
+            "vector": vector,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": include_metadata,
+            "filter": filter,
+        }
+        self.queries.append(payload)
+        return {
+            "matches": [
+                {
+                    "id": "match-1",
+                    "score": 0.5,
+                    "metadata": {"text": "doc text", "topic": "demo"},
+                }
+            ]
+        }
 
 
 class _DummyClient:
@@ -99,3 +132,66 @@ async def test_pinecone_vector_store_raises_runtime_error_when_index_cannot_open
         RuntimeError, match="Unable to open Pinecone index 'pinecone-bad'"
     ):
         await store.upsert([])
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_search_filters_and_ranks() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="vec-1",
+                values=[1.0, 0.0],
+                text="hello world",
+                metadata={"topic": "greeting"},
+            ),
+            VectorRecord(
+                id="vec-2",
+                values=[0.0, 1.0],
+                text="bye world",
+                metadata={"topic": "farewell"},
+            ),
+        ]
+    )
+
+    results = await store.search(
+        query=[1.0, 0.0], top_k=2, filter_metadata={"topic": "greeting"}
+    )
+
+    assert [result.id for result in results] == ["vec-1"]
+    assert results[0].metadata["topic"] == "greeting"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_validates_dimensions() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="vec-3",
+                values=[0.1],
+                text="one dim",
+                metadata={},
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="Vector dimensions must match"):
+        await store.search(query=[0.1, 0.2], top_k=1)
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_normalizes_matches() -> None:
+    index = _DummyIndex()
+    client = _DummyClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-query", client=client)
+
+    results = await store.search(query=[0.1], top_k=1)
+
+    assert results[0] == SearchResult(
+        id="match-1",
+        score=0.5,
+        text="doc text",
+        metadata={"text": "doc text", "topic": "demo"},
+    )
+    assert index.queries[-1]["top_k"] == 1

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 import inspect
+import math
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
-from orcheo.nodes.conversational_search.models import VectorRecord
+from orcheo.nodes.conversational_search.models import SearchResult, VectorRecord
 
 
 class BaseVectorStore(ABC, BaseModel):
@@ -17,6 +18,15 @@ class BaseVectorStore(ABC, BaseModel):
     @abstractmethod
     async def upsert(self, records: Iterable[VectorRecord]) -> None:
         """Persist ``records`` into the backing vector store."""
+
+    @abstractmethod
+    async def search(
+        self,
+        query: list[float],
+        top_k: int = 10,
+        filter_metadata: dict[str, Any] | None = None,
+    ) -> list[SearchResult]:
+        """Return the top matching records for ``query``."""
 
 
 class InMemoryVectorStore(BaseVectorStore):
@@ -29,9 +39,63 @@ class InMemoryVectorStore(BaseVectorStore):
         for record in records:
             self.records[record.id] = record
 
+    async def search(
+        self,
+        query: list[float],
+        top_k: int = 10,
+        filter_metadata: dict[str, Any] | None = None,
+    ) -> list[SearchResult]:
+        """Perform cosine similarity search over in-memory vectors."""
+        candidates = list(self.records.values())
+        if filter_metadata:
+            candidates = [
+                record
+                for record in candidates
+                if all(
+                    record.metadata.get(key) == value
+                    for key, value in filter_metadata.items()
+                )
+            ]
+
+        scored: list[SearchResult] = []
+        for record in candidates:
+            score = self._cosine_similarity(query, record.values)
+            scored.append(
+                SearchResult(
+                    id=record.id,
+                    score=score,
+                    text=record.text,
+                    metadata=record.metadata,
+                )
+            )
+
+        scored.sort(key=lambda item: item.score, reverse=True)
+        return scored[:top_k]
+
     def list(self) -> list[VectorRecord]:  # pragma: no cover - helper
         """Return a copy of stored records for inspection."""
         return list(self.records.values())
+
+    @staticmethod
+    def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+        left_vector = list(left)
+        right_vector = list(right)
+
+        if not left_vector or not right_vector:
+            return 0.0
+        if len(left_vector) != len(right_vector):
+            msg = "Vector dimensions must match for similarity search"
+            raise ValueError(msg)
+
+        dot = 0.0
+        for left_value, right_value in zip(left_vector, right_vector, strict=True):
+            dot += left_value * right_value
+
+        left_norm = math.sqrt(sum(value * value for value in left_vector))
+        right_norm = math.sqrt(sum(value * value for value in right_vector))
+        if left_norm == 0.0 or right_norm == 0.0:
+            return 0.0
+        return dot / (left_norm * right_norm)
 
 
 class PineconeVectorStore(BaseVectorStore):
@@ -58,6 +122,57 @@ class PineconeVectorStore(BaseVectorStore):
         result = index.upsert(vectors=payload, namespace=self.namespace)
         if inspect.iscoroutine(result):
             await result
+
+    async def search(
+        self,
+        query: list[float],
+        top_k: int = 10,
+        filter_metadata: dict[str, Any] | None = None,
+    ) -> list[SearchResult]:
+        """Query Pinecone for the most similar vectors."""
+        client = self._resolve_client()
+        index = self._resolve_index(client)
+        result = index.query(
+            vector=query,
+            top_k=top_k,
+            namespace=self.namespace,
+            include_metadata=True,
+            filter=filter_metadata or None,
+        )
+        if inspect.iscoroutine(result):
+            result = await result
+
+        matches = getattr(result, "matches", None)
+        if matches is None and isinstance(result, dict):
+            matches = result.get("matches", [])
+        matches = matches or []
+        normalized: list[SearchResult] = []
+        for match in matches:
+            metadata = getattr(match, "metadata", None)
+            if metadata is None and isinstance(match, dict):
+                metadata = match.get("metadata", {})
+            metadata = metadata or {}
+
+            score = getattr(match, "score", None)
+            if score is None and isinstance(match, dict):
+                score = match.get("score", 0.0)
+
+            text = metadata.get("text", "")
+            match_id = getattr(match, "id", None)
+            if match_id is None and isinstance(match, dict):
+                match_id = match.get("id")
+            if match_id is None:
+                continue
+
+            normalized.append(
+                SearchResult(
+                    id=match_id,
+                    score=float(score) if score is not None else 0.0,
+                    text=text,
+                    metadata=metadata,
+                )
+            )
+        return normalized
 
     def _resolve_client(self) -> Any:
         if self.client is not None:

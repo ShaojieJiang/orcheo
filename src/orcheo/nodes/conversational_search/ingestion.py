@@ -24,6 +24,17 @@ from orcheo.nodes.registry import NodeMetadata, registry
 EmbeddingFunction = Callable[[list[str]], list[list[float]]]
 
 
+def deterministic_embedding_function(texts: list[str]) -> list[list[float]]:
+    """Deterministic fallback embedding using SHA256 hashing."""
+    embeddings: list[list[float]] = []
+    for text in texts:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        # Convert first 16 bytes to floats in [0, 1]
+        vector = [byte / 255.0 for byte in digest[:16]]
+        embeddings.append(vector)
+    return embeddings
+
+
 class RawDocumentInput(BaseModel):
     """User-supplied document payload prior to normalization."""
 
@@ -403,7 +414,7 @@ class EmbeddingIndexerNode(TaskNode):
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or self._default_embedding_function
+        embedder = self.embedding_function or deterministic_embedding_function
         result = embedder(texts)
         if inspect.isawaitable(result):
             result = await result
@@ -413,14 +424,3 @@ class EmbeddingIndexerNode(TaskNode):
             msg = "Embedding function must return List[List[float]]"
             raise ValueError(msg)
         return result
-
-    @staticmethod
-    def _default_embedding_function(texts: list[str]) -> list[list[float]]:
-        """Deterministic fallback embedding using SHA256 hashing."""
-        embeddings: list[list[float]] = []
-        for text in texts:
-            digest = hashlib.sha256(text.encode("utf-8")).digest()
-            # Convert first 16 bytes to floats in [0, 1]
-            vector = [byte / 255.0 for byte in digest[:16]]
-            embeddings.append(vector)
-        return embeddings
