@@ -6,6 +6,12 @@ from orcheo.nodes.conversational_search.ingestion import (
     EmbeddingIndexerNode,
     MetadataExtractorNode,
 )
+from orcheo.nodes.conversational_search.query_processing import (
+    ContextCompressorNode,
+    CoreferenceResolverNode,
+    QueryClassifierNode,
+    QueryRewriteNode,
+)
 from orcheo.nodes.conversational_search.retrieval import (
     BM25SearchNode,
     HybridFusionNode,
@@ -29,4 +35,8 @@ __all__ = [
     "VectorSearchNode",
     "BM25SearchNode",
     "HybridFusionNode",
+    "QueryRewriteNode",
+    "CoreferenceResolverNode",
+    "QueryClassifierNode",
+    "ContextCompressorNode",
 ]
