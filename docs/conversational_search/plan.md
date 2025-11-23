@@ -33,9 +33,9 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
   - Dependencies: Task 1.1 indexed corpus; BaseVectorStore abstraction.
 - [x] Task 1.3: Add core query processing (QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode) to improve retrieval quality.
   - Dependencies: Conversation state schema; Task 1.2 retrievers.
-- [ ] Task 1.4: Deliver GroundedGeneratorNode with citation emission and backoff/retry semantics.
+- [x] Task 1.4: Deliver GroundedGeneratorNode with citation emission and backoff/retry semantics.
   - Dependencies: Retrieved context from Task 1.2; LLM provider access.
-- [ ] Task 1.5: Provide reference graph and integration tests under `tests/nodes/conversational_search/` covering ingestion → retrieval → generation.
+- [x] Task 1.5: Provide reference graph and integration tests under `tests/nodes/conversational_search/` covering ingestion → retrieval → generation.
   - Dependencies: Tasks 1.1-1.4.
 
 ---
