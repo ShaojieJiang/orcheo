@@ -205,7 +205,8 @@ class RetrievalEvaluationNode(TaskNode):
                 dcg += 1.0 / math.log2(idx + 1)
 
         recall = hits / len(relevant)
-        idcg = sum(1.0 / math.log2(i + 2) for i in range(len(relevant)))
+        ideal_cutoff = min(len(results), len(relevant))
+        idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_cutoff))
         ndcg = dcg / idcg if idcg else 0.0
         mean_avg_precision = avg_precision / len(relevant)
 
