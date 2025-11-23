@@ -167,7 +167,8 @@ class BM25SearchNode(TaskNode):
                 freq = tf.get(term, 0)
                 if freq == 0:
                     continue
-                idf = self._idf(term, len(index), doc_freqs[term])
+                doc_freq = doc_freqs.get(term, 0)
+                idf = self._idf(term, len(index), doc_freq)
                 numerator = freq * (self.k1 + 1)
                 denominator = freq + self.k1 * (
                     1 - self.b + self.b * len(tokens) / avg_length
