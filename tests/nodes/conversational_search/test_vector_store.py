@@ -2,9 +2,7 @@
 
 import sys
 import types
-
 import pytest
-
 from orcheo.nodes.conversational_search.models import SearchResult, VectorRecord
 from orcheo.nodes.conversational_search.vector_store import (
     InMemoryVectorStore,
@@ -67,6 +65,156 @@ class _SyncIndex:
 
     def upsert(self, vectors: list[dict], namespace: str | None) -> None:
         self.calls.append((vectors, namespace))
+
+
+class _AsyncQueryResult:
+    def __init__(self, matches: list[dict[str, object]]) -> None:
+        self.matches = matches
+
+
+class _AsyncQueryIndex:
+    def __init__(self) -> None:
+        self.queries: list[dict[str, object]] = []
+
+    async def query(
+        self,
+        *,
+        vector: list[float],
+        top_k: int,
+        namespace: str | None,
+        include_metadata: bool,
+        filter: dict | None,
+    ) -> _AsyncQueryResult:
+        payload = {
+            "vector": vector,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": include_metadata,
+            "filter": filter,
+        }
+        self.queries.append(payload)
+        return _AsyncQueryResult(
+            [
+                {
+                    "id": "async-match",
+                }
+            ]
+        )
+
+
+class _AsyncClient:
+    def __init__(self, index: _AsyncQueryIndex) -> None:
+        self._index = index
+
+    def Index(self, name: str) -> _AsyncQueryIndex:  # noqa: N802
+        return self._index
+
+
+class _EmptyMatchesIndex:
+    def __init__(self) -> None:
+        self.queries: list[dict[str, object]] = []
+
+    def query(
+        self,
+        *,
+        vector: list[float],
+        top_k: int,
+        namespace: str | None,
+        include_metadata: bool,
+        filter: dict | None,
+    ) -> dict[str, object]:
+        payload = {
+            "vector": vector,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": include_metadata,
+            "filter": filter,
+        }
+        self.queries.append(payload)
+        return {}
+
+
+class _EmptyMatchesClient:
+    def __init__(self, index: _EmptyMatchesIndex) -> None:
+        self._index = index
+
+    def Index(self, name: str) -> _EmptyMatchesIndex:  # noqa: N802
+        return self._index
+
+
+class _CustomQueryIndex:
+    def __init__(self, matches: list[dict[str, object]]) -> None:
+        self.matches = matches
+        self.queries: list[dict[str, object]] = []
+
+    def query(
+        self,
+        *,
+        vector: list[float],
+        top_k: int,
+        namespace: str | None,
+        include_metadata: bool,
+        filter: dict | None,
+    ) -> dict[str, object]:
+        payload = {
+            "vector": vector,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": include_metadata,
+            "filter": filter,
+        }
+        self.queries.append(payload)
+        return {"matches": self.matches}
+
+
+class _CustomClient:
+    def __init__(self, index: _CustomQueryIndex) -> None:
+        self._index = index
+
+    def Index(self, name: str) -> _CustomQueryIndex:  # noqa: N802
+        return self._index
+
+
+class _AttributeMatch:
+    def __init__(
+        self, match_id: str, score: float, metadata: dict[str, object]
+    ) -> None:
+        self.id = match_id
+        self.score = score
+        self.metadata = metadata
+
+
+class _AttributeIndex:
+    def __init__(self, matches: list[_AttributeMatch]) -> None:
+        self.matches = matches
+        self.queries: list[dict[str, object]] = []
+
+    def query(
+        self,
+        *,
+        vector: list[float],
+        top_k: int,
+        namespace: str | None,
+        include_metadata: bool,
+        filter: dict | None,
+    ) -> dict[str, object]:
+        payload = {
+            "vector": vector,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": include_metadata,
+            "filter": filter,
+        }
+        self.queries.append(payload)
+        return {"matches": self.matches}
+
+
+class _AttributeClient:
+    def __init__(self, index: _AttributeIndex) -> None:
+        self._index = index
+
+    def Index(self, name: str) -> _AttributeIndex:  # noqa: N802
+        return self._index
 
 
 @pytest.mark.asyncio
@@ -195,3 +343,101 @@ async def test_pinecone_vector_store_search_normalizes_matches() -> None:
         metadata={"text": "doc text", "topic": "demo"},
     )
     assert index.queries[-1]["top_k"] == 1
+
+
+def test_in_memory_vector_store_cosine_similarity_handles_edge_cases() -> None:
+    assert InMemoryVectorStore._cosine_similarity([], [1.0]) == 0.0
+    assert InMemoryVectorStore._cosine_similarity([1.0], []) == 0.0
+    assert InMemoryVectorStore._cosine_similarity([0.0, 0.0], [0.0, 0.0]) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_awaits_async_query_result() -> None:
+    index = _AsyncQueryIndex()
+    client = _AsyncClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-async", client=client)
+
+    results = await store.search(query=[0.1], top_k=1)
+
+    assert results[0] == SearchResult(
+        id="async-match",
+        score=0.0,
+        text="",
+        metadata={},
+    )
+    assert index.queries[-1]["top_k"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_handles_missing_matches_key() -> None:
+    index = _EmptyMatchesIndex()
+    client = _EmptyMatchesClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-empty", client=client)
+
+    assert await store.search(query=[0.2], top_k=1) == []
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_handles_attribute_matches() -> None:
+    match = _AttributeMatch(
+        match_id="attr-match",
+        score=0.85,
+        metadata={"text": "object match", "source": "attr"},
+    )
+    index = _AttributeIndex(matches=[match])
+    client = _AttributeClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-attribute", client=client)
+
+    results = await store.search(query=[0.3], top_k=1)
+
+    assert results == [
+        SearchResult(
+            id="attr-match",
+            score=0.85,
+            text="object match",
+            metadata={"text": "object match", "source": "attr"},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_handles_missing_metadata_and_score() -> (
+    None
+):
+    index = _CustomQueryIndex(matches=[{"id": "no-metadata"}])
+    client = _CustomClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-defaults", client=client)
+
+    results = await store.search(query=[0.1], top_k=1)
+
+    assert results == [
+        SearchResult(
+            id="no-metadata",
+            score=0.0,
+            text="",
+            metadata={},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_search_skips_matches_without_id() -> None:
+    index = _CustomQueryIndex(
+        matches=[
+            {"metadata": {"text": "no id"}, "score": 0.2},
+            {"id": "valid-match", "score": 0.8, "metadata": {"text": "has id"}},
+        ]
+    )
+    client = _CustomClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-skip", client=client)
+
+    results = await store.search(query=[0.2], top_k=2)
+
+    assert results == [
+        SearchResult(
+            id="valid-match",
+            score=0.8,
+            text="has id",
+            metadata={"text": "has id"},
+        )
+    ]
