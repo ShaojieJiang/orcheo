@@ -71,3 +71,23 @@ class VectorRecord(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SearchResult(BaseModel):
+    """Normalized retrieval result emitted by search nodes."""
+
+    id: str = Field(description="Identifier of the matching record")
+    score: float = Field(description="Relevance score (higher is better)")
+    text: str = Field(description="Content associated with the record")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Metadata returned by the retriever"
+    )
+    source: str | None = Field(
+        default=None, description="Origin retriever name (e.g., 'vector', 'bm25')"
+    )
+    sources: list[str] = Field(
+        default_factory=list,
+        description="List of retrievers contributing to this result",
+    )
+
+    model_config = ConfigDict(extra="forbid")
