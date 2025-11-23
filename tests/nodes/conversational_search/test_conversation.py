@@ -1,8 +1,10 @@
 import time
-
+from collections.abc import Iterable
 import pytest
+from pydantic import PrivateAttr
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.conversation import (
+    BaseMemoryStore,
     ConversationCompressorNode,
     ConversationStateNode,
     InMemoryMemoryStore,
@@ -11,6 +13,54 @@ from orcheo.nodes.conversational_search.conversation import (
     QueryClarificationNode,
     TopicShiftDetectorNode,
 )
+
+
+class DummyStore(BaseMemoryStore):
+    """Simple store that tracks appended turns via the base implementation."""
+
+    _appended: list[tuple[str, MemoryTurn]] = PrivateAttr(default_factory=list)
+
+    @property
+    def appended(self) -> list[tuple[str, MemoryTurn]]:
+        return self._appended
+
+    async def load_history(
+        self, session_id: str, limit: int | None = None
+    ) -> list[MemoryTurn]:
+        return []
+
+    async def append_turn(self, session_id: str, turn: MemoryTurn) -> None:
+        self.appended.append((session_id, turn))
+
+    async def prune(self, session_id: str, max_turns: int | None = None) -> None:
+        pass
+
+    async def write_summary(
+        self, session_id: str, summary: str, ttl_seconds: int | None = None
+    ) -> None:
+        pass
+
+    async def get_summary(self, session_id: str) -> str | None:
+        return None
+
+    async def clear(self, session_id: str) -> None:
+        pass
+
+
+class TrackingStore(InMemoryMemoryStore):
+    """Extend the in-memory store to track batch append calls."""
+
+    _batch_calls: int = PrivateAttr(0)
+
+    @property
+    def batch_calls(self) -> int:
+        return self._batch_calls
+
+    async def batch_append_turns(
+        self, session_id: str, turns: Iterable[MemoryTurn]
+    ) -> None:
+        self._batch_calls += 1
+        await super().batch_append_turns(session_id, turns)
 
 
 @pytest.mark.asyncio
@@ -199,6 +249,458 @@ async def test_conversation_state_honors_configurable_max_turns() -> None:
 
 
 @pytest.mark.asyncio
+async def test_base_memory_store_batch_append_uses_append_turns() -> None:
+    store = DummyStore()
+    turns = [
+        MemoryTurn(role="user", content="hi"),
+        MemoryTurn(role="assistant", content="reply"),
+    ]
+
+    await store.batch_append_turns("base", turns)
+    assert len(store.appended) == 2
+    assert store.appended[0][0] == "base"
+
+
+def test_inmemory_store_sync_helpers_and_eviction() -> None:
+    store = InMemoryMemoryStore(max_sessions=1, max_total_turns=1)
+
+    store.append_turn_sync("first", MemoryTurn(role="user", content="hello"))
+    assert store.load_history_sync("first", limit=1)[0].content == "hello"
+
+    store.append_turn_sync("second", MemoryTurn(role="assistant", content="hi"))
+    assert "first" not in store.sessions
+    assert "second" in store.sessions
+
+    store.clear_sync("second")
+    assert not store.sessions
+    store._evict_stalest_session_sync()
+
+
+@pytest.mark.asyncio
+async def test_inmemory_batch_append_handles_empty_iterable() -> None:
+    store = InMemoryMemoryStore()
+
+    await store.batch_append_turns("noop", [])
+    assert store.sessions == {}
+
+
+def test_inmemory_load_history_sync_without_limit_returns_all_turns() -> None:
+    store = InMemoryMemoryStore()
+    turn = MemoryTurn(role="user", content="hi")
+    store.sessions["all"] = [turn]
+
+    assert store.load_history_sync("all") == [turn]
+
+
+def test_inmemory_ensure_capacity_sync_evicts_when_limits_exceeded() -> None:
+    store = InMemoryMemoryStore(max_sessions=1, max_total_turns=1)
+    store.sessions["old"] = [MemoryTurn(role="assistant", content="old")]
+    store.session_last_updated["old"] = time.time() - 10
+
+    store._ensure_capacity_sync("new", incoming_count=2)
+
+    assert not store.sessions
+    assert not store.session_last_updated
+
+
+def test_inmemory_ensure_capacity_sync_respects_session_limit() -> None:
+    store = InMemoryMemoryStore(max_sessions=1, max_total_turns=10)
+    store.sessions["primary"] = [MemoryTurn(role="user", content="hello")]
+    store.session_last_updated["primary"] = time.time() - 5
+
+    store._ensure_capacity_sync("secondary", incoming_count=1)
+
+    assert "primary" not in store.sessions
+    assert "secondary" in store.session_last_updated
+
+
+def test_inmemory_ensure_capacity_sync_respects_turn_limit() -> None:
+    store = InMemoryMemoryStore(max_sessions=5, max_total_turns=1)
+    store.sessions["primary"] = [MemoryTurn(role="user", content="hello")]
+    store.session_last_updated["primary"] = time.time() - 5
+
+    store._ensure_capacity_sync("primary", incoming_count=1)
+
+    assert store.sessions == {}
+    assert store.session_last_updated == {}
+
+
+def test_inmemory_ensure_capacity_sync_skips_turn_limit_when_disabled() -> None:
+    store = InMemoryMemoryStore(max_sessions=1, max_total_turns=None)
+    store.sessions["primary"] = [MemoryTurn(role="user", content="hello")]
+    store.session_last_updated["primary"] = time.time() - 5
+
+    store._ensure_capacity_sync("secondary", incoming_count=1)
+
+    assert "primary" not in store.sessions
+    assert "secondary" in store.session_last_updated
+
+
+@pytest.mark.asyncio
+async def test_inmemory_store_eviction_short_circuits_when_empty() -> None:
+    store = InMemoryMemoryStore()
+    await store._evict_stalest_session()
+    assert store.sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_conversation_state_tracks_batch_appends_and_skips_empty() -> None:
+    store = TrackingStore()
+    node = ConversationStateNode(name="conversation_state", memory_store=store)
+    state = State(
+        inputs={
+            "session_id": "batch",
+            "user_message": "hello",
+            "assistant_message": "reply",
+        },
+        results={},
+        structured_response=None,
+    )
+
+    await node.run(state, {})
+    assert store.batch_calls == 1
+    assert len(store.sessions["batch"]) == 2
+
+    empty_state = State(
+        inputs={"session_id": "batch"},
+        results={},
+        structured_response=None,
+    )
+    await node.run(empty_state, {})
+    assert store.batch_calls == 1
+
+
+def test_conversation_state_config_value_defaults_when_invalid() -> None:
+    assert (
+        ConversationStateNode._config_value(
+            {"configurable": {"max_turns": 0}}, "max_turns", 5
+        )
+        == 5
+    )
+
+
+def test_conversation_state_config_value_returns_default_without_dict() -> None:
+    assert ConversationStateNode._config_value(None, "max_turns", 5) == 5
+
+
+def test_conversation_compressor_config_value_defaults_when_missing() -> None:
+    assert (
+        ConversationCompressorNode._config_value({"configurable": {}}, "max_tokens", 10)
+        == 10
+    )
+
+
+def test_conversation_compressor_config_value_prefers_override() -> None:
+    assert (
+        ConversationCompressorNode._config_value(
+            {"configurable": {"max_tokens": 2}}, "max_tokens", 10
+        )
+        == 2
+    )
+
+
+def test_conversation_compressor_config_value_ignores_invalid_override() -> None:
+    assert (
+        ConversationCompressorNode._config_value(
+            {"configurable": {"max_tokens": "lots"}}, "max_tokens", 10
+        )
+        == 10
+    )
+
+
+def test_conversation_compressor_config_value_returns_default_with_no_config() -> None:
+    assert ConversationCompressorNode._config_value(None, "max_tokens", 10) == 10
+
+
+@pytest.mark.asyncio
+async def test_conversation_compressor_rejects_non_list_history() -> None:
+    node = ConversationCompressorNode(name="compressor")
+    state = State(
+        inputs={},
+        results={"conversation_state": {"conversation_history": "invalid"}},
+        structured_response=None,
+    )
+
+    with pytest.raises(ValueError, match="must be a list of turn dictionaries"):
+        await node.run(state, {})
+
+
+def test_conversation_compressor_summarize_snippet_when_first_turn_overflows() -> None:
+    node = ConversationCompressorNode(name="compressor")
+    turn = MemoryTurn(role="user", content="alpha beta")
+    summary = node._summarize([turn], token_limit=1)
+    assert summary == "user: alpha..."
+
+
+def test_conversation_compressor_summarize_adds_trailing_ellipsis() -> None:
+    node = ConversationCompressorNode(name="compressor")
+    summary = node._summarize(
+        [
+            MemoryTurn(role="user", content="one"),
+            MemoryTurn(role="assistant", content="two"),
+        ],
+        token_limit=1,
+    )
+    assert summary == "user: one | ..."
+
+
+def test_topic_shift_detector_config_helpers() -> None:
+    assert (
+        TopicShiftDetectorNode._config_value(
+            {"configurable": {"similarity_threshold": 0.65}},
+            "similarity_threshold",
+            0.35,
+        )
+        == 0.65
+    )
+    assert (
+        TopicShiftDetectorNode._config_int_value(
+            {"configurable": {"recent_turns": 2}}, "recent_turns", 3
+        )
+        == 2
+    )
+
+
+def test_topic_shift_detector_config_defaults_without_override() -> None:
+    assert (
+        TopicShiftDetectorNode._config_value(
+            {"configurable": {}}, "similarity_threshold", 0.35
+        )
+        == 0.35
+    )
+    assert (
+        TopicShiftDetectorNode._config_int_value(
+            {"configurable": {"recent_turns": 0}}, "recent_turns", 3
+        )
+        == 3
+    )
+
+
+def test_topic_shift_detector_config_value_ignores_non_numeric_override() -> None:
+    assert (
+        TopicShiftDetectorNode._config_value(
+            {"configurable": {"similarity_threshold": "high"}},
+            "similarity_threshold",
+            0.35,
+        )
+        == 0.35
+    )
+
+
+def test_topic_shift_detector_config_int_value_ignores_non_int_override() -> None:
+    assert (
+        TopicShiftDetectorNode._config_int_value(
+            {"configurable": {"recent_turns": "many"}}, "recent_turns", 3
+        )
+        == 3
+    )
+
+
+def test_topic_shift_detector_config_helpers_default_without_dict() -> None:
+    assert (
+        TopicShiftDetectorNode._config_value(None, "similarity_threshold", 0.35) == 0.35
+    )
+    assert TopicShiftDetectorNode._config_int_value(None, "recent_turns", 3) == 3
+
+
+def test_topic_shift_detector_stopwords_override_filters_invalid_entries() -> None:
+    node = TopicShiftDetectorNode(name="topic")
+    overrides = {"configurable": {"stopwords": ["custom", 123, None]}}
+
+    assert node._config_stopwords(overrides) == {"custom"}
+    assert node._config_stopwords(None) == set(node.stopwords)
+
+
+@pytest.mark.asyncio
+async def test_topic_shift_detector_requires_query() -> None:
+    node = TopicShiftDetectorNode(name="topic")
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="requires a non-empty query"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_topic_shift_detector_returns_continue_without_history() -> None:
+    node = TopicShiftDetectorNode(name="topic")
+    state = State(
+        inputs={"query": "new question"},
+        results={"conversation_state": []},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["route"] == "continue"
+    assert result["reason"] == "no_history"
+
+
+def test_topic_shift_detector_extract_turns_rejects_wrong_type() -> None:
+    node = TopicShiftDetectorNode(name="topic")
+
+    with pytest.raises(ValueError, match="must be provided as a list"):
+        node._extract_turns("string")
+
+
+@pytest.mark.asyncio
+async def test_topic_shift_detector_respects_stopwords_and_window() -> None:
+    node = TopicShiftDetectorNode(name="topic")
+    state = State(
+        inputs={"query": "Different apples"},
+        results={
+            "conversation_state": {
+                "conversation_history": [
+                    {"role": "assistant", "content": "apples and bananas"},
+                    {"role": "user", "content": "apples always"},
+                ]
+            }
+        },
+        structured_response=None,
+    )
+    config = {
+        "configurable": {
+            "recent_turns": 1,
+            "stopwords": ["different"],
+            "similarity_threshold": 0.1,
+        }
+    }
+
+    result = await node.run(state, config)
+    assert result["route"] in {"clarify", "continue"}
+    assert isinstance(result["similarity"], float)
+
+
+@pytest.mark.asyncio
+async def test_query_clarification_requires_query() -> None:
+    node = QueryClarificationNode(name="clarifier")
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="requires a non-empty query"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_query_clarification_uses_summary_context_hint() -> None:
+    node = QueryClarificationNode(name="clarifier")
+    state = State(
+        inputs={"query": "Clarify this"},
+        results={"conversation_history": {"summary": "latest summary"}},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["context_hint"] == "latest summary"
+    assert result["needs_clarification"] is True
+
+
+@pytest.mark.asyncio
+async def test_query_clarification_builds_questions_from_history_list() -> None:
+    node = QueryClarificationNode(name="clarifier")
+    state = State(
+        inputs={"query": "Tell me more"},
+        results={"conversation_history": ["first turn", "second turn"]},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["context_hint"] == "second turn"
+    assert result["clarifications"]
+
+
+@pytest.mark.asyncio
+async def test_query_clarification_limits_questions_for_ambiguous_tokens() -> None:
+    node = QueryClarificationNode(name="clarifier", max_questions=1)
+    state = State(
+        inputs={"query": "It or that option"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert len(result["clarifications"]) == 1
+    assert result["clarifications"][0].startswith("What specific item")
+
+
+@pytest.mark.asyncio
+async def test_memory_summarizer_uses_existing_summary_and_configured_ttl() -> None:
+    store = InMemoryMemoryStore()
+    node = MemorySummarizerNode(name="summarizer", memory_store=store)
+    turns = [
+        MemoryTurn(role="user", content="hello there"),
+        MemoryTurn(role="assistant", content="again"),
+    ]
+    state = State(
+        inputs={"session_id": "summarize"},
+        results={
+            "conversation_state": {
+                "summary": "existing summary",
+                "conversation_history": [turn.model_dump() for turn in turns],
+            }
+        },
+        structured_response=None,
+    )
+
+    result = await node.run(state, {"configurable": {"retention_seconds": None}})
+    assert result["summary"] == "existing summary"
+    assert result["ttl_seconds"] is None
+    assert store.summaries["summarize"][0] == "existing summary"
+
+
+def test_memory_summarizer_config_value_handles_none_and_positive() -> None:
+    assert (
+        MemorySummarizerNode._config_value(
+            {"configurable": {"retention_seconds": None}}, "retention_seconds", 10
+        )
+        is None
+    )
+    assert (
+        MemorySummarizerNode._config_value(
+            {"configurable": {"retention_seconds": 20}}, "retention_seconds", 10
+        )
+        == 20
+    )
+
+
+def test_memory_summarizer_config_value_defaults_when_key_missing() -> None:
+    assert (
+        MemorySummarizerNode._config_value(
+            {"configurable": {}}, "retention_seconds", 30
+        )
+        == 30
+    )
+
+
+def test_memory_summarizer_config_value_rejects_invalid_override() -> None:
+    assert (
+        MemorySummarizerNode._config_value(
+            {"configurable": {"retention_seconds": -5}}, "retention_seconds", 15
+        )
+        == 15
+    )
+
+
+def test_memory_summarizer_config_value_returns_default_without_config() -> None:
+    assert MemorySummarizerNode._config_value(None, "retention_seconds", 12) == 12
+
+
+def test_memory_summarizer_summarize_returns_placeholder_when_empty() -> None:
+    node = MemorySummarizerNode(name="summarizer")
+    assert node._summarize([], max_tokens=5) == "No conversation history yet."
+
+
+@pytest.mark.asyncio
+async def test_memory_summarizer_rejects_nonpositive_retention() -> None:
+    node = MemorySummarizerNode(name="summarizer", retention_seconds=0)
+    state = State(
+        inputs={"session_id": "summarize"},
+        results={"conversation_state": {"conversation_history": []}},
+        structured_response=None,
+    )
+
+    with pytest.raises(ValueError, match="retention_seconds must be positive"):
+        await node.run(state, {"configurable": {"retention_seconds": 0}})
+
+
+@pytest.mark.asyncio
 async def test_conversation_compressor_validates_history_payload() -> None:
     node = ConversationCompressorNode(name="compressor")
     state = State(
@@ -379,15 +881,6 @@ async def test_query_clarification_handles_or_branch_and_summary_hint() -> None:
 
     assert "option" in " ".join(result["clarifications"])
     assert result["context_hint"] == "previous summary"
-
-
-@pytest.mark.asyncio
-async def test_query_clarification_requires_query() -> None:
-    node = QueryClarificationNode(name="clarify")
-    state = State(inputs={}, results={}, structured_response=None)
-
-    with pytest.raises(ValueError, match="requires a non-empty query"):
-        await node.run(state, {})
 
 
 @pytest.mark.asyncio
