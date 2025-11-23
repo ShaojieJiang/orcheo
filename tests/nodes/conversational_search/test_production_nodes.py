@@ -1,10 +1,8 @@
-import pytest
 import time
-
 import pytest
+from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.conversation import InMemoryMemoryStore
-from orcheo.nodes.conversational_search.vector_store import BaseVectorStore
 from orcheo.nodes.conversational_search.models import DocumentChunk, SearchResult
 from orcheo.nodes.conversational_search.production import (
     AnswerCachingNode,
@@ -17,8 +15,10 @@ from orcheo.nodes.conversational_search.production import (
     SourceRouterNode,
     StreamingGeneratorNode,
 )
-from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-from pydantic import Field
+from orcheo.nodes.conversational_search.vector_store import (
+    BaseVectorStore,
+    InMemoryVectorStore,
+)
 
 
 class FlakyVectorStore(InMemoryVectorStore):
