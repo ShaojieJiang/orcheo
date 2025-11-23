@@ -45,6 +45,17 @@ class BaseMemoryStore(ABC, BaseModel):
     async def append_turn(self, session_id: str, turn: MemoryTurn) -> None:
         """Persist ``turn`` for the provided ``session_id``."""
 
+    async def batch_append_turns(
+        self, session_id: str, turns: Iterable[MemoryTurn]
+    ) -> None:
+        """Persist multiple ``turns`` for ``session_id`` using ``append_turn``.
+
+        Stores can override for efficiency; the default implementation appends
+        sequentially.
+        """
+        for turn in turns:
+            await self.append_turn(session_id, turn)
+
     @abstractmethod
     async def prune(self, session_id: str, max_turns: int | None = None) -> None:
         """Remove oldest turns to enforce ``max_turns`` when specified."""
@@ -69,6 +80,17 @@ class InMemoryMemoryStore(BaseMemoryStore):
 
     sessions: dict[str, list[MemoryTurn]] = Field(default_factory=dict)
     summaries: dict[str, tuple[str, float | None]] = Field(default_factory=dict)
+    session_last_updated: dict[str, float] = Field(default_factory=dict)
+    max_sessions: int | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum concurrent sessions before evicting the stalest one.",
+    )
+    max_total_turns: int | None = Field(
+        default=None,
+        gt=0,
+        description="Global cap on stored turns across all sessions.",
+    )
 
     async def load_history(
         self, session_id: str, limit: int | None = None
@@ -81,7 +103,20 @@ class InMemoryMemoryStore(BaseMemoryStore):
 
     async def append_turn(self, session_id: str, turn: MemoryTurn) -> None:
         """Append ``turn`` to the session history."""
+        await self._ensure_capacity(session_id, incoming_count=1)
         self.sessions.setdefault(session_id, []).append(turn)
+        self.session_last_updated[session_id] = time.time()
+
+    async def batch_append_turns(
+        self, session_id: str, turns: Iterable[MemoryTurn]
+    ) -> None:
+        """Append multiple turns while enforcing store capacity."""
+        turns_list = list(turns)
+        if not turns_list:
+            return
+        await self._ensure_capacity(session_id, incoming_count=len(turns_list))
+        self.sessions.setdefault(session_id, []).extend(turns_list)
+        self.session_last_updated[session_id] = time.time()
 
     async def prune(self, session_id: str, max_turns: int | None = None) -> None:
         """Trim history to ``max_turns`` turns when provided."""
@@ -115,6 +150,83 @@ class InMemoryMemoryStore(BaseMemoryStore):
         """Delete stored turns and summaries for ``session_id``."""
         self.sessions.pop(session_id, None)
         self.summaries.pop(session_id, None)
+        self.session_last_updated.pop(session_id, None)
+
+    def load_history_sync(
+        self, session_id: str, limit: int | None = None
+    ) -> list[MemoryTurn]:
+        """Synchronous variant of :meth:`load_history` for local use."""
+        history = self.sessions.get(session_id, [])
+        if limit is None:
+            return list(history)
+        return list(history[-limit:])
+
+    def append_turn_sync(self, session_id: str, turn: MemoryTurn) -> None:
+        """Synchronous wrapper around :meth:`append_turn`."""
+        self._ensure_capacity_sync(session_id, incoming_count=1)
+        self.sessions.setdefault(session_id, []).append(turn)
+        self.session_last_updated[session_id] = time.time()
+
+    def clear_sync(self, session_id: str) -> None:
+        """Synchronous wrapper around :meth:`clear`."""
+        self.sessions.pop(session_id, None)
+        self.summaries.pop(session_id, None)
+        self.session_last_updated.pop(session_id, None)
+
+    def _ensure_capacity_sync(self, session_id: str, incoming_count: int) -> None:
+        now = time.time()
+        self.session_last_updated.setdefault(session_id, now)
+
+        if self.max_sessions is not None and session_id not in self.sessions:
+            if len(self.sessions) >= self.max_sessions:
+                self._evict_stalest_session_sync()
+
+        if self.max_total_turns is not None and self.max_total_turns > 0:
+            current_turns = sum(len(turns) for turns in self.sessions.values())
+            projected = current_turns + incoming_count
+            while projected > self.max_total_turns and self.session_last_updated:
+                stalest_session = min(
+                    self.session_last_updated,
+                    key=lambda key: self.session_last_updated.get(key, 0.0),
+                )
+                turns_removed = len(self.sessions.get(stalest_session, []))
+                self.clear_sync(stalest_session)
+                projected -= turns_removed
+
+    def _evict_stalest_session_sync(self) -> None:
+        if not self.session_last_updated:
+            return
+        stalest_session = min(
+            self.session_last_updated,
+            key=lambda key: self.session_last_updated.get(key, 0.0),
+        )
+        self.clear_sync(stalest_session)
+
+    async def _ensure_capacity(self, session_id: str, incoming_count: int) -> None:
+        """Enforce session and global turn limits before appending."""
+        now = time.time()
+        self.session_last_updated.setdefault(session_id, now)
+
+        if self.max_sessions is not None and session_id not in self.sessions:
+            if len(self.sessions) >= self.max_sessions:
+                await self._evict_stalest_session()
+
+        if self.max_total_turns is not None and self.max_total_turns > 0:
+            current_turns = sum(len(turns) for turns in self.sessions.values())
+            projected = current_turns + incoming_count
+            while projected > self.max_total_turns and self.session_last_updated:
+                await self._evict_stalest_session()
+                projected = sum(len(turns) for turns in self.sessions.values())
+
+    async def _evict_stalest_session(self) -> None:
+        """Remove the least recently updated session to honor ``max_sessions``."""
+        if not self.session_last_updated:
+            return
+        stalest_session = min(
+            self.session_last_updated,
+            key=lambda key: self.session_last_updated.get(key, 0.0),
+        )
+        await self.clear(stalest_session)
 
 
 @registry.register(
@@ -154,20 +266,24 @@ class ConversationStateNode(TaskNode):
             raise ValueError(msg)
         session_id = session_id_raw.strip()
 
-        history = await self.memory_store.load_history(session_id, limit=self.max_turns)
+        max_turns = self._config_value(config, "max_turns", default=self.max_turns)
+        history = await self.memory_store.load_history(session_id, limit=max_turns)
 
         append_candidates: list[tuple[str, Literal["user", "assistant"]]] = [
             (self.user_message_key, "user"),
             (self.assistant_message_key, "assistant"),
         ]
-        for key, role in append_candidates:
-            message = state.get("inputs", {}).get(key)
-            if isinstance(message, str) and message.strip():
-                turn = MemoryTurn(role=role, content=message)
-                await self.memory_store.append_turn(session_id, turn)
+        turns_to_append = [
+            MemoryTurn(role=role, content=message)
+            for key, role in append_candidates
+            if isinstance((message := state.get("inputs", {}).get(key)), str)
+            and message.strip()
+        ]
+        if turns_to_append:
+            await self.memory_store.batch_append_turns(session_id, turns_to_append)
 
-        await self.memory_store.prune(session_id, max_turns=self.max_turns)
-        history = await self.memory_store.load_history(session_id, limit=self.max_turns)
+        await self.memory_store.prune(session_id, max_turns=max_turns)
+        history = await self.memory_store.load_history(session_id, limit=max_turns)
         summary = await self.memory_store.get_summary(session_id)
 
         return {
@@ -175,8 +291,17 @@ class ConversationStateNode(TaskNode):
             "conversation_history": [turn.model_dump() for turn in history],
             "turn_count": len(history),
             "summary": summary,
-            "truncated": len(history) >= self.max_turns,
+            "truncated": len(history) >= max_turns,
         }
+
+    @staticmethod
+    def _config_value(config: RunnableConfig, key: str, default: int) -> int:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            override = configurable.get(key)
+            if isinstance(override, int) and override > 0:
+                return override
+        return default
 
 
 @registry.register(
@@ -217,15 +342,18 @@ class ConversationCompressorNode(TaskNode):
             msg = "ConversationCompressorNode requires at least one turn to compress"
             raise ValueError(msg)
 
+        max_tokens = self._config_value(config, "max_tokens", self.max_tokens)
+        preserve_recent = self._config_value(
+            config, "preserve_recent", self.preserve_recent
+        )
+
         compressed: list[MemoryTurn] = []
         token_total = 0
         truncated = False
 
         for index, turn in enumerate(reversed(turns)):
             tokens = self._token_count(turn.content)
-            should_keep = (
-                index < self.preserve_recent or token_total + tokens <= self.max_tokens
-            )
+            should_keep = index < preserve_recent or token_total + tokens <= max_tokens
             if not should_keep:
                 truncated = True
                 continue
@@ -234,7 +362,7 @@ class ConversationCompressorNode(TaskNode):
 
         compressed.reverse()
         summary_source = compressed or turns
-        summary = self._summarize(summary_source, token_limit=self.max_tokens)
+        summary = self._summarize(summary_source, token_limit=max_tokens)
 
         return {
             "compressed_history": [turn.model_dump() for turn in compressed],
@@ -243,13 +371,22 @@ class ConversationCompressorNode(TaskNode):
             "truncated": truncated,
         }
 
+    @staticmethod
+    def _config_value(config: RunnableConfig, key: str, default: int) -> int:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            candidate = configurable.get(key)
+            if isinstance(candidate, int) and candidate > 0:
+                return candidate
+        return default
+
     def _extract_history(self, source: Any) -> list[dict[str, Any]]:
         if isinstance(source, dict) and self.history_key in source:
             history_payload = source[self.history_key]
         else:
             history_payload = source
         if not isinstance(history_payload, list):
-            msg = "conversation_history must be provided as a list"
+            msg = "conversation_history must be a list of turn dictionaries"
             raise ValueError(msg)
         return history_payload
 
@@ -337,6 +474,12 @@ class TopicShiftDetectorNode(TaskNode):
             raise ValueError(msg)
         query = query_raw.strip()
 
+        similarity_threshold = self._config_value(
+            config, "similarity_threshold", self.similarity_threshold
+        )
+        recent_turns = self._config_int_value(config, "recent_turns", self.recent_turns)
+        stopwords = self._config_stopwords(config)
+
         history_payload = state.get("results", {}).get(self.source_result_key, {})
         turns_raw = self._extract_turns(history_payload)
         if not turns_raw:
@@ -347,11 +490,9 @@ class TopicShiftDetectorNode(TaskNode):
                 "reason": "no_history",
             }
 
-        window = [MemoryTurn.model_validate(turn) for turn in turns_raw][
-            -self.recent_turns :
-        ]
-        similarity = self._jaccard_similarity(query, window)
-        is_shift = similarity < self.similarity_threshold
+        window = [MemoryTurn.model_validate(turn) for turn in turns_raw][-recent_turns:]
+        similarity = self._jaccard_similarity(query, window, stopwords)
+        is_shift = similarity < similarity_threshold
         route = "clarify" if is_shift else "continue"
 
         return {
@@ -360,6 +501,32 @@ class TopicShiftDetectorNode(TaskNode):
             "route": route,
             "reason": "low_overlap" if is_shift else "aligned",
         }
+
+    @staticmethod
+    def _config_value(config: RunnableConfig, key: str, default: float) -> float:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            override = configurable.get(key)
+            if isinstance(override, (int, float)):
+                return override
+        return default
+
+    @staticmethod
+    def _config_int_value(config: RunnableConfig, key: str, default: int) -> int:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            override = configurable.get(key)
+            if isinstance(override, int) and override > 0:
+                return override
+        return default
+
+    def _config_stopwords(self, config: RunnableConfig) -> set[str]:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            override = configurable.get("stopwords")
+            if isinstance(override, Iterable):
+                return {token for token in override if isinstance(token, str)}
+        return set(self.stopwords)
 
     def _extract_turns(self, payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict) and self.history_key in payload:
@@ -373,15 +540,18 @@ class TopicShiftDetectorNode(TaskNode):
             raise ValueError(msg)
         return turns
 
-    def _tokenize(self, text: str) -> set[str]:
+    def _tokenize(self, text: str, stopwords: set[str]) -> set[str]:
         tokens = {token.lower() for token in text.split()}
-        return {token for token in tokens if token and token not in self.stopwords}
+        return {token for token in tokens if token and token not in stopwords}
 
-    def _jaccard_similarity(self, query: str, turns: Iterable[MemoryTurn]) -> float:
-        query_tokens = self._tokenize(query)
+    def _jaccard_similarity(
+        self, query: str, turns: Iterable[MemoryTurn], stopwords: set[str] | None = None
+    ) -> float:
+        active_stopwords = stopwords or set(self.stopwords)
+        query_tokens = self._tokenize(query, active_stopwords)
         history_tokens: set[str] = set()
         for turn in turns:
-            history_tokens |= self._tokenize(turn.content)
+            history_tokens |= self._tokenize(turn.content, active_stopwords)
         if not history_tokens or not query_tokens:
             return 0.0
         intersection = len(query_tokens & history_tokens)
@@ -498,6 +668,13 @@ class MemorySummarizerNode(TaskNode):
             raise ValueError(msg)
         session_id = session_id_raw.strip()
 
+        retention_seconds = self._config_value(
+            config, "retention_seconds", self.retention_seconds
+        )
+        max_summary_tokens = self._config_value(
+            config, "max_summary_tokens", self.max_summary_tokens
+        )
+
         context = state.get("results", {}).get(self.source_result_key, {})
         summary = None
         if isinstance(context, dict):
@@ -508,30 +685,44 @@ class MemorySummarizerNode(TaskNode):
 
         turns = [MemoryTurn.model_validate(item) for item in history_payload]
         if summary is None:
-            summary = self._summarize(turns)
+            summary = self._summarize(turns, max_summary_tokens)
 
-        if self.retention_seconds is not None and self.retention_seconds <= 0:
+        if retention_seconds is not None and retention_seconds <= 0:
             msg = "retention_seconds must be positive when provided"
             raise ValueError(msg)
 
         await self.memory_store.write_summary(
-            session_id, summary=summary, ttl_seconds=self.retention_seconds
+            session_id, summary=summary, ttl_seconds=retention_seconds
         )
 
         return {
             "summary": summary,
             "turns_summarized": len(turns),
-            "ttl_seconds": self.retention_seconds,
+            "ttl_seconds": retention_seconds,
         }
 
-    def _summarize(self, turns: list[MemoryTurn]) -> str:
+    @staticmethod
+    def _config_value(
+        config: RunnableConfig, key: str, default: int | None
+    ) -> int | None:
+        if isinstance(config, dict):
+            configurable = config.get("configurable") or {}
+            if key in configurable:
+                override = configurable.get(key)
+                if isinstance(override, int) and override > 0:
+                    return override
+                if override is None:
+                    return None
+        return default
+
+    def _summarize(self, turns: list[MemoryTurn], max_tokens: int | None) -> str:
         if not turns:
             return "No conversation history yet."
         buffer: list[str] = []
         token_total = 0
         for turn in turns:
             tokens = len(turn.content.split())
-            if token_total + tokens > self.max_summary_tokens:
+            if max_tokens is not None and token_total + tokens > max_tokens:
                 buffer.append("...")
                 break
             buffer.append(f"{turn.role}: {turn.content}")

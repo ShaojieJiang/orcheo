@@ -150,6 +150,29 @@ async def test_memory_store_retains_history_when_summary_expires() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_store_enforces_session_and_turn_capacity() -> None:
+    store = InMemoryMemoryStore(max_sessions=2, max_total_turns=3)
+
+    await store.append_turn("sess-1", MemoryTurn(role="user", content="hello"))
+    await store.append_turn("sess-1", MemoryTurn(role="assistant", content="hi"))
+    await store.append_turn("sess-2", MemoryTurn(role="user", content="hey"))
+
+    # Adding a third session should evict the stalest (sess-1)
+    await store.append_turn("sess-3", MemoryTurn(role="user", content="welcome"))
+
+    assert "sess-1" not in store.sessions
+    assert "sess-2" in store.sessions
+    assert "sess-3" in store.sessions
+
+    # Global turn limit should evict older sessions when exceeded
+    await store.append_turn("sess-2", MemoryTurn(role="assistant", content="reply"))
+    await store.append_turn("sess-3", MemoryTurn(role="assistant", content="reply"))
+
+    total_turns = sum(len(turns) for turns in store.sessions.values())
+    assert total_turns <= store.max_total_turns
+
+
+@pytest.mark.asyncio
 async def test_conversation_state_requires_session_id() -> None:
     node = ConversationStateNode(name="conversation_state")
     state = State(inputs={}, results={}, structured_response=None)
@@ -159,15 +182,30 @@ async def test_conversation_state_requires_session_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_conversation_state_honors_configurable_max_turns() -> None:
+    node = ConversationStateNode(name="conversation_state", max_turns=5)
+    state = State(
+        inputs={"session_id": "cfg", "user_message": "first"},
+        results={},
+        structured_response=None,
+    )
+
+    await node.run(state, {"configurable": {"max_turns": 1}})
+    state["inputs"]["user_message"] = "second"
+    result = await node.run(state, {"configurable": {"max_turns": 1}})
+
+    assert result["turn_count"] == 1
+    assert result["conversation_history"][0]["content"] == "second"
+
+
+@pytest.mark.asyncio
 async def test_conversation_compressor_validates_history_payload() -> None:
     node = ConversationCompressorNode(name="compressor")
     state = State(
         inputs={}, results={"conversation_state": {}}, structured_response=None
     )
 
-    with pytest.raises(
-        ValueError, match="conversation_history must be provided as a list"
-    ):
+    with pytest.raises(ValueError, match="conversation_history must be a list"):
         await node.run(state, {})
 
 
@@ -182,6 +220,32 @@ async def test_conversation_compressor_requires_turns() -> None:
 
     with pytest.raises(ValueError, match="requires at least one turn"):
         await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_conversation_compressor_honors_config_overrides() -> None:
+    node = ConversationCompressorNode(
+        name="compressor", max_tokens=10, preserve_recent=1
+    )
+    state = State(
+        inputs={},
+        results={
+            "conversation_state": {
+                "conversation_history": [
+                    {"role": "user", "content": "one two three four"},
+                    {"role": "assistant", "content": "five six seven eight"},
+                    {"role": "user", "content": "nine ten eleven twelve"},
+                ]
+            }
+        },
+        structured_response=None,
+    )
+
+    config = {"configurable": {"max_tokens": 4, "preserve_recent": 2}}
+    result = await node.run(state, config)
+
+    assert result["truncated"] is True
+    assert len(result["compressed_history"]) == 2
 
 
 @pytest.mark.asyncio
@@ -227,6 +291,28 @@ async def test_topic_shift_detector_handles_missing_history() -> None:
 
     assert result["route"] == "continue"
     assert result["reason"] == "no_history"
+
+
+@pytest.mark.asyncio
+async def test_topic_shift_detector_supports_runtime_overrides() -> None:
+    node = TopicShiftDetectorNode(name="shift")
+    state = State(
+        inputs={"query": "Discuss the project"},
+        results={
+            "conversation_state": {
+                "conversation_history": [
+                    {"role": "user", "content": "Tell me about the project"}
+                ]
+            }
+        },
+        structured_response=None,
+    )
+
+    config = {"configurable": {"similarity_threshold": 0.9, "stopwords": {"project"}}}
+    result = await node.run(state, config)
+
+    assert result["is_shift"] is True
+    assert result["reason"] == "low_overlap"
 
 
 @pytest.mark.asyncio
@@ -333,6 +419,30 @@ async def test_memory_summarizer_persists_summary_with_ttl() -> None:
     assert summary is not None
     assert result["summary"] == summary
     assert result["ttl_seconds"] == 10
+
+
+@pytest.mark.asyncio
+async def test_memory_summarizer_respects_configurable_ttl_and_budget() -> None:
+    store = InMemoryMemoryStore()
+    node = MemorySummarizerNode(name="summarizer", memory_store=store)
+    state = State(
+        inputs={"session_id": "sess-ttl"},
+        results={
+            "conversation_state": {
+                "conversation_history": [
+                    {"role": "user", "content": "short"},
+                    {"role": "assistant", "content": "a very long assistant reply"},
+                ]
+            }
+        },
+        structured_response=None,
+    )
+
+    config = {"configurable": {"retention_seconds": 5, "max_summary_tokens": 2}}
+    result = await node.run(state, config)
+
+    assert result["ttl_seconds"] == 5
+    assert result["summary"].endswith("...")
 
 
 @pytest.mark.asyncio
