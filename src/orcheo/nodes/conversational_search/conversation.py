@@ -3,7 +3,7 @@
 from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -728,3 +728,174 @@ class MemorySummarizerNode(TaskNode):
             buffer.append(f"{turn.role}: {turn.content}")
             token_total += tokens
         return " | ".join(buffer)
+
+
+@registry.register(
+    NodeMetadata(
+        name="AnswerCachingNode",
+        description="Cache and reuse recent answers with TTL policies.",
+        category="conversational_search",
+    )
+)
+class AnswerCachingNode(TaskNode):
+    """Memoize responses for repeated queries."""
+
+    query_key: str = Field(default="query", description="Key containing the user query")
+    response_result_key: str = Field(
+        default="grounded_generator",
+        description="Upstream result containing a response",
+    )
+    response_field: str = Field(
+        default="response", description="Field name for the answer to cache"
+    )
+    ttl_seconds: int = Field(
+        default=300, gt=0, description="Time to live for cache entries"
+    )
+    max_size: int = Field(default=128, gt=0, description="Maximum cache entries")
+    time_provider: Callable[[], float] = Field(default=time.time, repr=False)
+
+    cache: dict[str, tuple[str, float]] = Field(default_factory=dict)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return cached responses when valid, otherwise record new entries."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "AnswerCachingNode requires a non-empty query"
+            raise ValueError(msg)
+        normalized_query = query.strip().lower()
+
+        now = self.time_provider()
+        cached = self.cache.get(normalized_query)
+        if cached and now - cached[1] <= self.ttl_seconds:
+            return {"hit": True, "response": cached[0], "cached_at": cached[1]}
+
+        payload = state.get("results", {}).get(self.response_result_key, {})
+        response = (
+            payload.get(self.response_field) if isinstance(payload, dict) else None
+        )
+        if isinstance(response, str) and response.strip():
+            self._evict_if_needed()
+            self.cache[normalized_query] = (response, now)
+            return {"hit": False, "response": response, "cached_at": now}
+
+        return {"hit": False, "response": None, "cached_at": None}
+
+    def _evict_if_needed(self) -> None:
+        if len(self.cache) < self.max_size:
+            return
+        stalest_key = min(self.cache, key=lambda key: self.cache[key][1])
+        self.cache.pop(stalest_key, None)
+
+
+@registry.register(
+    NodeMetadata(
+        name="SessionManagementNode",
+        description="Enforce session TTL and idle timeouts with cleanup hooks.",
+        category="conversational_search",
+    )
+)
+class SessionManagementNode(TaskNode):
+    """Manage session lifecycle and cleanup memory when expired."""
+
+    session_id_key: str = Field(
+        default="session_id", description="Key within inputs containing the session id"
+    )
+    ttl_seconds: int = Field(default=1800, gt=0, description="Absolute session TTL")
+    idle_timeout_seconds: int = Field(
+        default=900, gt=0, description="Idle timeout before session is cleared"
+    )
+    memory_store: BaseMemoryStore = Field(
+        default_factory=InMemoryMemoryStore,
+        description="Memory store cleared when sessions expire",
+    )
+    time_provider: Callable[[], float] = Field(default=time.time, repr=False)
+
+    session_started: dict[str, float] = Field(default_factory=dict)
+    session_last_seen: dict[str, float] = Field(default_factory=dict)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Enforce TTL and idle policies before allowing session continuation."""
+        session_id_raw = state.get("inputs", {}).get(self.session_id_key)
+        if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+            msg = "SessionManagementNode requires a non-empty session id"
+            raise ValueError(msg)
+        session_id = session_id_raw.strip()
+
+        now = self.time_provider()
+        self.session_started.setdefault(session_id, now)
+        last_seen = self.session_last_seen.get(session_id, now)
+
+        expired = (now - self.session_started[session_id]) > self.ttl_seconds
+        idle_expired = (now - last_seen) > self.idle_timeout_seconds
+
+        cleared = False
+        if expired or idle_expired:
+            await self.memory_store.clear(session_id)
+            cleared = True
+            self.session_started[session_id] = now
+
+        self.session_last_seen[session_id] = now
+        return {
+            "session_id": session_id,
+            "expired": expired,
+            "idle_expired": idle_expired,
+            "cleared": cleared,
+        }
+
+
+@registry.register(
+    NodeMetadata(
+        name="MultiHopPlannerNode",
+        description="Create sequential retrieval hops for complex queries.",
+        category="conversational_search",
+    )
+)
+class MultiHopPlannerNode(TaskNode):
+    """Plan multi-hop retrieval steps with simple heuristics."""
+
+    query_key: str = Field(default="query", description="Key holding the user query")
+    max_hops: int = Field(default=3, gt=0, description="Maximum number of hops to emit")
+    max_total_tokens: int = Field(
+        default=256, gt=0, description="Token budget across all hops"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Produce a bounded list of retrieval hops derived from the query."""
+        query_raw = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query_raw, str) or not query_raw.strip():
+            msg = "MultiHopPlannerNode requires a non-empty query"
+            raise ValueError(msg)
+        query = query_raw.strip()
+
+        clauses = [
+            segment.strip()
+            for segment in query.replace("?", "").split(" and ")
+            if segment.strip()
+        ]
+        if not clauses:
+            clauses = [query]
+
+        hops: list[dict[str, Any]] = []
+        token_total = 0
+        for index, clause in enumerate(clauses, start=1):
+            if len(hops) >= self.max_hops:
+                break
+            tokens = len(clause.split())
+            if token_total + tokens > self.max_total_tokens:
+                break
+            hops.append(
+                {
+                    "step": index,
+                    "goal": clause,
+                    "estimated_tokens": tokens,
+                }
+            )
+            token_total += tokens
+
+        truncated = len(hops) < len(clauses)
+        return {
+            "plan": hops,
+            "total_steps": len(hops),
+            "truncated": truncated,
+            "token_total": token_total,
+        }

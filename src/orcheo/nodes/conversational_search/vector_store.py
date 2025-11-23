@@ -28,6 +28,12 @@ class BaseVectorStore(ABC, BaseModel):
     ) -> list[SearchResult]:
         """Return the top matching records for ``query``."""
 
+    async def delete(
+        self, record_ids: Iterable[str]
+    ) -> None:  # pragma: no cover - optional
+        """Optionally delete ``record_ids`` from the store when supported."""
+        raise NotImplementedError
+
 
 class InMemoryVectorStore(BaseVectorStore):
     """Simple in-memory vector store useful for testing and local dev."""
@@ -71,6 +77,11 @@ class InMemoryVectorStore(BaseVectorStore):
 
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored[:top_k]
+
+    async def delete(self, record_ids: Iterable[str]) -> None:
+        """Remove records by id when present."""
+        for record_id in record_ids:
+            self.records.pop(record_id, None)
 
     def list(self) -> list[VectorRecord]:  # pragma: no cover - helper
         """Return a copy of stored records for inspection."""

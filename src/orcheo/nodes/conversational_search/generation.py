@@ -3,7 +3,7 @@
 from __future__ import annotations
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -14,6 +14,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 LLMCallable = Callable[[str, int, float], str | Awaitable[str]]
+StreamCallable = Callable[[str, int, float], AsyncIterator[str] | Iterable[str]]
 
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
@@ -193,3 +194,204 @@ class GroundedGeneratorNode(TaskNode):
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
         return len((prompt + completion).split())
+
+
+@registry.register(
+    NodeMetadata(
+        name="StreamingGeneratorNode",
+        description="Stream grounded answers with backpressure and retry controls.",
+        category="conversational_search",
+    )
+)
+class StreamingGeneratorNode(GroundedGeneratorNode):
+    """Stream responses while enforcing buffer limits."""
+
+    streaming_llm: StreamCallable | None = Field(
+        default=None,
+        description=(
+            "Callable yielding completion tokens asynchronously. Falls back to a "
+            "deterministic iterator when omitted."
+        ),
+    )
+    max_buffer: int = Field(
+        default=128,
+        gt=0,
+        description="Maximum number of tokens buffered before triggering backpressure.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Stream a response while retrying on transient failures."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "StreamingGeneratorNode requires a non-empty query string"
+            raise ValueError(msg)
+
+        context = self._resolve_context(state)
+        if not context:
+            msg = "StreamingGeneratorNode requires at least one context document"
+            raise ValueError(msg)
+
+        prompt = self._build_prompt(query.strip(), context)
+        segments, attempts = await self._stream_with_retries(prompt)
+        response = self._attach_citations(
+            "".join(segments), self._build_citations(context)
+        )
+
+        return {
+            "response": response,
+            "segments": segments,
+            "attempts": attempts,
+            "buffer_size": len(segments),
+        }
+
+    async def _stream_with_retries(self, prompt: str) -> tuple[list[str], int]:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                segments = await self._consume_stream(prompt)
+                return segments, attempt + 1
+            except Exception as exc:  # pragma: no cover - retry guard
+                last_error = exc
+                if attempt == self.max_retries:
+                    raise
+                delay = self.backoff_seconds * (2**attempt)
+                await asyncio.sleep(delay)
+        raise RuntimeError("Streaming generation failed") from last_error
+
+    async def _consume_stream(self, prompt: str) -> list[str]:
+        generator = self.streaming_llm or self._default_streaming_llm
+        stream = generator(prompt, self.max_tokens, self.temperature)
+        segments: list[str] = []
+
+        if inspect.isasyncgen(stream) or hasattr(stream, "__aiter__"):
+            async for chunk in stream:  # type: ignore[misc]
+                segments.append(self._normalize_chunk(chunk))
+                if len(segments) > self.max_buffer:
+                    raise BufferError("stream buffer exceeded")
+        else:
+            if not isinstance(stream, Iterable):
+                msg = "Streaming LLM must return an iterator of strings"
+                raise TypeError(msg)
+            for chunk in stream:
+                segments.append(self._normalize_chunk(chunk))
+                if len(segments) > self.max_buffer:
+                    raise BufferError("stream buffer exceeded")
+        return segments
+
+    @staticmethod
+    def _normalize_chunk(chunk: Any) -> str:
+        if not isinstance(chunk, str):
+            msg = "Streaming LLM must yield string segments"
+            raise TypeError(msg)
+        return chunk
+
+    def _default_streaming_llm(
+        self, prompt: str, max_tokens: int, temperature: float
+    ) -> Iterable[str]:
+        del max_tokens, temperature
+        for word in prompt.split():
+            yield f"{word} "
+
+
+@registry.register(
+    NodeMetadata(
+        name="HallucinationGuardNode",
+        description="Detect risky responses and route to fallback flows.",
+        category="conversational_search",
+    )
+)
+class HallucinationGuardNode(TaskNode):
+    """Lightweight guardrail for hallucination-prone responses."""
+
+    source_result_key: str = Field(
+        default="grounded_generator", description="Upstream result containing response"
+    )
+    response_field: str = Field(
+        default="response", description="Field name holding the generated response"
+    )
+    citations_field: str = Field(
+        default="citations", description="Field containing citation payloads"
+    )
+    require_citations: bool = Field(
+        default=True,
+        description="Whether responses must include citations to be considered safe.",
+    )
+    banned_keywords: set[str] = Field(
+        default_factory=lambda: {"hallucination", "fabricated", "invented"},
+        description="Keywords that trigger a guardrail failure when present.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Apply lightweight hallucination checks to a response payload."""
+        payload = state.get("results", {}).get(self.source_result_key, {})
+        response = (
+            payload.get(self.response_field) if isinstance(payload, dict) else None
+        )
+        citations = (
+            payload.get(self.citations_field) if isinstance(payload, dict) else None
+        )
+
+        if not isinstance(response, str) or not response.strip():
+            msg = "HallucinationGuardNode requires a non-empty response"
+            raise ValueError(msg)
+
+        flags: list[str] = []
+        normalized = response.lower()
+        if self.require_citations:
+            has_citations = isinstance(citations, list) and len(citations) > 0
+            if not has_citations:
+                flags.append("missing_citations")
+        for keyword in self.banned_keywords:
+            if keyword in normalized:
+                flags.append("banned_keyword")
+
+        status = "ok" if not flags else "blocked"
+        route = "proceed" if status == "ok" else "fallback"
+        return {
+            "status": status,
+            "route": route,
+            "flags": flags,
+            "response": response,
+            "citations": citations or [],
+        }
+
+
+@registry.register(
+    NodeMetadata(
+        name="CitationsFormatterNode",
+        description="Normalize citation payloads for client rendering.",
+        category="conversational_search",
+    )
+)
+class CitationsFormatterNode(TaskNode):
+    """Produce structured citation objects with user-friendly fields."""
+
+    source_result_key: str = Field(
+        default="grounded_generator", description="Upstream result containing citations"
+    )
+    citations_field: str = Field(
+        default="citations", description="Field holding raw citation payloads"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Normalize citation payloads for downstream rendering."""
+        payload = state.get("results", {}).get(self.source_result_key, {})
+        citations = (
+            payload.get(self.citations_field) if isinstance(payload, dict) else None
+        )
+        if citations is None:
+            return {"citations": []}
+        if not isinstance(citations, list):
+            msg = "citations payload must be a list"
+            raise ValueError(msg)
+
+        formatted = [
+            {
+                "id": str(index + 1),
+                "source_id": entry.get("source_id") or entry.get("id"),
+                "snippet": _truncate_snippet(str(entry.get("snippet", "")), limit=120),
+                "sources": entry.get("sources") or [],
+            }
+            for index, entry in enumerate(citations)
+        ]
+        return {"citations": formatted}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import inspect
 import math
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -331,3 +332,107 @@ class HybridFusionNode(TaskNode):
                 if source not in fused_entry.sources:
                     fused_entry.sources.append(source)
         return fused
+
+
+@registry.register(
+    NodeMetadata(
+        name="ReRankerNode",
+        description="Re-score retrieval results using a secondary model or heuristic.",
+        category="conversational_search",
+    )
+)
+class ReRankerNode(TaskNode):
+    """Re-rank retrieval results with a configurable scoring function."""
+
+    source_result_key: str = Field(
+        default="retriever", description="Upstream result key containing candidates"
+    )
+    results_field: str = Field(
+        default="results", description="Field holding raw SearchResult payloads"
+    )
+    scoring_function: Callable[[SearchResult], float | Awaitable[float]] | None = Field(
+        default=None,
+        description="Optional callable returning a rerank score for each result.",
+    )
+    top_k: int = Field(default=10, gt=0, description="Maximum reranked results")
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Re-rank results using the configured scoring function."""
+        payload = state.get("results", {}).get(self.source_result_key, {})
+        entries = payload.get(self.results_field) if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            msg = "ReRankerNode requires a list of results"
+            raise ValueError(msg)
+
+        results = [SearchResult.model_validate(item) for item in entries]
+        scored: list[tuple[SearchResult, float]] = []
+        for result in results:
+            score = await self._score(result)
+            scored.append((result, score))
+
+        reranked = [
+            result.model_copy(
+                update={"score": score, "source": result.source or "rerank"}
+            )
+            for result, score in sorted(scored, key=lambda item: item[1], reverse=True)
+        ][: self.top_k]
+        return {"results": reranked}
+
+    async def _score(self, result: SearchResult) -> float:
+        if self.scoring_function is None:
+            return result.score
+        value = self.scoring_function(result)
+        if inspect.isawaitable(value):
+            value = await value
+        if not isinstance(value, (int, float)):
+            msg = "scoring_function must return a numeric value"
+            raise ValueError(msg)
+        return float(value)
+
+
+@registry.register(
+    NodeMetadata(
+        name="SourceRouterNode",
+        description="Select retrieval sources based on query heuristics.",
+        category="conversational_search",
+    )
+)
+class SourceRouterNode(TaskNode):
+    """Route queries to appropriate retrieval backends."""
+
+    query_key: str = Field(default="query", description="Key holding the user query")
+    keyword_routes: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Mapping of keywords to preferred retriever names.",
+    )
+    default_route: list[str] = Field(
+        default_factory=list,
+        description="Fallback retrievers when no keyword matches are found.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Select retrieval routes based on keyword heuristics."""
+        query_raw = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query_raw, str) or not query_raw.strip():
+            msg = "SourceRouterNode requires a non-empty query"
+            raise ValueError(msg)
+        query = query_raw.lower()
+
+        selected: list[str] = []
+        for keyword, routes in self.keyword_routes.items():
+            if keyword.lower() in query:
+                selected.extend(routes)
+
+        if not selected:
+            selected = list(self.default_route)
+
+        unique_routes = list(dict.fromkeys(selected))
+        if unique_routes:
+            return {"route": unique_routes}
+
+        fallback = list(
+            dict.fromkeys(
+                route for routes in self.keyword_routes.values() for route in routes
+            )
+        )
+        return {"route": fallback}

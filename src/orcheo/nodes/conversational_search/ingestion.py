@@ -3,7 +3,7 @@
 from __future__ import annotations
 import hashlib
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -424,3 +424,123 @@ class EmbeddingIndexerNode(TaskNode):
             msg = "Embedding function must return List[List[float]]"
             raise ValueError(msg)
         return result
+
+
+@registry.register(
+    NodeMetadata(
+        name="IncrementalIndexerNode",
+        description=(
+            "Detect and apply incremental index updates with retry and deletion "
+            "support."
+        ),
+        category="conversational_search",
+    )
+)
+class IncrementalIndexerNode(EmbeddingIndexerNode):
+    """Index only new or changed chunks while handling deletions."""
+
+    delete_missing: bool = Field(
+        default=True,
+        description=(
+            "When enabled, remove records from the backing store that are absent "
+            "from the current payload."
+        ),
+    )
+    max_retries: int = Field(
+        default=2, ge=0, description="Maximum attempts for index mutations"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Identify changes and apply incremental index mutations."""
+        chunks = self._resolve_chunks(state)
+        if not chunks:
+            msg = "IncrementalIndexerNode requires at least one chunk"
+            raise ValueError(msg)
+
+        existing = self._load_existing_checksums()
+        incoming_checksums = {chunk.id: self._checksum(chunk) for chunk in chunks}
+
+        to_upsert = [
+            chunk
+            for chunk in chunks
+            if existing.get(chunk.id) != incoming_checksums[chunk.id]
+        ]
+        unchanged = [
+            chunk.id
+            for chunk in chunks
+            if chunk.id not in {item.id for item in to_upsert}
+        ]
+
+        await self._upsert_with_retry(to_upsert)
+
+        deleted_ids: list[str] = []
+        if self.delete_missing:
+            deleted_ids = [
+                record_id
+                for record_id in existing.keys()
+                if record_id not in incoming_checksums
+            ]
+            await self._delete_records(deleted_ids)
+
+        return {
+            "indexed": len(to_upsert),
+            "skipped": unchanged,
+            "deleted": deleted_ids,
+        }
+
+    async def _upsert_with_retry(self, chunks: list[DocumentChunk]) -> None:
+        embeddings = (
+            await self._embed([chunk.content for chunk in chunks]) if chunks else []
+        )
+        records = [
+            VectorRecord(
+                id=chunk.id,
+                values=vector,
+                text=chunk.content,
+                metadata=chunk.metadata | {"__checksum": self._checksum(chunk)},
+            )
+            for chunk, vector in zip(chunks, embeddings, strict=True)
+        ]
+
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                if records:
+                    await self.vector_store.upsert(records)
+                return
+            except Exception as exc:  # pragma: no cover - retry guard
+                last_error = exc
+                if attempt == self.max_retries:
+                    raise
+        if last_error:
+            raise last_error
+
+    async def _delete_records(self, record_ids: list[str]) -> None:
+        if not record_ids:
+            return
+        delete_callable = getattr(self.vector_store, "delete", None)
+        if delete_callable is None:
+            return
+        result = delete_callable(record_ids)
+        if inspect.isawaitable(result):  # pragma: no cover - defensive
+            await result
+
+    def _load_existing_checksums(self) -> dict[str, str]:
+        existing: dict[str, str] = {}
+        candidates: Iterable[VectorRecord] | None = None
+        if hasattr(self.vector_store, "list"):
+            candidates = self.vector_store.list()
+        elif hasattr(self.vector_store, "records"):
+            candidates = self.vector_store.records.values()
+        if candidates is None:
+            return existing
+        for record in candidates:
+            checksum = record.metadata.get("__checksum") if record.metadata else None
+            if checksum:
+                existing[record.id] = str(checksum)
+        return existing
+
+    @staticmethod
+    def _checksum(chunk: DocumentChunk) -> str:
+        payload = f"{chunk.id}:{chunk.content}:{sorted(chunk.metadata.items())}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
