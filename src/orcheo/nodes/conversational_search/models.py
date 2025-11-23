@@ -1,7 +1,8 @@
 """Data models for conversational search ingestion primitives."""
 
 from __future__ import annotations
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
@@ -89,5 +90,57 @@ class SearchResult(BaseModel):
         default_factory=list,
         description="List of retrievers contributing to this result",
     )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConversationTurn(BaseModel):
+    """Single conversation turn with role and content."""
+
+    role: Literal["user", "assistant", "system"]
+    content: str = Field(min_length=1, description="Message content for the turn")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _normalize_content(self) -> ConversationTurn:
+        self.content = self.content.strip()
+        if not self.content:
+            msg = "Conversation turn content cannot be empty"
+            raise ValueError(msg)
+        return self
+
+
+class ConversationSession(BaseModel):
+    """Conversation session containing history and metadata."""
+
+    session_id: str
+    history: list[ConversationTurn] = Field(default_factory=list)
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
+
+    def append_turn(self, turn: ConversationTurn) -> None:
+        """Append ``turn`` to the session history."""
+        self.history.append(turn)
+
+    def trim_history(self, max_turns: int) -> None:
+        """Trim history to the most recent ``max_turns`` entries."""
+        if max_turns <= 0:
+            return
+        if len(self.history) > max_turns:
+            self.history = self.history[-max_turns:]
+
+
+class MemorySummary(BaseModel):
+    """Persisted episodic summary for a conversation session."""
+
+    session_id: str
+    summary: str = Field(min_length=1, description="Persisted summary text")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
     model_config = ConfigDict(extra="forbid")
