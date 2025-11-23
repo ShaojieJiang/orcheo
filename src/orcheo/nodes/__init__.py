@@ -3,6 +3,14 @@
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.code import PythonCode
 from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
+from orcheo.nodes.conversational_search import (
+    ChunkingStrategyNode,
+    DocumentLoaderNode,
+    EmbeddingIndexerNode,
+    InMemoryVectorStore,
+    MetadataExtractorNode,
+    PineconeVectorStore,
+)
 from orcheo.nodes.data import (
     DataTransformNode,
     HttpRequestNode,
@@ -63,4 +71,10 @@ __all__ = [
     "CronTriggerNode",
     "ManualTriggerNode",
     "HttpPollingTriggerNode",
+    "DocumentLoaderNode",
+    "ChunkingStrategyNode",
+    "MetadataExtractorNode",
+    "EmbeddingIndexerNode",
+    "InMemoryVectorStore",
+    "PineconeVectorStore",
 ]
