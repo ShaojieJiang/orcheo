@@ -124,6 +124,46 @@ async def test_embedding_indexer_uses_default_embedder_and_in_memory_store() -> 
 
 
 @pytest.mark.asyncio
+async def test_embedding_indexer_raises_on_embedding_length_mismatch() -> None:
+    chunks = {
+        "chunks": [
+            {
+                "id": "chunk-1",
+                "document_id": "doc-1",
+                "index": 0,
+                "content": "chunk one",
+                "metadata": {"document_id": "doc-1", "chunk_index": 0},
+            },
+            {
+                "id": "chunk-2",
+                "document_id": "doc-1",
+                "index": 1,
+                "content": "chunk two",
+                "metadata": {"document_id": "doc-1", "chunk_index": 1},
+            },
+        ]
+    }
+    vector_store = InMemoryVectorStore()
+    state = State(
+        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+    )
+
+    def short_embedding_function(texts: list[str]) -> list[list[float]]:
+        return [[0.0] * 4 for _ in texts[:1]]
+
+    node = EmbeddingIndexerNode(
+        name="embedding_indexer",
+        vector_store=vector_store,
+        embedding_function=short_embedding_function,
+    )
+
+    with pytest.raises(ValueError, match="returned 1 embeddings for 2 chunks"):
+        await node.run(state, {})
+
+    assert vector_store.records == {}
+
+
+@pytest.mark.asyncio
 async def test_pinecone_vector_store_dependency_error_message() -> None:
     from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 

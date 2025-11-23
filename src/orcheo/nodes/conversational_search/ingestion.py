@@ -362,6 +362,13 @@ class EmbeddingIndexerNode(TaskNode):
                     raise ValueError(msg)
 
         embeddings = await self._embed([chunk.content for chunk in chunks])
+        if len(embeddings) != len(chunks):
+            msg = (
+                "Embedding function returned "
+                f"{len(embeddings)} embeddings for {len(chunks)} chunks"
+            )
+            raise ValueError(msg)
+
         records = [
             VectorRecord(
                 id=chunk.id,
@@ -369,7 +376,7 @@ class EmbeddingIndexerNode(TaskNode):
                 text=chunk.content,
                 metadata=chunk.metadata,
             )
-            for chunk, vector in zip(chunks, embeddings, strict=False)
+            for chunk, vector in zip(chunks, embeddings, strict=True)
         ]
         await self.vector_store.upsert(records)
 
