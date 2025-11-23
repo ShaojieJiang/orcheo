@@ -150,14 +150,21 @@ class RetrievalEvaluationNode(TaskNode):
         ndcgs: list[float] = []
         maps: list[float] = []
 
+        retrieval_map: dict[str, list[SearchResult]] = {}
+
         for retrieval in retrievals:
             if not isinstance(retrieval, dict):
                 msg = "Retrieval entries must be dictionaries"
                 raise ValueError(msg)
             query = str(retrieval.get("query", "")).strip()
+            if not query:
+                msg = "Retrieval entries must include a query string"
+                raise ValueError(msg)
             results_raw = retrieval.get("results", []) or []
-            results = _normalize_results(results_raw)
-            relevant_ids = ground_truth.get(query, set())
+            retrieval_map[query] = _normalize_results(results_raw)
+
+        for query, relevant_ids in ground_truth.items():
+            results = retrieval_map.get(query, [])
 
             retrieved_ids = [result.id for result in results[: self.top_k]]
             hits = [

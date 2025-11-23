@@ -79,6 +79,48 @@ async def test_retrieval_evaluation_computes_metrics() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieval_evaluation_includes_missing_queries_with_zeros() -> None:
+    dataset = [
+        {
+            "query": "q1",
+            "relevant_documents": ["doc-1"],
+            "reference_answer": "Answer 1",
+        },
+        {
+            "query": "q2",
+            "relevant_documents": ["doc-2"],
+            "reference_answer": "Answer 2",
+        },
+    ]
+    retrievals = [
+        {
+            "query": "q1",
+            "results": [
+                SearchResult(id="doc-1", score=1.0, text="a", metadata={}),
+            ],
+        }
+    ]
+
+    node = RetrievalEvaluationNode(name="retrieval-eval", top_k=3)
+    state = State(
+        inputs={"dataset": dataset, "retrievals": retrievals},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["recall@k"] == pytest.approx(0.5)
+    assert result["mrr"] == pytest.approx(0.5)
+    assert result["map"] == pytest.approx(0.5)
+    assert result["ndcg"] == pytest.approx(0.5)
+    assert len(result["per_query"]) == 2
+    missing_entry = next(item for item in result["per_query"] if item["query"] == "q2")
+    assert missing_entry["recall"] == 0.0
+    assert missing_entry["hits"] == []
+
+
+@pytest.mark.asyncio
 async def test_answer_quality_and_llm_judge_nodes() -> None:
     dataset = [
         {
