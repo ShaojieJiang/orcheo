@@ -71,3 +71,25 @@ class VectorRecord(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SearchResult(BaseModel):
+    """Standard retrieval result returned by conversational search nodes."""
+
+    id: str = Field(description="Identifier of the matched record")
+    content: str = Field(description="Retrieved text content")
+    score: float = Field(description="Relevance score for the match")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Associated metadata for filtering/citations",
+    )
+    source: str | None = Field(
+        default=None,
+        description="Name of the retriever or upstream source",
+    )
+    sources: list[str] = Field(
+        default_factory=list,
+        description="Retrieval sources contributing to the result",
+    )
+
+    model_config = ConfigDict(extra="forbid")

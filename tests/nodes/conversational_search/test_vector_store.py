@@ -4,7 +4,10 @@ import sys
 import types
 import pytest
 from orcheo.nodes.conversational_search.models import VectorRecord
-from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
+from orcheo.nodes.conversational_search.vector_store import (
+    InMemoryVectorStore,
+    PineconeVectorStore,
+)
 
 
 class _DummyIndex:
@@ -99,3 +102,28 @@ async def test_pinecone_vector_store_raises_runtime_error_when_index_cannot_open
         RuntimeError, match="Unable to open Pinecone index 'pinecone-bad'"
     ):
         await store.upsert([])
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_query_ranks_results() -> None:
+    store = InMemoryVectorStore()
+    records = [
+        VectorRecord(id="a", values=[1.0, 0.0], text="alpha", metadata={}),
+        VectorRecord(id="b", values=[0.0, 1.0], text="bravo", metadata={}),
+    ]
+    store.records = {record.id: record for record in records}
+
+    results = await store.query([1.0, 0.0], top_k=1)
+
+    assert len(results) == 1
+    assert results[0].id == "a"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_requires_matching_dimensions() -> None:
+    store = InMemoryVectorStore()
+    record = VectorRecord(id="a", values=[1.0], text="alpha", metadata={})
+    store.records = {record.id: record}
+
+    with pytest.raises(ValueError, match="dimension does not match"):
+        await store.query([1.0, 0.0])
