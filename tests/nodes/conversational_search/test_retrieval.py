@@ -1,5 +1,7 @@
 """Tests for conversational search retrieval nodes."""
 
+from typing import Any
+
 import pytest
 
 from orcheo.graph.state import State
@@ -9,7 +11,10 @@ from orcheo.nodes.conversational_search.retrieval import (
     HybridFusionNode,
     VectorSearchNode,
 )
-from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
+from orcheo.nodes.conversational_search.vector_store import (
+    InMemoryVectorStore,
+    PineconeVectorStore,
+)
 
 
 @pytest.mark.asyncio
@@ -136,3 +141,44 @@ async def test_hybrid_fusion_weighted_sum_uses_weights() -> None:
     hits = result["results"]
     assert [hit.id for hit in hits][:1] == ["x"]
     assert hits[0].source == "vector"
+
+
+@pytest.mark.asyncio
+async def test_pinecone_search_preserves_text_without_metadata() -> None:
+    class FakeIndex:
+        def __init__(self) -> None:
+            self.last_kwargs: dict[str, Any] | None = None
+
+        def query(self, **kwargs: Any) -> dict[str, Any]:
+            self.last_kwargs = kwargs
+            return {
+                "matches": [
+                    {
+                        "id": "doc-1",
+                        "score": 0.42,
+                        "metadata": {"text": "stored text", "keep": True},
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, index: FakeIndex) -> None:
+            self.index = index
+
+        def Index(self, _: str) -> FakeIndex:  # pragma: no cover - simple helper
+            return self.index
+
+    index = FakeIndex()
+    store = PineconeVectorStore(index_name="demo", client=FakeClient(index))
+
+    results = await store.search(
+        query_vector=[0.1, 0.2], top_k=1, include_metadata=False
+    )
+
+    assert index.last_kwargs is not None
+    assert index.last_kwargs["include_metadata"] is True
+
+    assert len(results) == 1
+    hit = results[0]
+    assert hit.content == "stored text"
+    assert hit.metadata == {}

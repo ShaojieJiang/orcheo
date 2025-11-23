@@ -151,7 +151,7 @@ class PineconeVectorStore(BaseVectorStore):
             top_k=top_k,
             namespace=self.namespace,
             filter=filter_metadata,
-            include_metadata=include_metadata,
+            include_metadata=True,
             include_values=False,
         )
         if inspect.iscoroutine(response):
@@ -167,7 +167,7 @@ class PineconeVectorStore(BaseVectorStore):
         results: list[SearchResult] = []
         for match in matches:
             metadata = match.get("metadata") or {}
-            text = metadata.get("text", "")
+            text = metadata.get("text") or match.get("text", "")
             results.append(
                 SearchResult(
                     id=str(match.get("id")),
