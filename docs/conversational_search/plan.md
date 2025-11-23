@@ -80,15 +80,15 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 
 #### Task Checklist
 
-- [ ] Task 4.1: Build evaluation nodes (DatasetNode, RetrievalEvaluationNode, AnswerQualityEvaluationNode, LLMJudgeNode) with metric reporting.
+- [x] Task 4.1: Build evaluation nodes (DatasetNode, RetrievalEvaluationNode, AnswerQualityEvaluationNode, LLMJudgeNode) with metric reporting.
   - Dependencies: Milestone 1-3 graph artifacts; labeled datasets.
-- [ ] Task 4.2: Ship analytics and experimentation nodes (FailureAnalysisNode, ABTestingNode, UserFeedbackCollectionNode, FeedbackIngestionNode, AnalyticsExportNode).
+- [x] Task 4.2: Ship analytics and experimentation nodes (FailureAnalysisNode, ABTestingNode, UserFeedbackCollectionNode, FeedbackIngestionNode, AnalyticsExportNode).
   - Dependencies: Task 4.1 evaluation outputs; data sinks configured.
-- [ ] Task 4.3: Implement compliance/privacy controls (PolicyComplianceNode, MemoryPrivacyNode) with audit logging.
+- [x] Task 4.3: Implement compliance/privacy controls (PolicyComplianceNode, MemoryPrivacyNode) with audit logging.
   - Dependencies: Legal/compliance guidance; memory store hooks.
-- [ ] Task 4.4: Add synthetic data and augmentation support (DataAugmentationNode, TurnAnnotationNode) to expand training corpora.
+- [x] Task 4.4: Add synthetic data and augmentation support (DataAugmentationNode, TurnAnnotationNode) to expand training corpora.
   - Dependencies: Task 4.1 datasets; LLM provider access.
-- [ ] Task 4.5: Extend regression and A/B tests to gate rollouts using evaluation metrics and feedback signals.
+- [x] Task 4.5: Extend regression and A/B tests to gate rollouts using evaluation metrics and feedback signals.
   - Dependencies: Tasks 4.1-4.4.
 
 ---
