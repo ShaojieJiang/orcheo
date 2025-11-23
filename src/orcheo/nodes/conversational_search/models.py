@@ -91,3 +91,62 @@ class SearchResult(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class EvaluationExample(BaseModel):
+    """Ground truth example used for evaluation workflows."""
+
+    id: str = Field(description="Stable identifier for the evaluation example")
+    query: str = Field(min_length=1, description="User query used for retrieval")
+    relevant_ids: list[str] = Field(
+        default_factory=list,
+        description="List of chunk or document identifiers considered relevant",
+    )
+    reference_answer: str | None = Field(
+        default=None, description="Optional gold answer for quality evaluation"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Arbitrary metadata for the example"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _validate_relevant(self) -> EvaluationExample:
+        if any(not item for item in self.relevant_ids):
+            msg = "relevant_ids must not contain empty identifiers"
+            raise ValueError(msg)
+        return self
+
+
+class FeedbackRecord(BaseModel):
+    """User feedback captured for evaluation and analytics."""
+
+    rating: int = Field(ge=1, le=5, description="Discrete satisfaction rating")
+    comment: str | None = Field(
+        default=None, description="Optional free-form feedback text"
+    )
+    user_id: str | None = Field(
+        default=None, description="Optional identifier for the submitting user"
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="Normalized tags describing the feedback"
+    )
+    timestamp: float | None = Field(
+        default=None, description="Optional epoch timestamp when feedback was given"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ComplianceFinding(BaseModel):
+    """Finding generated during compliance or privacy checks."""
+
+    policy: str = Field(description="Name of the policy evaluated")
+    message: str = Field(description="Human readable description of the finding")
+    severity: str = Field(
+        default="warning",
+        description="Severity level such as info, warning, or critical",
+    )
+
+    model_config = ConfigDict(extra="forbid")
