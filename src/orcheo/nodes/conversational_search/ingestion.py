@@ -280,14 +280,16 @@ class MetadataExtractorNode(TaskNode):
                         f" {document.id}"
                     )
                     raise ValueError(msg)
-            enriched.append(
-                Document(
+            if isinstance(document, Document):
+                enriched_document = document.model_copy(update={"metadata": metadata})
+            else:
+                enriched_document = Document.model_construct(
                     id=document.id,
                     content=document.content,
                     metadata=metadata,
                     source=document.source,
                 )
-            )
+            enriched.append(enriched_document)
 
         return {"documents": enriched}
 
