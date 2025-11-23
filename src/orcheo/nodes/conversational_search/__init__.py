@@ -1,5 +1,13 @@
 """Conversational search nodes and utilities."""
 
+from orcheo.nodes.conversational_search.conversation import (
+    ConversationCompressorNode,
+    ConversationStateNode,
+    InMemoryMemoryStore,
+    MemorySummarizerNode,
+    QueryClarificationNode,
+    TopicShiftDetectorNode,
+)
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkingStrategyNode,
@@ -29,6 +37,12 @@ __all__ = [
     "BaseVectorStore",
     "InMemoryVectorStore",
     "PineconeVectorStore",
+    "ConversationStateNode",
+    "ConversationCompressorNode",
+    "TopicShiftDetectorNode",
+    "QueryClarificationNode",
+    "MemorySummarizerNode",
+    "InMemoryMemoryStore",
     "DocumentLoaderNode",
     "ChunkingStrategyNode",
     "MetadataExtractorNode",

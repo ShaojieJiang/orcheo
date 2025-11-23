@@ -46,13 +46,13 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 
 #### Task Checklist
 
-- [ ] Task 2.1: Introduce conversation management nodes (ConversationStateNode, ConversationCompressorNode) with token-budgeted summaries.
+- [x] Task 2.1: Introduce conversation management nodes (ConversationStateNode, ConversationCompressorNode) with token-budgeted summaries.
   - Dependencies: Milestone 1 graph skeleton.
-- [ ] Task 2.2: Add TopicShiftDetectorNode and QueryClarificationNode for adaptive routing and ambiguity resolution.
+- [x] Task 2.2: Add TopicShiftDetectorNode and QueryClarificationNode for adaptive routing and ambiguity resolution.
   - Dependencies: Task 2.1 conversation signals.
-- [ ] Task 2.3: Implement MemorySummarizerNode writing to BaseMemoryStore with retention policies.
+- [x] Task 2.3: Implement MemorySummarizerNode writing to BaseMemoryStore with retention policies.
   - Dependencies: Memory store backend decision; Task 2.1 state schema.
-- [ ] Task 2.4: Extend integration tests for multi-turn flows, including conversation compression and topic shift branching.
+- [x] Task 2.4: Extend integration tests for multi-turn flows, including conversation compression and topic shift branching.
   - Dependencies: Tasks 2.1-2.3.
 
 ---

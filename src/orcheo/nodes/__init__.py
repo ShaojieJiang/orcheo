@@ -5,11 +5,17 @@ from orcheo.nodes.code import PythonCode
 from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
 from orcheo.nodes.conversational_search import (
     ChunkingStrategyNode,
+    ConversationCompressorNode,
+    ConversationStateNode,
     DocumentLoaderNode,
     EmbeddingIndexerNode,
+    InMemoryMemoryStore,
     InMemoryVectorStore,
+    MemorySummarizerNode,
     MetadataExtractorNode,
     PineconeVectorStore,
+    QueryClarificationNode,
+    TopicShiftDetectorNode,
 )
 from orcheo.nodes.data import (
     DataTransformNode,
@@ -77,4 +83,10 @@ __all__ = [
     "EmbeddingIndexerNode",
     "InMemoryVectorStore",
     "PineconeVectorStore",
+    "ConversationStateNode",
+    "ConversationCompressorNode",
+    "TopicShiftDetectorNode",
+    "QueryClarificationNode",
+    "MemorySummarizerNode",
+    "InMemoryMemoryStore",
 ]
