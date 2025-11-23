@@ -264,7 +264,7 @@ async def test_compliance_and_privacy_nodes() -> None:
 async def test_augmentation_annotation_and_export_nodes() -> None:
     dataset = [
         {
-            "query": "summarize", 
+            "query": "summarize",
             "relevant_documents": ["doc-1"],
             "reference_answer": "summary",
         }
@@ -306,4 +306,3 @@ async def test_augmentation_annotation_and_export_nodes() -> None:
 
     assert export_result["feedback_count"] == 1
     assert "generated_at" in export_result["export"]
-

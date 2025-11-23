@@ -5,14 +5,11 @@ dependencies.
 """
 
 from __future__ import annotations
-
 import math
 import time
 from typing import Any
-
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
-
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
@@ -33,6 +30,8 @@ def _normalize_results(results: list[Any]) -> list[SearchResult]:
 
 
 def _dcg(relevances: list[int]) -> float:
+    if not relevances:
+        return 0.0
     return sum(rel / math.log2(index + 2) for index, rel in enumerate(relevances))
 
 
@@ -74,6 +73,7 @@ class DatasetNode(TaskNode):
     version: str = Field(default="v1", description="Dataset version identifier.")
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Validate dataset structure and return normalized examples."""
         dataset = state.get("inputs", {}).get(self.dataset_key) or self.dataset
         if not dataset:
             msg = "DatasetNode requires at least one dataset example"
@@ -127,6 +127,36 @@ class RetrievalEvaluationNode(TaskNode):
     top_k: int = Field(default=5, gt=0, description="Depth for Recall@k and NDCG@k.")
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Compute retrieval metrics across all labeled queries."""
+        dataset, retrievals = self._validate_inputs(state)
+        ground_truth = self._build_ground_truth(dataset)
+        retrieval_map = self._normalize_retrievals(retrievals)
+
+        per_query: list[dict[str, Any]] = []
+        recalls: list[float] = []
+        mrrs: list[float] = []
+        ndcgs: list[float] = []
+        maps: list[float] = []
+
+        for query, relevant_ids in ground_truth.items():
+            metrics = self._score_query(relevant_ids, retrieval_map.get(query, []))
+            per_query.append({"query": query, **metrics})
+            recalls.append(metrics["recall"])
+            mrrs.append(metrics["mrr"])
+            ndcgs.append(metrics["ndcg"])
+            maps.append(metrics["map"])
+
+        return {
+            "recall@k": self._average(recalls),
+            "mrr": self._average(mrrs),
+            "ndcg": self._average(ndcgs),
+            "map": self._average(maps),
+            "per_query": per_query,
+        }
+
+    def _validate_inputs(
+        self, state: State
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         dataset = state.get("inputs", {}).get(self.dataset_key)
         retrievals = state.get("inputs", {}).get(self.retrievals_key)
 
@@ -137,21 +167,20 @@ class RetrievalEvaluationNode(TaskNode):
             msg = "RetrievalEvaluationNode requires retrieval results to score"
             raise ValueError(msg)
 
-        ground_truth = {
+        return dataset, retrievals
+
+    def _build_ground_truth(self, dataset: list[dict[str, Any]]) -> dict[str, set[Any]]:
+        return {
             str(example.get("query", "")).strip(): set(
                 example.get("relevant_documents", [])
             )
             for example in dataset
         }
 
-        per_query: list[dict[str, Any]] = []
-        recalls: list[float] = []
-        mrrs: list[float] = []
-        ndcgs: list[float] = []
-        maps: list[float] = []
-
+    def _normalize_retrievals(
+        self, retrievals: list[dict[str, Any]]
+    ) -> dict[str, list[SearchResult]]:
         retrieval_map: dict[str, list[SearchResult]] = {}
-
         for retrieval in retrievals:
             if not isinstance(retrieval, dict):
                 msg = "Retrieval entries must be dictionaries"
@@ -162,67 +191,49 @@ class RetrievalEvaluationNode(TaskNode):
                 raise ValueError(msg)
             results_raw = retrieval.get("results", []) or []
             retrieval_map[query] = _normalize_results(results_raw)
+        return retrieval_map
 
-        for query, relevant_ids in ground_truth.items():
-            results = retrieval_map.get(query, [])
+    def _score_query(
+        self, relevant_ids: set[Any], results: list[SearchResult]
+    ) -> dict[str, Any]:
+        retrieved_ids = [result.id for result in results[: self.top_k]]
+        hits = [
+            identifier for identifier in retrieved_ids if identifier in relevant_ids
+        ]
+        recall = len(hits) / len(relevant_ids) if relevant_ids else 0.0
 
-            retrieved_ids = [result.id for result in results[: self.top_k]]
-            hits = [
-                identifier
-                for identifier in retrieved_ids
-                if identifier in relevant_ids
-            ]
-            recall = len(hits) / len(relevant_ids) if relevant_ids else 0.0
+        reciprocal_rank = 0.0
+        for index, identifier in enumerate(retrieved_ids):
+            if identifier in relevant_ids:
+                reciprocal_rank = 1.0 / (index + 1)
+                break
 
-            reciprocal_rank = 0.0
-            for index, identifier in enumerate(retrieved_ids):
-                if identifier in relevant_ids:
-                    reciprocal_rank = 1.0 / (index + 1)
-                    break
+        gains = [1 if identifier in relevant_ids else 0 for identifier in retrieved_ids]
+        ideal_gains = [1] * min(len(relevant_ids), self.top_k)
+        ndcg = 0.0
+        if ideal_gains:
+            ideal_dcg = _dcg(ideal_gains)
+            ndcg = _dcg(gains) / ideal_dcg if ideal_dcg else 0.0
 
-            gains = [
-                1 if identifier in relevant_ids else 0 for identifier in retrieved_ids
-            ]
-            ideal_gains = [1] * min(len(relevant_ids), self.top_k)
-            ndcg = 0.0
-            if ideal_gains:
-                ndcg = _dcg(gains) / _dcg(ideal_gains)
-
-            precision_sum = 0.0
-            relevant_seen = 0
-            for index, identifier in enumerate(retrieved_ids, start=1):
-                if identifier in relevant_ids:
-                    relevant_seen += 1
-                    precision_sum += relevant_seen / index
-            average_precision = (
-                precision_sum / len(relevant_ids) if relevant_ids else 0.0
-            )
-
-            per_query.append(
-                {
-                    "query": query,
-                    "recall": recall,
-                    "mrr": reciprocal_rank,
-                    "ndcg": ndcg,
-                    "map": average_precision,
-                    "hits": hits,
-                }
-            )
-            recalls.append(recall)
-            mrrs.append(reciprocal_rank)
-            ndcgs.append(ndcg)
-            maps.append(average_precision)
-
-        def _average(values: list[float]) -> float:
-            return sum(values) / len(values) if values else 0.0
+        precision_sum = 0.0
+        relevant_seen = 0
+        for index, identifier in enumerate(retrieved_ids, start=1):
+            if identifier in relevant_ids:
+                relevant_seen += 1
+                precision_sum += relevant_seen / index
+        average_precision = precision_sum / len(relevant_ids) if relevant_ids else 0.0
 
         return {
-            "recall@k": _average(recalls),
-            "mrr": _average(mrrs),
-            "ndcg": _average(ndcgs),
-            "map": _average(maps),
-            "per_query": per_query,
+            "recall": recall,
+            "mrr": reciprocal_rank,
+            "ndcg": ndcg,
+            "map": average_precision,
+            "hits": hits,
         }
+
+    @staticmethod
+    def _average(values: list[float]) -> float:
+        return sum(values) / len(values) if values else 0.0
 
 
 @registry.register(
@@ -243,6 +254,7 @@ class AnswerQualityEvaluationNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Score generated answers for faithfulness and relevance heuristics."""
         dataset = state.get("inputs", {}).get(self.dataset_key) or []
         answers = state.get("inputs", {}).get(self.answers_key)
 
@@ -268,9 +280,7 @@ class AnswerQualityEvaluationNode(TaskNode):
             query = str(answer_entry.get("query", "")).strip()
             answer = str(answer_entry.get("answer", "")).strip()
             reference_answer = reference_lookup.get(query, "")
-            context_text = " ".join(
-                map(str, answer_entry.get("context", []))
-            ).strip()
+            context_text = " ".join(map(str, answer_entry.get("context", []))).strip()
 
             faithfulness = _token_overlap_score(answer, reference_answer)
             relevance = _token_overlap_score(answer, context_text or reference_answer)
@@ -319,6 +329,7 @@ class LLMJudgeNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Approximate an LLM judge verdict using heuristic signals."""
         answer = str(state.get("inputs", {}).get(self.answer_key, "")).strip()
         grounding = str(state.get("inputs", {}).get(self.grounding_key, "")).strip()
         if not answer:
@@ -374,6 +385,7 @@ class FailureAnalysisNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Flag failures when retrieval or answer quality falls below thresholds."""
         metrics = state.get("inputs", {}).get("metrics") or {}
         if not isinstance(metrics, dict):
             msg = "FailureAnalysisNode requires metrics dictionary"
@@ -419,6 +431,7 @@ class ABTestingNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Select the experiment variant with the best configured metric."""
         variants = state.get("inputs", {}).get("variants")
         if not isinstance(variants, dict) or not variants:
             msg = "ABTestingNode requires a variants mapping"
@@ -458,6 +471,7 @@ class UserFeedbackCollectionNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Validate user feedback entries and normalize structure."""
         feedback_entries = state.get("inputs", {}).get(self.feedback_key)
         if not isinstance(feedback_entries, list) or not feedback_entries:
             msg = "UserFeedbackCollectionNode requires a list of feedback entries"
@@ -506,6 +520,7 @@ class FeedbackIngestionNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Merge collected feedback into the configured buffer."""
         incoming_feedback = state.get("inputs", {}).get(self.feedback_key)
         if not isinstance(incoming_feedback, list) or not incoming_feedback:
             msg = "FeedbackIngestionNode requires feedback entries"
@@ -526,6 +541,7 @@ class AnalyticsExportNode(TaskNode):
     """Package analytics results for downstream sinks."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Combine metrics and feedback into a consolidated export payload."""
         metrics = state.get("inputs", {}).get("metrics") or {}
         feedback = state.get("inputs", {}).get("feedback") or []
         if not isinstance(metrics, dict):
@@ -565,6 +581,7 @@ class PolicyComplianceNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Check content for banned terms and record an audit log."""
         content = str(state.get("inputs", {}).get(self.content_key, "")).lower()
         if not content.strip():
             msg = "PolicyComplianceNode requires content to inspect"
@@ -606,6 +623,7 @@ class MemoryPrivacyNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Remove sensitive metadata keys and trim the retained history length."""
         history = state.get("inputs", {}).get(self.history_key)
         if not isinstance(history, list) or not history:
             msg = "MemoryPrivacyNode requires a list of conversation turns"
@@ -653,6 +671,7 @@ class DataAugmentationNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Create lightweight synthetic variations of dataset entries."""
         dataset = state.get("inputs", {}).get(self.dataset_key)
         if not isinstance(dataset, list) or not dataset:
             msg = "DataAugmentationNode requires dataset entries"
@@ -690,6 +709,7 @@ class TurnAnnotationNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Label turns with coarse intent and topic annotations."""
         history = state.get("inputs", {}).get(self.history_key)
         if not isinstance(history, list) or not history:
             msg = "TurnAnnotationNode requires conversation turns"
