@@ -1,9 +1,10 @@
 """Ingestion primitives for conversational search."""
 
 from __future__ import annotations
+import asyncio
 import hashlib
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -424,3 +425,135 @@ class EmbeddingIndexerNode(TaskNode):
             msg = "Embedding function must return List[List[float]]"
             raise ValueError(msg)
         return result
+
+
+@registry.register(
+    NodeMetadata(
+        name="IncrementalIndexerNode",
+        description=(
+            "Index or update chunks incrementally with retry and backpressure controls."
+        ),
+        category="conversational_search",
+    )
+)
+class IncrementalIndexerNode(TaskNode):
+    """Embed and upsert chunk embeddings while skipping unchanged payloads."""
+
+    source_result_key: str = Field(
+        default="chunking_strategy",
+        description="Upstream result entry containing chunk payloads.",
+    )
+    chunks_field: str = Field(
+        default="chunks", description="Field under the result containing chunks"
+    )
+    vector_store: BaseVectorStore = Field(
+        default_factory=InMemoryVectorStore,
+        description="Vector store adapter used for upserts.",
+    )
+    embedding_function: EmbeddingFunction | None = Field(
+        default=None,
+        description="Optional embedding callable applied to chunk content.",
+    )
+    batch_size: int = Field(default=32, gt=0, description="Chunk batch size")
+    max_retries: int = Field(default=2, ge=0, description="Retry attempts")
+    backoff_seconds: float = Field(
+        default=0.05, ge=0.0, description="Base backoff for retry attempts"
+    )
+    skip_unchanged: bool = Field(
+        default=True,
+        description="Skip upserts when the stored content hash matches the new hash.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Embed and upsert chunks with retry and change-detection."""
+        chunks = self._resolve_chunks(state)
+        if not chunks:
+            msg = "IncrementalIndexerNode requires at least one chunk"
+            raise ValueError(msg)
+
+        upserted_ids: list[str] = []
+        skipped = 0
+        for start in range(0, len(chunks), self.batch_size):
+            batch = chunks[start : start + self.batch_size]
+            embeddings = await self._embed([chunk.content for chunk in batch])
+
+            records: list[VectorRecord] = []
+            for chunk, vector in zip(batch, embeddings, strict=True):
+                content_hash = self._hash_text(chunk.content)
+                if self.skip_unchanged and self._is_unchanged(chunk.id, content_hash):
+                    skipped += 1
+                    continue
+
+                metadata = {
+                    "document_id": chunk.document_id,
+                    "chunk_index": chunk.index,
+                    "content_hash": content_hash,
+                }
+                metadata.update(chunk.metadata)
+                records.append(
+                    VectorRecord(
+                        id=chunk.id,
+                        values=vector,
+                        text=chunk.content,
+                        metadata=metadata,
+                    )
+                )
+
+            if records:
+                await self._upsert_with_retry(records)
+                upserted_ids.extend(record.id for record in records)
+
+        return {
+            "indexed_count": len(upserted_ids),
+            "skipped": skipped,
+            "upserted_ids": upserted_ids,
+        }
+
+    def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
+        results = state.get("results", {})
+        source = results.get(self.source_result_key, {})
+        if isinstance(source, dict) and self.chunks_field in source:
+            chunks = source[self.chunks_field]
+        else:
+            chunks = results.get(self.chunks_field)
+        if not chunks:
+            return []
+        if not isinstance(chunks, list):
+            msg = "chunks payload must be a list"
+            raise ValueError(msg)
+        return [DocumentChunk.model_validate(chunk) for chunk in chunks]
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        embedder = self.embedding_function or deterministic_embedding_function
+        output = embedder(texts)
+        if inspect.isawaitable(output):
+            output = await output
+        if not isinstance(output, list) or not all(
+            isinstance(row, list) for row in output
+        ):
+            msg = "Embedding function must return List[List[float]]"
+            raise ValueError(msg)
+        return output
+
+    def _is_unchanged(self, record_id: str, content_hash: str) -> bool:
+        store_records = getattr(self.vector_store, "records", None)
+        if not isinstance(store_records, dict):
+            return False
+        existing = store_records.get(record_id)
+        if existing is None:
+            return False
+        return existing.metadata.get("content_hash") == content_hash
+
+    def _hash_text(self, value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    async def _upsert_with_retry(self, records: Iterable[VectorRecord]) -> None:
+        for attempt in range(self.max_retries + 1):  # pragma: no branch
+            try:
+                await self.vector_store.upsert(records)
+                return
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                if attempt == self.max_retries:
+                    msg = "Vector store upsert failed after retries"
+                    raise RuntimeError(msg) from exc
+                await asyncio.sleep(self.backoff_seconds * (2**attempt))

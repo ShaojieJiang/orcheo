@@ -193,3 +193,270 @@ class GroundedGeneratorNode(TaskNode):
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
         return len((prompt + completion).split())
+
+
+@registry.register(
+    NodeMetadata(
+        name="StreamingGeneratorNode",
+        description="Generate responses and stream token chunks with backpressure.",
+        category="conversational_search",
+    )
+)
+class StreamingGeneratorNode(TaskNode):
+    """Node that streams model output into bounded frames."""
+
+    prompt_key: str = Field(
+        default="prompt", description="Key under inputs containing the prompt."
+    )
+    max_tokens: int = Field(default=256, gt=0, description="Token limit")
+    temperature: float = Field(default=0.2, ge=0.0, description="Sampling temp")
+    chunk_size: int = Field(
+        default=8, gt=0, description="Maximum tokens per emitted frame"
+    )
+    buffer_limit: int | None = Field(
+        default=64,
+        gt=0,
+        description="Optional backpressure cap on total tokens streamed.",
+    )
+    max_retries: int = Field(default=1, ge=0)
+    backoff_seconds: float = Field(default=0.05, ge=0.0)
+    llm: LLMCallable | None = Field(
+        default=None,
+        description="Callable invoked with ``(prompt, max_tokens, temperature)``.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Stream a generated response into framed chunks with retries."""
+        prompt = state.get("inputs", {}).get(self.prompt_key)
+        if not isinstance(prompt, str) or not prompt.strip():
+            msg = "StreamingGeneratorNode requires a non-empty prompt"
+            raise ValueError(msg)
+
+        completion = await self._generate_with_retries(prompt.strip())
+        stream, frames, truncated = self._stream_tokens(completion)
+        return {
+            "response": completion,
+            "stream": stream,
+            "frames": frames,
+            "token_count": len(stream),
+            "truncated": truncated,
+        }
+
+    async def _generate_with_retries(self, prompt: str) -> str:
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self._invoke_llm(prompt)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                if attempt == self.max_retries:
+                    msg = "Streaming generation failed after retries"
+                    raise RuntimeError(msg) from exc
+                await asyncio.sleep(self.backoff_seconds * (2**attempt))
+        msg = "Streaming generation failed after retries"  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
+
+    async def _invoke_llm(self, prompt: str) -> str:
+        llm_callable = self.llm or self._default_llm
+        output = llm_callable(prompt, self.max_tokens, self.temperature)
+        if asyncio.iscoroutine(output):
+            output = await output
+        if not isinstance(output, str) or not output.strip():
+            msg = "LLM callable must return a non-empty string"
+            raise ValueError(msg)
+        return output.strip()
+
+    def _stream_tokens(
+        self, completion: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+        tokens = completion.split()
+        truncated = False
+        if self.buffer_limit and len(tokens) > self.buffer_limit:
+            tokens = tokens[: self.buffer_limit]
+            truncated = True
+
+        stream: list[dict[str, Any]] = []
+        frames: list[dict[str, Any]] = []
+        buffer: list[str] = []
+        for index, token in enumerate(tokens):
+            stream.append({"index": index, "token": token})
+            buffer.append(token)
+            if len(buffer) == self.chunk_size:
+                frames.append(
+                    {
+                        "index": len(frames),
+                        "chunk": " ".join(buffer),
+                        "size": len(buffer),
+                    }
+                )
+                buffer = []
+        if buffer:
+            frames.append(
+                {
+                    "index": len(frames),
+                    "chunk": " ".join(buffer),
+                    "size": len(buffer),
+                }
+            )
+        return stream, frames, truncated
+
+    def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        del max_tokens, temperature
+        return f"{prompt} :: streamed"
+
+
+@registry.register(
+    NodeMetadata(
+        name="HallucinationGuardNode",
+        description="Validate generator output for citations and completeness.",
+        category="conversational_search",
+    )
+)
+class HallucinationGuardNode(TaskNode):
+    """Node that blocks responses missing citations or context alignment."""
+
+    generator_result_key: str = Field(
+        default="grounded_generator",
+        description="Result entry containing model output and citations.",
+    )
+    response_field: str = Field(
+        default="response", description="Field containing the model response"
+    )
+    citations_field: str = Field(
+        default="citations", description="Field containing citations metadata"
+    )
+    require_markers: bool = Field(
+        default=True,
+        description="Whether citation markers like [1] must appear in the response.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Validate generator output includes citations and markers."""
+        payload = self._resolve_payload(state)
+        response = self._extract_response(payload)
+        citations = self._extract_citations(payload)
+
+        if not citations:
+            return self._block("Missing citations for generated response")
+
+        missing_markers = self._missing_markers(response, citations)
+        if missing_markers:
+            reason = "Response is missing citation markers for ids: " + ", ".join(
+                sorted(missing_markers)
+            )
+            return self._block(reason)
+
+        if any(not self._has_snippet(citation) for citation in citations):
+            return self._block("Citation entries must include snippets")
+
+        return {
+            "allowed": True,
+            "response": response,
+            "citations": citations,
+        }
+
+    def _resolve_payload(self, state: State) -> dict[str, Any]:
+        payload = state.get("results", {}).get(self.generator_result_key, {})
+        if not isinstance(payload, dict):
+            msg = "HallucinationGuardNode requires a mapping payload"
+            raise ValueError(msg)
+        return payload
+
+    def _extract_response(self, payload: dict[str, Any]) -> str:
+        response = payload.get(self.response_field)
+        if not isinstance(response, str) or not response.strip():
+            msg = "Response payload is missing or empty"
+            raise ValueError(msg)
+        return response.strip()
+
+    def _extract_citations(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        citations = payload.get(self.citations_field)
+        if not isinstance(citations, list) or not citations:
+            return []
+        normalized: list[dict[str, Any]] = []
+        for citation in citations:
+            if not isinstance(citation, dict):
+                msg = "Citations must be dictionaries"
+                raise ValueError(msg)
+            normalized.append(citation)
+        return normalized
+
+    def _missing_markers(
+        self, response: str, citations: list[dict[str, Any]]
+    ) -> list[str]:
+        if not self.require_markers:
+            return []
+        missing: list[str] = []
+        for citation in citations:
+            marker = citation.get("id")
+            if marker is None:
+                continue
+            if f"[{marker}]" not in response:
+                missing.append(str(marker))
+        return missing
+
+    @staticmethod
+    def _has_snippet(citation: dict[str, Any]) -> bool:
+        snippet = citation.get("snippet") if isinstance(citation, dict) else None
+        return bool(snippet)
+
+    def _block(self, reason: str) -> dict[str, Any]:
+        return {
+            "allowed": False,
+            "reason": reason,
+            "fallback_response": "Unable to provide an answer with proper grounding.",
+        }
+
+
+@registry.register(
+    NodeMetadata(
+        name="CitationsFormatterNode",
+        description="Format citation metadata into human-readable strings.",
+        category="conversational_search",
+    )
+)
+class CitationsFormatterNode(TaskNode):
+    """Node that normalizes and formats citation payloads."""
+
+    source_result_key: str = Field(
+        default="grounded_generator",
+        description="Result entry containing citations to format.",
+    )
+    citations_field: str = Field(default="citations")
+    include_sources: bool = Field(
+        default=True, description="Include source identifiers when available"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Format citations into human-readable strings."""
+        payload = state.get("results", {}).get(self.source_result_key, {})
+        if isinstance(payload, dict) and self.citations_field in payload:
+            citations = payload[self.citations_field]
+        else:
+            citations = payload
+        if not isinstance(citations, list):
+            msg = "CitationsFormatterNode requires a list of citations"
+            raise ValueError(msg)
+
+        formatted: list[str] = []
+        normalized: list[dict[str, Any]] = []
+        for citation in citations:
+            if not isinstance(citation, dict):
+                msg = "Citation entries must be mappings"
+                raise ValueError(msg)
+            citation_id = citation.get("id") or str(len(formatted) + 1)
+            snippet = citation.get("snippet", "").strip()
+            sources = citation.get("sources") or []
+            normalized.append(
+                {
+                    "id": str(citation_id),
+                    "snippet": snippet,
+                    "sources": sources,
+                }
+            )
+            source_label = (
+                f" sources={','.join(sources)}"
+                if sources and self.include_sources
+                else ""
+            )
+            formatted.append(f"[{citation_id}] {snippet}{source_label}".strip())
+
+        return {"formatted": formatted, "citations": normalized}

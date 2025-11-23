@@ -63,13 +63,13 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 
 #### Task Checklist
 
-- [ ] Task 3.1: Add reliability/performance nodes (IncrementalIndexerNode, StreamingGeneratorNode) with retries and backpressure.
+- [x] Task 3.1: Add reliability/performance nodes (IncrementalIndexerNode, StreamingGeneratorNode) with retries and backpressure.
   - Dependencies: Milestone 1 ingestion pipeline; streaming transport choice.
-- [ ] Task 3.2: Implement guardrail and routing nodes (HallucinationGuardNode, ReRankerNode, SourceRouterNode, CitationsFormatterNode).
+- [x] Task 3.2: Implement guardrail and routing nodes (HallucinationGuardNode, ReRankerNode, SourceRouterNode, CitationsFormatterNode).
   - Dependencies: Task 3.1 streaming/generation plumbing; policy definitions.
-- [ ] Task 3.3: Introduce optimization nodes (AnswerCachingNode, SessionManagementNode, MultiHopPlannerNode) with configurable limits.
+- [x] Task 3.3: Introduce optimization nodes (AnswerCachingNode, SessionManagementNode, MultiHopPlannerNode) with configurable limits.
   - Dependencies: Task 3.2 guardrails; BaseMemoryStore readiness.
-- [ ] Task 3.4: Add performance and failure-mode tests (latency benchmarks, vector store/LLM retry coverage, structured errors).
+- [x] Task 3.4: Add performance and failure-mode tests (latency benchmarks, vector store/LLM retry coverage, structured errors).
   - Dependencies: Tasks 3.1-3.3.
 
 ---
@@ -98,3 +98,4 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 | Date | Author | Changes |
 |------|--------|---------|
 | 2025-11-22 | Codex | Initial draft |
+| 2025-11-23 | Codex | Marked Milestone 3 tasks complete |

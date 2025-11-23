@@ -3,6 +3,7 @@
 from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Iterable
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
@@ -306,6 +307,124 @@ class ConversationStateNode(TaskNode):
 
 @registry.register(
     NodeMetadata(
+        name="SessionManagementNode",
+        description="Manage conversation sessions with capacity controls.",
+        category="conversational_search",
+    )
+)
+class SessionManagementNode(TaskNode):
+    """Persist conversation turns for sessions while enforcing limits."""
+
+    session_id_key: str = Field(
+        default="session_id", description="Key under inputs containing session id"
+    )
+    turns_input_key: str = Field(
+        default="turns", description="Optional new turns to append"
+    )
+    max_turns: int | None = Field(
+        default=50,
+        ge=1,
+        description="Maximum turns retained per session when provided",
+    )
+    memory_store: BaseMemoryStore = Field(
+        default_factory=InMemoryMemoryStore,
+        description="Backing store used for session persistence",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Persist new turns and return pruned session history."""
+        session_id = state.get("inputs", {}).get(self.session_id_key)
+        if not isinstance(session_id, str) or not session_id.strip():
+            msg = "SessionManagementNode requires a non-empty session id"
+            raise ValueError(msg)
+        session_id = session_id.strip()
+
+        new_turns = state.get("inputs", {}).get(self.turns_input_key) or []
+        turns = [MemoryTurn.model_validate(turn) for turn in new_turns]
+        if turns:
+            await self.memory_store.batch_append_turns(session_id, turns)
+
+        await self.memory_store.prune(session_id, self.max_turns)
+        history = await self.memory_store.load_history(session_id, None)
+        return {"history": history, "turn_count": len(history)}
+
+
+@registry.register(
+    NodeMetadata(
+        name="AnswerCachingNode",
+        description="Cache answers by query with TTL-based eviction.",
+        category="conversational_search",
+    )
+)
+class AnswerCachingNode(TaskNode):
+    """Cache responses for repeated user queries using TTL-based eviction."""
+
+    query_key: str = Field(
+        default="query", description="Key within inputs containing the user query"
+    )
+    source_result_key: str = Field(
+        default="grounded_generator",
+        description="Result entry containing a new response to cache.",
+    )
+    response_field: str = Field(default="response")
+    ttl_seconds: int | None = Field(default=300, gt=0)
+    max_entries: int = Field(default=256, gt=0)
+
+    cache: OrderedDict[str, tuple[str, float | None]] = Field(  # pragma: no mutate
+        default_factory=OrderedDict,
+        description="In-memory cache mapping query -> (response, expires_at)",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return cached response for repeated queries when available."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "AnswerCachingNode requires a non-empty query"
+            raise ValueError(msg)
+        normalized_query = query.strip().lower()
+
+        cached = self._get_cached(normalized_query)
+        if cached is not None:
+            return {"cached": True, "response": cached}
+
+        response = self._resolve_response(state)
+        if response:
+            self._store(normalized_query, response)
+        return {"cached": False, "response": response}
+
+    def _get_cached(self, query: str) -> str | None:
+        entry = self.cache.get(query)
+        if entry is None:
+            return None
+        response, expires_at = entry
+        if expires_at is not None and expires_at < time.time():
+            self.cache.pop(query, None)
+            return None
+        self.cache.move_to_end(query)
+        return response
+
+    def _resolve_response(self, state: State) -> str | None:
+        payload = state.get("results", {}).get(self.source_result_key, {})
+        if isinstance(payload, dict):
+            response = payload.get(self.response_field)
+        else:
+            response = None
+        if response is None:
+            return None
+        if not isinstance(response, str) or not response.strip():
+            msg = "Response field must be a non-empty string when provided"
+            raise ValueError(msg)
+        return response.strip()
+
+    def _store(self, query: str, response: str) -> None:
+        if len(self.cache) >= self.max_entries:
+            self.cache.popitem(last=False)
+        expires_at = time.time() + self.ttl_seconds if self.ttl_seconds else None
+        self.cache[query] = (response, expires_at)
+
+
+@registry.register(
+    NodeMetadata(
         name="ConversationCompressorNode",
         description="Summarize and budget a conversation history for downstream use.",
         category="conversational_search",
@@ -507,7 +626,7 @@ class TopicShiftDetectorNode(TaskNode):
         if isinstance(config, dict):
             configurable = config.get("configurable") or {}
             override = configurable.get(key)
-            if isinstance(override, (int, float)):
+            if isinstance(override, int | float):
                 return override
         return default
 
