@@ -144,6 +144,8 @@ class RetrievalEvaluationNode(TaskNode):
     def _average_precision(
         self, ranked_ids: list[str], relevant_ids: set[str]
     ) -> float:
+        if not relevant_ids:
+            return 0.0
         hits = 0
         precision_sum = 0.0
         for index, item_id in enumerate(ranked_ids, start=1):
@@ -152,7 +154,7 @@ class RetrievalEvaluationNode(TaskNode):
                 precision_sum += hits / index
         if hits == 0:
             return 0.0
-        return precision_sum / hits
+        return precision_sum / len(relevant_ids)
 
 
 @registry.register(

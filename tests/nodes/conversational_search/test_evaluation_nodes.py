@@ -57,7 +57,9 @@ async def test_retrieval_evaluation_computes_metrics() -> None:
 
     metrics = result["metrics"]
     assert metrics["recall_at_k"] > 0.0
+    assert metrics["map"] == pytest.approx(0.5)
     assert result["per_query"]["q2"]["mrr"] == 0.5
+    assert result["per_query"]["q1"]["map"] == pytest.approx(0.5)
 
 
 @pytest.mark.asyncio
