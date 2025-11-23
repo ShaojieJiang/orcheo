@@ -16,6 +16,17 @@ from orcheo.nodes.conversational_search.ingestion import (
     EmbeddingIndexerNode,
     MetadataExtractorNode,
 )
+from orcheo.nodes.conversational_search.production import (
+    AnswerCachingNode,
+    CitationsFormatterNode,
+    HallucinationGuardNode,
+    IncrementalIndexerNode,
+    MultiHopPlannerNode,
+    ReRankerNode,
+    SessionManagementNode,
+    SourceRouterNode,
+    StreamingGeneratorNode,
+)
 from orcheo.nodes.conversational_search.query_processing import (
     ContextCompressorNode,
     CoreferenceResolverNode,
@@ -54,6 +65,15 @@ __all__ = [
     "ContextCompressorNode",
     "TopicShiftDetectorNode",
     "QueryClarificationNode",
+    "AnswerCachingNode",
+    "CitationsFormatterNode",
+    "HallucinationGuardNode",
+    "IncrementalIndexerNode",
+    "MultiHopPlannerNode",
+    "ReRankerNode",
+    "SessionManagementNode",
+    "SourceRouterNode",
+    "StreamingGeneratorNode",
     "VectorSearchNode",
     "BM25SearchNode",
     "HybridFusionNode",
