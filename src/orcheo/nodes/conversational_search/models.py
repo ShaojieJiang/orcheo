@@ -1,7 +1,7 @@
 """Data models for conversational search ingestion primitives."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
@@ -71,6 +71,35 @@ class VectorRecord(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ConversationTurn(BaseModel):
+    """Represents a single turn within a conversation."""
+
+    role: Literal["user", "assistant", "system"] = Field(
+        description="Speaker role for the turn",
+    )
+    content: str = Field(min_length=1, description="Message payload")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured turn metadata",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def token_count(self) -> int:
+        """Approximate token count using whitespace splitting."""
+        return len(self.content.split())
+
+    @model_validator(mode="after")
+    def _validate_content(self) -> ConversationTurn:
+        self.content = self.content.strip()
+        if not self.content:
+            msg = "Conversation turn content cannot be empty"
+            raise ValueError(msg)
+        return self
 
 
 class SearchResult(BaseModel):
