@@ -138,6 +138,18 @@ async def test_memory_store_prune_and_expiry_paths() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_store_retains_history_when_summary_expires() -> None:
+    store = InMemoryMemoryStore()
+    await store.append_turn("sess-retain", MemoryTurn(role="user", content="hello"))
+    await store.write_summary("sess-retain", summary="temp", ttl_seconds=1)
+
+    store.summaries["sess-retain"] = ("temp", time.time() - 1)
+
+    assert await store.get_summary("sess-retain") is None
+    assert len(await store.load_history("sess-retain")) == 1
+
+
+@pytest.mark.asyncio
 async def test_conversation_state_requires_session_id() -> None:
     node = ConversationStateNode(name="conversation_state")
     state = State(inputs={}, results={}, structured_response=None)

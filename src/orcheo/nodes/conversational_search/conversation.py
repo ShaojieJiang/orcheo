@@ -107,7 +107,7 @@ class InMemoryMemoryStore(BaseMemoryStore):
             return None
         summary, expires_at = entry
         if expires_at is not None and expires_at < time.time():
-            await self.clear(session_id)
+            self.summaries.pop(session_id, None)
             return None
         return summary
 
