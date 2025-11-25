@@ -1,0 +1,177 @@
+"""Tests for WebSearchNode Tavily integration."""
+
+from __future__ import annotations
+import json
+from typing import Any
+import httpx
+import pytest
+import respx
+from langchain_core.runnables import RunnableConfig
+from orcheo.graph.state import State
+from orcheo.nodes.conversational_search import WebSearchNode
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_requests_tavily_and_formats_results() -> None:
+    """WebSearchNode should call Tavily and normalize results."""
+    state = State(
+        inputs={"query": "latest ai news"},
+        results={},
+        structured_response=None,
+    )
+    node = WebSearchNode(
+        name="web",
+        api_key="tavily-key",
+        max_results=3,
+        include_raw_content=True,
+        search_depth="advanced",
+        days=2,
+        topic="news",
+        include_domains=["example.com"],
+        exclude_domains=["ignore.com"],
+    )
+
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content.decode())
+        return httpx.Response(
+            200,
+            json={
+                "answer": "summary answer",
+                "results": [
+                    {
+                        "title": "Example Title",
+                        "url": "https://example.com",
+                        "content": "snippet",
+                        "score": 0.9,
+                        "raw_content": "full page text",
+                    },
+                    {"url": "https://example.com/2", "score": "not-a-number"},
+                    {"content": "", "raw_content": "raw-only"},
+                ],
+            },
+        )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(side_effect=handler)
+        result = await node(state, RunnableConfig())
+
+    payload = result["results"]["web"]
+    request_json = captured["json"]
+
+    assert request_json["api_key"] == "tavily-key"
+    assert request_json["query"] == "latest ai news"
+    assert request_json["max_results"] == 3
+    assert request_json["include_raw_content"] is True
+    assert request_json["search_depth"] == "advanced"
+    assert request_json["days"] == 2
+    assert request_json["topic"] == "news"
+    assert request_json["include_domains"] == ["example.com"]
+    assert request_json["exclude_domains"] == ["ignore.com"]
+
+    assert payload["answer"] == "summary answer"
+    results = payload["results"]
+    assert results[0].id == "https://example.com"
+    assert results[0].metadata["url"] == "https://example.com"
+    assert results[0].metadata["title"] == "Example Title"
+    assert results[0].metadata["raw_content"] == "full page text"
+    assert results[0].score == pytest.approx(0.9)
+    assert results[0].source == "web"
+    assert results[1].id == "https://example.com/2"
+    assert results[1].score == 0.0
+    assert results[1].text == "https://example.com/2"
+    assert results[2].id == "web-2"
+    assert results[2].metadata == {"raw_content": "raw-only"}
+    assert results[2].text == "raw-only"
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_requires_query() -> None:
+    """WebSearchNode should reject empty queries."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "   "},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError, match="WebSearchNode requires a non-empty query string"
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_requires_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebSearchNode should require api_key or env var."""
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    node = WebSearchNode(name="web")
+    state = State(
+        inputs={"query": "hello"},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError, match="WebSearchNode requires an api_key or TAVILY_API_KEY env var"
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_handles_http_errors() -> None:
+    """WebSearchNode should surface HTTP failures."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "hello"},
+        results={},
+        structured_response=None,
+    )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(
+            return_value=httpx.Response(500, text="error")
+        )
+        with pytest.raises(ValueError, match="Web search request failed"):
+            await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_validates_response_shape() -> None:
+    """WebSearchNode should validate Tavily payloads."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "hello"},
+        results={},
+        structured_response=None,
+    )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(
+            return_value=httpx.Response(200, json={"results": "not-a-list"})
+        )
+        with pytest.raises(
+            ValueError, match="WebSearchNode expected 'results' list in response"
+        ):
+            await node.run(state, {})
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(
+            return_value=httpx.Response(200, json={"results": ["bad-entry"]})
+        )
+        with pytest.raises(
+            ValueError, match="Each web search result must be a mapping"
+        ):
+            await node.run(state, {})
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(
+            return_value=httpx.Response(200, text="not-json")
+        )
+        with pytest.raises(
+            ValueError, match="WebSearchNode received non-JSON response"
+        ):
+            await node.run(state, {})
