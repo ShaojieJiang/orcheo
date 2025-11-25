@@ -27,11 +27,11 @@ Execution plan to ship the five conversational search demo workflows that showca
 
 #### Task Checklist
 
-- [ ] Task 1.1: Create demo directory structure and README scaffolds for demos 1-5.
+- [x] Task 1.1: Create demo directory structure and README scaffolds for demos 1-5.
   - Dependencies: Demo design file structure.
-- [ ] Task 1.2: Prepare sample corpora and golden datasets (docs, queries, labels) with environment templates.
+- [x] Task 1.2: Prepare sample corpora and golden datasets (docs, queries, labels) with environment templates.
   - Dependencies: Access to example content and eval labels.
-- [ ] Task 1.3: Add shared utilities (loaders, runners, config helpers) reused across demos.
+- [x] Task 1.3: Add shared utilities (loaders, runners, config helpers) reused across demos.
   - Dependencies: Node package APIs for loaders/indexers.
 
 ---

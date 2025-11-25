@@ -1,0 +1,23 @@
+dataset:
+  golden_path: ../data/golden/golden_dataset.json
+  labels_path: ../data/labels/relevance_labels.json
+  docs_path: ../data/docs
+
+variants:
+  - name: vector_only
+    retriever: vector
+  - name: hybrid_fusion
+    retriever: hybrid
+
+evaluation:
+  retrieval_metrics: [recall@5, recall@10, mrr, ndcg@10]
+  answer_quality_metrics: [faithfulness, relevance, completeness]
+  llm_judge_model: gpt-4o
+
+feedback:
+  explicit: [thumbs, rating]
+  implicit: [dwell_time, reformulation]
+  export:
+    destination: bigquery
+    batch_size: 100
+    flush_interval_seconds: 300
