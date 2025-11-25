@@ -54,6 +54,7 @@ from orcheo.nodes.conversational_search.retrieval import (
     ReRankerNode,
     SourceRouterNode,
     VectorSearchNode,
+    WebSearchNode,
 )
 from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
@@ -106,5 +107,6 @@ __all__ = [
     "TopicShiftDetectorNode",
     "TurnAnnotationNode",
     "UserFeedbackCollectionNode",
+    "WebSearchNode",
     "VectorSearchNode",
 ]

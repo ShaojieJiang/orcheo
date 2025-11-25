@@ -3,9 +3,11 @@
 from __future__ import annotations
 import inspect
 import math
+import os
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
@@ -223,6 +225,170 @@ class BM25SearchNode(TaskNode):
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         return [token for token in text.lower().split() if token]
+
+
+@registry.register(
+    NodeMetadata(
+        name="WebSearchNode",
+        description="Perform live web search via the Tavily API.",
+        category="conversational_search",
+    )
+)
+class WebSearchNode(TaskNode):
+    """Node that retrieves fresh web results using Tavily search."""
+
+    query_key: str = Field(
+        default="query",
+        description="Key within ``state.inputs`` containing the user query string.",
+    )
+    api_key: str | None = Field(
+        default=None,
+        description=(
+            "Tavily API key; falls back to ``TAVILY_API_KEY`` environment variable."
+        ),
+    )
+    api_url: str = Field(
+        default="https://api.tavily.com/search",
+        description="Tavily search endpoint URL.",
+    )
+    search_depth: Literal["basic", "advanced"] = Field(
+        default="basic",
+        description="Search depth to request from Tavily ('basic' or 'advanced').",
+    )
+    max_results: int = Field(
+        default=5, gt=0, description="Maximum number of web results to request."
+    )
+    include_answer: bool = Field(
+        default=True,
+        description="Request Tavily to include its summarized answer.",
+    )
+    include_raw_content: bool = Field(
+        default=False,
+        description="Request raw page content from Tavily responses.",
+    )
+    days: int | None = Field(
+        default=None,
+        gt=0,
+        description="Restrict results to the past N days when provided.",
+    )
+    topic: str | None = Field(
+        default=None, description="Optional topical boost (e.g., 'news')."
+    )
+    include_domains: list[str] | None = Field(
+        default=None,
+        description="Limit results to the provided domains.",
+    )
+    exclude_domains: list[str] | None = Field(
+        default=None,
+        description="Exclude results from the provided domains.",
+    )
+    timeout: float | None = Field(
+        default=10.0,
+        ge=0.0,
+        description="Timeout in seconds for the Tavily request.",
+    )
+    source_name: str = Field(
+        default="web",
+        description="Label used to annotate Tavily-sourced results.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Issue a Tavily search and normalise the response into SearchResult items."""
+        query = state.get("inputs", {}).get(self.query_key)
+        if not isinstance(query, str) or not query.strip():
+            msg = "WebSearchNode requires a non-empty query string"
+            raise ValueError(msg)
+
+        api_key = self.api_key or os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            msg = "WebSearchNode requires an api_key or TAVILY_API_KEY env var"
+            raise ValueError(msg)
+
+        payload = self._build_payload(query.strip(), api_key)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(self.api_url, json=payload)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            msg = f"Web search request failed: {exc!s}"
+            raise ValueError(msg) from exc
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            msg = "WebSearchNode received non-JSON response"
+            raise ValueError(msg) from exc
+
+        raw_results = data.get("results")
+        if not isinstance(raw_results, list):
+            msg = "WebSearchNode expected 'results' list in response"
+            raise ValueError(msg)
+
+        results = [
+            self._parse_result(entry, index) for index, entry in enumerate(raw_results)
+        ]
+
+        return {"results": results, "answer": data.get("answer")}
+
+    def _build_payload(self, query: str, api_key: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": self.search_depth,
+            "max_results": self.max_results,
+            "include_answer": self.include_answer,
+            "include_raw_content": self.include_raw_content,
+        }
+        if self.days is not None:
+            payload["days"] = self.days
+        if self.topic is not None:
+            payload["topic"] = self.topic
+        if self.include_domains:
+            payload["include_domains"] = self.include_domains
+        if self.exclude_domains:
+            payload["exclude_domains"] = self.exclude_domains
+        return payload
+
+    def _parse_result(self, entry: dict[str, Any], index: int) -> SearchResult:
+        if not isinstance(entry, dict):
+            msg = "Each web search result must be a mapping"
+            raise ValueError(msg)
+
+        url = str(entry.get("url") or "").strip()
+        title = str(entry.get("title") or "").strip()
+        content = str(entry.get("content") or "").strip()
+        raw_content = entry.get("raw_content")
+
+        text_parts = [part for part in (title, content) if part]
+        text = " - ".join(text_parts)
+        if not text:
+            fallback = raw_content if isinstance(raw_content, str) else None
+            text = fallback or url or f"{self.source_name}-{index}"
+
+        metadata: dict[str, Any] = {}
+        if url:
+            metadata["url"] = url
+        if title:
+            metadata["title"] = title
+        if isinstance(raw_content, str) and raw_content and self.include_raw_content:
+            metadata["raw_content"] = raw_content
+
+        return SearchResult(
+            id=url or f"{self.source_name}-{index}",
+            score=self._coerce_score(entry.get("score")),
+            text=text,
+            metadata=metadata,
+            source=self.source_name,
+            sources=[self.source_name],
+        )
+
+    @staticmethod
+    def _coerce_score(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
 
 @registry.register(
