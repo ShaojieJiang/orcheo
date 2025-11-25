@@ -1,0 +1,31 @@
+dataset:
+  docs_path: ../data/docs
+  queries_path: ../data/queries.json
+
+conversation:
+  max_turns: 20
+  memory_store: in_memory
+
+query_processing:
+  classifier:
+    model: gpt-4o-mini
+    categories: [search, clarify, finalize]
+  coreference:
+    model: coref-distilroberta-base
+  rewrite:
+    strategy: conversational_expansion
+    include_last_n_turns: 3
+  topic_shift:
+    threshold: 0.6
+    action_on_shift: summarize_previous
+
+retrieval:
+  vector:
+    model: text-embedding-3-small
+    top_k: 6
+  fallback_similarity_threshold: 0.72
+
+generation:
+  model: gpt-4o-mini
+  temperature: 0.35
+  include_citations: true

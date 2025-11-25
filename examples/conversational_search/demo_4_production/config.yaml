@@ -1,0 +1,39 @@
+dataset:
+  docs_path: ../data/docs
+  queries_path: ../data/queries.json
+
+production:
+  session:
+    max_concurrent_sessions: 100
+    timeout_minutes: 30
+  caching:
+    enabled: true
+    similarity_threshold: 0.92
+    ttl_seconds: 3600
+  streaming:
+    enabled: true
+    buffer_size: 10
+    flush_interval_ms: 100
+  guardrails:
+    hallucination:
+      model: gpt-4o
+      threshold: 0.8
+      action_on_failure: fallback
+    policy_compliance:
+      filters: [pii, toxicity, profanity]
+      pii_redaction: true
+  incremental_indexer:
+    sync_interval_minutes: 60
+    change_detection: checksum
+
+retrieval:
+  vector:
+    model: text-embedding-3-small
+    top_k: 6
+  router:
+    strategies: [vector]
+
+generation:
+  model: gpt-4o-mini
+  temperature: 0.2
+  include_citations: true
