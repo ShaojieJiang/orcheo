@@ -1,39 +1,47 @@
-"""Entry point for the Production demo."""
+"""Production-Ready Pipeline demo - placeholder for future implementation."""
 
-from __future__ import annotations
-from pathlib import Path
 from typing import Any
-from examples.conversational_search.utils import (
-    default_demo_paths,
-    load_demo_assets,
-    summarize_dataset,
-)
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
 
 
-def _production_toggles(config: dict[str, Any]) -> str:
-    production = config.get("production", {})
-    caching = production.get("caching", {})
-    streaming = production.get("streaming", {})
-    guardrails = production.get("guardrails", {})
-    toggles = {
-        "caching": caching.get("enabled", False),
-        "streaming": streaming.get("enabled", False),
-        "hallucination_guard": "hallucination" in guardrails,
-        "policy_compliance": "policy_compliance" in guardrails,
-    }
-    return ", ".join(f"{key}={value}" for key, value in toggles.items())
+# Default configuration inlined for server execution
+DEFAULT_CONFIG: dict[str, Any] = {
+    "production": {
+        "caching": {
+            "enabled": True,
+            "cache_ttl_seconds": 3600,
+            "similarity_threshold": 0.92,
+        },
+        "streaming": {"enabled": True, "buffer_size": 10},
+        "guardrails": {
+            "hallucination": {"method": "llm_judge", "threshold": 0.8},
+            "policy_compliance": {"filters": ["pii", "toxicity"]},
+        },
+    },
+    "session_management": {
+        "max_concurrent_sessions": 100,
+        "session_timeout_minutes": 30,
+    },
+}
 
 
-def main() -> None:
-    """Preview the Production demo configuration and dataset."""
-    demo_root = Path(__file__).parent
-    paths = default_demo_paths(demo_root)
-    config, documents, queries = load_demo_assets(paths)
+def graph():
+    """Entrypoint for the Orcheo server to load the graph.
 
-    print("Demo 4: Production Pipeline")  # noqa: T201 - demo output
-    print(_production_toggles(config))  # noqa: T201 - demo output
-    print(summarize_dataset(documents, queries))  # noqa: T201 - demo output
+    This is a placeholder implementation. The full production workflow will
+    include caching, guardrails, streaming, and session management.
+    """
+    workflow = StateGraph(State)
 
+    # Placeholder node
+    def placeholder_node(_state: dict) -> dict:
+        return {
+            "outputs": {"message": "Demo 4: Production-Ready Pipeline - Coming Soon"}
+        }
 
-if __name__ == "__main__":
-    main()
+    workflow.add_node("placeholder", placeholder_node)
+    workflow.set_entry_point("placeholder")
+    workflow.add_edge("placeholder", "__end__")
+
+    return workflow.compile()

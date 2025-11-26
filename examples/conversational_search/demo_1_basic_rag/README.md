@@ -2,12 +2,12 @@
 
 Minimal retrieval-augmented generation pipeline using the shared sample corpus. This demo focuses on ingestion, chunking, indexing, and grounded generation with citations.
 
-## Run Locally
-1. Ensure `.env` is populated with your API keys (see `.env.example` in the parent folder).
-2. Execute the runner:
-   ```bash
-   uv run python examples/conversational_search/demo_1_basic_rag/run.py
-   ```
+## Usage
+This demo is designed to be uploaded and executed on the Orcheo server.
+
+1. Upload `demo.py` to your Orcheo workspace.
+2. The server will detect the `graph` entrypoint and `DEFAULT_CONFIG`.
+3. Execute the workflow via the Orcheo Console or API.
 
 ## What to Expect
 - Uses the shared markdown corpus in `../data/docs`.

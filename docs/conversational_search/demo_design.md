@@ -543,29 +543,25 @@ User Feedback:
 
 Each demo will include:
 
-1. **Workflow Configuration** (`demo_{n}_config.yaml`)
-   - Complete node configuration
-   - Sample data references
-   - Environment variable templates
-
-2. **Python Script** (`demo_{n}_demo.py`)
+1. **Python Script** (`demo_{n}_demo.py`)
    - Executable workflow runner for server-side execution
+   - Inline configuration via `DEFAULT_CONFIG` dictionary
    - Sample queries
    - Output formatting
    - Designed to be uploaded to Orcheo server
 
-3. **Sample Data** (`demo_{n}_data/`)
+2. **Sample Data** (`demo_{n}_data/`)
    - Input documents/queries
    - Golden datasets (Demo 5)
    - Expected outputs
 
-4. **README** (`demo_{n}_README.md`)
+3. **README** (`demo_{n}_README.md`)
    - Use case description
    - Setup instructions
    - Expected results
    - Troubleshooting guide
 
-**Note:** All demos are designed to be uploaded to the Orcheo server and executed server-side using the workflow orchestration platform.
+**Note:** All demos are designed to be uploaded to the Orcheo server and executed server-side using the workflow orchestration platform. Configuration is embedded directly in the demo.py files for simplicity.
 
 ---
 
@@ -620,29 +616,24 @@ Each demo will include:
 ```
 examples/conversational_search/
 ├── demo_1_basic_rag/
-│   ├── config.yaml
 │   ├── demo.py
 │   ├── README.md
 │   └── data/
 │       ├── docs/
 │       └── queries.json
 ├── demo_2_hybrid_search/
-│   ├── config.yaml
 │   ├── demo.py
 │   ├── README.md
 │   └── data/
 ├── demo_3_conversational/
-│   ├── config.yaml
 │   ├── demo.py
 │   ├── README.md
 │   └── data/
 ├── demo_4_production/
-│   ├── config.yaml
 │   ├── demo.py
 │   ├── README.md
 │   └── data/
 ├── demo_5_evaluation/
-│   ├── config.yaml
 │   ├── demo.py
 │   ├── README.md
 │   └── data/

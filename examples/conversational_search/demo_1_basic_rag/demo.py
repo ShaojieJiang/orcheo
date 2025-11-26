@@ -1,14 +1,5 @@
-"""Entry point for the Basic RAG demo."""
-
-from __future__ import annotations
-import asyncio
-from pathlib import Path
 from typing import Any
 from langgraph.graph import StateGraph
-from examples.conversational_search.utils import (
-    default_demo_paths,
-    load_demo_assets,
-)
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
@@ -19,6 +10,23 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
+
+
+# Default configuration inlined for server execution
+DEFAULT_CONFIG = {
+    "ingestion": {
+        "chunking": {
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+        },
+    },
+    "retrieval": {
+        "search": {
+            "top_k": 5,
+            "similarity_threshold": 0.0,
+        },
+    },
+}
 
 
 def create_ingestion_nodes(
@@ -80,45 +88,6 @@ def create_search_nodes(
     return {"search": search, "generator": generator}
 
 
-async def run_ingestion(
-    app: Any, documents: list[Any], vector_store: InMemoryVectorStore
-) -> None:
-    """Run the ingestion pipeline."""
-    print("\n--- Running Ingestion ---")
-    # DocumentLoaderNode expects list of RawDocumentInput or compatible.
-    # Our `documents` are `Document` objects.
-    ingestion_state = {"inputs": {"documents": documents}}
-
-    await app.ainvoke(ingestion_state)
-    print("Ingestion complete.")
-
-    # Verify ingestion
-    print(f"Vector store contains {len(vector_store.records)} records.")
-
-
-async def run_search(app: Any, queries: list[Any]) -> None:
-    """Run the search pipeline."""
-    print("\n--- Running Search ---")
-    for query in queries:
-        print(f"\nQuery: {query.question}")
-        search_state = {"inputs": {"query": query.question}}
-        result = await app.ainvoke(search_state)
-
-        # Extract answer
-        generator_result = result.get("results", {}).get("generator", {})
-        answer = generator_result.get("response", "No answer generated.")
-        citations = generator_result.get("citations", [])
-
-        print(f"Answer: {answer}")
-        if citations:
-            print("Citations:")
-            for cit in citations:
-                sources = cit.get("sources", [])
-                source_str = ", ".join(sources) if sources else "Unknown"
-                snippet = cit.get("snippet", "")
-                print(f"- [{cit.get('id')}] {source_str}: {snippet}")
-
-
 def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
     """Define the StateGraph workflow."""
     workflow = StateGraph(State)
@@ -160,30 +129,10 @@ def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
     return workflow
 
 
-async def run_demo() -> None:
-    """Run the Basic RAG demo."""
-    # 1. Load configuration and data
-    demo_root = Path(__file__).parent
-    paths = default_demo_paths(demo_root)
-    config, documents, queries = load_demo_assets(paths)
-
-    print(f"Loaded {len(documents)} documents and {len(queries)} queries.")
-
-    # 2. Instantiate nodes
+def graph():
+    """Entrypoint for the Orcheo server to load the graph."""
     vector_store = InMemoryVectorStore()
-    ingestion_nodes = create_ingestion_nodes(config, vector_store)
-    search_nodes = create_search_nodes(config, vector_store)
-
-    # 3. Build the graph
+    ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
+    search_nodes = create_search_nodes(DEFAULT_CONFIG, vector_store)
     workflow = define_workflow(ingestion_nodes, search_nodes)
-    app = workflow.compile()
-
-    # 4. Run Ingestion
-    await run_ingestion(app, documents, vector_store)
-
-    # 5. Run Search
-    await run_search(app, queries)
-
-
-if __name__ == "__main__":
-    asyncio.run(run_demo())
+    return workflow.compile()

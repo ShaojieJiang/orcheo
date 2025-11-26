@@ -1,37 +1,39 @@
-"""Entry point for the Hybrid Search demo."""
+"""Hybrid Search demo - placeholder for future implementation."""
 
-from __future__ import annotations
-from pathlib import Path
 from typing import Any
-from examples.conversational_search.utils import (
-    default_demo_paths,
-    load_demo_assets,
-    summarize_dataset,
-)
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
 
 
-def _describe_retrieval(config: dict[str, Any]) -> str:
-    retrieval = config.get("retrieval", {})
-    branches = [
-        key for key in retrieval if key not in {"fusion", "reranker", "compressor"}
-    ]
-    extras = [key for key in retrieval if key in {"fusion", "reranker"}]
-    return (
-        f"branches={', '.join(sorted(branches)) or 'none'}, "
-        f"extras={', '.join(sorted(extras)) or 'none'}"
-    )
+# Default configuration inlined for server execution
+DEFAULT_CONFIG: dict[str, Any] = {
+    "retrieval": {
+        "bm25": {"top_k": 10},
+        "vector": {"top_k": 10},
+        "web_search": {"max_results": 5},
+        "fusion": {
+            "strategy": "reciprocal_rank_fusion",
+            "weights": {"vector": 0.5, "bm25": 0.3, "web": 0.2},
+        },
+        "reranker": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "top_k": 5},
+    }
+}
 
 
-def main() -> None:
-    """Preview the Hybrid Search demo configuration and dataset."""
-    demo_root = Path(__file__).parent
-    paths = default_demo_paths(demo_root)
-    config, documents, queries = load_demo_assets(paths)
+def graph():
+    """Entrypoint for the Orcheo server to load the graph.
 
-    print("Demo 2: Hybrid Search")  # noqa: T201 - demo output
-    print(_describe_retrieval(config))  # noqa: T201 - demo output
-    print(summarize_dataset(documents, queries))  # noqa: T201 - demo output
+    This is a placeholder implementation. The full hybrid search workflow
+    will combine BM25, vector search, web search with fusion and re-ranking.
+    """
+    workflow = StateGraph(State)
 
+    # Placeholder node
+    def placeholder_node(_state: dict) -> dict:
+        return {"outputs": {"message": "Demo 2: Hybrid Search - Coming Soon"}}
 
-if __name__ == "__main__":
-    main()
+    workflow.add_node("placeholder", placeholder_node)
+    workflow.set_entry_point("placeholder")
+    workflow.add_edge("placeholder", "__end__")
+
+    return workflow.compile()

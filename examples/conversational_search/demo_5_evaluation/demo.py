@@ -1,36 +1,42 @@
-"""Entry point for the Evaluation & Research demo."""
+"""Evaluation & Research demo - placeholder for future implementation."""
 
-from __future__ import annotations
-from pathlib import Path
 from typing import Any
-from examples.conversational_search.utils import (
-    default_demo_paths,
-    load_demo_assets,
-    load_golden_examples,
-    load_relevance_labels,
-    summarize_dataset,
-)
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
 
 
-def _variant_summary(config: dict[str, Any]) -> str:
-    variants = config.get("variants", [])
-    names = [variant.get("name", "unnamed") for variant in variants]
-    return f"variants={', '.join(names) or 'none'}"
+# Default configuration inlined for server execution
+DEFAULT_CONFIG: dict[str, Any] = {
+    "dataset": {
+        "golden_queries_path": "../data/golden/golden_dataset.json",
+        "relevance_labels_path": "../data/labels/relevance_labels.json",
+    },
+    "variants": [
+        {"name": "vector_only", "traffic_percentage": 50},
+        {"name": "hybrid_fusion", "traffic_percentage": 50},
+    ],
+    "evaluation": {
+        "retrieval_metrics": ["recall@5", "recall@10", "mrr", "ndcg@10"],
+        "answer_quality_metrics": ["faithfulness", "relevance", "completeness"],
+    },
+}
 
 
-def main() -> None:
-    """Preview the Evaluation demo configuration and datasets."""
-    demo_root = Path(__file__).parent
-    paths = default_demo_paths(demo_root)
-    config, documents, queries = load_demo_assets(paths)
-    golden = load_golden_examples(paths.golden) if paths.golden else []
-    labels = load_relevance_labels(paths.labels) if paths.labels else []
+def graph():
+    """Entrypoint for the Orcheo server to load the graph.
 
-    print("Demo 5: Evaluation & Research")  # noqa: T201 - demo output
-    print(_variant_summary(config))  # noqa: T201 - demo output
-    print(f"Golden examples={len(golden)}, relevance labels={len(labels)}")  # noqa: T201 - demo output
-    print(summarize_dataset(documents, queries))  # noqa: T201 - demo output
+    This is a placeholder implementation. The full evaluation workflow will
+    include A/B testing, retrieval evaluation, answer quality assessment,
+    and feedback collection.
+    """
+    workflow = StateGraph(State)
 
+    # Placeholder node
+    def placeholder_node(_state: dict) -> dict:
+        return {"outputs": {"message": "Demo 5: Evaluation & Research - Coming Soon"}}
 
-if __name__ == "__main__":
-    main()
+    workflow.add_node("placeholder", placeholder_node)
+    workflow.set_entry_point("placeholder")
+    workflow.add_edge("placeholder", "__end__")
+
+    return workflow.compile()

@@ -1,37 +1,39 @@
-"""Entry point for the Conversational Search demo."""
+"""Conversational Search demo - placeholder for future implementation."""
 
-from __future__ import annotations
-from pathlib import Path
 from typing import Any
-from examples.conversational_search.utils import (
-    default_demo_paths,
-    load_demo_assets,
-    summarize_dataset,
-)
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
 
 
-def _conversation_settings(config: dict[str, Any]) -> str:
-    conversation = config.get("conversation", {})
-    max_turns = conversation.get("max_turns", "n/a")
-    memory_store = conversation.get("memory_store", "unknown")
-    query_processing = config.get("query_processing", {})
-    processors = ", ".join(sorted(query_processing)) or "none"
-    return (
-        f"conversation: max_turns={max_turns}, memory_store={memory_store}; "
-        f"processors={processors}"
-    )
+# Default configuration inlined for server execution
+DEFAULT_CONFIG: dict[str, Any] = {
+    "conversation": {
+        "max_turns": 20,
+        "memory_store": "in_memory",
+    },
+    "query_processing": {
+        "classifier": {"model": "gpt-4o-mini"},
+        "coreference_resolver": {"method": "transformer"},
+        "query_rewrite": {"strategy": "conversational_expansion"},
+    },
+}
 
 
-def main() -> None:
-    """Preview the Conversational Search demo configuration and dataset."""
-    demo_root = Path(__file__).parent
-    paths = default_demo_paths(demo_root)
-    config, documents, queries = load_demo_assets(paths)
+def graph():
+    """Entrypoint for the Orcheo server to load the graph.
 
-    print("Demo 3: Conversational Search")  # noqa: T201 - demo output
-    print(_conversation_settings(config))  # noqa: T201 - demo output
-    print(summarize_dataset(documents, queries))  # noqa: T201 - demo output
+    This is a placeholder implementation. The full conversational search workflow
+    will include query classification, coreference resolution, query rewriting,
+    and topic shift detection.
+    """
+    workflow = StateGraph(State)
 
+    # Placeholder node
+    def placeholder_node(_state: dict) -> dict:
+        return {"outputs": {"message": "Demo 3: Conversational Search - Coming Soon"}}
 
-if __name__ == "__main__":
-    main()
+    workflow.add_node("placeholder", placeholder_node)
+    workflow.set_entry_point("placeholder")
+    workflow.add_edge("placeholder", "__end__")
+
+    return workflow.compile()
