@@ -19,7 +19,7 @@ retrieval:
   vector_store: in_memory
   search:
     top_k: 5
-    similarity_threshold: 0.7
+    similarity_threshold: 0.0
 
 generation:
   model: gpt-4o-mini

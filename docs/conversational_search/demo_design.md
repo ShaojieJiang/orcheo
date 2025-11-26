@@ -1,8 +1,8 @@
 # Demo Workflow Design for Conversational Search
 
-- **Version:** 0.1
+- **Version:** 0.2
 - **Author:** Claude
-- **Date:** 2025-11-25
+- **Date:** 2025-11-26
 - **Status:** Draft
 
 ## Overview
@@ -548,10 +548,11 @@ Each demo will include:
    - Sample data references
    - Environment variable templates
 
-2. **Python Script** (`demo_{n}_run.py`)
-   - Executable workflow runner
+2. **Python Script** (`demo_{n}_demo.py`)
+   - Executable workflow runner for server-side execution
    - Sample queries
    - Output formatting
+   - Designed to be uploaded to Orcheo server
 
 3. **Sample Data** (`demo_{n}_data/`)
    - Input documents/queries
@@ -564,10 +565,7 @@ Each demo will include:
    - Expected results
    - Troubleshooting guide
 
-5. **Notebook** (`demo_{n}_notebook.ipynb`)
-   - Interactive exploration
-   - Step-by-step execution
-   - Visualization of results
+**Note:** All demos are designed to be uploaded to the Orcheo server and executed server-side using the workflow orchestration platform.
 
 ---
 
@@ -623,35 +621,30 @@ Each demo will include:
 examples/conversational_search/
 ├── demo_1_basic_rag/
 │   ├── config.yaml
-│   ├── run.py
+│   ├── demo.py
 │   ├── README.md
-│   ├── notebook.ipynb
 │   └── data/
 │       ├── docs/
 │       └── queries.json
 ├── demo_2_hybrid_search/
 │   ├── config.yaml
-│   ├── run.py
+│   ├── demo.py
 │   ├── README.md
-│   ├── notebook.ipynb
 │   └── data/
 ├── demo_3_conversational/
 │   ├── config.yaml
-│   ├── run.py
+│   ├── demo.py
 │   ├── README.md
-│   ├── notebook.ipynb
 │   └── data/
 ├── demo_4_production/
 │   ├── config.yaml
-│   ├── run.py
+│   ├── demo.py
 │   ├── README.md
-│   ├── notebook.ipynb
 │   └── data/
 ├── demo_5_evaluation/
 │   ├── config.yaml
-│   ├── run.py
+│   ├── demo.py
 │   ├── README.md
-│   ├── notebook.ipynb
 │   └── data/
 │       ├── golden_dataset.json
 │       └── relevance_labels.json
