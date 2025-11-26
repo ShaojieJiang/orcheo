@@ -98,9 +98,21 @@ def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
     for name, node in search_nodes.items():
         workflow.add_node(name, node)
 
-    # Define conditional entry point
+    # Define normalization node
+    def normalize_input(state: dict) -> dict:
+        inputs = state.get("inputs", {})
+        # ChatKit sends "message", but VectorSearchNode expects "query"
+        if "message" in inputs and "query" not in inputs:
+            return {"inputs": {**inputs, "query": inputs["message"]}}
+        return {}
+
+    workflow.add_node("normalize", normalize_input)
+    workflow.set_entry_point("normalize")
+
+    # Define conditional routing from normalization
     def router(state: dict) -> str:
         inputs = state.get("inputs", {})
+        # Prioritize ingestion if documents are present
         if "documents" in inputs:
             return "loader"
         elif "query" in inputs:
@@ -108,7 +120,15 @@ def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
         else:
             raise ValueError("Invalid input state")
 
-    workflow.set_conditional_entry_point(
+    def post_ingestion_router(state: dict) -> str:
+        inputs = state.get("inputs", {})
+        # After ingestion, check if we need to search
+        if "query" in inputs:
+            return "search"
+        return "__end__"
+
+    workflow.add_conditional_edges(
+        "normalize",
         router,
         {
             "loader": "loader",
@@ -120,7 +140,16 @@ def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
     workflow.add_edge("loader", "metadata")
     workflow.add_edge("metadata", "chunking")
     workflow.add_edge("chunking", "indexer")
-    workflow.add_edge("indexer", "__end__")
+    workflow.add_edge("chunking", "indexer")
+
+    workflow.add_conditional_edges(
+        "indexer",
+        post_ingestion_router,
+        {
+            "search": "search",
+            "__end__": "__end__",
+        },
+    )
 
     # Search flow
     workflow.add_edge("search", "generator")
@@ -129,10 +158,43 @@ def define_workflow(ingestion_nodes: dict, search_nodes: dict) -> StateGraph:
     return workflow
 
 
-def graph():
+def build_graph():
     """Entrypoint for the Orcheo server to load the graph."""
     vector_store = InMemoryVectorStore()
     ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
     search_nodes = create_search_nodes(DEFAULT_CONFIG, vector_store)
     workflow = define_workflow(ingestion_nodes, search_nodes)
-    return workflow.compile()
+    return workflow
+
+
+async def run_demo():
+    """Run the demo workflow manually."""
+    print("--- Starting Demo ---")
+    app = build_graph().compile()
+
+    print("\n--- Combined Ingestion and Search Phase ---")
+    # Ingest a document and search immediately
+    combined_input = {
+        "inputs": {
+            "documents": [
+                {
+                    "content": "Orcheo is a powerful workflow orchestration platform built on LangGraph. It allows users to create, manage, and execute complex workflows combining AI nodes, task nodes, and external integrations.",  # noqa: E501
+                    "source": "manual_test",
+                    "metadata": {"category": "tech"},
+                }
+            ],
+            "message": "What is Orcheo?",
+        }
+    }
+    # Use ainvoke for async execution
+    result = await app.ainvoke(combined_input)
+    print("Combined Results:", result.get("results", {}).keys())
+
+    if "results" in result and "generator" in result["results"]:
+        print("\nGenerator Output:", result["results"]["generator"])
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(run_demo())

@@ -1,6 +1,7 @@
 """Sandbox helpers used while loading LangGraph scripts."""
 
 from __future__ import annotations
+import ast
 import builtins
 import contextlib
 import importlib
@@ -18,7 +19,27 @@ from RestrictedPython.Guards import (
     guarded_iter_unpack_sequence,
     guarded_unpack_sequence,
 )
+from RestrictedPython.transformer import RestrictingNodeTransformer
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
+
+
+class AsyncAllowingTransformer(RestrictingNodeTransformer):
+    """Custom policy that allows async function definitions.
+
+    This extends RestrictedPython's standard transformer to allow
+    AsyncFunctionDef statements, enabling users to define async
+    functions in their workflow scripts.
+    """
+
+    def visit_AsyncFunctionDef(  # noqa: N802
+        self, node: ast.AsyncFunctionDef
+    ) -> ast.AsyncFunctionDef:
+        """Allow async function definitions."""
+        return self.node_contents_visit(node)
+
+    def visit_Await(self, node: ast.Await) -> ast.Await:  # noqa: N802
+        """Allow await expressions inside async functions."""
+        return self.node_contents_visit(node)
 
 
 TraceFunc = Callable[[FrameType | None, str, object], object]
@@ -180,7 +201,13 @@ def execution_timeout(
 def compile_langgraph_script(source: str) -> CodeType:
     """Compile a LangGraph script under RestrictedPython with caching."""
     compiler_fn = _resolve_compiler()
-    return compiler_fn(source, "<langgraph-script>", "exec")
+    return compiler_fn(  # type: ignore[call-arg]
+        source,
+        "<langgraph-script>",
+        "exec",
+        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+        policy=AsyncAllowingTransformer,
+    )
 
 
 def validate_script_size(source: str, max_script_bytes: int | None) -> None:
