@@ -10,7 +10,7 @@ from functools import lru_cache
 from importlib import import_module
 from types import ModuleType
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 import jwt
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
@@ -556,8 +556,13 @@ async def upload_chatkit_file(
     """Handle file uploads from ChatKit composer with direct upload strategy.
 
     This endpoint receives files uploaded via ChatKit's direct upload strategy
-    and returns metadata that ChatKit will include in the message to the workflow.
-    The workflow can then process the file content directly.
+    and returns attachment metadata that ChatKit expects.
+
+    The response must match ChatKit's FileAttachment or ImageAttachment format:
+    - id: unique attachment identifier
+    - name: filename
+    - mime_type: content type
+    - type: 'file' or 'image'
     """
     try:
         # Read file content
@@ -579,15 +584,20 @@ async def upload_chatkit_file(
                     },
                 ) from exc
 
-        # Return file metadata that ChatKit will include in the message
-        # This follows ChatKit's expected response format for direct uploads
+        # Generate a unique ID for this attachment
+        attachment_id = f"atc_{uuid4().hex[:8]}"
+
+        # Return attachment metadata in ChatKit's expected format
+        # This matches the FileAttachment type from chatkit.types
         return JSONResponse(
             content={
-                "file_id": file.filename or "uploaded_file",
-                "filename": file.filename,
+                "id": attachment_id,
+                "name": file.filename or "uploaded_file",
+                "mime_type": file.content_type or "text/plain",
+                "type": "file",
+                # Include the text content for the workflow to process
                 "content": text_content,
                 "size": len(content),
-                "content_type": file.content_type or "text/plain",
             },
             status_code=status.HTTP_200_OK,
         )
