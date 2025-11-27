@@ -93,15 +93,52 @@ async def resolve_user_item(
 
 
 def build_inputs_payload(
-    thread: ThreadMetadata, message_text: str, history: list[dict[str, str]]
+    thread: ThreadMetadata,
+    message_text: str,
+    history: list[dict[str, str]],
+    user_item: UserMessageItem | None = None,
 ) -> dict[str, Any]:
-    """Construct the workflow input payload."""
-    return {
+    """Construct the workflow input payload with optional file attachments.
+
+    Args:
+        thread: The ChatKit thread metadata
+        message_text: The user's message text
+        history: Conversation history
+        user_item: The user message item containing potential attachments
+
+    Returns:
+        Input payload for the workflow, including documents if attachments present
+    """
+    payload: dict[str, Any] = {
         "message": message_text,
         "history": history,
         "thread_id": thread.id,
         "metadata": dict(thread.metadata),
     }
+
+    # Extract file attachments and convert to documents format
+    if user_item is not None and hasattr(user_item, "attachments"):
+        attachments = getattr(user_item, "attachments", None)
+        if attachments and isinstance(attachments, list) and len(attachments) > 0:
+            documents = []
+            for attachment in attachments:
+                # ChatKit attachments from direct upload include file metadata
+                if isinstance(attachment, dict):
+                    doc = {
+                        "content": attachment.get("content", ""),
+                        "source": attachment.get("filename", "unknown"),
+                        "metadata": {
+                            "type": attachment.get("content_type", "text/plain"),
+                            "size": attachment.get("size", 0),
+                            "file_id": attachment.get("file_id", ""),
+                        },
+                    }
+                    documents.append(doc)
+
+            if documents:
+                payload["documents"] = documents
+
+    return payload
 
 
 def record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:

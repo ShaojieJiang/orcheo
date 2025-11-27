@@ -14,7 +14,15 @@ from uuid import UUID
 import jwt
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
@@ -539,6 +547,66 @@ async def trigger_chatkit_workflow(
         extra={"workflow_id": str(workflow_id), "run_id": str(run.id)},
     )
     return run
+
+
+@router.post("/chatkit/upload", include_in_schema=False)
+async def upload_chatkit_file(
+    file: UploadFile,
+) -> JSONResponse:
+    """Handle file uploads from ChatKit composer with direct upload strategy.
+
+    This endpoint receives files uploaded via ChatKit's direct upload strategy
+    and returns metadata that ChatKit will include in the message to the workflow.
+    The workflow can then process the file content directly.
+    """
+    try:
+        # Read file content
+        content = await file.read()
+
+        # Decode text content (ChatKit attachments are text files)
+        try:
+            text_content = content.decode("utf-8")
+        except UnicodeDecodeError:
+            # If not UTF-8, try other common encodings
+            try:
+                text_content = content.decode("latin-1")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "message": "File must be a text file with valid encoding",
+                        "code": "chatkit.upload.invalid_encoding",
+                    },
+                ) from exc
+
+        # Return file metadata that ChatKit will include in the message
+        # This follows ChatKit's expected response format for direct uploads
+        return JSONResponse(
+            content={
+                "file_id": file.filename or "uploaded_file",
+                "filename": file.filename,
+                "content": text_content,
+                "size": len(content),
+                "content_type": file.content_type or "text/plain",
+            },
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to process ChatKit file upload",
+            extra={
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to process file upload",
+                "code": "chatkit.upload.processing_error",
+            },
+        ) from exc
 
 
 __all__ = ["router"]

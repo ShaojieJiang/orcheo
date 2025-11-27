@@ -91,10 +91,13 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
 
     @staticmethod
     def _build_inputs_payload(
-        thread: ThreadMetadata, message_text: str, history: list[dict[str, str]]
+        thread: ThreadMetadata,
+        message_text: str,
+        history: list[dict[str, str]],
+        user_item: UserMessageItem | None = None,
     ) -> dict[str, Any]:
         """Delegate to the payload helper."""
-        return build_inputs_payload(thread, message_text, history)
+        return build_inputs_payload(thread, message_text, history, user_item)
 
     @staticmethod
     def _record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:
@@ -132,7 +135,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         user_item = await self._resolve_user_item(thread, item, context)
         message_text = collect_text_from_user_content(user_item.content)
         history = await self._history(thread, context)
-        inputs = self._build_inputs_payload(thread, message_text, history)
+        inputs = self._build_inputs_payload(thread, message_text, history, user_item)
 
         actor = str(context.get("actor") or "chatkit")
         try:
