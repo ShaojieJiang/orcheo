@@ -552,6 +552,7 @@ async def trigger_chatkit_workflow(
 @router.post("/chatkit/upload", include_in_schema=False)
 async def upload_chatkit_file(
     file: UploadFile,
+    request: Request,
 ) -> JSONResponse:
     """Handle file uploads from ChatKit composer with direct upload strategy.
 
@@ -587,15 +588,34 @@ async def upload_chatkit_file(
         # Generate a unique ID for this attachment
         attachment_id = f"atc_{uuid4().hex[:8]}"
 
+        # Create attachment object matching ChatKit's FileAttachment type
+        from chatkit.types import FileAttachment
+
+        attachment = FileAttachment(
+            id=attachment_id,
+            name=file.filename or "uploaded_file",
+            mime_type=file.content_type or "text/plain",
+        )
+
+        # Save attachment to store for later retrieval
+        server = _resolve_chatkit_server()
+        # Create minimal context - we don't have thread_id yet at upload time
+        context: ChatKitRequestContext = {
+            "chatkit_request": None,  # type: ignore
+            "workflow_id": "",
+            "actor": "chatkit",
+            "auth_mode": "publish",
+        }
+        await server.store.save_attachment(attachment, context)
+
         # Return attachment metadata in ChatKit's expected format
-        # This matches the FileAttachment type from chatkit.types
+        # Include content and size in the response for the frontend
         return JSONResponse(
             content={
                 "id": attachment_id,
                 "name": file.filename or "uploaded_file",
                 "mime_type": file.content_type or "text/plain",
                 "type": "file",
-                # Include the text content for the workflow to process
                 "content": text_content,
                 "size": len(content),
             },
