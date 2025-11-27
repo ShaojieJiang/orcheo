@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 from chatkit.errors import CustomStreamError
@@ -9,9 +10,11 @@ from chatkit.store import Store
 from chatkit.types import (
     AssistantMessageContent,
     AssistantMessageItem,
+    AttachmentBase,
     ThreadMetadata,
     UserMessageItem,
 )
+from orcheo.config import get_settings
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.message_utils import (
     collect_text_from_assistant_content,
@@ -120,7 +123,8 @@ def build_inputs_payload(
     if user_item is not None and hasattr(user_item, "attachments"):
         attachments = getattr(user_item, "attachments", None)
         if attachments and isinstance(attachments, list) and len(attachments) > 0:
-            documents = []
+            documents: list[dict[str, Any]] = []
+            storage_base = _chatkit_storage_base()
             for attachment in attachments:
                 # ChatKit attachments from direct upload include file metadata
                 if isinstance(attachment, dict):
@@ -134,11 +138,30 @@ def build_inputs_payload(
                         },
                     }
                     documents.append(doc)
+                elif isinstance(attachment, AttachmentBase):
+                    storage_path = storage_base / f"{attachment.id}_{attachment.name}"
+                    doc = {
+                        "storage_path": str(storage_path),
+                        "source": attachment.name,
+                        "metadata": {
+                            "mime_type": attachment.mime_type,
+                            "attachment_id": attachment.id,
+                        },
+                    }
+                    documents.append(doc)
 
             if documents:
                 payload["documents"] = documents
 
     return payload
+
+
+def _chatkit_storage_base() -> Path:
+    """Return the configured storage path for ChatKit uploads."""
+    settings = get_settings()
+    return Path(
+        str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
+    ).expanduser()
 
 
 def record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:

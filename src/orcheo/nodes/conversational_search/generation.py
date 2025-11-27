@@ -86,7 +86,8 @@ class GroundedGeneratorNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Generate a grounded response with citations and retry semantics."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "GroundedGeneratorNode requires a non-empty query string"
             raise ValueError(msg)
@@ -104,7 +105,7 @@ class GroundedGeneratorNode(TaskNode):
         tokens_used = self._estimate_tokens(prompt, response)
 
         return {
-            "response": response,
+            "reply": response,
             "citations": citations,
             "tokens_used": tokens_used,
             "citation_style": self.citation_style,
@@ -235,7 +236,7 @@ class StreamingGeneratorNode(TaskNode):
         completion = await self._generate_with_retries(prompt.strip())
         stream, frames, truncated = self._stream_tokens(completion)
         return {
-            "response": completion,
+            "reply": completion,
             "stream": stream,
             "frames": frames,
             "token_count": len(stream),
@@ -318,7 +319,7 @@ class HallucinationGuardNode(TaskNode):
         description="Result entry containing model output and citations.",
     )
     response_field: str = Field(
-        default="response", description="Field containing the model response"
+        default="reply", description="Field containing the model response"
     )
     citations_field: str = Field(
         default="citations", description="Field containing citations metadata"
@@ -349,7 +350,7 @@ class HallucinationGuardNode(TaskNode):
 
         return {
             "allowed": True,
-            "response": response,
+            "reply": response,
             "citations": citations,
         }
 

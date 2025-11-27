@@ -60,7 +60,11 @@ def build_initial_state(
 ) -> Mapping[str, Any]:
     """Create the initial workflow state for the configured format."""
     if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-        return dict(inputs)
+        state = dict(inputs)
+        state.setdefault("inputs", dict(inputs))
+        state.setdefault("results", {})
+        state.setdefault("messages", [])
+        return state
     return {
         "messages": [],
         "results": {},

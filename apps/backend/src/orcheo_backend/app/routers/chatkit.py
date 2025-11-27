@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from importlib import import_module
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
@@ -556,26 +557,30 @@ async def upload_chatkit_file(
 ) -> JSONResponse:
     """Handle file uploads from ChatKit composer with direct upload strategy.
 
-    This endpoint receives files uploaded via ChatKit's direct upload strategy
-    and returns attachment metadata that ChatKit expects.
+    This endpoint receives files uploaded via ChatKit's direct upload strategy,
+    stores them on disk at CHATKIT_STORAGE_PATH, and returns attachment metadata.
+
+    Files are persisted to disk and content extraction is deferred to DocumentLoaderNode
+    during workflow execution to avoid redundant processing.
 
     The response must match ChatKit's FileAttachment or ImageAttachment format:
     - id: unique attachment identifier
     - name: filename
     - mime_type: content type
     - type: 'file' or 'image'
+    - storage_path: path to the stored file (not part of standard ChatKit format)
     """
     try:
         # Read file content
         content = await file.read()
 
-        # Decode text content (ChatKit attachments are text files)
+        # Validate it's a text file by attempting to decode
         try:
-            text_content = content.decode("utf-8")
+            content.decode("utf-8")
         except UnicodeDecodeError:
             # If not UTF-8, try other common encodings
             try:
-                text_content = content.decode("latin-1")
+                content.decode("latin-1")
             except UnicodeDecodeError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -588,6 +593,19 @@ async def upload_chatkit_file(
         # Generate a unique ID for this attachment
         attachment_id = f"atc_{uuid4().hex[:8]}"
 
+        # Determine storage path from settings
+        settings = get_settings()
+        storage_base = Path(
+            str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
+        ).expanduser()
+        storage_base.mkdir(parents=True, exist_ok=True)
+
+        # Store file on disk with attachment ID as filename
+        storage_path = (
+            storage_base / f"{attachment_id}_{file.filename or 'uploaded_file'}"
+        )
+        storage_path.write_bytes(content)
+
         # Create attachment object matching ChatKit's FileAttachment type
         from chatkit.types import FileAttachment
 
@@ -597,7 +615,7 @@ async def upload_chatkit_file(
             mime_type=file.content_type or "text/plain",
         )
 
-        # Save attachment to store for later retrieval
+        # Save attachment metadata to store with storage_path reference
         server = _resolve_chatkit_server()
         # Create minimal context - we don't have thread_id yet at upload time
         context: ChatKitRequestContext = {
@@ -606,18 +624,20 @@ async def upload_chatkit_file(
             "actor": "chatkit",
             "auth_mode": "publish",
         }
-        await server.store.save_attachment(attachment, context)
+        await server.store.save_attachment(
+            attachment, context, storage_path=str(storage_path)
+        )
 
         # Return attachment metadata in ChatKit's expected format
-        # Include content and size in the response for the frontend
+        # Note: We do NOT return content here - it will be read by DocumentLoaderNode
         return JSONResponse(
             content={
                 "id": attachment_id,
                 "name": file.filename or "uploaded_file",
                 "mime_type": file.content_type or "text/plain",
                 "type": "file",
-                "content": text_content,
                 "size": len(content),
+                "storage_path": str(storage_path),
             },
             status_code=status.HTTP_200_OK,
         )

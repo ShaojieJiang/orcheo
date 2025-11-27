@@ -366,7 +366,7 @@ class AnswerCachingNode(TaskNode):
         default="grounded_generator",
         description="Result entry containing a new response to cache.",
     )
-    response_field: str = Field(default="response")
+    response_field: str = Field(default="reply")
     ttl_seconds: int | None = Field(default=300, gt=0)
     max_entries: int = Field(default=256, gt=0)
 
@@ -385,12 +385,12 @@ class AnswerCachingNode(TaskNode):
 
         cached = self._get_cached(normalized_query)
         if cached is not None:
-            return {"cached": True, "response": cached}
+            return {"cached": True, "reply": cached}
 
         response = self._resolve_response(state)
         if response:
             self._store(normalized_query, response)
-        return {"cached": False, "response": response}
+        return {"cached": False, "reply": response}
 
     def _get_cached(self, query: str) -> str | None:
         entry = self.cache.get(query)

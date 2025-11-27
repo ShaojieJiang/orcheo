@@ -66,7 +66,8 @@ class QueryRewriteNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Rewrite queries using recent history when pronouns are detected."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "QueryRewriteNode requires a non-empty query string"
             raise ValueError(msg)
@@ -120,7 +121,8 @@ class CoreferenceResolverNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Replace pronouns in the query using a recent referent if available."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "CoreferenceResolverNode requires a non-empty query string"
             raise ValueError(msg)
@@ -177,7 +179,8 @@ class QueryClassifierNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Classify the query as search, clarification, or finalization."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "QueryClassifierNode requires a non-empty query string"
             raise ValueError(msg)
@@ -281,7 +284,8 @@ class MultiHopPlannerNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Derive sequential hop plan from a composite query."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "MultiHopPlannerNode requires a non-empty query"
             raise ValueError(msg)

@@ -40,7 +40,7 @@ async def test_grounded_generator_appends_citations() -> None:
     result = await node.run(state, {})
 
     assert result["citations"]
-    assert "[1]" in result["response"]
+    assert "[1]" in result["reply"]
     assert result["tokens_used"] > 0
 
 
@@ -78,7 +78,7 @@ async def test_grounded_generator_retries_on_failure() -> None:
     result = await node.run(state, {})
 
     assert len(attempts) == 2
-    assert "stable" in result["response"]
+    assert "stable" in result["reply"]
 
 
 @pytest.mark.asyncio

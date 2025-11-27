@@ -32,24 +32,42 @@ A technical documentation search assistant that answers questions about a produc
 
 ```mermaid
 graph TD
-    Docs[/Document Sources/] --> Loader[DocumentLoaderNode]
-    Loader --> Chunking[ChunkingStrategyNode]
-    Chunking --> Metadata[MetadataExtractorNode]
-    Metadata --> Indexer[EmbeddingIndexerNode]
+    Start[/START/] --> EntryRouter[entry_router: IfElseNode]
 
-    Query[/Query Input/] --> Search[VectorSearchNode]
-    Indexer -.->|indexed data| Search
+    EntryRouter -->|true: documents exist| Loader[DocumentLoaderNode]
+    EntryRouter -->|false: no documents| Search[VectorSearchNode]
+
+    Loader --> Metadata[MetadataExtractorNode]
+    Metadata --> Chunking[ChunkingStrategyNode]
+    Chunking --> Indexer[EmbeddingIndexerNode]
+
+    Indexer --> PostRouter[post_ingestion_router: IfElseNode]
+    PostRouter -->|true: query/message exists| Search
+    PostRouter -->|false: no query/message| End[/__end__/]
+
     Search --> Generator[GroundedGeneratorNode]
-    Generator --> Output[/Answer Output/]
+    Generator --> End
 ```
 
 ### Nodes Demonstrated
+- **IfElseNode** (Logic) - Conditional branching based on input conditions
 - **DocumentLoaderNode** (P0) - Load markdown documentation files
-- **ChunkingStrategyNode** (P0) - Split documents with overlap
 - **MetadataExtractorNode** (P0) - Extract title, source, section metadata
+- **ChunkingStrategyNode** (P0) - Split documents with overlap
 - **EmbeddingIndexerNode** (P0) - Embed chunks and store in InMemoryVectorStore
 - **VectorSearchNode** (P0) - Retrieve top-k relevant chunks
 - **GroundedGeneratorNode** (P0) - Generate answer with citations
+
+### Branching Logic
+The demo uses two **IfElseNode** instances for workflow routing:
+
+1. **entry_router**: Evaluates `{{inputs.documents}}` truthiness
+   - `true` branch → Ingestion pipeline (loader)
+   - `false` branch → Direct to search
+
+2. **post_ingestion_router**: Evaluates `{{inputs.query}}` OR `{{inputs.message}}` truthiness
+   - `true` branch → Search pipeline
+   - `false` branch → End workflow (ingestion-only mode)
 
 ### Configuration Highlights
 ```yaml

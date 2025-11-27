@@ -81,7 +81,7 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
     generation_result = await generator.run(turn_state, {})
     assert generation_result["citations"]
 
-    turn_state["inputs"]["assistant_message"] = generation_result["response"]
+    turn_state["inputs"]["assistant_message"] = generation_result["reply"]
     convo_result = await conversation.run(turn_state, {})
     turn_state["results"][conversation.name] = convo_result
 

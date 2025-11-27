@@ -199,7 +199,7 @@ async def test_streaming_generator_uses_default_llm() -> None:
 
     result = await node.run(state, {})
 
-    assert result["response"].endswith(":: streamed")
+    assert result["reply"].endswith(":: streamed")
     assert result["frames"]
 
 
@@ -210,7 +210,7 @@ async def test_hallucination_guard_blocks_missing_markers() -> None:
         inputs={},
         results={
             "grounded_generator": {
-                "response": "answer without markers",
+                "reply": "answer without markers",
                 "citations": [{"id": "1", "snippet": "snippet"}],
             }
         },
@@ -230,7 +230,7 @@ async def test_hallucination_guard_allows_valid_output() -> None:
         inputs={},
         results={
             "grounded_generator": {
-                "response": "answer [1]",
+                "reply": "answer [1]",
                 "citations": [{"id": "1", "snippet": "snippet"}],
             }
         },
@@ -240,7 +240,7 @@ async def test_hallucination_guard_allows_valid_output() -> None:
     allowed = await node.run(state, {})
 
     assert allowed["allowed"] is True
-    assert allowed["response"].startswith("answer")
+    assert allowed["reply"].startswith("answer")
 
 
 @pytest.mark.asyncio
@@ -256,7 +256,7 @@ async def test_hallucination_guard_validates_payload_and_citations() -> None:
 
     state_missing = State(
         inputs={},
-        results={"grounded_generator": {"response": "reply", "citations": []}},
+        results={"grounded_generator": {"reply": "reply", "citations": []}},
         structured_response=None,
     )
     blocked = await node.run(state_missing, {})
@@ -266,7 +266,7 @@ async def test_hallucination_guard_validates_payload_and_citations() -> None:
         inputs={},
         results={
             "grounded_generator": {
-                "response": "reply [1]",
+                "reply": "reply [1]",
                 "citations": ["not-a-dict"],
             }
         },
@@ -283,7 +283,7 @@ async def test_hallucination_guard_blocks_empty_snippet() -> None:
         inputs={},
         results={
             "grounded_generator": {
-                "response": "content [1]",
+                "reply": "content [1]",
                 "citations": [{"id": "1", "snippet": ""}],
             }
         },
@@ -299,7 +299,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
     node = HallucinationGuardNode(name="guard-empty-response")
     empty_response_state = State(
         inputs={},
-        results={"grounded_generator": {"response": "", "citations": []}},
+        results={"grounded_generator": {"reply": "", "citations": []}},
         structured_response=None,
     )
     with pytest.raises(ValueError, match="Response payload is missing or empty"):
@@ -311,7 +311,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
             inputs={},
             results={
                 "grounded_generator": {
-                    "response": "text",
+                    "reply": "text",
                     "citations": [{"snippet": "s"}],
                 }
             },
@@ -327,7 +327,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
             inputs={},
             results={
                 "grounded_generator": {
-                    "response": "ok",
+                    "reply": "ok",
                     "citations": [{"snippet": "s"}],
                 }
             },
@@ -466,11 +466,11 @@ async def test_answer_caching_stores_and_serves_cached_response() -> None:
 
     first_state = State(
         inputs={"query": "What is Orcheo?"},
-        results={"grounded_generator": {"response": "An orchestration engine."}},
+        results={"grounded_generator": {"reply": "An orchestration engine."}},
         structured_response=None,
     )
     first = await node.run(first_state, {})
-    assert first == {"cached": False, "response": "An orchestration engine."}
+    assert first == {"cached": False, "reply": "An orchestration engine."}
 
     second_state = State(
         inputs={"query": "What is Orcheo?"},
@@ -479,7 +479,7 @@ async def test_answer_caching_stores_and_serves_cached_response() -> None:
     )
     second = await node.run(second_state, {})
 
-    assert second == {"cached": True, "response": "An orchestration engine."}
+    assert second == {"cached": True, "reply": "An orchestration engine."}
 
 
 @pytest.mark.asyncio
@@ -487,7 +487,7 @@ async def test_answer_caching_handles_expiry_and_validation() -> None:
     node = AnswerCachingNode(name="cache-extra", ttl_seconds=1, max_entries=1)
     cache_state = State(
         inputs={"query": "Q1"},
-        results={"grounded_generator": {"response": "first"}},
+        results={"grounded_generator": {"reply": "first"}},
         structured_response=None,
     )
     await node.run(cache_state, {})
@@ -505,7 +505,7 @@ async def test_answer_caching_handles_expiry_and_validation() -> None:
 
     bad_response_state = State(
         inputs={"query": "Q2"},
-        results={"grounded_generator": {"response": ""}},
+        results={"grounded_generator": {"reply": ""}},
         structured_response=None,
     )
     with pytest.raises(ValueError, match="non-empty string"):
@@ -523,7 +523,7 @@ async def test_answer_caching_handles_expiry_and_validation() -> None:
         ),
         {},
     )
-    assert uncached == {"cached": False, "response": None}
+    assert uncached == {"cached": False, "reply": None}
 
 
 @pytest.mark.asyncio
