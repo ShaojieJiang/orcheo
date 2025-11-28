@@ -1,7 +1,6 @@
 """Tests for async function support in LangGraph script ingestion."""
 
 from __future__ import annotations
-import pytest
 from orcheo.graph.ingestion.sandbox import compile_langgraph_script
 
 
@@ -22,11 +21,11 @@ def build_graph():
 
 
 def test_compile_script_with_name_main_block() -> None:
-    """Verify that scripts with if __name__ == '__main__' blocks are rejected.
+    """Verify that scripts with if __name__ == '__main__' blocks compile successfully.
 
-    RestrictedPython doesn't allow __name__ (variables starting with _).
-    This is expected - such blocks wouldn't execute during upload anyway
-    since __name__ is set to '__orcheo_ingest__' in the sandbox.
+    The __name__ variable is now allowed in scripts and is set to '__orcheo_ingest__'
+    in the sandbox namespace. This means if __name__ == "__main__" blocks will not
+    execute during workflow upload, which is the desired behavior.
     """
     source = """
 import asyncio
@@ -40,9 +39,10 @@ def build_graph():
 if __name__ == "__main__":
     asyncio.run(run_demo())
 """
-    # Should raise SyntaxError due to __name__ usage
-    with pytest.raises(SyntaxError, match="__name__.*invalid variable name"):
-        compile_langgraph_script(source)
+    # Should compile successfully now that __name__ is allowed
+    bytecode = compile_langgraph_script(source)
+    assert bytecode is not None
+    assert bytecode.co_name == "<module>"
 
 
 def test_compile_script_with_sync_functions_still_works() -> None:

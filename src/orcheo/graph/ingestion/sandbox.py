@@ -24,11 +24,13 @@ from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 
 
 class AsyncAllowingTransformer(RestrictingNodeTransformer):
-    """Custom policy that allows async function definitions.
+    """Custom policy that allows async function definitions and common Python syntax.
 
-    This extends RestrictedPython's standard transformer to allow
-    AsyncFunctionDef statements, enabling users to define async
-    functions in their workflow scripts.
+    This extends RestrictedPython's standard transformer to allow:
+    - AsyncFunctionDef statements (async functions)
+    - Await expressions (await keyword)
+    - AnnAssign statements (annotated assignments like PEP 526)
+    - Reading the __name__ special variable (for if __name__ == "__main__" guards)
     """
 
     def visit_AsyncFunctionDef(  # noqa: N802
@@ -39,6 +41,29 @@ class AsyncAllowingTransformer(RestrictingNodeTransformer):
 
     def visit_Await(self, node: ast.Await) -> ast.Await:  # noqa: N802
         """Allow await expressions inside async functions."""
+        return self.node_contents_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> ast.AnnAssign:  # noqa: N802
+        """Allow annotated assignments (PEP 526).
+
+        This enables syntax like:
+            field: Type = value
+            attr: str = Field(description="...")
+        """
+        return self.node_contents_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:  # noqa: N802
+        """Allow reading the __name__ special variable.
+
+        This permits common patterns like:
+            if __name__ == "__main__":
+                ...
+
+        The __name__ variable is pre-set to "__orcheo_ingest__" in the sandbox
+        namespace, so __main__ guards will not execute.
+        """
+        if isinstance(node.ctx, ast.Load) and node.id == "__name__":
+            return node
         return self.node_contents_visit(node)
 
 
@@ -117,6 +142,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
             "dict": dict,
             "list": list,
             "set": set,
+            "type": type,
         }
     )
 
@@ -124,6 +150,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
         "__builtins__": MappingProxyType(builtin_snapshot),
         "__name__": "__orcheo_ingest__",
         "__package__": None,
+        "__metaclass__": type,  # Required by RestrictedPython for class definitions
         "_getattr_": getattr,
         "_getattr_static_": getattr,
         "_setattr_": setattr,

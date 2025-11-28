@@ -18,6 +18,19 @@ from orcheo.graph.ingestion.sandbox import (
 )
 
 
+def _format_syntax_error_message(exc: SyntaxError) -> str:
+    """Format a SyntaxError into a user-friendly message."""
+    if exc.args and isinstance(exc.args[0], str):
+        # Format: "Line 39: AnnAssign statements are not allowed."
+        # or tuple with multiple error messages
+        if isinstance(exc.args[0], str) and exc.args[0].startswith("Line"):
+            return f"Compilation error: {exc.args[0]}"
+        # Handle tuple of errors
+        error_messages = ", ".join(str(arg) for arg in exc.args if isinstance(arg, str))
+        return f"Compilation error: {error_messages}"
+    return f"Compilation error: {exc}"
+
+
 def load_graph_from_script(
     source: str,
     *,
@@ -35,12 +48,16 @@ def load_graph_from_script(
             exec(compiled, namespace)
     except ScriptIngestionError:
         raise
+    except SyntaxError as exc:
+        # RestrictedPython syntax errors come with detailed information
+        message = _format_syntax_error_message(exc)
+        raise ScriptIngestionError(message) from exc
     except TimeoutError as exc:
         # pragma: no cover - deterministic message asserted in tests
         message = "LangGraph script execution exceeded the configured timeout"
         raise ScriptIngestionError(message) from exc
     except Exception as exc:  # pragma: no cover - exercised via tests
-        message = "Failed to execute LangGraph script"
+        message = f"Runtime error during script execution: {type(exc).__name__}: {exc}"
         raise ScriptIngestionError(message) from exc
 
     module_name = namespace["__name__"]
