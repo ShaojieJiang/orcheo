@@ -21,10 +21,7 @@ from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.logic import (
     DelayNode,
-    IfElseNode,
     SetVariableNode,
-    SwitchNode,
-    WhileNode,
 )
 from orcheo.nodes.mongodb import MongoDBNode
 from orcheo.nodes.python_sandbox import PythonSandboxNode

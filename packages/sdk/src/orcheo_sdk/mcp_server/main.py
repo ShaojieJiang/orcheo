@@ -5,6 +5,7 @@ from fastmcp import FastMCP
 from orcheo_sdk.mcp_server import agent_tool_bindings as _agent_tool_bindings
 from orcheo_sdk.mcp_server import codegen_tools as _codegen_tools
 from orcheo_sdk.mcp_server import credential_tools as _credential_tools
+from orcheo_sdk.mcp_server import edge_tools as _edge_tools
 from orcheo_sdk.mcp_server import node_tools as _node_tools
 from orcheo_sdk.mcp_server import service_token_tools as _service_token_tools
 from orcheo_sdk.mcp_server import workflow_tools as _workflow_tools
@@ -21,6 +22,7 @@ from orcheo_sdk.mcp_server.server import (
 _TOOL_MODULES: tuple[str, ...] = (
     "orcheo_sdk.mcp_server.workflow_tools",
     "orcheo_sdk.mcp_server.node_tools",
+    "orcheo_sdk.mcp_server.edge_tools",
     "orcheo_sdk.mcp_server.credential_tools",
     "orcheo_sdk.mcp_server.codegen_tools",
     "orcheo_sdk.mcp_server.agent_tool_bindings",
@@ -53,6 +55,7 @@ _MODULE_EXPORTS: tuple[tuple[object, tuple[str, ...]], ...] = (
         ),
     ),
     (_node_tools, ("list_nodes", "show_node")),
+    (_edge_tools, ("list_edges", "show_edge")),
     (
         _credential_tools,
         ("list_credentials", "create_credential", "delete_credential"),

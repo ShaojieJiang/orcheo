@@ -4,7 +4,6 @@ import logging
 from abc import abstractmethod
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from langgraph.types import Send
 from pydantic import BaseModel
 from orcheo.graph.state import State
 from orcheo.runtime.credentials import (
@@ -18,11 +17,16 @@ from orcheo.runtime.credentials import (
 logger = logging.getLogger(__name__)
 
 
-class BaseNode(BaseModel):
-    """Base class for all nodes in the flow."""
+class BaseRunnable(BaseModel):
+    """Base class for all runnables in Orcheo (nodes and edges).
+
+    Provides common functionality for variable decoding, credential resolution,
+    and state management. Does not include tool execution methods, which are
+    specific to nodes.
+    """
 
     name: str
-    """Unique name of the node."""
+    """Unique name of the runnable."""
 
     def _decode_value(self, value: Any, state: State) -> Any:
         """Recursively decode a value that may contain template strings."""
@@ -64,7 +68,7 @@ class BaseNode(BaseModel):
                 result = fallback
                 continue
             logger.warning(
-                "Node %s could not resolve template '%s' at segment '%s'; "
+                "Runnable %s could not resolve template '%s' at segment '%s'; "
                 "leaving value unchanged.",
                 self.name,
                 value,
@@ -93,16 +97,24 @@ class BaseNode(BaseModel):
         if resolver is None:
             msg = (
                 "Credential placeholders require an active resolver. "
-                f"Node '{self.name}' attempted to access "
+                f"Runnable '{self.name}' attempted to access "
                 f"{reference.identifier!r}"
             )
             raise CredentialResolverUnavailableError(msg)
         return resolver.resolve(reference)
 
     def decode_variables(self, state: State) -> None:
-        """Decode the variables in attributes of the node."""
+        """Decode the variables in attributes of the runnable."""
         for key, value in self.__dict__.items():
             self.__dict__[key] = self._decode_value(value, state)
+
+
+class BaseNode(BaseRunnable):
+    """Base class for all nodes in the flow.
+
+    Inherits variable decoding and credential resolution from BaseRunnable,
+    and adds tool execution methods specific to nodes.
+    """
 
     def tool_run(self, *args: Any, **kwargs: Any) -> Any:
         """Run the node as a tool."""
@@ -145,20 +157,4 @@ class TaskNode(BaseNode):
         pass  # pragma: no cover
 
 
-class DecisionNode(BaseNode):
-    """Base class for all decision nodes in the flow.
-
-    Decision nodes should be used as a conditional edge in the graph, instead
-    of a regular node.
-    """
-
-    async def __call__(self, state: State, config: RunnableConfig) -> str | list[Send]:
-        """Execute the node and return the path to the next node."""
-        self.decode_variables(state)
-        path = await self.run(state, config)
-        return path
-
-    @abstractmethod
-    async def run(self, state: State, config: RunnableConfig) -> str | list[Send]:
-        """Run the node."""
-        pass  # pragma: no cover
+__all__ = ["BaseRunnable", "BaseNode", "AINode", "TaskNode"]

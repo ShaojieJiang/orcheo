@@ -118,6 +118,8 @@ After installation, restart your shell or source your shell configuration file.
 |---------|-------------|
 | `orcheo node list [--tag <tag>]` | List registered nodes with metadata (name, category, description). Filter by tag. |
 | `orcheo node show <node>` | Display detailed node schema, inputs/outputs, and credential requirements. |
+| `orcheo edge list [--category <category>]` | List registered edges with metadata (name, category, description). Filter by category. |
+| `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. |
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |

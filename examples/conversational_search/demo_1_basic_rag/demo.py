@@ -1,6 +1,7 @@
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph
+from orcheo.edges import Condition, IfElse, Switch, SwitchCase
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
@@ -11,8 +12,6 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-from orcheo.nodes.logic.branching import IfElseNode, SwitchCase, SwitchNode
-from orcheo.nodes.logic.conditions import Condition
 
 
 # Default configuration inlined for server execution
@@ -92,10 +91,10 @@ def create_search_nodes(
 
 
 def create_routing_nodes(vector_store: InMemoryVectorStore) -> dict[str, Any]:
-    """Create branching nodes for workflow routing."""
-    # Entry router: determines routing mode and uses SwitchNode for branching
-    # Create a SwitchNode for entry routing
-    entry_router = SwitchNode(
+    """Create branching edges for workflow routing."""
+    # Entry router: determines routing mode and uses Switch edge for branching
+    # Create a Switch edge for entry routing
+    entry_router = Switch(
         name="entry_router",
         value="",  # Will be set dynamically in the router function
         cases=[
@@ -106,9 +105,9 @@ def create_routing_nodes(vector_store: InMemoryVectorStore) -> dict[str, Any]:
         default_branch_key="generator",
     )
 
-    # Create the combined router function that computes value and uses SwitchNode
+    # Create the combined router function that computes value and uses Switch
     async def entry_route_with_switch(state: State, config: RunnableConfig) -> str:
-        """Compute route value and use SwitchNode to determine branch."""
+        """Compute route value and use Switch to determine branch."""
         # Compute the route value based on state
         inputs = state.get("inputs", {})
         has_docs = bool(inputs.get("documents"))
@@ -120,18 +119,15 @@ def create_routing_nodes(vector_store: InMemoryVectorStore) -> dict[str, Any]:
         else:
             route_value = "generator"
 
-        # Set the value on the SwitchNode dynamically
+        # Set the value on the Switch dynamically
         entry_router.value = route_value
 
-        # Call the SwitchNode to get its decision
-        result = await entry_router(state, config)
-
-        # Extract the branch from SwitchNode's output
-        branch = result["results"]["entry_router"]["branch"]
+        # Call the Switch edge to get its decision (now returns string directly)
+        branch = await entry_router(state, config)
         return branch
 
     # Post-ingestion router: checks if query/message is present for search
-    post_ingestion_router = IfElseNode(
+    post_ingestion_router = IfElse(
         name="post_ingestion_router",
         conditions=[
             Condition(
