@@ -1,4 +1,5 @@
 from typing import Any
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
@@ -10,7 +11,7 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-from orcheo.nodes.logic.branching import IfElseNode
+from orcheo.nodes.logic.branching import IfElseNode, SwitchCase, SwitchNode
 from orcheo.nodes.logic.conditions import Condition
 
 
@@ -90,18 +91,44 @@ def create_search_nodes(
     return {"search": search, "generator": generator}
 
 
-def create_routing_nodes() -> dict[str, Any]:
+def create_routing_nodes(vector_store: InMemoryVectorStore) -> dict[str, Any]:
     """Create branching nodes for workflow routing."""
-    # Entry router: checks if documents are present
-    entry_router = IfElseNode(
+    # Entry router: determines routing mode and uses SwitchNode for branching
+    # Create a SwitchNode for entry routing
+    entry_router = SwitchNode(
         name="entry_router",
-        conditions=[
-            Condition(
-                left="{{inputs.documents}}",
-                operator="is_truthy",
-            )
+        value="",  # Will be set dynamically in the router function
+        cases=[
+            SwitchCase(match="ingestion", branch_key="loader"),
+            SwitchCase(match="search", branch_key="search"),
+            SwitchCase(match="generator", branch_key="generator"),
         ],
+        default_branch_key="generator",
     )
+
+    # Create the combined router function that computes value and uses SwitchNode
+    async def entry_route_with_switch(state: State, config: RunnableConfig) -> str:
+        """Compute route value and use SwitchNode to determine branch."""
+        # Compute the route value based on state
+        inputs = state.get("inputs", {})
+        has_docs = bool(inputs.get("documents"))
+
+        if has_docs:
+            route_value = "ingestion"
+        elif vector_store.records:
+            route_value = "search"
+        else:
+            route_value = "generator"
+
+        # Set the value on the SwitchNode dynamically
+        entry_router.value = route_value
+
+        # Call the SwitchNode to get its decision
+        result = await entry_router(state, config)
+
+        # Extract the branch from SwitchNode's output
+        branch = result["results"]["entry_router"]["branch"]
+        return branch
 
     # Post-ingestion router: checks if query/message is present for search
     post_ingestion_router = IfElseNode(
@@ -120,7 +147,7 @@ def create_routing_nodes() -> dict[str, Any]:
     )
 
     return {
-        "entry_router": entry_router,
+        "entry_router": entry_route_with_switch,
         "post_ingestion_router": post_ingestion_router,
     }
 
@@ -131,19 +158,23 @@ def define_workflow(
     """Define the StateGraph workflow."""
     workflow = StateGraph(State)
 
-    # Add task nodes only (DecisionNodes are used directly in conditional edges)
+    # Add task nodes
     for name, node in ingestion_nodes.items():
         workflow.add_node(name, node)
     for name, node in search_nodes.items():
         workflow.add_node(name, node)
 
-    # Entry router as conditional entry point (DecisionNode used directly)
+    # Get routing functions
     entry_router = routing_nodes["entry_router"]
+    post_ingestion_router = routing_nodes["post_ingestion_router"]
+
+    # Use entry_router directly as conditional entry point
     workflow.set_conditional_entry_point(
         entry_router,
         {
-            "true": "loader",  # Documents present -> ingestion
-            "false": "search",  # No documents -> search
+            "loader": "loader",
+            "search": "search",
+            "generator": "generator",
         },
     )
 
@@ -152,8 +183,7 @@ def define_workflow(
     workflow.add_edge("metadata", "chunking")
     workflow.add_edge("chunking", "indexer")
 
-    # Post-ingestion routing (DecisionNode used directly)
-    post_ingestion_router = routing_nodes["post_ingestion_router"]
+    # Post-ingestion routing
     workflow.add_conditional_edges(
         "indexer",
         post_ingestion_router,
@@ -175,7 +205,7 @@ def build_graph() -> StateGraph:
     vector_store = InMemoryVectorStore()
     ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
     search_nodes = create_search_nodes(DEFAULT_CONFIG, vector_store)
-    routing_nodes = create_routing_nodes()
+    routing_nodes = create_routing_nodes(vector_store)
     workflow = define_workflow(ingestion_nodes, search_nodes, routing_nodes)
     return workflow
 
@@ -183,17 +213,42 @@ def build_graph() -> StateGraph:
 async def run_demo() -> None:
     """Run the demo workflow manually.
 
-    This demo aligns with the ChatKit dataflow where files are stored on disk
-    and only storage_path (not content) is passed to the workflow. The
-    DocumentLoaderNode reads file content from storage_path during execution.
+    This demo demonstrates both RAG and non-RAG modes:
+    - RAG mode: Documents are provided and used for grounded generation
+    - Non-RAG mode: No documents provided, generates general responses
     """
     import tempfile
     from pathlib import Path
 
-    print("--- Starting Demo ---")
-    app = build_graph().compile()
+    print("=== Starting Demo 1: Basic RAG Pipeline ===\n")
 
-    print("\n--- Combined Ingestion and Search Phase ---")
+    # ========== NON-RAG MODE: Without Documents ==========
+    # Test non-RAG mode first (before any documents are indexed)
+    print("--- Non-RAG Mode: Direct Generation Phase ---")
+    print("(Testing without any documents indexed)\n")
+
+    app_non_rag = build_graph().compile()
+    non_rag_input = {
+        "inputs": {
+            "message": "What is the capital of France?",
+        }
+    }
+
+    result = await app_non_rag.ainvoke(non_rag_input)  # type: ignore[arg-type]
+    print("Non-RAG Mode Results:", result.get("results", {}).keys())
+
+    if "results" in result and "generator" in result["results"]:
+        gen_result = result["results"]["generator"]
+        print("\nNon-RAG Mode Generator Output:")
+        print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
+        print(f"  Mode: {gen_result.get('mode', 'N/A')}")
+        print(f"  Citations: {len(gen_result.get('citations', []))} found")
+
+    # ========== RAG MODE: With Documents ==========
+    print("\n--- RAG Mode: Ingestion and Search Phase ---")
+
+    # Create a new app instance for RAG mode
+    app_rag = build_graph().compile()
 
     # Phase 0: Simulate file upload (ChatKit behavior)
     # Create a temporary file to simulate uploaded document
@@ -203,8 +258,7 @@ async def run_demo() -> None:
     doc_file.write_text(doc_content, encoding="utf-8")
 
     # Phase 1: Workflow invocation with storage_path (not content)
-    # Aligns with dataflow.md Phase 1 where content is NOT included
-    combined_input = {
+    rag_input = {
         "inputs": {
             "documents": [
                 {
@@ -218,16 +272,22 @@ async def run_demo() -> None:
     }
 
     try:
-        # Use ainvoke for async execution
-        result = await app.ainvoke(combined_input)  # type: ignore[arg-type]
-        print("Combined Results:", result.get("results", {}).keys())
+        result = await app_rag.ainvoke(rag_input)  # type: ignore[arg-type]
+        print("RAG Mode Results:", result.get("results", {}).keys())
 
         if "results" in result and "generator" in result["results"]:
-            print("\nGenerator Output:", result["results"]["generator"])
+            gen_result = result["results"]["generator"]
+            print("\nRAG Mode Generator Output:")
+            print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
+            print(f"  Mode: {gen_result.get('mode', 'N/A')}")
+            print(f"  Citations: {len(gen_result.get('citations', []))} found")
+
     finally:
         # Cleanup temporary file
         doc_file.unlink()
         temp_dir.rmdir()
+
+    print("\n=== Demo Complete ===")
 
 
 if __name__ == "__main__":

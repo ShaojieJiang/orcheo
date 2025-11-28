@@ -91,11 +91,12 @@ async def test_grounded_generator_requires_query_and_context() -> None:
     ):
         await node.run(empty_state, {})
 
+    # Test non-RAG mode: works without context
     state = State(inputs={"query": "hi"}, results={}, structured_response=None)
-    with pytest.raises(
-        ValueError, match="GroundedGeneratorNode requires at least one context document"
-    ):
-        await node.run(state, {})
+    result = await node.run(state, {})
+    assert result["mode"] == "non_rag"
+    assert result["citations"] == []
+    assert "reply" in result
 
 
 @pytest.mark.asyncio

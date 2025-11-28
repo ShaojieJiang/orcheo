@@ -85,7 +85,10 @@ class GroundedGeneratorNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Generate a grounded response with citations and retry semantics."""
+        """Generate a grounded response with citations and retry semantics.
+
+        If no context is available, generates a response without RAG or citations.
+        """
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
@@ -93,10 +96,21 @@ class GroundedGeneratorNode(TaskNode):
             raise ValueError(msg)
 
         context = self._resolve_context(state)
-        if not context:
-            msg = "GroundedGeneratorNode requires at least one context document"
-            raise ValueError(msg)
 
+        # Handle non-RAG mode when no context is available
+        if not context:
+            prompt = self._build_non_rag_prompt(query.strip())
+            completion = await self._generate_with_retries(prompt)
+            tokens_used = self._estimate_tokens(prompt, completion)
+            return {
+                "reply": completion,
+                "citations": [],
+                "tokens_used": tokens_used,
+                "citation_style": self.citation_style,
+                "mode": "non_rag",
+            }
+
+        # RAG mode with context and citations
         prompt = self._build_prompt(query.strip(), context)
         completion = await self._generate_with_retries(prompt)
 
@@ -109,6 +123,7 @@ class GroundedGeneratorNode(TaskNode):
             "citations": citations,
             "tokens_used": tokens_used,
             "citation_style": self.citation_style,
+            "mode": "rag",
         }
 
     def _resolve_context(self, state: State) -> list[SearchResult]:
@@ -135,6 +150,14 @@ class GroundedGeneratorNode(TaskNode):
             f"Context:\n{context_block}\n\n"
             f"Cite sources in {self.citation_style} style using the provided "
             "identifiers."
+        )
+
+    def _build_non_rag_prompt(self, query: str) -> str:
+        """Build a prompt for non-RAG mode without context or citations."""
+        return (
+            "You are a helpful assistant. Answer the user's question directly "
+            "based on your knowledge.\n\n"
+            f"Question: {query}\n"
         )
 
     async def _generate_with_retries(self, prompt: str) -> str:

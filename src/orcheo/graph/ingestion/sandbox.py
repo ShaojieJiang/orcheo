@@ -46,6 +46,10 @@ TraceFunc = Callable[[FrameType | None, str, object], object]
 
 _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "langgraph",
+    "langchain",
+    "langchain_core",
+    "langchain_community",
+    "langchain_openai",
     "orcheo",
     "typing",
     "typing_extensions",
