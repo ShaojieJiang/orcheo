@@ -64,3 +64,19 @@ async def test_while_node_without_max_iterations() -> None:
 
     first = await node(state, RunnableConfig())
     assert first == "continue"
+
+
+@pytest.mark.asyncio
+async def test_while_node_initializes_results_dict_when_missing() -> None:
+    """Test that While edge initializes results dict when it doesn't exist."""
+    state = State({"inputs": {}})  # No results dict
+    node = While(
+        name="loop",
+        conditions=[{"operator": "less_than", "right": 5}],
+    )
+
+    first = await node(state, RunnableConfig())
+    assert first == "continue"
+    assert "results" in state
+    assert isinstance(state["results"], dict)
+    assert state["results"]["loop"]["iteration"] == 1

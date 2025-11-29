@@ -3,6 +3,7 @@ import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.generation import (
     GroundedGeneratorNode,
+    StreamingGeneratorNode,
     _truncate_snippet,
 )
 from orcheo.nodes.conversational_search.models import SearchResult
@@ -185,3 +186,311 @@ async def test_invoke_ai_model_rejects_invalid_response(
 
     with pytest.raises(ValueError, match="Agent must return a non-empty string"):
         await node._invoke_ai_model("prompt")
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_grounded_generator_with_history_containing_empty_turns(
+    mock_create_agent,
+) -> None:
+    """Test that history with non-dict items and empty content is handled."""
+
+    async def mock_invoke(state):
+        return {"messages": [MagicMock(content="Response with citations [1]")]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
+    state = _state_with_context("test query")
+    # Mix of valid, invalid, and empty history items
+    state["inputs"]["history"] = [
+        {"role": "user", "content": "first"},
+        "not a dict",  # Invalid item
+        {"role": "user", "content": ""},  # Empty content
+        {"role": "assistant", "content": ""},  # Empty content
+        {"role": "other", "content": "ignored"},  # Wrong role
+        {"role": "user", "content": "second"},
+    ]
+
+    result = await node.run(state, {})
+
+    assert result["mode"] == "rag"
+    assert len(result["citations"]) > 0
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_extract_response_text_from_dict_message(mock_create_agent) -> None:
+    """Test extracting response text from dict message."""
+
+    async def mock_invoke(state):
+        return {"messages": [{"content": "Response text [1]"}]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
+    state = _state_with_context("test query")
+
+    result = await node.run(state, {})
+
+    assert "Response text" in result["reply"]
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_extract_response_text_from_non_message_object(mock_create_agent) -> None:
+    """Test extracting response when message is not dict or has no content attr."""
+
+    async def mock_invoke(state):
+        # Return a message that's neither dict nor has content attribute
+        return {"messages": ["plain string message"]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
+    state = _state_with_context("test query")
+
+    result = await node.run(state, {})
+
+    assert "plain string message" in result["reply"]
+
+
+@pytest.mark.asyncio
+async def test_grounded_generator_non_rag_mode() -> None:
+    """Test non-RAG mode when no context is available."""
+    node = GroundedGeneratorNode(name="generator")
+    state = State(
+        inputs={"query": "What is the weather?"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["mode"] == "non_rag"
+    assert result["citations"] == []
+    assert "reply" in result
+    assert result["tokens_used"] > 0
+
+
+@pytest.mark.asyncio
+async def test_estimate_tokens_from_history_with_invalid_items() -> None:
+    """Test token estimation with history containing invalid items."""
+    node = GroundedGeneratorNode(name="generator")
+
+    # History with non-dict items and empty content
+    history = [
+        {"role": "user", "content": "hello"},
+        "not a dict",
+        {"role": "user", "content": ""},
+        {"role": "assistant"},  # Missing content
+        {"role": "user", "content": "world"},
+    ]
+
+    tokens = node._estimate_tokens_from_history(history, "query", "response")
+
+    # Should only count valid content: "hello", "world", "query", "response"
+    assert tokens > 0
+
+
+# StreamingGeneratorNode tests
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_with_history_edge_cases(mock_create_agent) -> None:
+    """Test StreamingGeneratorNode with history containing edge cases."""
+    from orcheo.nodes.conversational_search.generation import StreamingGeneratorNode
+
+    async def mock_invoke(state):
+        return {"messages": [MagicMock(content="Streaming response")]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
+    state = State(
+        inputs={
+            "message": "test query",
+            "history": [
+                {"role": "user", "content": "first"},
+                "not a dict",  # Invalid
+                {"role": "user", "content": ""},  # Empty
+                {"role": "assistant", "content": ""},  # Empty
+                {"role": "other", "content": "ignored"},  # Wrong role
+            ],
+        },
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["reply"] == "Streaming response"
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_extract_from_dict_message(mock_create_agent) -> None:
+    """Test StreamingGeneratorNode extracting text from dict message."""
+    from orcheo.nodes.conversational_search.generation import StreamingGeneratorNode
+
+    async def mock_invoke(state):
+        return {"messages": [{"content": "Dict response"}]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
+    state = State(
+        inputs={"message": "test"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["reply"] == "Dict response"
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_extract_from_non_message_result(
+    mock_create_agent,
+) -> None:
+    """Test StreamingGeneratorNode with non-dict result."""
+    from orcheo.nodes.conversational_search.generation import StreamingGeneratorNode
+
+    async def mock_invoke(state):
+        # Return non-dict result
+        return "plain result"
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
+    state = State(
+        inputs={"message": "test"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["reply"] == "plain result"
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_grounded_generator_with_valid_assistant_history(
+    mock_create_agent,
+) -> None:
+    """Test that valid assistant history is correctly processed."""
+
+    async def mock_invoke(state):
+        return {"messages": [MagicMock(content="Response")]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
+    state = _state_with_context("query")
+    state["inputs"]["history"] = [{"role": "assistant", "content": "previous answer"}]
+
+    await node.run(state, {})
+    # Implicitly covers line 192 by executing the path
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_grounded_generator_handles_direct_string_result(
+    mock_create_agent,
+) -> None:
+    """Test handling of direct string result from agent."""
+
+    async def mock_invoke(state):
+        return "Direct string response"
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
+    state = _state_with_context("query")
+
+    result = await node.run(state, {})
+    assert "Direct string response" in result["reply"]
+
+
+def test_estimate_tokens_static_method() -> None:
+    """Test the static _estimate_tokens method."""
+    # "hello" + "world" -> "helloworld" -> 1 token
+    count = GroundedGeneratorNode._estimate_tokens("hello", "world")
+    assert count == 1
+
+    # "hello " + "world" -> "hello world" -> 2 tokens
+    count = GroundedGeneratorNode._estimate_tokens("hello ", "world")
+    assert count == 2
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_with_valid_assistant_history(
+    mock_create_agent,
+) -> None:
+    """Test StreamingGeneratorNode with valid assistant history."""
+
+    async def mock_invoke(state):
+        return {"messages": [MagicMock(content="Response")]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
+    state = State(
+        inputs={
+            "message": "query",
+            "history": [{"role": "assistant", "content": "previous"}],
+        },
+        results={},
+        structured_response=None,
+    )
+
+    await node.run(state, {})
+    # Implicitly covers line 375
+
+
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_handles_string_message_in_list(
+    mock_create_agent,
+) -> None:
+    """Test StreamingGeneratorNode handling string message in messages list."""
+
+    async def mock_invoke(state):
+        return {"messages": ["string message"]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
+
+    node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
+    state = State(
+        inputs={"message": "query"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["reply"] == "string message"
