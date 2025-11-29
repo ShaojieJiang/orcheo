@@ -60,36 +60,7 @@ async def test_grounded_generator_resolves_context_from_results_field() -> None:
     assert result["citations"][0]["source_id"] == "chunk-1"
 
 
-@pytest.mark.asyncio
-@patch("orcheo.nodes.conversational_search.generation.create_agent")
-async def test_grounded_generator_retries_on_failure(mock_create_agent) -> None:
-    attempts: list[int] = []
-
-    async def flaky_invoke(state):
-        attempts.append(1)
-        if len(attempts) == 1:
-            raise RuntimeError("temporary")
-        # Return a mock message response
-        return {
-            "messages": [
-                MagicMock(content="stable response"),
-            ]
-        }
-
-    # Mock the agent
-    mock_agent = MagicMock()
-    mock_agent.ainvoke = flaky_invoke
-    mock_create_agent.return_value = mock_agent
-
-    node = GroundedGeneratorNode(
-        name="generator", ai_model="gpt-4", max_retries=1, backoff_seconds=0
-    )
-    state = _state_with_context("Explain citations")
-
-    result = await node.run(state, {})
-
-    assert len(attempts) == 2
-    assert "stable" in result["reply"]
+# Retry logic has been removed - retries should be configured via model_kwargs
 
 
 @pytest.mark.asyncio
@@ -189,19 +160,13 @@ def test_attach_citations_handles_endnote_style() -> None:
     assert result == "answer\n\nEndnotes: [1]"
 
 
-@pytest.mark.asyncio
-async def test_generate_with_retries_raises_when_no_attempts() -> None:
-    node = GroundedGeneratorNode(name="generator")
-    node.max_retries = -1
-
-    with pytest.raises(RuntimeError, match="Generation failed after 0 attempts"):
-        await node._generate_with_retries("prompt")
+# Retry logic has been removed - retries should be configured via model_kwargs
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_result", [123, "   "])
 @patch("orcheo.nodes.conversational_search.generation.create_agent")
-async def test_invoke_llm_rejects_invalid_response(
+async def test_invoke_ai_model_rejects_invalid_response(
     mock_create_agent, invalid_result
 ) -> None:
     # Mock the agent to return invalid result
@@ -219,4 +184,4 @@ async def test_invoke_llm_rejects_invalid_response(
     node = GroundedGeneratorNode(name="generator", ai_model="gpt-4")
 
     with pytest.raises(ValueError, match="Agent must return a non-empty string"):
-        await node._invoke_llm("prompt")
+        await node._invoke_ai_model("prompt")

@@ -168,12 +168,7 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
 async def test_streaming_generator_truncates_and_chunks_tokens(
     mock_create_agent,
 ) -> None:
-    calls = {"count": 0}
-
-    async def flaky_invoke(state):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise RuntimeError("boom")
+    async def mock_invoke(state):
         return {
             "messages": [
                 MagicMock(content="one two three four"),
@@ -182,14 +177,12 @@ async def test_streaming_generator_truncates_and_chunks_tokens(
 
     # Mock the agent
     mock_agent = MagicMock()
-    mock_agent.ainvoke = flaky_invoke
+    mock_agent.ainvoke = mock_invoke
     mock_create_agent.return_value = mock_agent
 
     node = StreamingGeneratorNode(
         name="stream",
         ai_model="gpt-4",
-        max_retries=1,
-        backoff_seconds=0.0,
         chunk_size=2,
         buffer_limit=3,
     )
@@ -634,6 +627,6 @@ async def test_streaming_generator_validates_prompt_and_llm_output(
     mock_agent.ainvoke = bad_invoke
     mock_create_agent.return_value = mock_agent
 
-    bad_node = StreamingGeneratorNode(name="stream-llm", ai_model="gpt-4")
+    bad_node = StreamingGeneratorNode(name="stream-ai-model", ai_model="gpt-4")
     with pytest.raises(ValueError, match="Agent must return"):
-        await bad_node._invoke_llm("prompt")
+        await bad_node._invoke_ai_model("prompt")

@@ -1,10 +1,10 @@
 """Grounded generation node for conversational search pipelines."""
 
 from __future__ import annotations
-import asyncio
 from typing import Any, Literal
 from langchain.agents import create_agent
-from langchain_core.runnables import RunnableConfig
+from langchain.chat_models import init_chat_model
+from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
@@ -64,14 +64,6 @@ class GroundedGeneratorNode(TaskNode):
     citation_style: Literal["inline", "footnote", "endnote"] = Field(
         default="inline", description="Style hint for formatting citations."
     )
-    max_tokens: int = Field(default=512, gt=0, description="Token cap for generation")
-    temperature: float = Field(
-        default=0.1, ge=0.0, description="Sampling temperature used by the model"
-    )
-    max_retries: int = Field(default=2, ge=0, description="Maximum retry attempts")
-    backoff_seconds: float = Field(
-        default=0.1, ge=0.0, description="Base backoff delay between retries"
-    )
     ai_model: str | None = Field(
         default=None,
         description=(
@@ -79,6 +71,10 @@ class GroundedGeneratorNode(TaskNode):
             "When specified, an agent is created using langchain.agents.create_agent. "
             "A deterministic fallback is used when omitted."
         ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to init_chat_model.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -158,26 +154,15 @@ class GroundedGeneratorNode(TaskNode):
         )
 
     async def _generate_with_retries(self, prompt: str) -> str:
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await self._invoke_llm(prompt)
-            except Exception as exc:  # pragma: no cover - exercised via tests
-                last_error = exc
-                if attempt == self.max_retries:
-                    raise
-                delay = self.backoff_seconds * (2**attempt)
-                await asyncio.sleep(delay)
-        msg = f"Generation failed after {self.max_retries + 1} attempts"
-        raise RuntimeError(msg) from last_error
+        return await self._invoke_ai_model(prompt)
 
-    async def _invoke_llm(self, prompt: str) -> str:
+    async def _invoke_ai_model(self, prompt: str) -> str:
         if self.ai_model:
-            # Create agent with the specified model
-            from langchain_core.runnables import Runnable
-
+            # Initialize chat model with model_kwargs
+            model = init_chat_model(self.ai_model, **self.model_kwargs)
+            # Create agent with the initialized model
             agent: Runnable = create_agent(
-                self.ai_model,
+                model,
                 tools=[],
                 system_prompt="",
             )
@@ -203,10 +188,9 @@ class GroundedGeneratorNode(TaskNode):
             return text.strip()
         else:
             # Use default fallback
-            return self._default_llm(prompt, self.max_tokens, self.temperature)
+            return self._default_ai_model(prompt)
 
-    def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        del max_tokens, temperature
+    def _default_ai_model(self, prompt: str) -> str:
         return f"{prompt}\n\nResponse: See cited context for details."
 
     def _build_citations(self, context: list[SearchResult]) -> list[dict[str, Any]]:
@@ -253,8 +237,6 @@ class StreamingGeneratorNode(TaskNode):
     prompt_key: str = Field(
         default="prompt", description="Key under inputs containing the prompt."
     )
-    max_tokens: int = Field(default=256, gt=0, description="Token limit")
-    temperature: float = Field(default=0.2, ge=0.0, description="Sampling temp")
     chunk_size: int = Field(
         default=8, gt=0, description="Maximum tokens per emitted frame"
     )
@@ -263,14 +245,16 @@ class StreamingGeneratorNode(TaskNode):
         gt=0,
         description="Optional backpressure cap on total tokens streamed.",
     )
-    max_retries: int = Field(default=1, ge=0)
-    backoff_seconds: float = Field(default=0.05, ge=0.0)
     ai_model: str | None = Field(
         default=None,
         description=(
             "Optional model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-latest'). "
             "When specified, an agent is created using langchain.agents.create_agent."
         ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to init_chat_model.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -291,24 +275,15 @@ class StreamingGeneratorNode(TaskNode):
         }
 
     async def _generate_with_retries(self, prompt: str) -> str:
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await self._invoke_llm(prompt)
-            except Exception as exc:  # pragma: no cover - exercised via tests
-                if attempt == self.max_retries:
-                    msg = "Streaming generation failed after retries"
-                    raise RuntimeError(msg) from exc
-                await asyncio.sleep(self.backoff_seconds * (2**attempt))
-        msg = "Streaming generation failed after retries"  # pragma: no cover
-        raise RuntimeError(msg)  # pragma: no cover
+        return await self._invoke_ai_model(prompt)
 
-    async def _invoke_llm(self, prompt: str) -> str:
+    async def _invoke_ai_model(self, prompt: str) -> str:
         if self.ai_model:
-            # Create agent with the specified model
-            from langchain_core.runnables import Runnable
-
+            # Initialize chat model with model_kwargs
+            model = init_chat_model(self.ai_model, **self.model_kwargs)
+            # Create agent with the initialized model
             agent: Runnable = create_agent(
-                self.ai_model,
+                model,
                 tools=[],
                 system_prompt="",
             )
@@ -334,7 +309,7 @@ class StreamingGeneratorNode(TaskNode):
             return text.strip()
         else:
             # Use default fallback
-            return self._default_llm(prompt, self.max_tokens, self.temperature)
+            return self._default_ai_model(prompt)
 
     def _stream_tokens(
         self, completion: str
@@ -370,8 +345,7 @@ class StreamingGeneratorNode(TaskNode):
             )
         return stream, frames, truncated
 
-    def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        del max_tokens, temperature
+    def _default_ai_model(self, prompt: str) -> str:
         return f"{prompt} :: streamed"
 
 

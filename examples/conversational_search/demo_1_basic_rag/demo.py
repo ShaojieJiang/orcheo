@@ -14,6 +14,7 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
 # Default configuration inlined for server execution
@@ -105,10 +106,9 @@ def create_search_nodes(
     generator = GroundedGeneratorNode(
         name="generator",
         context_result_key="search",
-        # In a real app, we'd configure the LLM model here.
-        # For this demo, we rely on the default mock/placeholder if available,
-        # or we might need to mock the LLM call if GroundedGeneratorNode
-        # requires a real one. GroundedGeneratorNode._default_llm is a placeholder.
+        ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
+        # The credential is retrieved from the orcheo credential vault
     )
 
     return {"search": search, "generator": generator}
@@ -223,17 +223,35 @@ def build_graph() -> StateGraph:
     return workflow
 
 
+def setup_credentials() -> CredentialResolver:
+    """Set up credential resolver for the demo.
+
+    Note: This demo uses credentials from the Orcheo vault (created via
+    `orcheo credential create openai_api_key`). The vault is typically stored
+    at ~/.orcheo/vault.sqlite by default.
+    """
+    vault = get_vault()
+    return CredentialResolver(vault)
+
+
 async def run_demo() -> None:
     """Run the demo workflow manually.
 
     This demo demonstrates both RAG and non-RAG modes:
     - RAG mode: Documents are provided and used for grounded generation
     - Non-RAG mode: No documents provided, generates general responses
+
+    Prerequisites:
+    Create the openai_api_key credential before running this demo:
+        orcheo credential create openai_api_key --secret sk-your-key-here
     """
     import tempfile
     from pathlib import Path
 
     print("=== Starting Demo 1: Basic RAG Pipeline ===\n")
+
+    # Set up credential resolver for the demo
+    resolver = setup_credentials()
 
     # ========== NON-RAG MODE: Without Documents ==========
     # Test non-RAG mode first (before any documents are indexed)
@@ -247,7 +265,8 @@ async def run_demo() -> None:
         }
     }
 
-    result = await app_non_rag.ainvoke(non_rag_input)  # type: ignore[arg-type]
+    with credential_resolution(resolver):
+        result = await app_non_rag.ainvoke(non_rag_input)  # type: ignore[arg-type]
     print("Non-RAG Mode Results:", result.get("results", {}).keys())
 
     if "results" in result and "generator" in result["results"]:
@@ -285,7 +304,8 @@ async def run_demo() -> None:
     }
 
     try:
-        result = await app_rag.ainvoke(rag_input)  # type: ignore[arg-type]
+        with credential_resolution(resolver):
+            result = await app_rag.ainvoke(rag_input)  # type: ignore[arg-type]
         print("RAG Mode Results:", result.get("results", {}).keys())
 
         if "results" in result and "generator" in result["results"]:
@@ -305,5 +325,6 @@ async def run_demo() -> None:
 
 if __name__ == "__main__":
     import asyncio
+    from orcheo_backend.app.dependencies import get_vault
 
     asyncio.run(run_demo())
