@@ -15,16 +15,15 @@ async def test_while_node_iterations_and_limit() -> None:
 
     first = await node(state, RunnableConfig())
     assert first == "continue"
-
-    state["results"]["loop"] = {"iteration": 1}
+    assert state["results"]["loop"]["iteration"] == 1
 
     second = await node(state, RunnableConfig())
     assert second == "continue"
-
-    state["results"]["loop"] = {"iteration": 2}
+    assert state["results"]["loop"]["iteration"] == 2
 
     third = await node(state, RunnableConfig())
     assert third == "exit"
+    assert state["results"]["loop"]["iteration"] == 2
 
 
 def test_while_node_previous_iteration_reads_state() -> None:

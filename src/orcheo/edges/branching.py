@@ -190,6 +190,20 @@ class While(BaseEdge):
         ):
             should_continue = False
 
+        if should_continue:
+            next_iteration = previous_iteration + 1
+        else:
+            next_iteration = previous_iteration
+
+        results = state.get("results")
+        if not isinstance(results, dict):
+            results = state["results"] = {}
+        edge_state = results.get(self.name)
+        if not isinstance(edge_state, dict):
+            edge_state = {}
+        edge_state["iteration"] = next_iteration
+        results[self.name] = edge_state
+
         branch = "continue" if should_continue else "exit"
         return branch
 
