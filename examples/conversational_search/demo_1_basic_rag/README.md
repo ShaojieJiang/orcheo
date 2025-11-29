@@ -1,98 +1,52 @@
 # Demo 1: Basic RAG Pipeline
 
-A flexible conversational pipeline that supports both **RAG (Retrieval-Augmented Generation)** and **non-RAG** modes. This demo demonstrates document ingestion, chunking, indexing, vector search, and grounded generation with citations when documents are provided, or direct generation without retrieval when no documents are attached.
+A LangGraph workflow that can answer questions with or without uploaded documents. The graph conditionally routes through ingestion (load → metadata → chunk → embed) when files are present, performs semantic search when chunks exist in the shared `InMemoryVectorStore`, and otherwise falls back to direct generation.
 
-## Features
+## Highlights
+- **Entry routing**: `EntryRoutingNode` inspects the current request plus vector store state to choose ingestion, search-only, or direct generation.
+- **Configurable ingestion**: `DocumentLoaderNode`, `MetadataExtractorNode`, `ChunkingStrategyNode`, and `EmbeddingIndexerNode` are parameterized through `DEFAULT_CONFIG`.
+- **Semantic search**: `VectorSearchNode` queries the in-memory store with adjustable `top_k` and score threshold.
+- **Grounded generation**: `GroundedGeneratorNode` (OpenAI `gpt-4o-mini`) produces inline-cited answers using retrieved chunks or handles non-RAG prompts when no context exists.
 
-### RAG Mode (with documents)
-- **Document Loading**: Load documents from disk using `DocumentLoaderNode`
-- **Metadata Extraction**: Extract document metadata with `MetadataExtractorNode`
-- **Chunking**: Split documents into chunks with configurable size and overlap using `ChunkingStrategyNode`
-- **Embedding & Indexing**: Create embeddings and store in an in-memory vector store using `EmbeddingIndexerNode`
-- **Vector Search**: Retrieve relevant chunks based on semantic similarity using `VectorSearchNode`
-- **Grounded Generation**: Generate answers with citations using `GroundedGeneratorNode`
+## Requirements
+1. Install dependencies: `uv sync --all-groups`
+2. Create an OpenAI credential for the generator node:
+   ```bash
+   orcheo credential create openai_api_key --secret sk-your-key
+   ```
+   The script relies on the Orcheo vault (`~/.orcheo/vault.sqlite` by default) via `setup_credentials()`.
 
-### Non-RAG Mode (without documents)
-- **Direct Generation**: Generate responses without retrieval when no documents are provided
-- **No Citations**: Responses are generated based on the model's knowledge without grounding in specific documents
-
-## Usage
-
-### Running Locally
+## Running Locally
 ```bash
 python examples/conversational_search/demo_1_basic_rag/demo.py
 ```
+The script automatically executes two passes:
+1. **Non-RAG phase** – Runs the compiled graph before any documents are indexed to show direct answering.
+2. **RAG phase** – Creates a temporary file, ingests it, and re-runs the graph to demonstrate retrieval + grounded generation.
 
-This will demonstrate both modes:
-1. **Non-RAG mode**: Answers a general knowledge question without any documents
-2. **RAG mode**: Ingests a document and answers a question using the indexed content
+## Deploying to Orcheo
+- Upload `demo.py` to your workspace; the platform picks up `build_graph()` and `DEFAULT_CONFIG`.
+- Invoke through the console or API:
+  - Provide `documents` (with `storage_path`) plus a `message` to trigger ingestion/search.
+  - Provide only `message` for non-RAG generation; if the vector store already has chunks from previous runs, the entry router will still perform search.
 
-### Uploading to Orcheo Server
-1. Upload `demo.py` to your Orcheo workspace
-2. The server will detect the `build_graph()` entrypoint and `DEFAULT_CONFIG`
-3. Execute the workflow via the Orcheo Console or API with:
-   - **For RAG mode**: Include `documents` in the input with `storage_path` to files
-   - **For non-RAG mode**: Only include `message` without `documents`
-
-## Configuration
-
-The demo uses `DEFAULT_CONFIG` for customization:
-
+## Inputs
 ```python
-DEFAULT_CONFIG = {
-    "ingestion": {
-        "chunking": {
-            "chunk_size": 512,      # Size of each text chunk
-            "chunk_overlap": 64,    # Overlap between chunks
-        },
-    },
-    "retrieval": {
-        "search": {
-            "top_k": 5,                    # Number of chunks to retrieve
-            "similarity_threshold": 0.0,   # Minimum similarity score
-        },
-    },
-}
-```
-
-## Workflow Architecture
-
-The workflow uses conditional routing to support both modes:
-
-```
-START
-  ├─ Documents provided?
-  │    ├─ YES → DocumentLoader → Metadata → Chunking → Indexer
-  │    │                                                  ↓
-  │    │                                         Query exists?
-  │    │                                           ├─ YES → VectorSearch → Generator
-  │    │                                           └─ NO → END
-  │    └─ NO → Has indexed documents?
-  │              ├─ YES → VectorSearch → Generator (RAG mode)
-  │              └─ NO → Generator (Non-RAG mode)
-  └─ END
-```
-
-## Example Inputs
-
-### RAG Mode
-```python
+# With documents (RAG)
 {
     "inputs": {
         "documents": [
             {
-                "storage_path": "/path/to/document.txt",
+                "storage_path": "/abs/path/document.txt",
                 "source": "document.txt",
-                "metadata": {"category": "tech"}
+                "metadata": {"category": "tech"},
             }
         ],
-        "message": "What is Orcheo?"
+        "message": "What is Orcheo?",
     }
 }
-```
 
-### Non-RAG Mode
-```python
+# Without documents (non-RAG)
 {
     "inputs": {
         "message": "What is the capital of France?"
@@ -100,41 +54,66 @@ START
 }
 ```
 
-## Expected Outputs
+## Configuration (DEFAULT_CONFIG)
+```python
+DEFAULT_CONFIG = {
+    "ingestion": {
+        "chunking": {
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+        },
+    },
+    "retrieval": {
+        "search": {
+            "top_k": 5,
+            "similarity_threshold": 0.0,
+        },
+    },
+}
+```
+Override these values when calling the workflow to tune chunk granularity or recall/precision.
 
-### RAG Mode Output
+## Workflow
+```mermaid
+flowchart TD
+    start([START]) --> entry[EntryRoutingNode]
+    entry -->|documents provided| loader
+    entry -->|vector store has records| search
+    entry -->|otherwise| generator
+
+    subgraph Ingestion
+        loader --> metadata --> chunking --> indexer
+    end
+
+    indexer --> post{Inputs.message?}
+    post -->|true| search
+    post -->|false| end1([END])
+
+    search --> generator --> end2([END])
+```
+- `entry_router` is implemented with a `Switch` edge.
+- `post_ingestion_router` (an `IfElse` edge) ensures queries exist before searching; otherwise the run ends after indexing.
+
+## Expected Outputs
+`GroundedGeneratorNode`'s response is exposed through the `generator` result, e.g.:
 ```python
 {
-    "reply": "Orcheo is a powerful workflow orchestration platform... [1]",
+    "reply": "Orcheo is a workflow orchestration platform...",
     "citations": [
         {
             "id": "1",
-            "source_id": "...",
             "snippet": "Orcheo is a powerful workflow orchestration platform...",
-            "sources": ["document.txt"]
+            "sources": ["document.txt"],
         }
     ],
     "tokens_used": 156,
-    "citation_style": "inline",
-    "mode": "rag"
+    "mode": "rag",
 }
 ```
-
-### Non-RAG Mode Output
-```python
-{
-    "reply": "The capital of France is Paris...",
-    "citations": [],
-    "tokens_used": 42,
-    "citation_style": "inline",
-    "mode": "non_rag"
-}
-```
+When no document context exists the `citations` list is empty and `mode` is `non_rag`.
 
 ## Next Steps
-
-- **Customize chunking**: Adjust `chunk_size` and `chunk_overlap` for different document types
-- **Tune retrieval**: Modify `top_k` and `similarity_threshold` to balance precision/recall
-- **Add real LLM**: Replace the default mock LLM with OpenAI, Anthropic, or other providers
-- **Try different documents**: Upload your own markdown files to test domain-specific RAG
-- **Experiment with modes**: Test the workflow with and without documents to see both behaviors
+- Adjust `chunk_size` / `chunk_overlap` for different file types.
+- Experiment with `top_k` and `similarity_threshold` to balance precision and latency.
+- Swap `GroundedGeneratorNode` arguments to point at other providers or models via Orcheo credentials.
+- Persist embeddings in a durable vector store implementation instead of the in-memory default for multi-session recall.
