@@ -645,7 +645,7 @@ async def upload_chatkit_file(
         logger.error(
             "Failed to process ChatKit file upload",
             extra={
-                "filename": file.filename,
+                "file_name": file.filename,
                 "content_type": file.content_type,
                 "error": str(exc),
             },

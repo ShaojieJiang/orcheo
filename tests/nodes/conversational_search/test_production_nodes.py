@@ -1,4 +1,5 @@
 import time
+from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import Field
 from orcheo.graph.state import State
@@ -163,21 +164,25 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
 
 
 @pytest.mark.asyncio
-async def test_streaming_generator_truncates_and_chunks_tokens() -> None:
-    calls = {"count": 0}
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_truncates_and_chunks_tokens(
+    mock_create_agent,
+) -> None:
+    async def mock_invoke(state):
+        return {
+            "messages": [
+                MagicMock(content="one two three four"),
+            ]
+        }
 
-    async def flaky(prompt: str, max_tokens: int, temperature: float) -> str:
-        del max_tokens, temperature
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise RuntimeError("boom")
-        return "one two three four"
+    # Mock the agent
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = mock_invoke
+    mock_create_agent.return_value = mock_agent
 
     node = StreamingGeneratorNode(
         name="stream",
-        llm=flaky,
-        max_retries=1,
-        backoff_seconds=0.0,
+        ai_model="gpt-4",
         chunk_size=2,
         buffer_limit=3,
     )
@@ -600,13 +605,28 @@ async def test_multi_hop_planner_handles_edge_cases() -> None:
 
 
 @pytest.mark.asyncio
-async def test_streaming_generator_validates_prompt_and_llm_output() -> None:
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+async def test_streaming_generator_validates_prompt_and_llm_output(
+    mock_create_agent,
+) -> None:
     node = StreamingGeneratorNode(name="stream-invalid")
     with pytest.raises(ValueError, match="requires a non-empty prompt"):
         await node.run(
             State(inputs={"prompt": "   "}, results={}, structured_response=None), {}
         )
 
-    bad_llm = StreamingGeneratorNode(name="stream-llm", llm=lambda *_: "")
-    with pytest.raises(ValueError, match="LLM callable must return"):
-        await bad_llm._invoke_llm("prompt")
+    # Mock agent to return empty string
+    async def bad_invoke(state):
+        return {
+            "messages": [
+                MagicMock(content=""),
+            ]
+        }
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = bad_invoke
+    mock_create_agent.return_value = mock_agent
+
+    bad_node = StreamingGeneratorNode(name="stream-ai-model", ai_model="gpt-4")
+    with pytest.raises(ValueError, match="Agent must return"):
+        await bad_node._invoke_ai_model("prompt")

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 from langgraph.graph import StateGraph
 from orcheo.graph.conditional import add_conditional_edges
-from orcheo.graph.edge_nodes import build_edge_nodes
+from orcheo.graph.edges import build_edges
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
 from orcheo.graph.normalization import normalise_edges, normalise_vertex
 from orcheo.graph.parallel import add_parallel_branches
@@ -29,9 +29,9 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
     graph = StateGraph(State)
     nodes = list(graph_json.get("nodes", []))
     edges = list(graph_json.get("edges", []))
-    edge_nodes = list(graph_json.get("edge_nodes", []))
+    edge_configs = list(graph_json.get("edge_nodes", []))  # Legacy key support
 
-    edge_node_instances = build_edge_nodes(edge_nodes)
+    edge_instances = build_edges(edge_configs)
 
     for node in nodes:
         node_type = node.get("type")
@@ -49,7 +49,7 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
         graph.add_edge(normalise_vertex(source), normalise_vertex(target))
 
     for branch in graph_json.get("conditional_edges", []):
-        add_conditional_edges(graph, branch, edge_node_instances)
+        add_conditional_edges(graph, branch, edge_instances)
 
     for parallel in graph_json.get("parallel_branches", []):
         add_parallel_branches(graph, parallel)

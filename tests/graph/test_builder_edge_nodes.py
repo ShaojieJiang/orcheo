@@ -1,4 +1,4 @@
-"""Tests covering edge node construction and conditional routing."""
+"""Tests covering edge construction and conditional routing."""
 
 from __future__ import annotations
 import asyncio
@@ -8,42 +8,42 @@ import pytest
 from langgraph.graph import END, START
 from langgraph.types import Send
 from orcheo.graph.conditional import add_conditional_edges
-from orcheo.graph.edge_nodes import build_edge_nodes
+from orcheo.graph.edges import build_edges
 from tests.graph._builder_test_helpers import DummyGraph, StubDecision
 
 
 def test_build_edge_nodes_missing_name() -> None:
-    """Edge node without name raises ValueError."""
+    """Edge without name raises ValueError."""
 
-    with pytest.raises(ValueError, match="Edge node must have a name"):
-        build_edge_nodes([{"type": "IfElseNode"}])
+    with pytest.raises(ValueError, match="Edge must have a name"):
+        build_edges([{"type": "IfElse"}])
 
 
 def test_build_edge_nodes_unknown_type() -> None:
-    """Unknown edge node type raises ValueError."""
+    """Unknown edge type raises ValueError."""
 
-    with pytest.raises(ValueError, match="Unknown edge node type: missing"):
-        build_edge_nodes([{"name": "decision", "type": "missing"}])
+    with pytest.raises(ValueError, match="Unknown edge type: missing"):
+        build_edges([{"name": "decision", "type": "missing"}])
 
 
 def test_build_edge_nodes_success() -> None:
-    """Successfully build edge node instances."""
-    from orcheo.nodes.registry import registry
+    """Successfully build edge instances."""
+    from orcheo.edges.registry import edge_registry
 
-    edge_nodes_config = [
+    edges_config = [
         {
             "name": "my_decision",
-            "type": "IfElseNode",
-            "condition": "{{check.value}}",
+            "type": "IfElse",
+            "conditions": [{"left": True, "operator": "is_truthy"}],
         }
     ]
 
-    result = build_edge_nodes(edge_nodes_config)
+    result = build_edges(edges_config)
 
     assert "my_decision" in result
     assert result["my_decision"].name == "my_decision"
-    node_class = registry.get_node("IfElseNode")
-    assert isinstance(result["my_decision"], node_class)
+    edge_class = edge_registry.get_edge("IfElse")
+    assert isinstance(result["my_decision"], edge_class)
 
 
 @pytest.mark.parametrize(
@@ -111,11 +111,11 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
     assert condition({"payload": {"flag": "unknown"}}) is END
 
 
-def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
-    """Edge node conditional edges apply default routing when unmatched."""
+def test_add_conditional_edges_preserves_default_for_edges() -> None:
+    """Edge conditional edges apply default routing when unmatched."""
 
     graph = DummyGraph()
-    edge_node = StubDecision(["true", "unknown"])
+    edge = StubDecision(["true", "unknown"])
 
     add_conditional_edges(
         graph,
@@ -125,7 +125,7 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
             "mapping": {"true": "END"},
             "default": "fallback",
         },
-        {"decision": edge_node},
+        {"decision": edge},
     )
 
     call = graph.conditional_calls[0]
@@ -135,11 +135,11 @@ def test_add_conditional_edges_preserves_default_for_edge_nodes() -> None:
     assert asyncio.run(router({}, {})) == "fallback"
 
 
-def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
-    """Edge node defaults referencing sentinels are normalised before routing."""
+def test_add_conditional_edges_normalises_default_edges() -> None:
+    """Edge defaults referencing sentinels are normalised before routing."""
 
     graph = DummyGraph()
-    edge_node = StubDecision(["maybe"])
+    edge = StubDecision(["maybe"])
 
     add_conditional_edges(
         graph,
@@ -149,18 +149,18 @@ def test_add_conditional_edges_normalises_default_edge_nodes() -> None:
             "mapping": {"true": "END"},
             "default": "END",
         },
-        {"decision": edge_node},
+        {"decision": edge},
     )
 
     router = graph.conditional_calls[0]["args"][1]
     assert asyncio.run(router({}, {})) is END
 
 
-def test_add_conditional_edges_edge_node_without_default_routes_to_end() -> None:
-    """Edge nodes without defaults fall back to END when unmatched."""
+def test_add_conditional_edges_edge_without_default_routes_to_end() -> None:
+    """Edges without defaults fall back to END when unmatched."""
 
     graph = DummyGraph()
-    edge_node = StubDecision(["unknown"])
+    edge = StubDecision(["unknown"])
 
     add_conditional_edges(
         graph,
@@ -169,19 +169,19 @@ def test_add_conditional_edges_edge_node_without_default_routes_to_end() -> None
             "path": "decision",
             "mapping": {"true": "next"},
         },
-        {"decision": edge_node},
+        {"decision": edge},
     )
 
     router = graph.conditional_calls[0]["args"][1]
     assert asyncio.run(router({}, {})) is END
 
 
-def test_add_conditional_edges_edge_node_handles_sequence_results() -> None:
-    """Edge node routers normalise sequence outputs including Send packets."""
+def test_add_conditional_edges_edge_handles_sequence_results() -> None:
+    """Edge routers normalise sequence outputs including Send packets."""
 
     graph = DummyGraph()
     send_packet = Send("custom", {})
-    edge_node = StubDecision([["true", send_packet]])
+    edge = StubDecision([["true", send_packet]])
 
     add_conditional_edges(
         graph,
@@ -190,7 +190,7 @@ def test_add_conditional_edges_edge_node_handles_sequence_results() -> None:
             "path": "decision",
             "mapping": {"true": "node_a"},
         },
-        {"decision": edge_node},
+        {"decision": edge},
     )
 
     router = graph.conditional_calls[0]["args"][1]
@@ -199,8 +199,8 @@ def test_add_conditional_edges_edge_node_handles_sequence_results() -> None:
     assert destinations[1] is send_packet
 
 
-def test_add_conditional_edges_without_edge_node() -> None:
-    """Test conditional edges using state path (non-edge-node)."""
+def test_add_conditional_edges_without_edge() -> None:
+    """Test conditional edges using state path (non-edge)."""
 
     graph = DummyGraph()
 

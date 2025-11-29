@@ -23,29 +23,35 @@ We organize demos into **5 progressive workflows** that map to the node composit
 
 ## Demo 1: Basic RAG Pipeline
 
-**Goal:** Demonstrate the minimal viable conversational search pipeline from document ingestion to grounded answer generation.
+**Goal:** Demonstrate a flexible conversational pipeline that supports both RAG (with documents) and non-RAG (without documents) modes.
 
 ### Use Case
-A technical documentation search assistant that answers questions about a product knowledge base.
+A versatile assistant that can:
+- Answer questions using a product knowledge base when documents are provided (RAG mode)
+- Generate general responses without retrieval when no documents are attached (non-RAG mode)
 
 ### Workflow Graph
 
 ```mermaid
 graph TD
-    Start[/START/] --> EntryRouter[entry_router: IfElseNode]
+    Start([START]) --> EntryRouter[entry_router: IfElseNode]
 
     EntryRouter -->|true: documents exist| Loader[DocumentLoaderNode]
-    EntryRouter -->|false: no documents| Search[VectorSearchNode]
+    EntryRouter -->|false: no documents| SearchRouter[search_router: IfElseNode]
 
     Loader --> Metadata[MetadataExtractorNode]
     Metadata --> Chunking[ChunkingStrategyNode]
     Chunking --> Indexer[EmbeddingIndexerNode]
 
     Indexer --> PostRouter[post_ingestion_router: IfElseNode]
-    PostRouter -->|true: query/message exists| Search
-    PostRouter -->|false: no query/message| End[/__end__/]
+    PostRouter -->|true: query/message exists| Search[VectorSearchNode]
+    PostRouter -->|false: no query/message| End([END])
 
     Search --> Generator[GroundedGeneratorNode]
+
+    SearchRouter -->|true: has indexed documents| Search
+    SearchRouter -->|false: no indexed documents| Generator
+
     Generator --> End
 ```
 
@@ -55,19 +61,23 @@ graph TD
 - **MetadataExtractorNode** (P0) - Extract title, source, section metadata
 - **ChunkingStrategyNode** (P0) - Split documents with overlap
 - **EmbeddingIndexerNode** (P0) - Embed chunks and store in InMemoryVectorStore
-- **VectorSearchNode** (P0) - Retrieve top-k relevant chunks
-- **GroundedGeneratorNode** (P0) - Generate answer with citations
+- **VectorSearchNode** (P0) - Retrieve top-k relevant chunks (when documents exist)
+- **GroundedGeneratorNode** (P0) - Generate answers with citations (RAG) or without (non-RAG)
 
 ### Branching Logic
-The demo uses two **IfElseNode** instances for workflow routing:
+The demo uses three **IfElseNode** instances for workflow routing:
 
 1. **entry_router**: Evaluates `{{inputs.documents}}` truthiness
-   - `true` branch → Ingestion pipeline (loader)
-   - `false` branch → Direct to search
+   - `true` branch → Ingestion pipeline (loader) for RAG mode
+   - `false` branch → Check if search is possible (search_router)
 
 2. **post_ingestion_router**: Evaluates `{{inputs.query}}` OR `{{inputs.message}}` truthiness
-   - `true` branch → Search pipeline
+   - `true` branch → Search pipeline (RAG mode with retrieval)
    - `false` branch → End workflow (ingestion-only mode)
+
+3. **search_router**: Checks if vector store has indexed documents
+   - `true` branch → Search pipeline (RAG mode)
+   - `false` branch → Direct to generator (non-RAG mode)
 
 ### Configuration Highlights
 ```yaml
@@ -94,10 +104,18 @@ generator:
   include_citations: true
 ```
 
-### Sample Interaction
+### Sample Interactions
+
+**RAG Mode (with documents):**
 ```
-User: "How do I configure authentication?"
+User: [Uploads documentation] + "How do I configure authentication?"
 System: "To configure authentication, you need to set up OAuth2 credentials... [source: docs/auth.md:42-56]"
+```
+
+**Non-RAG Mode (without documents):**
+```
+User: "What is the capital of France?"
+System: "The capital of France is Paris. It is located in the north-central part of the country."
 ```
 
 ---

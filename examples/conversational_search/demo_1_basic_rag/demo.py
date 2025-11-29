@@ -1,6 +1,10 @@
 from typing import Any
-from langgraph.graph import StateGraph
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, StateGraph
+from pydantic import Field
+from orcheo.edges import Condition, IfElse, Switch, SwitchCase
 from orcheo.graph.state import State
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkingStrategyNode,
@@ -10,8 +14,7 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-from orcheo.nodes.logic.branching import IfElseNode
-from orcheo.nodes.logic.conditions import Condition
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
 # Default configuration inlined for server execution
@@ -29,6 +32,28 @@ DEFAULT_CONFIG = {
         },
     },
 }
+
+
+class EntryRoutingNode(TaskNode):
+    """Determines the entry routing mode based on inputs and vector store state."""
+
+    vector_store: InMemoryVectorStore = Field(
+        description="Vector store to check for existing records"
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Compute routing decision."""
+        inputs = state.get("inputs", {})
+        has_docs = bool(inputs.get("documents"))
+
+        if has_docs:
+            routing_mode = "ingestion"
+        elif self.vector_store.records:
+            routing_mode = "search"
+        else:
+            routing_mode = "generator"
+
+        return {"routing_mode": routing_mode}
 
 
 def create_ingestion_nodes(
@@ -81,30 +106,36 @@ def create_search_nodes(
     generator = GroundedGeneratorNode(
         name="generator",
         context_result_key="search",
-        # In a real app, we'd configure the LLM model here.
-        # For this demo, we rely on the default mock/placeholder if available,
-        # or we might need to mock the LLM call if GroundedGeneratorNode
-        # requires a real one. GroundedGeneratorNode._default_llm is a placeholder.
+        ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
+        # The credential is retrieved from the orcheo credential vault
     )
 
     return {"search": search, "generator": generator}
 
 
-def create_routing_nodes() -> dict[str, Any]:
-    """Create branching nodes for workflow routing."""
-    # Entry router: checks if documents are present
-    entry_router = IfElseNode(
+def create_routing_edges(vector_store: InMemoryVectorStore) -> dict[str, Any]:
+    """Create routing node and conditional edges for workflow routing."""
+    # Entry routing node: computes routing decision and stores in state
+    entry_routing_node = EntryRoutingNode(
+        name="entry_routing",
+        vector_store=vector_store,
+    )
+
+    # Entry router: Switch edge that reads routing decision from state
+    entry_router = Switch(
         name="entry_router",
-        conditions=[
-            Condition(
-                left="{{inputs.documents}}",
-                operator="is_truthy",
-            )
+        value="{{entry_routing.routing_mode}}",  # Template string reads from state
+        cases=[
+            SwitchCase(match="ingestion", branch_key="loader"),
+            SwitchCase(match="search", branch_key="search"),
+            SwitchCase(match="generator", branch_key="generator"),
         ],
+        default_branch_key="generator",
     )
 
     # Post-ingestion router: checks if query/message is present for search
-    post_ingestion_router = IfElseNode(
+    post_ingestion_router = IfElse(
         name="post_ingestion_router",
         conditions=[
             Condition(
@@ -120,30 +151,43 @@ def create_routing_nodes() -> dict[str, Any]:
     )
 
     return {
+        "entry_routing_node": entry_routing_node,
         "entry_router": entry_router,
         "post_ingestion_router": post_ingestion_router,
     }
 
 
 def define_workflow(
-    ingestion_nodes: dict, search_nodes: dict, routing_nodes: dict
+    ingestion_nodes: dict, search_nodes: dict, routing_edges: dict
 ) -> StateGraph:
     """Define the StateGraph workflow."""
     workflow = StateGraph(State)
 
-    # Add task nodes only (DecisionNodes are used directly in conditional edges)
+    # Add routing node
+    entry_routing_node = routing_edges["entry_routing_node"]
+    workflow.add_node("entry_routing", entry_routing_node)
+
+    # Add task nodes
     for name, node in ingestion_nodes.items():
         workflow.add_node(name, node)
     for name, node in search_nodes.items():
         workflow.add_node(name, node)
 
-    # Entry router as conditional entry point (DecisionNode used directly)
-    entry_router = routing_nodes["entry_router"]
-    workflow.set_conditional_entry_point(
+    # Get routing edges
+    entry_router = routing_edges["entry_router"]
+    post_ingestion_router = routing_edges["post_ingestion_router"]
+
+    # Set entry_routing as unconditional entry point
+    workflow.set_entry_point("entry_routing")
+
+    # Add conditional edges from entry_routing node
+    workflow.add_conditional_edges(
+        "entry_routing",
         entry_router,
         {
-            "true": "loader",  # Documents present -> ingestion
-            "false": "search",  # No documents -> search
+            "loader": "loader",
+            "search": "search",
+            "generator": "generator",
         },
     )
 
@@ -152,20 +196,19 @@ def define_workflow(
     workflow.add_edge("metadata", "chunking")
     workflow.add_edge("chunking", "indexer")
 
-    # Post-ingestion routing (DecisionNode used directly)
-    post_ingestion_router = routing_nodes["post_ingestion_router"]
+    # Post-ingestion routing
     workflow.add_conditional_edges(
         "indexer",
         post_ingestion_router,
         {
             "true": "search",  # Query/message present -> search
-            "false": "__end__",  # No query/message -> end
+            "false": END,  # No query/message -> end
         },
     )
 
     # Search flow
     workflow.add_edge("search", "generator")
-    workflow.add_edge("generator", "__end__")
+    workflow.add_edge("generator", END)
 
     return workflow
 
@@ -175,25 +218,69 @@ def build_graph() -> StateGraph:
     vector_store = InMemoryVectorStore()
     ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
     search_nodes = create_search_nodes(DEFAULT_CONFIG, vector_store)
-    routing_nodes = create_routing_nodes()
-    workflow = define_workflow(ingestion_nodes, search_nodes, routing_nodes)
+    routing_edges = create_routing_edges(vector_store)
+    workflow = define_workflow(ingestion_nodes, search_nodes, routing_edges)
     return workflow
+
+
+def setup_credentials() -> CredentialResolver:
+    """Set up credential resolver for the demo.
+
+    Note: This demo uses credentials from the Orcheo vault (created via
+    `orcheo credential create openai_api_key`). The vault is typically stored
+    at ~/.orcheo/vault.sqlite by default.
+    """
+    vault = get_vault()
+    return CredentialResolver(vault)
 
 
 async def run_demo() -> None:
     """Run the demo workflow manually.
 
-    This demo aligns with the ChatKit dataflow where files are stored on disk
-    and only storage_path (not content) is passed to the workflow. The
-    DocumentLoaderNode reads file content from storage_path during execution.
+    This demo demonstrates both RAG and non-RAG modes:
+    - RAG mode: Documents are provided and used for grounded generation
+    - Non-RAG mode: No documents provided, generates general responses
+
+    Prerequisites:
+    Create the openai_api_key credential before running this demo:
+        orcheo credential create openai_api_key --secret sk-your-key-here
     """
     import tempfile
     from pathlib import Path
 
-    print("--- Starting Demo ---")
-    app = build_graph().compile()
+    print("=== Starting Demo 1: Basic RAG Pipeline ===\n")
 
-    print("\n--- Combined Ingestion and Search Phase ---")
+    # Set up credential resolver for the demo
+    resolver = setup_credentials()
+
+    # ========== NON-RAG MODE: Without Documents ==========
+    # Test non-RAG mode first (before any documents are indexed)
+    print("--- Non-RAG Mode: Direct Generation Phase ---")
+    print("(Testing without any documents indexed)\n")
+
+    app_non_rag = build_graph().compile()
+    non_rag_input = {
+        "inputs": {
+            "message": "What is the capital of France?",
+        }
+    }
+
+    with credential_resolution(resolver):
+        result = await app_non_rag.ainvoke(non_rag_input)  # type: ignore[arg-type]
+    print("Non-RAG Mode Results:", result.get("results", {}).keys())
+
+    if "results" in result and "generator" in result["results"]:
+        gen_result = result["results"]["generator"]
+        print("\nNon-RAG Mode Generator Output:")
+        print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
+        print(f"  Mode: {gen_result.get('mode', 'N/A')}")
+        print(f"  Citations: {len(gen_result.get('citations', []))} found")
+
+    # ========== RAG MODE: With Documents ==========
+    print("\n--- RAG Mode: Ingestion and Search Phase ---")
+
+    # Create a new app instance for RAG mode
+    app_rag = build_graph().compile()
 
     # Phase 0: Simulate file upload (ChatKit behavior)
     # Create a temporary file to simulate uploaded document
@@ -203,8 +290,7 @@ async def run_demo() -> None:
     doc_file.write_text(doc_content, encoding="utf-8")
 
     # Phase 1: Workflow invocation with storage_path (not content)
-    # Aligns with dataflow.md Phase 1 where content is NOT included
-    combined_input = {
+    rag_input = {
         "inputs": {
             "documents": [
                 {
@@ -218,19 +304,27 @@ async def run_demo() -> None:
     }
 
     try:
-        # Use ainvoke for async execution
-        result = await app.ainvoke(combined_input)  # type: ignore[arg-type]
-        print("Combined Results:", result.get("results", {}).keys())
+        with credential_resolution(resolver):
+            result = await app_rag.ainvoke(rag_input)  # type: ignore[arg-type]
+        print("RAG Mode Results:", result.get("results", {}).keys())
 
         if "results" in result and "generator" in result["results"]:
-            print("\nGenerator Output:", result["results"]["generator"])
+            gen_result = result["results"]["generator"]
+            print("\nRAG Mode Generator Output:")
+            print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
+            print(f"  Mode: {gen_result.get('mode', 'N/A')}")
+            print(f"  Citations: {len(gen_result.get('citations', []))} found")
+
     finally:
         # Cleanup temporary file
         doc_file.unlink()
         temp_dir.rmdir()
 
+    print("\n=== Demo Complete ===")
+
 
 if __name__ == "__main__":
     import asyncio
+    from orcheo_backend.app.dependencies import get_vault
 
     asyncio.run(run_demo())
