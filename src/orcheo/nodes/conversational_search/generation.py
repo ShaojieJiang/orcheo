@@ -88,13 +88,19 @@ class GroundedGeneratorNode(TaskNode):
             msg = "GroundedGeneratorNode requires a non-empty query string"
             raise ValueError(msg)
 
+        # Extract conversation history from inputs (provided by ChatKit)
+        history = inputs.get("history", [])
+
         context = self._resolve_context(state)
 
         # Handle non-RAG mode when no context is available
         if not context:
-            prompt = self._build_non_rag_prompt(query.strip())
-            completion = await self._generate_with_retries(prompt)
-            tokens_used = self._estimate_tokens(prompt, completion)
+            completion = await self._generate_with_retries(
+                query=query.strip(),
+                history=history,
+                context=None,
+            )
+            tokens_used = self._estimate_tokens_from_history(history, query, completion)
             return {
                 "reply": completion,
                 "citations": [],
@@ -104,12 +110,15 @@ class GroundedGeneratorNode(TaskNode):
             }
 
         # RAG mode with context and citations
-        prompt = self._build_prompt(query.strip(), context)
-        completion = await self._generate_with_retries(prompt)
+        completion = await self._generate_with_retries(
+            query=query.strip(),
+            history=history,
+            context=context,
+        )
 
         citations = self._build_citations(context)
         response = self._attach_citations(completion, citations)
-        tokens_used = self._estimate_tokens(prompt, response)
+        tokens_used = self._estimate_tokens_from_history(history, query, response)
 
         return {
             "reply": response,
@@ -133,65 +142,108 @@ class GroundedGeneratorNode(TaskNode):
             raise ValueError(msg)
         return [SearchResult.model_validate(item) for item in entries]
 
-    def _build_prompt(self, query: str, context: list[SearchResult]) -> str:
-        context_block = "\n".join(
-            f"[{index}] {entry.text}" for index, entry in enumerate(context, start=1)
-        )
-        return (
-            f"{self.system_prompt}\n\n"
-            f"Question: {query}\n"
-            f"Context:\n{context_block}\n\n"
-            f"Cite sources in {self.citation_style} style using the provided "
-            "identifiers."
-        )
+    async def _generate_with_retries(
+        self,
+        query: str,
+        history: list[dict] | None = None,
+        context: list[SearchResult] | None = None,
+    ) -> str:
+        return await self._invoke_ai_model(query, history, context)
 
-    def _build_non_rag_prompt(self, query: str) -> str:
-        """Build a prompt for non-RAG mode without context or citations."""
+    def _build_system_message(self, context: list[SearchResult] | None) -> str:
+        """Build system message content based on context availability."""
+        if context:
+            # RAG mode system prompt with context
+            context_block = "\n".join(
+                f"[{index}] {entry.text}"
+                for index, entry in enumerate(context, start=1)
+            )
+            return (
+                f"{self.system_prompt}\n\n"
+                f"Context:\n{context_block}\n\n"
+                f"Cite sources in {self.citation_style} style using the provided "
+                "identifiers."
+            )
+        # Non-RAG mode system prompt
         return (
             "You are a helpful assistant. Answer the user's question directly "
-            "based on your knowledge.\n\n"
-            f"Question: {query}\n"
+            "based on your knowledge."
         )
 
-    async def _generate_with_retries(self, prompt: str) -> str:
-        return await self._invoke_ai_model(prompt)
+    def _add_history_to_messages(
+        self,
+        messages: list[Any],
+        history: list[dict] | None,
+    ) -> None:
+        """Add conversation history to messages list."""
+        from langchain_core.messages import AIMessage, HumanMessage
 
-    async def _invoke_ai_model(self, prompt: str) -> str:
-        if self.ai_model:
-            # Initialize chat model with model_kwargs
-            model = init_chat_model(self.ai_model, **self.model_kwargs)
-            # Create agent with the initialized model
-            agent: Runnable = create_agent(
-                model,
-                tools=[],
-                system_prompt="",
-            )
-            # Invoke agent with the prompt as a user message
-            messages = [{"role": "user", "content": prompt}]
-            result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+        if not history or not isinstance(history, list):
+            return
 
-            # Extract text from the last message
-            if isinstance(result, dict) and "messages" in result:
-                last_message = result["messages"][-1]
-                if hasattr(last_message, "content"):
-                    text = last_message.content
-                elif isinstance(last_message, dict):
-                    text = last_message.get("content", "")
-                else:
-                    text = str(last_message)
-            else:
-                text = str(result)
+        for turn in history:
+            if not isinstance(turn, dict):
+                continue
+            role = turn.get("role", "")
+            content = turn.get("content", "")
+            if role == "user" and content:
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant" and content:
+                messages.append(AIMessage(content=content))
 
-            if not isinstance(text, str) or not text.strip():
-                msg = "Agent must return a non-empty string response"
-                raise ValueError(msg)
-            return text.strip()
-        else:
-            # Use default fallback
-            return self._default_ai_model(prompt)
+    def _extract_response_text(self, result: Any) -> str:
+        """Extract text content from agent result."""
+        if isinstance(result, dict) and "messages" in result:
+            last_message = result["messages"][-1]
+            if hasattr(last_message, "content"):
+                return last_message.content
+            if isinstance(last_message, dict):
+                return last_message.get("content", "")
+            return str(last_message)
+        return str(result)
 
-    def _default_ai_model(self, prompt: str) -> str:
-        return f"{prompt}\n\nResponse: See cited context for details."
+    async def _invoke_ai_model(
+        self,
+        query: str,
+        history: list[dict] | None = None,
+        context: list[SearchResult] | None = None,
+    ) -> str:
+        if not self.ai_model:
+            return self._default_ai_model(query, context)
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        # Initialize chat model
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+
+        # Build messages list
+        messages: list[Any] = []
+        system_content = self._build_system_message(context)
+        messages.append(SystemMessage(content=system_content))
+
+        # Add conversation history
+        self._add_history_to_messages(messages, history)
+
+        # Add current query
+        messages.append(HumanMessage(content=query))
+
+        # Create and invoke agent
+        agent: Runnable = create_agent(model, tools=[], system_prompt="")
+        result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+        # Extract and validate response
+        text = self._extract_response_text(result)
+        if not isinstance(text, str) or not text.strip():
+            msg = "Agent must return a non-empty string response"
+            raise ValueError(msg)
+        return text.strip()
+
+    def _default_ai_model(
+        self, query: str, context: list[SearchResult] | None = None
+    ) -> str:
+        if context:
+            return f"{query}\n\nResponse: See cited context for details."
+        return f"{query}\n\nResponse: [Default response]"
 
     def _build_citations(self, context: list[SearchResult]) -> list[dict[str, Any]]:
         citations: list[dict[str, Any]] = []
@@ -222,6 +274,20 @@ class GroundedGeneratorNode(TaskNode):
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
         return len((prompt + completion).split())
+
+    @staticmethod
+    def _estimate_tokens_from_history(
+        history: list[dict] | None, query: str, completion: str
+    ) -> int:
+        """Estimate token count from history, query, and completion."""
+        total_text = query + " " + completion
+        if history and isinstance(history, list):
+            for turn in history:
+                if isinstance(turn, dict):
+                    content = turn.get("content", "")
+                    if content:
+                        total_text += " " + content
+        return len(total_text.split())
 
 
 @registry.register(
@@ -259,12 +325,21 @@ class StreamingGeneratorNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Stream a generated response into framed chunks with retries."""
-        prompt = state.get("inputs", {}).get(self.prompt_key)
-        if not isinstance(prompt, str) or not prompt.strip():
-            msg = "StreamingGeneratorNode requires a non-empty prompt"
+        inputs = state.get("inputs", {})
+
+        # Support both prompt-based (legacy) and message-based usage
+        prompt = inputs.get(self.prompt_key)
+        message = inputs.get("message")
+        query = prompt or message
+
+        if not isinstance(query, str) or not query.strip():
+            msg = "StreamingGeneratorNode requires a non-empty prompt or message"
             raise ValueError(msg)
 
-        completion = await self._generate_with_retries(prompt.strip())
+        # Extract conversation history from inputs (if available)
+        history = inputs.get("history", [])
+
+        completion = await self._generate_with_retries(query.strip(), history)
         stream, frames, truncated = self._stream_tokens(completion)
         return {
             "reply": completion,
@@ -274,42 +349,67 @@ class StreamingGeneratorNode(TaskNode):
             "truncated": truncated,
         }
 
-    async def _generate_with_retries(self, prompt: str) -> str:
-        return await self._invoke_ai_model(prompt)
+    async def _generate_with_retries(
+        self, query: str, history: list[dict] | None = None
+    ) -> str:
+        return await self._invoke_ai_model(query, history)
 
-    async def _invoke_ai_model(self, prompt: str) -> str:
-        if self.ai_model:
-            # Initialize chat model with model_kwargs
-            model = init_chat_model(self.ai_model, **self.model_kwargs)
-            # Create agent with the initialized model
-            agent: Runnable = create_agent(
-                model,
-                tools=[],
-                system_prompt="",
-            )
-            # Invoke agent with the prompt as a user message
-            messages = [{"role": "user", "content": prompt}]
-            result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+    def _build_streaming_messages(
+        self, query: str, history: list[dict] | None = None
+    ) -> list[Any]:
+        """Build messages list for streaming generation."""
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-            # Extract text from the last message
-            if isinstance(result, dict) and "messages" in result:
-                last_message = result["messages"][-1]
-                if hasattr(last_message, "content"):
-                    text = last_message.content
-                elif isinstance(last_message, dict):
-                    text = last_message.get("content", "")
-                else:
-                    text = str(last_message)
+        messages: list[Any] = [SystemMessage(content="You are a helpful assistant.")]
+
+        # Add conversation history as proper message objects
+        if history and isinstance(history, list):
+            for turn in history:
+                if not isinstance(turn, dict):
+                    continue
+                role = turn.get("role", "")
+                content = turn.get("content", "")
+                if role == "user" and content:
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant" and content:
+                    messages.append(AIMessage(content=content))
+
+        # Add current query
+        messages.append(HumanMessage(content=query))
+        return messages
+
+    async def _invoke_ai_model(
+        self, query: str, history: list[dict] | None = None
+    ) -> str:
+        if not self.ai_model:
+            return self._default_ai_model(query)
+
+        # Initialize chat model
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+
+        # Build messages list
+        messages = self._build_streaming_messages(query, history)
+
+        # Create and invoke agent
+        agent: Runnable = create_agent(model, tools=[], system_prompt="")
+        result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+        # Extract text from the last message
+        if isinstance(result, dict) and "messages" in result:
+            last_message = result["messages"][-1]
+            if hasattr(last_message, "content"):
+                text = last_message.content
+            elif isinstance(last_message, dict):
+                text = last_message.get("content", "")
             else:
-                text = str(result)
-
-            if not isinstance(text, str) or not text.strip():
-                msg = "Agent must return a non-empty string response"
-                raise ValueError(msg)
-            return text.strip()
+                text = str(last_message)
         else:
-            # Use default fallback
-            return self._default_ai_model(prompt)
+            text = str(result)
+
+        if not isinstance(text, str) or not text.strip():
+            msg = "Agent must return a non-empty string response"
+            raise ValueError(msg)
+        return text.strip()
 
     def _stream_tokens(
         self, completion: str
@@ -345,8 +445,8 @@ class StreamingGeneratorNode(TaskNode):
             )
         return stream, frames, truncated
 
-    def _default_ai_model(self, prompt: str) -> str:
-        return f"{prompt} :: streamed"
+    def _default_ai_model(self, query: str) -> str:
+        return f"{query} :: streamed"
 
 
 @registry.register(
