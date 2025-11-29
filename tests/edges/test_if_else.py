@@ -1,13 +1,13 @@
 import pytest
 from langchain_core.runnables import RunnableConfig
+from orcheo.edges import IfElse
 from orcheo.graph.state import State
-from orcheo.nodes.logic import IfElseNode
 
 
 @pytest.mark.asyncio
 async def test_if_else_contains_and_membership_operations() -> None:
     state = State({"results": {}})
-    contains_node = IfElseNode(
+    contains_node = IfElse(
         name="contains_list",
         conditions=[
             {
@@ -20,7 +20,7 @@ async def test_if_else_contains_and_membership_operations() -> None:
     contains_result = await contains_node(state, RunnableConfig())
     assert contains_result == "true"
 
-    not_contains_node = IfElseNode(
+    not_contains_node = IfElse(
         name="no_match",
         conditions=[
             {
@@ -34,7 +34,7 @@ async def test_if_else_contains_and_membership_operations() -> None:
     not_contains_result = await not_contains_node(state, RunnableConfig())
     assert not_contains_result == "true"
 
-    in_node = IfElseNode(
+    in_node = IfElse(
         name="key_lookup",
         conditions=[
             {
@@ -47,7 +47,7 @@ async def test_if_else_contains_and_membership_operations() -> None:
     in_result = await in_node(state, RunnableConfig())
     assert in_result == "true"
 
-    not_in_node = IfElseNode(
+    not_in_node = IfElse(
         name="missing_key",
         conditions=[
             {
@@ -60,7 +60,7 @@ async def test_if_else_contains_and_membership_operations() -> None:
     not_in_result = await not_in_node(state, RunnableConfig())
     assert not_in_result == "true"
 
-    invalid_node = IfElseNode(
+    invalid_node = IfElse(
         name="bad_container",
         conditions=[
             {
@@ -87,7 +87,7 @@ async def test_if_else_node(
     left: object, operator: str, right: object, case_sensitive: bool, expected: bool
 ) -> None:
     state = State({"results": {}})
-    node = IfElseNode(
+    node = IfElse(
         name="condition",
         conditions=[
             {
@@ -107,7 +107,7 @@ async def test_if_else_node(
 @pytest.mark.asyncio
 async def test_if_else_node_combines_multiple_conditions() -> None:
     state = State({"results": {}})
-    node = IfElseNode(
+    node = IfElse(
         name="multi",
         condition_logic="or",
         conditions=[
@@ -132,7 +132,7 @@ async def test_if_else_node_combines_multiple_conditions() -> None:
 @pytest.mark.asyncio
 async def test_if_else_node_with_and_logic_all_fail() -> None:
     state = State({"results": {}})
-    node = IfElseNode(
+    node = IfElse(
         name="multi",
         condition_logic="and",
         conditions=[

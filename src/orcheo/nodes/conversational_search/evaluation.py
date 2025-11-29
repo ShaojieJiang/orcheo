@@ -228,7 +228,7 @@ class AnswerQualityEvaluationNode(TaskNode):
 @registry.register(
     NodeMetadata(
         name="LLMJudgeNode",
-        description="Apply lightweight, rule-based LLM judging heuristics.",
+        description="Apply lightweight, AI model judging heuristics.",
         category="conversational_search",
     )
 )
@@ -361,7 +361,7 @@ class ABTestingNode(TaskNode):
             )
 
         feedback_score = inputs.get("feedback_score")
-        if isinstance(feedback_score, (int, float)):
+        if isinstance(feedback_score, int | float):
             rollout_allowed = (
                 rollout_allowed and feedback_score >= self.min_feedback_score
             )
@@ -391,7 +391,7 @@ class UserFeedbackCollectionNode(TaskNode):
         """Validate and normalize a single piece of user feedback."""
         inputs = state.get("inputs", {})
         rating = inputs.get(self.rating_key)
-        if not isinstance(rating, (int, float)) or not 1 <= rating <= 5:
+        if not isinstance(rating, int | float) or not 1 <= rating <= 5:
             msg = "UserFeedbackCollectionNode requires rating between 1 and 5"
             raise ValueError(msg)
 

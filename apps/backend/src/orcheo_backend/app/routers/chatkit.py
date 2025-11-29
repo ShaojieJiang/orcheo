@@ -8,13 +8,22 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from importlib import import_module
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 import jwt
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
@@ -539,6 +548,115 @@ async def trigger_chatkit_workflow(
         extra={"workflow_id": str(workflow_id), "run_id": str(run.id)},
     )
     return run
+
+
+@router.post("/chatkit/upload", include_in_schema=False)
+async def upload_chatkit_file(
+    file: UploadFile,
+    request: Request,
+) -> JSONResponse:
+    """Handle file uploads from ChatKit composer with direct upload strategy.
+
+    This endpoint receives files uploaded via ChatKit's direct upload strategy,
+    stores them on disk at CHATKIT_STORAGE_PATH, and returns attachment metadata.
+
+    Files are persisted to disk and content extraction is deferred to DocumentLoaderNode
+    during workflow execution to avoid redundant processing.
+
+    The response must match ChatKit's FileAttachment or ImageAttachment format:
+    - id: unique attachment identifier
+    - name: filename
+    - mime_type: content type
+    - type: 'file' or 'image'
+    - storage_path: path to the stored file (not part of standard ChatKit format)
+    """
+    try:
+        # Read file content
+        content = await file.read()
+
+        # Validate it's a text file by attempting to decode
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            # If not UTF-8, try other common encodings
+            try:
+                content.decode("latin-1")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "message": "File must be a text file with valid encoding",
+                        "code": "chatkit.upload.invalid_encoding",
+                    },
+                ) from exc
+
+        # Generate a unique ID for this attachment
+        attachment_id = f"atc_{uuid4().hex[:8]}"
+
+        # Determine storage path from settings
+        settings = get_settings()
+        storage_base = Path(
+            str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
+        ).expanduser()
+        storage_base.mkdir(parents=True, exist_ok=True)
+
+        # Store file on disk with attachment ID as filename
+        storage_path = (
+            storage_base / f"{attachment_id}_{file.filename or 'uploaded_file'}"
+        )
+        storage_path.write_bytes(content)
+
+        # Create attachment object matching ChatKit's FileAttachment type
+        from chatkit.types import FileAttachment
+
+        attachment = FileAttachment(
+            id=attachment_id,
+            name=file.filename or "uploaded_file",
+            mime_type=file.content_type or "text/plain",
+        )
+
+        # Save attachment metadata to store with storage_path reference
+        server = _resolve_chatkit_server()
+        # Create minimal context - we don't have thread_id yet at upload time
+        context: ChatKitRequestContext = {
+            "chatkit_request": None,  # type: ignore
+            "workflow_id": "",
+            "actor": "chatkit",
+            "auth_mode": "publish",
+        }
+        await server.store.save_attachment(
+            attachment, context, storage_path=str(storage_path)
+        )
+
+        # Return attachment metadata in ChatKit's expected format
+        # Note: We do NOT return content here - it will be read by DocumentLoaderNode
+        return JSONResponse(
+            content={
+                "id": attachment_id,
+                "name": file.filename or "uploaded_file",
+                "mime_type": file.content_type or "text/plain",
+                "type": "file",
+                "size": len(content),
+                "storage_path": str(storage_path),
+            },
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to process ChatKit file upload",
+            extra={
+                "file_name": file.filename,
+                "content_type": file.content_type,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to process file upload",
+                "code": "chatkit.upload.processing_error",
+            },
+        ) from exc
 
 
 __all__ = ["router"]

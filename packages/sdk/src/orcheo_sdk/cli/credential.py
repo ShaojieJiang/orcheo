@@ -67,6 +67,7 @@ def list_credentials(
         title="Credentials",
         columns=["ID", "Name", "Provider", "Status", "Access"],
         rows=rows,
+        column_overflow={"ID": "fold"},
     )
 
 

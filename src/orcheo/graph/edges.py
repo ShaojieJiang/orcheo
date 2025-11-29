@@ -1,4 +1,4 @@
-"""Helper utilities for constructing and routing edge nodes."""
+"""Helper utilities for constructing and routing edges."""
 
 from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -6,35 +6,35 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END
 from langgraph.types import Send
+from orcheo.edges.registry import edge_registry
 from orcheo.graph.normalization import normalise_vertex
 from orcheo.graph.state import State
-from orcheo.nodes.registry import registry
 
 
-def build_edge_nodes(edge_nodes: Iterable[Any]) -> dict[str, Any]:
-    """Instantiate configured edge nodes."""
-    edge_node_instances: dict[str, Any] = {}
-    for edge_node in edge_nodes:
-        node_type = edge_node.get("type")
-        node_name = edge_node.get("name")
-        if not node_name:
-            msg = "Edge node must have a name"
+def build_edges(edges: Iterable[Any]) -> dict[str, Any]:
+    """Instantiate configured edges."""
+    edge_instances: dict[str, Any] = {}
+    for edge in edges:
+        edge_type = edge.get("type")
+        edge_name = edge.get("name")
+        if not edge_name:
+            msg = "Edge must have a name"
             raise ValueError(msg)
-        node_class = registry.get_node(str(node_type))
-        if node_class is None:
-            msg = f"Unknown edge node type: {node_type}"
+        edge_class = edge_registry.get_edge(str(edge_type))
+        if edge_class is None:
+            msg = f"Unknown edge type: {edge_type}"
             raise ValueError(msg)
-        node_params = {k: v for k, v in edge_node.items() if k != "type"}
-        edge_node_instances[str(node_name)] = node_class(**node_params)
-    return edge_node_instances
+        edge_params = {k: v for k, v in edge.items() if k != "type"}
+        edge_instances[str(edge_name)] = edge_class(**edge_params)
+    return edge_instances
 
 
-def build_edge_node_router(
-    edge_node: Callable[[State, RunnableConfig], Awaitable[Any]],
+def build_edge_router(
+    edge: Callable[[State, RunnableConfig], Awaitable[Any]],
     mapping: Mapping[str, Any],
     default_target: Any | None,
 ) -> Callable[[State, RunnableConfig], Awaitable[Any]]:
-    """Return an async router that normalises decision node outputs."""
+    """Return an async router that normalises edge outputs."""
     normalised_mapping_for_edge: dict[str, Any] = {
         str(key): normalise_vertex(str(target)) for key, target in mapping.items()
     }
@@ -42,28 +42,28 @@ def build_edge_node_router(
     if isinstance(default_target, str) and default_target:
         resolved_default = normalise_vertex(default_target)
 
-    async def _route_edge_node(state: State, config: RunnableConfig) -> Any:
-        result = await edge_node(state, config)
+    async def _route_edge(state: State, config: RunnableConfig) -> Any:
+        result = await edge(state, config)
         if isinstance(result, Sequence) and not isinstance(result, str | bytes):
             return [
-                _coerce_edge_node_destination(
+                _coerce_edge_destination(
                     item, normalised_mapping_for_edge, resolved_default
                 )
                 for item in result
             ]
-        return _coerce_edge_node_destination(
+        return _coerce_edge_destination(
             result, normalised_mapping_for_edge, resolved_default
         )
 
-    return _route_edge_node
+    return _route_edge
 
 
-def _coerce_edge_node_destination(
+def _coerce_edge_destination(
     value: Any,
     mapping: Mapping[str, Any],
     default_target: Any | None,
 ) -> Any:
-    """Return a normalised destination for an edge node result."""
+    """Return a normalised destination for an edge result."""
     if isinstance(value, Send):
         return value
     normalised = mapping.get(str(value))

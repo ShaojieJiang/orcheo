@@ -51,10 +51,12 @@ def test_compile_langgraph_script_is_cached(monkeypatch: pytest.MonkeyPatch) -> 
 
     call_count = 0
 
-    def _fake_compile(source: str, filename: str, mode: str):
+    def _fake_compile(source: str, filename: str, mode: str, **kwargs):
         nonlocal call_count
         call_count += 1
-        return compile(source, filename, mode)
+        # Extract flags if provided, pass to compile
+        flags = kwargs.get("flags", 0)
+        return compile(source, filename, mode, flags=flags)
 
     _compile_langgraph_script.cache_clear()
     monkeypatch.setattr("orcheo.graph.ingestion.compile_restricted", _fake_compile)

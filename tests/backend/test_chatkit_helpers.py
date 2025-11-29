@@ -112,7 +112,11 @@ def testbuild_initial_state_langgraph_script() -> None:
     graph_config = {"format": "langgraph-script"}
     inputs = {"message": "test", "count": 42}
     result = build_initial_state(graph_config, inputs)
-    assert result == {"message": "test", "count": 42}
+    assert result["message"] == "test"
+    assert result["count"] == 42
+    assert result["inputs"] == inputs
+    assert result["messages"] == []
+    assert result["results"] == {}
 
 
 def testbuild_initial_state_default() -> None:

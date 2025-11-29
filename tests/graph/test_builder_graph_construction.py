@@ -32,7 +32,7 @@ def test_build_graph_script_format_invalid_entrypoint_type() -> None:
 
 
 def test_build_graph_with_edge_nodes_integration() -> None:
-    """Integration test for building a graph with edge nodes (decision nodes)."""
+    """Integration test for building a graph with edges."""
 
     graph_config = {
         "nodes": [
@@ -51,8 +51,10 @@ def test_build_graph_with_edge_nodes_integration() -> None:
         "edge_nodes": [
             {
                 "name": "decision",
-                "type": "IfElseNode",
-                "condition": "{{start_node.value}}",
+                "type": "IfElse",
+                "conditions": [
+                    {"left": "{{start_node.value}}", "operator": "is_truthy"}
+                ],
             }
         ],
         "edges": [{"source": "START", "target": "start_node"}],

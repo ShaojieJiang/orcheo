@@ -13,6 +13,7 @@ from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
 from orcheo_sdk.cli.credential import credential_app
+from orcheo_sdk.cli.edge import edge_app
 from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
@@ -31,6 +32,7 @@ def _is_completion_mode() -> bool:
 
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
 app.add_typer(node_app, name="node")
+app.add_typer(edge_app, name="edge")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")

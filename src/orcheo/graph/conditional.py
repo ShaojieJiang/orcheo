@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 from langgraph.graph import END, StateGraph
-from orcheo.graph.edge_nodes import build_edge_node_router
+from orcheo.graph.edges import build_edge_router
 from orcheo.graph.normalization import normalise_vertex
 from orcheo.graph.state import State
 
@@ -12,7 +12,7 @@ from orcheo.graph.state import State
 def add_conditional_edges(
     graph: StateGraph,
     config: Mapping[str, Any],
-    edge_node_instances: Mapping[str, Any],
+    edge_instances: Mapping[str, Any],
 ) -> None:
     """Add conditional edges enabling branching and loops."""
     source = config.get("source")
@@ -30,9 +30,9 @@ def add_conditional_edges(
         msg = f"Conditional edge requires a non-empty mapping: {config!r}"
         raise ValueError(msg)
 
-    if path in edge_node_instances:
-        edge_node = edge_node_instances[path]
-        router = build_edge_node_router(edge_node, mapping, default_target)
+    if path in edge_instances:
+        edge = edge_instances[path]
+        router = build_edge_router(edge, mapping, default_target)
         graph.add_conditional_edges(
             normalise_vertex(source),
             router,

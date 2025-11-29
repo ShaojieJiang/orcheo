@@ -68,7 +68,8 @@ class VectorSearchNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Embed the query and perform similarity search."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "VectorSearchNode requires a non-empty query string"
             raise ValueError(msg)
@@ -144,7 +145,8 @@ class BM25SearchNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Score document chunks with BM25 and return the top matches."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "BM25SearchNode requires a non-empty query string"
             raise ValueError(msg)
@@ -294,7 +296,8 @@ class WebSearchNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Issue a Tavily search and normalise the response into SearchResult items."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "WebSearchNode requires a non-empty query string"
             raise ValueError(msg)

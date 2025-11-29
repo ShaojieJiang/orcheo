@@ -189,7 +189,11 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
 
     # -- Attachments -----------------------------------------------------
     async def save_attachment(
-        self, attachment: Attachment, context: ChatKitRequestContext
+        self,
+        attachment: Attachment,
+        context: ChatKitRequestContext,
+        *,
+        storage_path: str | None = None,
     ) -> None:
         """Persist an attachment entry."""
         raise NotImplementedError(

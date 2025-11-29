@@ -64,6 +64,11 @@ export function PublicChatWidget({
 }: PublicChatWidgetProps) {
   const options = useMemo<UseChatKitOptions>(() => {
     const domainKey = getChatKitDomainKey();
+    const uploadUrl = buildBackendHttpUrl(
+      "/api/chatkit/upload",
+      backendBaseUrl,
+    );
+
     return {
       api: {
         url: buildBackendHttpUrl("/api/chatkit", backendBaseUrl),
@@ -76,6 +81,7 @@ export function PublicChatWidget({
             workflow_name: workflowName,
           },
         }),
+        uploadStrategy: { type: "direct", uploadUrl },
       },
       header: {
         enabled: true,
@@ -91,6 +97,36 @@ export function PublicChatWidget({
       },
       composer: {
         placeholder: buildComposerPlaceholder(workflowName),
+        models: [
+          {
+            id: "gpt-5",
+            label: "gpt-5",
+            description: "Balanced intelligence",
+            default: true,
+          },
+        ],
+        tools: [
+          {
+            id: "search_docs",
+            label: "Search docs",
+            shortLabel: "Docs",
+            placeholderOverride: "Search documentation",
+            icon: "book-open",
+            pinned: false,
+          },
+        ],
+        attachments: {
+          enabled: true,
+          accept: {
+            "text/plain": [".txt"],
+            "text/markdown": [".md"],
+            "application/json": [".json"],
+            "text/csv": [".csv"],
+            "text/x-log": [".log"],
+          },
+          maxSize: 5 * 1024 * 1024, // 5MB
+          maxCount: 10,
+        },
       },
       threadItemActions: {
         feedback: false,

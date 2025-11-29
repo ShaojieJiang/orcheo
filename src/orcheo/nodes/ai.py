@@ -6,6 +6,7 @@ import logging
 from typing import Any
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy
+from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -100,6 +101,11 @@ class AgentNode(AINode):
     """Model name for the agent."""
     model_settings: dict | None = None
     """TODO: Implement model settings for the agent."""
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to init_chat_model.",
+    )
+    """Additional keyword arguments passed to init_chat_model."""
     system_prompt: str | None = None
     """System prompt for the agent."""
     predefined_tools: list[str] = Field(default_factory=list)
@@ -183,8 +189,10 @@ class AgentNode(AINode):
         if self.response_format is not None:
             response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
+        # Initialize chat model with model_kwargs
+        model = init_chat_model(self.model_name, **self.model_kwargs)
         agent = create_agent(
-            self.model_name,
+            model,
             tools=tools,
             system_prompt=self.system_prompt,
             response_format=response_format_strategy,

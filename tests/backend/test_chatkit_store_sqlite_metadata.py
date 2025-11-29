@@ -182,3 +182,33 @@ async def test_sqlite_store_infer_thread_id_no_params(tmp_path: Path) -> None:
 
     loaded = await store.load_attachment(attachment.id, context)
     assert loaded.name == "test.txt"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_persists_storage_path(tmp_path: Path) -> None:
+    """Save attachment should persist storage_path for cleanup and retrieval."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    attachment = FileAttachment(
+        id="atc_path",
+        name="file.txt",
+        mime_type="text/plain",
+    )
+    storage_path = tmp_path / "uploads" / "atc_path_file.txt"
+
+    await store.save_attachment(
+        attachment,
+        context={},
+        storage_path=str(storage_path),
+    )
+
+    async with store._connection() as conn:  # type: ignore[attr-defined]  # noqa: SLF001
+        cursor = await conn.execute(
+            "SELECT storage_path FROM chat_attachments WHERE id = ?",
+            (attachment.id,),
+        )
+        row = await cursor.fetchone()
+
+    assert row is not None
+    assert row["storage_path"] == str(storage_path)

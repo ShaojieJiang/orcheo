@@ -75,7 +75,11 @@ def test_build_initial_state_langgraph_format() -> None:
     graph_config = {"format": LANGGRAPH_SCRIPT_FORMAT}
     inputs = {"message": "Hello", "metadata": {"key": "value"}}
     result = build_initial_state(graph_config, inputs)
-    assert result == inputs
+    assert result["inputs"] == inputs
+    assert result["message"] == "Hello"
+    assert result["metadata"] == {"key": "value"}
+    assert result["messages"] == []
+    assert result["results"] == {}
 
 
 def test_build_initial_state_standard_format() -> None:

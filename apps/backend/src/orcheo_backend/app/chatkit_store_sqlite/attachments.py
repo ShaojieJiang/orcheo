@@ -22,7 +22,11 @@ class AttachmentStoreMixin(BaseSqliteStore):
     """Manage attachments and pruning tasks."""
 
     async def save_attachment(
-        self, attachment: Attachment, context: ChatKitRequestContext
+        self,
+        attachment: Attachment,
+        context: ChatKitRequestContext,
+        *,
+        storage_path: str | None = None,
     ) -> None:
         """Persist metadata for ``attachment``."""
         await self._ensure_initialized()
@@ -57,7 +61,7 @@ class AttachmentStoreMixin(BaseSqliteStore):
                         attachment.name,
                         attachment.mime_type,
                         serialize_attachment(attachment),
-                        None,
+                        storage_path,
                         to_isoformat(now_utc()),
                     ),
                 )

@@ -19,7 +19,9 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
         name="document_loader",
         documents=[
             RawDocumentInput(
-                content="Orcheo delivers modular nodes for retrieval augmented generation.",
+                content=(
+                    "Orcheo delivers modular nodes for retrieval augmented generation."
+                ),
                 metadata={"source": "primer"},
             ),
             RawDocumentInput(
@@ -69,5 +71,5 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
         "Orcheo delivers" in citation["snippet"]
         for citation in generation_result["citations"]
     )
-    assert "response" in generation_result
-    assert "[1]" in generation_result["response"]
+    assert "reply" in generation_result
+    assert "[1]" in generation_result["reply"]

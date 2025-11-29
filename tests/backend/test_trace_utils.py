@@ -27,10 +27,10 @@ def test_build_trace_response_emits_span_metadata() -> None:
     record.trace_completed_at = _timestamp(5)
     record.append_step(
         {
-            "llm": {
+            "ai_model": {
                 "id": "node-1",
                 "display_name": "Draft",
-                "kind": "llm",
+                "kind": "ai_model",
                 "status": "completed",
                 "latency_ms": 42,
                 "token_usage": {"input": 5, "output": 7},
@@ -57,7 +57,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert root_span.parent_span_id is None
     assert root_span.attributes["orcheo.execution.id"] == "exec-1"
     assert len(node_span.events) == 4  # prompt, response, two message events
-    assert node_span.attributes["orcheo.node.kind"] == "llm"
+    assert node_span.attributes["orcheo.node.kind"] == "ai_model"
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
     assert node_span.status.code == "OK"

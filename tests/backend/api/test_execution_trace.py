@@ -31,7 +31,7 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
                 "draft": {
                     "id": "node-1",
                     "display_name": "Draft Answer",
-                    "kind": "llm",
+                    "kind": "ai_model",
                     "status": "completed",
                     "latency_ms": 120,
                     "token_usage": {"input": 5, "output": 7},
@@ -62,7 +62,7 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
 
     node_span = spans[1]
     assert node_span["parent_span_id"] == root_span["span_id"]
-    assert node_span["attributes"]["orcheo.node.kind"] == "llm"
+    assert node_span["attributes"]["orcheo.node.kind"] == "ai_model"
     assert node_span["attributes"]["orcheo.token.input"] == 5
     assert node_span["attributes"]["orcheo.artifact.ids"] == ["artifact-1"]
     event_names = {event["name"] for event in node_span["events"]}

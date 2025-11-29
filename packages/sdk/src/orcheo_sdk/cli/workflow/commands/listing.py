@@ -53,7 +53,7 @@ def list_workflows(
             "Share URL",
         ],
         rows=rows,
-        column_overflow={"Share URL": "fold"},
+        column_overflow={"ID": "fold", "Share URL": "fold"},
     )
 
     share_entries = []

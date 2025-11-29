@@ -2,17 +2,16 @@ import asyncio
 from typing import cast
 import pytest
 from langchain_core.runnables import RunnableConfig
-from orcheo.graph.state import State
-from orcheo.nodes.logic import (
+from orcheo.edges.branching import _coerce_branch_key
+from orcheo.edges.conditions import (
     ComparisonOperator,
     Condition,
-    DelayNode,
-    _build_nested,
-    _coerce_branch_key,
     _combine_condition_results,
     _contains,
     evaluate_condition,
 )
+from orcheo.graph.state import State
+from orcheo.nodes.logic.utilities import DelayNode, _build_nested
 
 
 def test_evaluate_condition_raises_for_unknown_operator() -> None:

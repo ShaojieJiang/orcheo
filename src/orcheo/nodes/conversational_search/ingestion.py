@@ -42,12 +42,19 @@ class RawDocumentInput(BaseModel):
     id: str | None = Field(
         default=None, description="Optional caller-provided identifier"
     )
-    content: str = Field(description="Raw text to ingest")
+    content: str | None = Field(
+        default=None,
+        description="Raw text to ingest (optional if storage_path provided)",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Optional metadata"
     )
     source: str | None = Field(
         default=None, description="Source identifier such as URL or path"
+    )
+    storage_path: str | None = Field(
+        default=None,
+        description="Path to file on disk containing document content",
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -103,6 +110,8 @@ class DocumentLoaderNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Normalize inline and state-supplied payloads into documents."""
+        from pathlib import Path
+
         payloads = list(self.documents)
         state_documents = state.get("inputs", {}).get(self.input_key)
         if state_documents:
@@ -120,10 +129,32 @@ class DocumentLoaderNode(TaskNode):
         for index, raw in enumerate(raw_inputs):
             document_id = raw.id or f"{self.name}-doc-{index}"
             metadata = {**self.default_metadata, **raw.metadata}
+
+            # Read content from storage_path if provided, otherwise use content
+            content = raw.content
+            if raw.storage_path:
+                storage_path = Path(raw.storage_path)
+                if not storage_path.exists():
+                    msg = f"Storage path does not exist: {raw.storage_path}"
+                    raise FileNotFoundError(msg)
+                # Read and decode file content
+                raw_bytes = storage_path.read_bytes()
+                try:
+                    content = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    content = raw_bytes.decode("latin-1")
+
+            if not content:
+                msg = (
+                    f"Document {document_id} has no content. "
+                    "Provide either 'content' or 'storage_path'."
+                )
+                raise ValueError(msg)
+
             documents.append(
                 Document(
                     id=document_id,
-                    content=raw.content,
+                    content=content,
                     metadata=metadata,
                     source=raw.source or self.default_source,
                 )

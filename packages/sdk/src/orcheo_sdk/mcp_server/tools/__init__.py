@@ -13,6 +13,7 @@ from .agent_tools import (
 )
 from .codegen import generate_workflow_scaffold, generate_workflow_template
 from .credentials import create_credential, delete_credential, list_credentials
+from .edges import list_edges, show_edge
 from .nodes import list_nodes, show_node
 from .service_tokens import (
     create_service_token,
@@ -48,6 +49,7 @@ __all__ = [
     "generate_workflow_template",
     "list_agent_tools",
     "list_credentials",
+    "list_edges",
     "list_nodes",
     "list_service_tokens",
     "list_workflows",
@@ -58,6 +60,7 @@ __all__ = [
     "rotate_service_token",
     "run_workflow",
     "show_agent_tool",
+    "show_edge",
     "show_node",
     "show_service_token",
     "show_workflow",
