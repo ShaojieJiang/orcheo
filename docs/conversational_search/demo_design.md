@@ -34,7 +34,7 @@ A versatile assistant that can:
 
 ```mermaid
 graph TD
-    Start[/START/] --> EntryRouter[entry_router: IfElseNode]
+    Start([START]) --> EntryRouter[entry_router: IfElseNode]
 
     EntryRouter -->|true: documents exist| Loader[DocumentLoaderNode]
     EntryRouter -->|false: no documents| SearchRouter[search_router: IfElseNode]
@@ -45,7 +45,7 @@ graph TD
 
     Indexer --> PostRouter[post_ingestion_router: IfElseNode]
     PostRouter -->|true: query/message exists| Search[VectorSearchNode]
-    PostRouter -->|false: no query/message| End[/__end__/]
+    PostRouter -->|false: no query/message| End([END])
 
     Search --> Generator[GroundedGeneratorNode]
 

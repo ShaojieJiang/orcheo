@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 import asyncio
-import inspect
-from collections.abc import Awaitable, Callable
 from typing import Any, Literal
+from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
-
-
-LLMCallable = Callable[[str, int, float], str | Awaitable[str]]
 
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
@@ -76,11 +72,12 @@ class GroundedGeneratorNode(TaskNode):
     backoff_seconds: float = Field(
         default=0.1, ge=0.0, description="Base backoff delay between retries"
     )
-    llm: LLMCallable | None = Field(
+    ai_model: str | None = Field(
         default=None,
         description=(
-            "Optional callable invoked with ``(prompt, max_tokens, temperature)`` to "
-            "produce a completion. A deterministic fallback is used when omitted."
+            "Optional model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-latest'). "
+            "When specified, an agent is created using langchain.agents.create_agent. "
+            "A deterministic fallback is used when omitted."
         ),
     )
 
@@ -175,14 +172,38 @@ class GroundedGeneratorNode(TaskNode):
         raise RuntimeError(msg) from last_error
 
     async def _invoke_llm(self, prompt: str) -> str:
-        llm_callable = self.llm or self._default_llm
-        result = llm_callable(prompt, self.max_tokens, self.temperature)
-        if inspect.isawaitable(result):
-            result = await result
-        if not isinstance(result, str) or not result.strip():
-            msg = "LLM callable must return a non-empty string"
-            raise ValueError(msg)
-        return result.strip()
+        if self.ai_model:
+            # Create agent with the specified model
+            from langchain_core.runnables import Runnable
+
+            agent: Runnable = create_agent(
+                self.ai_model,
+                tools=[],
+                system_prompt="",
+            )
+            # Invoke agent with the prompt as a user message
+            messages = [{"role": "user", "content": prompt}]
+            result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+            # Extract text from the last message
+            if isinstance(result, dict) and "messages" in result:
+                last_message = result["messages"][-1]
+                if hasattr(last_message, "content"):
+                    text = last_message.content
+                elif isinstance(last_message, dict):
+                    text = last_message.get("content", "")
+                else:
+                    text = str(last_message)
+            else:
+                text = str(result)
+
+            if not isinstance(text, str) or not text.strip():
+                msg = "Agent must return a non-empty string response"
+                raise ValueError(msg)
+            return text.strip()
+        else:
+            # Use default fallback
+            return self._default_llm(prompt, self.max_tokens, self.temperature)
 
     def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
         del max_tokens, temperature
@@ -244,9 +265,12 @@ class StreamingGeneratorNode(TaskNode):
     )
     max_retries: int = Field(default=1, ge=0)
     backoff_seconds: float = Field(default=0.05, ge=0.0)
-    llm: LLMCallable | None = Field(
+    ai_model: str | None = Field(
         default=None,
-        description="Callable invoked with ``(prompt, max_tokens, temperature)``.",
+        description=(
+            "Optional model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-latest'). "
+            "When specified, an agent is created using langchain.agents.create_agent."
+        ),
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -279,14 +303,38 @@ class StreamingGeneratorNode(TaskNode):
         raise RuntimeError(msg)  # pragma: no cover
 
     async def _invoke_llm(self, prompt: str) -> str:
-        llm_callable = self.llm or self._default_llm
-        output = llm_callable(prompt, self.max_tokens, self.temperature)
-        if asyncio.iscoroutine(output):
-            output = await output
-        if not isinstance(output, str) or not output.strip():
-            msg = "LLM callable must return a non-empty string"
-            raise ValueError(msg)
-        return output.strip()
+        if self.ai_model:
+            # Create agent with the specified model
+            from langchain_core.runnables import Runnable
+
+            agent: Runnable = create_agent(
+                self.ai_model,
+                tools=[],
+                system_prompt="",
+            )
+            # Invoke agent with the prompt as a user message
+            messages = [{"role": "user", "content": prompt}]
+            result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+            # Extract text from the last message
+            if isinstance(result, dict) and "messages" in result:
+                last_message = result["messages"][-1]
+                if hasattr(last_message, "content"):
+                    text = last_message.content
+                elif isinstance(last_message, dict):
+                    text = last_message.get("content", "")
+                else:
+                    text = str(last_message)
+            else:
+                text = str(result)
+
+            if not isinstance(text, str) or not text.strip():
+                msg = "Agent must return a non-empty string response"
+                raise ValueError(msg)
+            return text.strip()
+        else:
+            # Use default fallback
+            return self._default_llm(prompt, self.max_tokens, self.temperature)
 
     def _stream_tokens(
         self, completion: str
