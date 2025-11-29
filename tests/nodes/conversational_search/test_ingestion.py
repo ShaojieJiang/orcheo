@@ -533,3 +533,75 @@ async def test_pinecone_vector_store_dependency_error_message() -> None:
     store = PineconeVectorStore(index_name="missing-client")
     with pytest.raises(ImportError):
         await store.upsert([])
+
+
+@pytest.mark.asyncio
+async def test_document_loader_reads_from_storage_path_utf8(tmp_path) -> None:
+    """Test document loader reads UTF-8 encoded files from storage_path."""
+
+    # Create a temporary file with UTF-8 content
+    test_file = tmp_path / "test_doc.txt"
+    test_content = "This is UTF-8 content with special chars: é ñ ü"
+    test_file.write_text(test_content, encoding="utf-8")
+
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(storage_path=str(test_file))],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    documents = result["documents"]
+    assert len(documents) == 1
+    assert documents[0].content == test_content
+
+
+@pytest.mark.asyncio
+async def test_document_loader_reads_from_storage_path_latin1(tmp_path) -> None:
+    """Test document loader falls back to latin-1 for non-UTF-8 files."""
+
+    # Create a temporary file with latin-1 content that is not valid UTF-8
+    test_file = tmp_path / "test_doc_latin1.txt"
+    # Write bytes that are valid latin-1 but not valid UTF-8
+    test_bytes = b"Content with latin-1 chars: \xe9 \xf1 \xfc"
+    test_file.write_bytes(test_bytes)
+
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(storage_path=str(test_file))],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    documents = result["documents"]
+    assert len(documents) == 1
+    # Should decode as latin-1
+    assert documents[0].content == test_bytes.decode("latin-1")
+
+
+@pytest.mark.asyncio
+async def test_document_loader_raises_on_missing_storage_path() -> None:
+    """Test document loader raises FileNotFoundError when storage_path doesn't exist."""
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(storage_path="/nonexistent/path/file.txt")],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(FileNotFoundError, match="Storage path does not exist"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_document_loader_raises_on_no_content() -> None:
+    """Test document loader raises ValueError when no content provided."""
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(content=None)],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="has no content"):
+        await node.run(state, {})
