@@ -1,13 +1,13 @@
 import pytest
 from langchain_core.runnables import RunnableConfig
+from orcheo.edges import Switch
 from orcheo.graph.state import State
-from orcheo.nodes.logic import SwitchNode
 
 
 @pytest.mark.asyncio
 async def test_switch_node_casefolds_strings() -> None:
     state = State({"results": {}})
-    node = SwitchNode(
+    node = Switch(
         name="router",
         value="Completed",
         case_sensitive=False,
@@ -15,33 +15,28 @@ async def test_switch_node_casefolds_strings() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["router"]
 
-    assert payload["branch"] == "completed"
-    assert payload["processed"] == "completed"
-    assert payload["value"] == "Completed"
-    assert payload["cases"][0]["result"] is True
+    assert result == "completed"
 
 
 @pytest.mark.asyncio
 async def test_switch_node_formats_special_values() -> None:
     state = State({"results": {}})
-    node = SwitchNode(
+    node = Switch(
         name="router",
         value=None,
         cases=[{"match": True, "branch_key": "truthy"}],
         default_branch_key="fallback",
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["router"]
-    assert payload["branch"] == "fallback"
-    assert payload["cases"][0]["result"] is False
+    result = await node(state, RunnableConfig())
+    assert result == "fallback"
 
 
 @pytest.mark.asyncio
 async def test_switch_node_matches_first_successful_case() -> None:
     state = State({"results": {}})
-    node = SwitchNode(
+    node = Switch(
         name="router",
         value="beta",
         cases=[
@@ -50,15 +45,14 @@ async def test_switch_node_matches_first_successful_case() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["router"]
-    assert payload["branch"] == "beta"
-    assert payload["cases"][1]["result"] is True
+    result = await node(state, RunnableConfig())
+    assert result == "beta"
 
 
 @pytest.mark.asyncio
 async def test_switch_node_case_sensitive_override() -> None:
     state = State({"results": {}})
-    node = SwitchNode(
+    node = Switch(
         name="router",
         value="TEST",
         case_sensitive=False,
@@ -69,8 +63,5 @@ async def test_switch_node_case_sensitive_override() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["router"]
 
-    assert payload["branch"] == "second"
-    assert payload["cases"][1]["result"] is True
-    assert payload["processed"] == "test"
+    assert result == "second"

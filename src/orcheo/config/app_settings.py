@@ -28,6 +28,9 @@ class AppSettings(BaseModel):
     chatkit_storage_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
     )
+    chatkit_max_upload_size_bytes: int = Field(
+        default=cast(int, _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]), gt=0
+    )
     chatkit_retention_days: int = Field(
         default=cast(int, _DEFAULTS["CHATKIT_RETENTION_DAYS"]), gt=0
     )
@@ -103,6 +106,20 @@ class AppSettings(BaseModel):
     @classmethod
     def _coerce_chatkit_storage_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
+
+    @field_validator("chatkit_max_upload_size_bytes", mode="before")
+    @classmethod
+    def _coerce_chatkit_max_upload_size_bytes(cls, value: object) -> int:
+        candidate_obj = (
+            value if value is not None else _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]
+        )
+        if isinstance(candidate_obj, (int, float)):
+            return int(candidate_obj)
+        try:
+            return int(str(candidate_obj))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            msg = "ORCHEO_CHATKIT_MAX_UPLOAD_SIZE_BYTES must be an integer."
+            raise ValueError(msg) from exc
 
     @field_validator("chatkit_retention_days", mode="before")
     @classmethod

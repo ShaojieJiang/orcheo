@@ -19,6 +19,7 @@ from orcheo_sdk.services.credentials import (
     delete_credential_data,
     list_credentials_data,
 )
+from orcheo_sdk.services.edges import list_edges_data, show_edge_data
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
 from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
@@ -56,6 +57,9 @@ __all__ = [
     # Nodes
     "list_nodes_data",
     "show_node_data",
+    # Edges
+    "list_edges_data",
+    "show_edge_data",
     # Credentials
     "list_credentials_data",
     "create_credential_data",

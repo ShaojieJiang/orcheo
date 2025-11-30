@@ -44,7 +44,7 @@ def test_record_workflow_step_creates_child_span() -> None:
     tracer, exporter = _build_tracer()
     step_payload = {
         "node-1": {
-            "display_name": "LLM Node",
+            "display_name": "AI Model Node",
             "status": "success",
             "token_usage": {"input": 42, "output": 10},
             "prompts": ["hello"],
@@ -59,7 +59,7 @@ def test_record_workflow_step_creates_child_span() -> None:
     spans = exporter.get_finished_spans()
     assert len(spans) == 2
     child = next(span for span in spans if span.name != "workflow.execution")
-    assert child.attributes["orcheo.node.display_name"] == "LLM Node"
+    assert child.attributes["orcheo.node.display_name"] == "AI Model Node"
     assert child.attributes["orcheo.token.input"] == 42
     assert child.attributes["orcheo.token.output"] == 10
     assert child.attributes["orcheo.artifact.ids"] == ("artifact-1",)
@@ -96,7 +96,7 @@ def test_high_token_threshold_uses_settings(monkeypatch: pytest.MonkeyPatch) -> 
     tracer, exporter = _build_tracer()
     step_payload = {
         "node-1": {
-            "display_name": "LLM Node",
+            "display_name": "AI Model Node",
             "status": "success",
             "token_usage": {"input": 11, "output": 3},
         }
@@ -123,7 +123,7 @@ def test_preview_text_redacts_sensitive_information(
     tracer, exporter = _build_tracer()
     step_payload = {
         "node-1": {
-            "display_name": "LLM Node",
+            "display_name": "AI Model Node",
             "status": "success",
             "responses": ["Contact us at user@example.com"],
             "messages": [
@@ -159,7 +159,7 @@ def test_record_workflow_step_records_error_metadata_and_messages() -> None:
     long_error = "x" * 600
     step_payload = {
         "node-1": {
-            "display_name": "LLM Node",
+            "display_name": "AI Model Node",
             "kind": "tool",
             "state": "ERROR",
             "duration_ms": "42",
@@ -216,7 +216,7 @@ def test_record_workflow_step_records_error_metadata_and_messages() -> None:
 def test_node_attributes_omits_status_when_missing() -> None:
     attributes = workflow_module._node_attributes(
         "node-1",
-        {"display_name": "LLM Node", "kind": "llm"},
+        {"display_name": "AI Model Node", "kind": "ai_model"},
     )
 
     assert "orcheo.node.status" not in attributes

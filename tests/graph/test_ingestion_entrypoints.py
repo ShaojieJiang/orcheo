@@ -59,6 +59,28 @@ def test_ingest_script_without_entrypoint_auto_discovers_graph() -> None:
     assert summary["edges"] == [("START", "first"), ("first", "END")]
 
 
+def test_ingest_script_with_async_entrypoint() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        async def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+        """
+    )
+
+    payload = ingest_langgraph_script(script, entrypoint="build_graph")
+
+    assert payload["entrypoint"] == "build_graph"
+    summary = payload["summary"]
+    assert summary["edges"] == [("START", "first"), ("first", "END")]
+
+
 def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
     script = textwrap.dedent(
         """
@@ -169,3 +191,28 @@ def test_ingest_script_entrypoint_not_resolvable() -> None:
 
     with pytest.raises(ScriptIngestionError):
         ingest_langgraph_script(script, entrypoint="candidate")
+
+
+def test_ingest_script_ignores_non_graph_functions() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        async def run_demo() -> None:
+            raise RuntimeError("should not execute during ingestion")
+
+        def build_graph() -> StateGraph:
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+        """
+    )
+
+    payload = ingest_langgraph_script(script)
+
+    assert payload["entrypoint"] is None
+    summary = payload["summary"]
+    assert summary["edges"] == [("START", "first"), ("first", "END")]

@@ -92,6 +92,7 @@ def show_workflow(
             title="Recent runs",
             columns=["ID", "Status", "Actor", "Created at"],
             rows=rows,
+            column_overflow={"ID": "fold"},
         )
 
 

@@ -1,19 +1,15 @@
 """Grounded generation node for conversational search pipelines."""
 
 from __future__ import annotations
-import asyncio
-import inspect
-from collections.abc import Awaitable, Callable
 from typing import Any, Literal
-from langchain_core.runnables import RunnableConfig
+from langchain.agents import create_agent
+from langchain.chat_models import init_chat_model
+from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
-
-
-LLMCallable = Callable[[str, int, float], str | Awaitable[str]]
 
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
@@ -68,46 +64,68 @@ class GroundedGeneratorNode(TaskNode):
     citation_style: Literal["inline", "footnote", "endnote"] = Field(
         default="inline", description="Style hint for formatting citations."
     )
-    max_tokens: int = Field(default=512, gt=0, description="Token cap for generation")
-    temperature: float = Field(
-        default=0.1, ge=0.0, description="Sampling temperature used by the model"
-    )
-    max_retries: int = Field(default=2, ge=0, description="Maximum retry attempts")
-    backoff_seconds: float = Field(
-        default=0.1, ge=0.0, description="Base backoff delay between retries"
-    )
-    llm: LLMCallable | None = Field(
+    ai_model: str | None = Field(
         default=None,
         description=(
-            "Optional callable invoked with ``(prompt, max_tokens, temperature)`` to "
-            "produce a completion. A deterministic fallback is used when omitted."
+            "Optional model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-latest'). "
+            "When specified, an agent is created using langchain.agents.create_agent. "
+            "A deterministic fallback is used when omitted."
         ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to init_chat_model.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Generate a grounded response with citations and retry semantics."""
-        query = state.get("inputs", {}).get(self.query_key)
+        """Generate a grounded response with citations and retry semantics.
+
+        If no context is available, generates a response without RAG or citations.
+        """
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
             msg = "GroundedGeneratorNode requires a non-empty query string"
             raise ValueError(msg)
 
-        context = self._resolve_context(state)
-        if not context:
-            msg = "GroundedGeneratorNode requires at least one context document"
-            raise ValueError(msg)
+        # Extract conversation history from inputs (provided by ChatKit)
+        history = inputs.get("history", [])
 
-        prompt = self._build_prompt(query.strip(), context)
-        completion = await self._generate_with_retries(prompt)
+        context = self._resolve_context(state)
+
+        # Handle non-RAG mode when no context is available
+        if not context:
+            completion = await self._generate_with_retries(
+                query=query.strip(),
+                history=history,
+                context=None,
+            )
+            tokens_used = self._estimate_tokens_from_history(history, query, completion)
+            return {
+                "reply": completion,
+                "citations": [],
+                "tokens_used": tokens_used,
+                "citation_style": self.citation_style,
+                "mode": "non_rag",
+            }
+
+        # RAG mode with context and citations
+        completion = await self._generate_with_retries(
+            query=query.strip(),
+            history=history,
+            context=context,
+        )
 
         citations = self._build_citations(context)
         response = self._attach_citations(completion, citations)
-        tokens_used = self._estimate_tokens(prompt, response)
+        tokens_used = self._estimate_tokens_from_history(history, query, response)
 
         return {
-            "response": response,
+            "reply": response,
             "citations": citations,
             "tokens_used": tokens_used,
             "citation_style": self.citation_style,
+            "mode": "rag",
         }
 
     def _resolve_context(self, state: State) -> list[SearchResult]:
@@ -124,45 +142,108 @@ class GroundedGeneratorNode(TaskNode):
             raise ValueError(msg)
         return [SearchResult.model_validate(item) for item in entries]
 
-    def _build_prompt(self, query: str, context: list[SearchResult]) -> str:
-        context_block = "\n".join(
-            f"[{index}] {entry.text}" for index, entry in enumerate(context, start=1)
-        )
+    async def _generate_with_retries(
+        self,
+        query: str,
+        history: list[dict] | None = None,
+        context: list[SearchResult] | None = None,
+    ) -> str:
+        return await self._invoke_ai_model(query, history, context)
+
+    def _build_system_message(self, context: list[SearchResult] | None) -> str:
+        """Build system message content based on context availability."""
+        if context:
+            # RAG mode system prompt with context
+            context_block = "\n".join(
+                f"[{index}] {entry.text}"
+                for index, entry in enumerate(context, start=1)
+            )
+            return (
+                f"{self.system_prompt}\n\n"
+                f"Context:\n{context_block}\n\n"
+                f"Cite sources in {self.citation_style} style using the provided "
+                "identifiers."
+            )
+        # Non-RAG mode system prompt
         return (
-            f"{self.system_prompt}\n\n"
-            f"Question: {query}\n"
-            f"Context:\n{context_block}\n\n"
-            f"Cite sources in {self.citation_style} style using the provided "
-            "identifiers."
+            "You are a helpful assistant. Answer the user's question directly "
+            "based on your knowledge."
         )
 
-    async def _generate_with_retries(self, prompt: str) -> str:
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await self._invoke_llm(prompt)
-            except Exception as exc:  # pragma: no cover - exercised via tests
-                last_error = exc
-                if attempt == self.max_retries:
-                    raise
-                delay = self.backoff_seconds * (2**attempt)
-                await asyncio.sleep(delay)
-        msg = f"Generation failed after {self.max_retries + 1} attempts"
-        raise RuntimeError(msg) from last_error
+    def _add_history_to_messages(
+        self,
+        messages: list[Any],
+        history: list[dict] | None,
+    ) -> None:
+        """Add conversation history to messages list."""
+        from langchain_core.messages import AIMessage, HumanMessage
 
-    async def _invoke_llm(self, prompt: str) -> str:
-        llm_callable = self.llm or self._default_llm
-        result = llm_callable(prompt, self.max_tokens, self.temperature)
-        if inspect.isawaitable(result):
-            result = await result
-        if not isinstance(result, str) or not result.strip():
-            msg = "LLM callable must return a non-empty string"
+        if not history or not isinstance(history, list):
+            return
+
+        for turn in history:
+            if not isinstance(turn, dict):
+                continue
+            role = turn.get("role", "")
+            content = turn.get("content", "")
+            if role == "user" and content:
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant" and content:
+                messages.append(AIMessage(content=content))
+
+    def _extract_response_text(self, result: Any) -> str:
+        """Extract text content from agent result."""
+        if isinstance(result, dict) and "messages" in result:
+            last_message = result["messages"][-1]
+            if hasattr(last_message, "content"):
+                return last_message.content
+            if isinstance(last_message, dict):
+                return last_message.get("content", "")
+            return str(last_message)
+        return str(result)
+
+    async def _invoke_ai_model(
+        self,
+        query: str,
+        history: list[dict] | None = None,
+        context: list[SearchResult] | None = None,
+    ) -> str:
+        if not self.ai_model:
+            return self._default_ai_model(query, context)
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        # Initialize chat model
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+
+        # Build messages list
+        messages: list[Any] = []
+        system_content = self._build_system_message(context)
+        messages.append(SystemMessage(content=system_content))
+
+        # Add conversation history
+        self._add_history_to_messages(messages, history)
+
+        # Add current query
+        messages.append(HumanMessage(content=query))
+
+        # Create and invoke agent
+        agent: Runnable = create_agent(model, tools=[], system_prompt="")
+        result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+        # Extract and validate response
+        text = self._extract_response_text(result)
+        if not isinstance(text, str) or not text.strip():
+            msg = "Agent must return a non-empty string response"
             raise ValueError(msg)
-        return result.strip()
+        return text.strip()
 
-    def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        del max_tokens, temperature
-        return f"{prompt}\n\nResponse: See cited context for details."
+    def _default_ai_model(
+        self, query: str, context: list[SearchResult] | None = None
+    ) -> str:
+        if context:
+            return f"{query}\n\nResponse: See cited context for details."
+        return f"{query}\n\nResponse: [Default response]"
 
     def _build_citations(self, context: list[SearchResult]) -> list[dict[str, Any]]:
         citations: list[dict[str, Any]] = []
@@ -194,6 +275,20 @@ class GroundedGeneratorNode(TaskNode):
     def _estimate_tokens(prompt: str, completion: str) -> int:
         return len((prompt + completion).split())
 
+    @staticmethod
+    def _estimate_tokens_from_history(
+        history: list[dict] | None, query: str, completion: str
+    ) -> int:
+        """Estimate token count from history, query, and completion."""
+        total_text = query + " " + completion
+        if history and isinstance(history, list):
+            for turn in history:
+                if isinstance(turn, dict):
+                    content = turn.get("content", "")
+                    if content:
+                        total_text += " " + content
+        return len(total_text.split())
+
 
 @registry.register(
     NodeMetadata(
@@ -208,8 +303,6 @@ class StreamingGeneratorNode(TaskNode):
     prompt_key: str = Field(
         default="prompt", description="Key under inputs containing the prompt."
     )
-    max_tokens: int = Field(default=256, gt=0, description="Token limit")
-    temperature: float = Field(default=0.2, ge=0.0, description="Sampling temp")
     chunk_size: int = Field(
         default=8, gt=0, description="Maximum tokens per emitted frame"
     )
@@ -218,51 +311,105 @@ class StreamingGeneratorNode(TaskNode):
         gt=0,
         description="Optional backpressure cap on total tokens streamed.",
     )
-    max_retries: int = Field(default=1, ge=0)
-    backoff_seconds: float = Field(default=0.05, ge=0.0)
-    llm: LLMCallable | None = Field(
+    ai_model: str | None = Field(
         default=None,
-        description="Callable invoked with ``(prompt, max_tokens, temperature)``.",
+        description=(
+            "Optional model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-latest'). "
+            "When specified, an agent is created using langchain.agents.create_agent."
+        ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to init_chat_model.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Stream a generated response into framed chunks with retries."""
-        prompt = state.get("inputs", {}).get(self.prompt_key)
-        if not isinstance(prompt, str) or not prompt.strip():
-            msg = "StreamingGeneratorNode requires a non-empty prompt"
+        inputs = state.get("inputs", {})
+
+        # Support both prompt-based (legacy) and message-based usage
+        prompt = inputs.get(self.prompt_key)
+        message = inputs.get("message")
+        query = prompt or message
+
+        if not isinstance(query, str) or not query.strip():
+            msg = "StreamingGeneratorNode requires a non-empty prompt or message"
             raise ValueError(msg)
 
-        completion = await self._generate_with_retries(prompt.strip())
+        # Extract conversation history from inputs (if available)
+        history = inputs.get("history", [])
+
+        completion = await self._generate_with_retries(query.strip(), history)
         stream, frames, truncated = self._stream_tokens(completion)
         return {
-            "response": completion,
+            "reply": completion,
             "stream": stream,
             "frames": frames,
             "token_count": len(stream),
             "truncated": truncated,
         }
 
-    async def _generate_with_retries(self, prompt: str) -> str:
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await self._invoke_llm(prompt)
-            except Exception as exc:  # pragma: no cover - exercised via tests
-                if attempt == self.max_retries:
-                    msg = "Streaming generation failed after retries"
-                    raise RuntimeError(msg) from exc
-                await asyncio.sleep(self.backoff_seconds * (2**attempt))
-        msg = "Streaming generation failed after retries"  # pragma: no cover
-        raise RuntimeError(msg)  # pragma: no cover
+    async def _generate_with_retries(
+        self, query: str, history: list[dict] | None = None
+    ) -> str:
+        return await self._invoke_ai_model(query, history)
 
-    async def _invoke_llm(self, prompt: str) -> str:
-        llm_callable = self.llm or self._default_llm
-        output = llm_callable(prompt, self.max_tokens, self.temperature)
-        if asyncio.iscoroutine(output):
-            output = await output
-        if not isinstance(output, str) or not output.strip():
-            msg = "LLM callable must return a non-empty string"
+    def _build_streaming_messages(
+        self, query: str, history: list[dict] | None = None
+    ) -> list[Any]:
+        """Build messages list for streaming generation."""
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+        messages: list[Any] = [SystemMessage(content="You are a helpful assistant.")]
+
+        # Add conversation history as proper message objects
+        if history and isinstance(history, list):
+            for turn in history:
+                if not isinstance(turn, dict):
+                    continue
+                role = turn.get("role", "")
+                content = turn.get("content", "")
+                if role == "user" and content:
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant" and content:
+                    messages.append(AIMessage(content=content))
+
+        # Add current query
+        messages.append(HumanMessage(content=query))
+        return messages
+
+    async def _invoke_ai_model(
+        self, query: str, history: list[dict] | None = None
+    ) -> str:
+        if not self.ai_model:
+            return self._default_ai_model(query)
+
+        # Initialize chat model
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+
+        # Build messages list
+        messages = self._build_streaming_messages(query, history)
+
+        # Create and invoke agent
+        agent: Runnable = create_agent(model, tools=[], system_prompt="")
+        result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+
+        # Extract text from the last message
+        if isinstance(result, dict) and "messages" in result:
+            last_message = result["messages"][-1]
+            if hasattr(last_message, "content"):
+                text = last_message.content
+            elif isinstance(last_message, dict):
+                text = last_message.get("content", "")
+            else:
+                text = str(last_message)
+        else:
+            text = str(result)
+
+        if not isinstance(text, str) or not text.strip():
+            msg = "Agent must return a non-empty string response"
             raise ValueError(msg)
-        return output.strip()
+        return text.strip()
 
     def _stream_tokens(
         self, completion: str
@@ -298,9 +445,8 @@ class StreamingGeneratorNode(TaskNode):
             )
         return stream, frames, truncated
 
-    def _default_llm(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        del max_tokens, temperature
-        return f"{prompt} :: streamed"
+    def _default_ai_model(self, query: str) -> str:
+        return f"{query} :: streamed"
 
 
 @registry.register(
@@ -318,7 +464,7 @@ class HallucinationGuardNode(TaskNode):
         description="Result entry containing model output and citations.",
     )
     response_field: str = Field(
-        default="response", description="Field containing the model response"
+        default="reply", description="Field containing the model response"
     )
     citations_field: str = Field(
         default="citations", description="Field containing citations metadata"
@@ -349,7 +495,7 @@ class HallucinationGuardNode(TaskNode):
 
         return {
             "allowed": True,
-            "response": response,
+            "reply": response,
             "citations": citations,
         }
 

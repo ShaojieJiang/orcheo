@@ -1,18 +1,18 @@
-"""Branching logic nodes built on shared condition helpers."""
+"""Branching logic edges built on shared condition helpers."""
 
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
-from orcheo.graph.state import State
-from orcheo.nodes.base import DecisionNode, TaskNode
-from orcheo.nodes.logic.conditions import (
+from orcheo.edges.base import BaseEdge
+from orcheo.edges.conditions import (
     Condition,
     _combine_condition_results,
     _normalise_case,
 )
-from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.edges.registry import EdgeMetadata, edge_registry
+from orcheo.graph.state import State
 
 
 class SwitchCase(BaseModel):
@@ -45,14 +45,14 @@ def _coerce_branch_key(candidate: str | None, fallback: str) -> str:
     return slug or fallback
 
 
-@registry.register(
-    NodeMetadata(
-        name="IfElseNode",
+@edge_registry.register(
+    EdgeMetadata(
+        name="IfElse",
         description="Branch execution based on a condition",
         category="logic",
     )
 )
-class IfElseNode(DecisionNode):
+class IfElse(BaseEdge):
     """Evaluate a boolean expression and emit the chosen branch."""
 
     conditions: list[Condition] = Field(
@@ -75,14 +75,14 @@ class IfElseNode(DecisionNode):
         return branch
 
 
-@registry.register(
-    NodeMetadata(
-        name="SwitchNode",
+@edge_registry.register(
+    EdgeMetadata(
+        name="Switch",
         description="Resolve a case key for downstream branching",
         category="logic",
     )
 )
-class SwitchNode(TaskNode):
+class Switch(BaseEdge):
     """Map an input value to a branch identifier."""
 
     value: Any = Field(description="Value to inspect for routing decisions")
@@ -102,7 +102,7 @@ class SwitchNode(TaskNode):
 
     def _resolve_case(
         self, case: SwitchCase, *, index: int, normalised_value: Any
-    ) -> tuple[str, bool, dict[str, Any]]:
+    ) -> tuple[str, bool]:
         case_sensitive = (
             case.case_sensitive
             if case.case_sensitive is not None
@@ -117,50 +117,35 @@ class SwitchNode(TaskNode):
             case_sensitive=case_sensitive,
         )
         is_match = normalised_value == expected
-        payload = {
-            "branch": branch_key,
-            "label": case.label,
-            "match": case.match,
-            "case_sensitive": case_sensitive,
-            "result": is_match,
-        }
-        return branch_key, is_match, payload
+        return branch_key, is_match
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the raw value and a normalised case key."""
+    async def run(self, state: State, config: RunnableConfig) -> str:
+        """Return the branch key for routing."""
         raw_value = self.value
         processed = _normalise_case(raw_value, case_sensitive=self.case_sensitive)
         branch_key = self.default_branch_key
-        evaluations: list[dict[str, Any]] = []
 
         for index, case in enumerate(self.cases):
-            candidate_branch, is_match, payload = self._resolve_case(
+            candidate_branch, is_match = self._resolve_case(
                 case,
                 index=index,
                 normalised_value=processed,
             )
-            evaluations.append(payload)
-            if is_match and branch_key == self.default_branch_key:
+            if is_match:
                 branch_key = candidate_branch
+                break
 
-        return {
-            "value": raw_value,
-            "processed": processed,
-            "branch": branch_key,
-            "case_sensitive": self.case_sensitive,
-            "default_branch": self.default_branch_key,
-            "cases": evaluations,
-        }
+        return branch_key
 
 
-@registry.register(
-    NodeMetadata(
-        name="WhileNode",
+@edge_registry.register(
+    EdgeMetadata(
+        name="While",
         description="Emit a continue signal while the condition holds",
         category="logic",
     )
 )
-class WhileNode(TaskNode):
+class While(BaseEdge):
     """Evaluate a condition and loop until it fails or a limit is reached."""
 
     conditions: list[Condition] = Field(
@@ -182,15 +167,15 @@ class WhileNode(TaskNode):
         """Return the iteration count persisted in the workflow state."""
         results = state.get("results")
         if isinstance(results, Mapping):
-            node_state = results.get(self.name)
-            if isinstance(node_state, Mapping):
-                iteration = node_state.get("iteration")
+            edge_state = results.get(self.name)
+            if isinstance(edge_state, Mapping):
+                iteration = edge_state.get("iteration")
                 if isinstance(iteration, int) and iteration >= 0:
                     return iteration
         return 0
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return loop metadata and whether execution should continue."""
+    async def run(self, state: State, config: RunnableConfig) -> str:
+        """Return the branch key for loop continuation."""
         previous_iteration = self._previous_iteration(state)
         outcome, evaluations = _combine_condition_results(
             conditions=self.conditions,
@@ -198,34 +183,34 @@ class WhileNode(TaskNode):
             default_left=previous_iteration,
         )
         should_continue = outcome
-        limit_reached = False
 
         if (
             self.max_iterations is not None
             and previous_iteration >= self.max_iterations
         ):
             should_continue = False
-            limit_reached = True
 
-        iteration = previous_iteration
         if should_continue:
-            iteration += 1
+            next_iteration = previous_iteration + 1
+        else:
+            next_iteration = previous_iteration
+
+        results = state.get("results")
+        if not isinstance(results, dict):
+            results = state["results"] = {}
+        edge_state = results.get(self.name)
+        if not isinstance(edge_state, dict):
+            edge_state = {}
+        edge_state["iteration"] = next_iteration
+        results[self.name] = edge_state
 
         branch = "continue" if should_continue else "exit"
-        return {
-            "should_continue": should_continue,
-            "iteration": iteration,
-            "limit_reached": limit_reached,
-            "branch": branch,
-            "condition_logic": self.condition_logic,
-            "conditions": evaluations,
-            "max_iterations": self.max_iterations,
-        }
+        return branch
 
 
 __all__ = [
     "SwitchCase",
-    "IfElseNode",
-    "SwitchNode",
-    "WhileNode",
+    "IfElse",
+    "Switch",
+    "While",
 ]

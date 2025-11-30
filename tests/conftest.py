@@ -1,7 +1,9 @@
 """Configure test environment for Orcheo."""
 
+import os
 import sys
 from pathlib import Path
+import pytest
 
 
 pytest_plugins = [
@@ -16,3 +18,11 @@ SDK_SRC = ROOT / "packages" / "sdk" / "src"
 for path in (BACKEND_SRC, SDK_SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+
+@pytest.fixture(autouse=True)
+def _ensure_openai_api_key(monkeypatch):
+    """Provide a deterministic OpenAI API key for tests when missing."""
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-orcheo")
