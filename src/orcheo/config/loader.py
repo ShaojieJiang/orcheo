@@ -39,6 +39,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             chatkit_storage_path=source.get(
                 "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
             ),
+            chatkit_max_upload_size_bytes=source.get(
+                "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
+                _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"],
+            ),
             chatkit_retention_days=source.get(
                 "CHATKIT_RETENTION_DAYS", _DEFAULTS["CHATKIT_RETENTION_DAYS"]
             ),
@@ -95,6 +99,9 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
     normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
+    normalized.set(
+        "CHATKIT_MAX_UPLOAD_SIZE_BYTES", settings.chatkit_max_upload_size_bytes
+    )
     normalized.set("CHATKIT_RETENTION_DAYS", settings.chatkit_retention_days)
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
     normalized.set("HOST", settings.host)

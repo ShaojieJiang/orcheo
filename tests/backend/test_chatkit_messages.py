@@ -875,11 +875,9 @@ async def test_upload_chatkit_file_invalid_encoding(
         with pytest.raises(HTTPException) as exc_info:
             await upload_chatkit_file(upload_file, mock_request)
 
-        # Note: The inner HTTPException (400) is caught by the outer exception handler
-        # and re-raised as a 500 error due to the broad Exception catch
-        assert exc_info.value.status_code == 500
-        assert "processing_error" in exc_info.value.detail["code"]  # type: ignore[index]
-        assert "Failed to process file upload" in exc_info.value.detail["message"]  # type: ignore[index]
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail.get("code") == "chatkit.upload.invalid_encoding"
+        assert "must be a text file" in exc_info.value.detail.get("message", "")
 
 
 def test_build_inputs_payload_with_non_standard_attachments(

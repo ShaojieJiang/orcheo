@@ -27,6 +27,7 @@ from fastapi import (
 from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 from orcheo.config import get_settings
+from orcheo.config.defaults import _DEFAULTS
 from orcheo.models.workflow import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.authentication import (
@@ -550,6 +551,20 @@ async def trigger_chatkit_workflow(
     return run
 
 
+def _sanitize_filename(filename: str | None) -> str:
+    """Return a safe filename stripped of path traversal components."""
+    if not filename:
+        return "uploaded_file"
+
+    candidate = Path(filename).name
+    stripped = candidate.strip().lstrip(".")
+    safe = "".join(ch for ch in stripped if ch.isalnum() or ch in {".", "_", "-", " "})
+    normalized = safe.strip().replace(" ", "_")
+    if not normalized:
+        return "uploaded_file"
+    return normalized[:255]
+
+
 @router.post("/chatkit/upload", include_in_schema=False)
 async def upload_chatkit_file(
     file: UploadFile,
@@ -571,8 +586,24 @@ async def upload_chatkit_file(
     - storage_path: path to the stored file (not part of standard ChatKit format)
     """
     try:
-        # Read file content
-        content = await file.read()
+        settings = get_settings()
+        max_upload_size = int(
+            settings.get(
+                "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
+                _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"],
+            )
+        )
+
+        # Read file content with a size guard
+        content = await file.read(max_upload_size + 1)
+        if len(content) > max_upload_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail={
+                    "message": "File exceeds maximum allowed size",
+                    "code": "chatkit.upload.too_large",
+                },
+            )
 
         # Validate it's a text file by attempting to decode
         try:
@@ -594,16 +625,23 @@ async def upload_chatkit_file(
         attachment_id = f"atc_{uuid4().hex[:8]}"
 
         # Determine storage path from settings
-        settings = get_settings()
         storage_base = Path(
             str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
         ).expanduser()
         storage_base.mkdir(parents=True, exist_ok=True)
 
         # Store file on disk with attachment ID as filename
-        storage_path = (
-            storage_base / f"{attachment_id}_{file.filename or 'uploaded_file'}"
-        )
+        safe_name = _sanitize_filename(file.filename)
+        storage_path = storage_base / f"{attachment_id}_{safe_name}"
+        resolved_storage_path = storage_path.resolve()
+        if not resolved_storage_path.is_relative_to(storage_base.resolve()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Invalid filename provided",
+                    "code": "chatkit.upload.invalid_filename",
+                },
+            )
         storage_path.write_bytes(content)
 
         # Create attachment object matching ChatKit's FileAttachment type
@@ -611,7 +649,7 @@ async def upload_chatkit_file(
 
         attachment = FileAttachment(
             id=attachment_id,
-            name=file.filename or "uploaded_file",
+            name=safe_name,
             mime_type=file.content_type or "text/plain",
         )
 
@@ -633,7 +671,7 @@ async def upload_chatkit_file(
         return JSONResponse(
             content={
                 "id": attachment_id,
-                "name": file.filename or "uploaded_file",
+                "name": safe_name,
                 "mime_type": file.content_type or "text/plain",
                 "type": "file",
                 "size": len(content),
@@ -641,6 +679,8 @@ async def upload_chatkit_file(
             },
             status_code=status.HTTP_200_OK,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(
             "Failed to process ChatKit file upload",

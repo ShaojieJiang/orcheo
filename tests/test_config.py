@@ -256,6 +256,17 @@ def test_chatkit_retention_coerces_string_values() -> None:
     assert normalized.chatkit_retention_days == 21
 
 
+def test_chatkit_upload_size_coerces_string_values() -> None:
+    """ChatKit max upload size should accept string representations of integers."""
+
+    source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("CHATKIT_MAX_UPLOAD_SIZE_BYTES", "1024")
+
+    normalized = config._normalize_settings(source)
+
+    assert normalized.chatkit_max_upload_size_bytes == 1024
+
+
 def test_chatkit_rate_limit_settings_are_loaded() -> None:
     """ChatKit rate limit configuration should surface defaults and overrides."""
 
