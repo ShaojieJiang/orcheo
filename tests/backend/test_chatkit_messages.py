@@ -776,6 +776,61 @@ async def test_upload_chatkit_file_no_filename(
         assert "uploaded_file" in data["storage_path"]
 
 
+def test_sanitize_filename_returns_default_when_normalized_empty() -> None:
+    """Ensure filenames without safe characters fall back to default name."""
+    from orcheo_backend.app.routers.chatkit import _sanitize_filename
+
+    assert _sanitize_filename("...") == "uploaded_file"
+
+
+@pytest.mark.asyncio
+async def test_upload_chatkit_file_invalid_filename_path_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test upload guard rejects filenames that resolve outside storage base."""
+    from fastapi import HTTPException
+    from orcheo_backend.app.routers import chatkit as chatkit_router
+    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
+
+    storage_base = tmp_path / "chatkit_storage"
+
+    class FakeSettings:
+        def get(self, key: str, default: object | None = None) -> object | None:
+            if key == "CHATKIT_STORAGE_PATH":
+                return str(storage_base)
+            return default
+
+    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
+
+    mock_store = MagicMock()
+    mock_store.save_attachment = AsyncMock()
+    mock_server = MagicMock()
+    mock_server.store = mock_store
+
+    # Force sanitize helper to return a traversal attempt
+    monkeypatch.setattr(
+        chatkit_router,
+        "_sanitize_filename",
+        lambda filename: "../../../../../escape.txt",
+    )
+
+    with patch(
+        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
+        return_value=mock_server,
+    ):
+        headers = Headers({"content-type": "text/plain"})
+        upload_file = UploadFile(
+            file=BytesIO(b"malicious payload"), filename="evil.txt", headers=headers
+        )
+        mock_request = MagicMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await upload_chatkit_file(upload_file, mock_request)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "chatkit.upload.invalid_filename"
+
+
 @pytest.mark.asyncio
 async def test_upload_chatkit_file_exception_handling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
