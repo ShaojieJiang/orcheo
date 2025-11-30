@@ -1,7 +1,9 @@
 """Load LangGraph StateGraph instances from Python scripts."""
 
 from __future__ import annotations
+import asyncio
 import inspect
+from collections.abc import Awaitable
 from typing import Any
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -103,15 +105,31 @@ def _is_graph_candidate(obj: Any, module_name: str) -> bool:
     return False
 
 
+async def _await_awaitable(awaitable: Awaitable[Any]) -> Any:
+    """Await ``awaitable`` within a coroutine context."""
+    return await awaitable
+
+
 def _resolve_graph(obj: Any) -> StateGraph | None:
     """Return a ``StateGraph`` from the supplied object if possible."""
+    resolved: StateGraph | None = None
+
     if isinstance(obj, StateGraph):
-        return obj
-
-    if isinstance(obj, CompiledStateGraph):
-        return obj.builder
-
-    if callable(obj):
+        resolved = obj
+    elif isinstance(obj, CompiledStateGraph):
+        resolved = obj.builder
+    elif inspect.isawaitable(obj):
+        result: Any
+        try:
+            result = asyncio.run(_await_awaitable(obj))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(_await_awaitable(obj))
+            finally:
+                loop.close()
+        resolved = _resolve_graph(result)
+    elif callable(obj):
         signature = inspect.signature(obj)
         if any(
             parameter.default is inspect.Parameter.empty
@@ -127,9 +145,9 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
             result = obj()
         except Exception:  # pragma: no cover - the caller will raise a clearer error
             return None
-        return _resolve_graph(result)
+        resolved = _resolve_graph(result)
 
-    return None
+    return resolved
 
 
 __all__ = ["load_graph_from_script"]
