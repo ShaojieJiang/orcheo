@@ -56,3 +56,13 @@ def test_resolve_graph_handles_asyncio_run_runtime_error(
     graph = _resolve_graph(build_graph())
 
     assert isinstance(graph, StateGraph)
+
+
+@pytest.mark.asyncio
+async def test_resolve_graph_handles_running_event_loop() -> None:
+    async def build_graph() -> StateGraph:
+        return StateGraph(dict)
+
+    graph = _resolve_graph(build_graph())
+
+    assert isinstance(graph, StateGraph)

@@ -191,3 +191,28 @@ def test_ingest_script_entrypoint_not_resolvable() -> None:
 
     with pytest.raises(ScriptIngestionError):
         ingest_langgraph_script(script, entrypoint="candidate")
+
+
+def test_ingest_script_ignores_non_graph_functions() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        async def run_demo() -> None:
+            raise RuntimeError("should not execute during ingestion")
+
+        def build_graph() -> StateGraph:
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+        """
+    )
+
+    payload = ingest_langgraph_script(script)
+
+    assert payload["entrypoint"] is None
+    summary = payload["summary"]
+    assert summary["edges"] == [("START", "first"), ("first", "END")]

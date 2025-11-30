@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Awaitable
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, get_origin
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from orcheo.graph.ingestion.config import (
@@ -100,7 +101,9 @@ def _is_graph_candidate(obj: Any, module_name: str) -> bool:
         return True
 
     if inspect.isfunction(obj) or inspect.iscoroutinefunction(obj):
-        return getattr(obj, "__module__", "") == module_name
+        if getattr(obj, "__module__", "") != module_name:
+            return False
+        return _returns_state_graph(obj)
 
     return False
 
@@ -120,14 +123,13 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
         resolved = obj.builder
     elif inspect.isawaitable(obj):
         result: Any
-        try:
-            result = asyncio.run(_await_awaitable(obj))
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
+        if _is_event_loop_running():
+            result = _run_awaitable_in_thread(obj)
+        else:
             try:
-                result = loop.run_until_complete(_await_awaitable(obj))
-            finally:
-                loop.close()
+                result = asyncio.run(_await_awaitable(obj))
+            except RuntimeError:
+                result = _run_awaitable_with_new_loop(obj)
         resolved = _resolve_graph(result)
     elif callable(obj):
         signature = inspect.signature(obj)
@@ -151,3 +153,54 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
 
 
 __all__ = ["load_graph_from_script"]
+
+
+def _is_event_loop_running() -> bool:
+    """Return ``True`` when called from an active asyncio event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _run_awaitable_in_thread(awaitable: Awaitable[Any]) -> Any:
+    """Execute ``awaitable`` on a dedicated thread to avoid loop nesting."""
+
+    def runner() -> Any:
+        return asyncio.run(_await_awaitable(awaitable))
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(runner)
+        return future.result()
+
+
+def _run_awaitable_with_new_loop(awaitable: Awaitable[Any]) -> Any:
+    """Execute ``awaitable`` by creating a temporary event loop."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_await_awaitable(awaitable))
+    finally:
+        loop.close()
+
+
+def _returns_state_graph(callable_obj: Any) -> bool:
+    """Return ``True`` when ``callable_obj`` is annotated to return a graph."""
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    annotation = signature.return_annotation
+    if annotation is inspect.Signature.empty:
+        return False
+    return _is_state_graph_annotation(annotation)
+
+
+def _is_state_graph_annotation(annotation: Any) -> bool:
+    """Return ``True`` when ``annotation`` refers to a StateGraph type."""
+    if isinstance(annotation, str):
+        return annotation in {"StateGraph", "CompiledStateGraph"}
+    origin = get_origin(annotation)
+    if origin is not None:
+        return origin in (StateGraph, CompiledStateGraph)
+    return annotation in (StateGraph, CompiledStateGraph)
