@@ -33,30 +33,27 @@ A versatile assistant that can:
 ### Workflow Graph
 
 ```mermaid
-graph TD
-    Start([START]) --> EntryRouter[entry_router: IfElseNode]
+flowchart TD
+    start([START]) --> entry[EntryRoutingNode]
+    entry -->|documents provided| loader
+    entry -->|vector store has records| search
+    entry -->|otherwise| generator
 
-    EntryRouter -->|true: documents exist| Loader[DocumentLoaderNode]
-    EntryRouter -->|false: no documents| SearchRouter[search_router: IfElseNode]
+    subgraph Ingestion
+        loader --> metadata --> chunking --> indexer
+    end
 
-    Loader --> Metadata[MetadataExtractorNode]
-    Metadata --> Chunking[ChunkingStrategyNode]
-    Chunking --> Indexer[EmbeddingIndexerNode]
+    indexer --> post{Inputs.message?}
+    post -->|true| search
+    post -->|false| end1([END])
 
-    Indexer --> PostRouter[post_ingestion_router: IfElseNode]
-    PostRouter -->|true: query/message exists| Search[VectorSearchNode]
-    PostRouter -->|false: no query/message| End([END])
-
-    Search --> Generator[GroundedGeneratorNode]
-
-    SearchRouter -->|true: has indexed documents| Search
-    SearchRouter -->|false: no indexed documents| Generator
-
-    Generator --> End
+    search --> generator --> end2([END])
 ```
 
 ### Nodes Demonstrated
-- **IfElseNode** (Logic) - Conditional branching based on input conditions
+- **EntryRoutingNode** (Custom TaskNode) - Computes ingestion/search/generator mode ahead of routing
+- **Switch** (Logic) - Routes execution based on `routing_mode`
+- **IfElseNode** (Logic) - Conditional branching for post-ingestion routing
 - **DocumentLoaderNode** (P0) - Load markdown documentation files
 - **MetadataExtractorNode** (P0) - Extract title, source, section metadata
 - **ChunkingStrategyNode** (P0) - Split documents with overlap
@@ -65,19 +62,13 @@ graph TD
 - **GroundedGeneratorNode** (P0) - Generate answers with citations (RAG) or without (non-RAG)
 
 ### Branching Logic
-The demo uses three **IfElseNode** instances for workflow routing:
+The demo uses a two-stage routing strategy:
 
-1. **entry_router**: Evaluates `{{inputs.documents}}` truthiness
-   - `true` branch → Ingestion pipeline (loader) for RAG mode
-   - `false` branch → Check if search is possible (search_router)
+1. **Entry routing**: The custom `EntryRoutingNode` inspects the request payload and existing `InMemoryVectorStore` records to compute `routing_mode` (`ingestion`, `search`, or `generator`). The `Switch`-based `entry_router` reads this value and sends execution directly to the loader, search node, or generator.
 
-2. **post_ingestion_router**: Evaluates `{{inputs.query}}` OR `{{inputs.message}}` truthiness
+2. **post_ingestion_router**: After new chunks are indexed, an `IfElseNode` evaluates `{{inputs.query}}` OR `{{inputs.message}}` truthiness
    - `true` branch → Search pipeline (RAG mode with retrieval)
    - `false` branch → End workflow (ingestion-only mode)
-
-3. **search_router**: Checks if vector store has indexed documents
-   - `true` branch → Search pipeline (RAG mode)
-   - `false` branch → Direct to generator (non-RAG mode)
 
 ### Configuration Highlights
 ```yaml
