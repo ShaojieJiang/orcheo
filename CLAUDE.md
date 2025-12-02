@@ -69,12 +69,15 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 
 **CRITICAL**: After making any code changes:
 1. For Python code changes:
-   - Run `make lint` and ensure it passes with ZERO errors or warnings
-   - Run `make test` and ensure all tests pass
+   - `make format` to auto-format the code
+   - `make lint` MUST pass with ZERO errors or warnings before completing any task
+   - Run the smallest relevant pytest target for your change (e.g., `uv run pytest tests/nodes/test_foo.py`)
+   - Document which test command you ran; ensure it passes with all tests green before completion
 2. For TypeScript/JavaScript code changes (Canvas):
    - Run `make canvas-format` to auto-format the code
    - Run `make canvas-lint` and ensure it passes with ZERO errors or warnings
-   - Run `make canvas-test` and ensure all tests pass
+   - Run the smallest relevant Canvas test target for your change (prefer targeted npm/vitest commands)
+   - Document which Canvas test command you ran; ensure it passes with all tests green before completion
 
 ## Important Notes
 - Uses async/await patterns throughout
