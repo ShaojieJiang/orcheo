@@ -293,8 +293,31 @@ class WebSearchNode(TaskNode):
         default="web",
         description="Label used to annotate Tavily-sourced results.",
     )
+    suppress_errors: bool = Field(
+        default=True,
+        description=(
+            "Return empty results instead of raising when Tavily is unavailable."
+        ),
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Run Tavily search, optionally suppressing failures."""
+        try:
+            return await self._run_search(state)
+        except ValueError as exc:
+            if not self.suppress_errors:
+                raise
+            return {"results": [], "warning": str(exc), "source": self.source_name}
+        except Exception as exc:  # pragma: no cover - network/runtime guard
+            if not self.suppress_errors:
+                raise
+            return {
+                "results": [],
+                "warning": f"web search unavailable: {exc!s}",
+                "source": self.source_name,
+            }
+
+    async def _run_search(self, state: State) -> dict[str, Any]:
         """Issue a Tavily search and normalise the response into SearchResult items."""
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
@@ -332,7 +355,11 @@ class WebSearchNode(TaskNode):
             self._parse_result(entry, index) for index, entry in enumerate(raw_results)
         ]
 
-        return {"results": results, "answer": data.get("answer")}
+        return {
+            "results": results,
+            "answer": data.get("answer"),
+            "source": self.source_name,
+        }
 
     def _build_payload(self, query: str, api_key: str) -> dict[str, Any]:
         payload: dict[str, Any] = {

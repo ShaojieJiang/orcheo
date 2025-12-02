@@ -186,32 +186,6 @@ class RetrievalCollectorNode(TaskNode):
         return collected
 
 
-class OptionalWebSearchNode(WebSearchNode):
-    """Web search node that can gracefully fall back when Tavily is unavailable."""
-
-    suppress_errors: bool = Field(
-        default=True,
-        description="Return empty results instead of raising when Tavily is missing.",
-    )
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Run Tavily search, optionally suppressing failures."""
-        try:
-            return await super().run(state, config)
-        except ValueError as exc:
-            if not self.suppress_errors:
-                raise
-            return {"results": [], "warning": str(exc), "source": self.source_name}
-        except Exception as exc:  # pragma: no cover - network/runtime guard
-            if not self.suppress_errors:
-                raise
-            return {
-                "results": [],
-                "warning": f"web search unavailable: {exc!s}",
-                "source": self.source_name,
-            }
-
-
 def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
@@ -261,7 +235,7 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
         source_name="bm25",
     )
 
-    optional_web = OptionalWebSearchNode(
+    optional_web = WebSearchNode(
         name="web_search",
         max_results=web_cfg.get("max_results", 5),
         search_depth=web_cfg.get("search_depth", "basic"),

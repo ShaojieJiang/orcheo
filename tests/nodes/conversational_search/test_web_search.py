@@ -71,6 +71,7 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
     assert request_json["exclude_domains"] == ["ignore.com"]
 
     assert payload["answer"] == "summary answer"
+    assert payload["source"] == "web"
     results = payload["results"]
     assert results[0].id == "https://example.com"
     assert results[0].metadata["url"] == "https://example.com"
@@ -87,9 +88,9 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_search_node_requires_query() -> None:
-    """WebSearchNode should reject empty queries."""
-    node = WebSearchNode(name="web", api_key="key")
+async def test_web_search_node_requires_query_when_not_suppressed() -> None:
+    """WebSearchNode should reject empty queries when suppression is disabled."""
+    node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "   "},
         results={},
@@ -103,12 +104,12 @@ async def test_web_search_node_requires_query() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_search_node_requires_api_key(
+async def test_web_search_node_requires_api_key_when_not_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """WebSearchNode should require api_key or env var."""
+    """WebSearchNode should require api_key or env var when suppression disabled."""
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    node = WebSearchNode(name="web")
+    node = WebSearchNode(name="web", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
         results={},
@@ -122,9 +123,9 @@ async def test_web_search_node_requires_api_key(
 
 
 @pytest.mark.asyncio
-async def test_web_search_node_handles_http_errors() -> None:
-    """WebSearchNode should surface HTTP failures."""
-    node = WebSearchNode(name="web", api_key="key")
+async def test_web_search_node_handles_http_errors_when_not_suppressed() -> None:
+    """WebSearchNode should surface HTTP failures when suppression disabled."""
+    node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
         results={},
@@ -140,9 +141,9 @@ async def test_web_search_node_handles_http_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_search_node_validates_response_shape() -> None:
-    """WebSearchNode should validate Tavily payloads."""
-    node = WebSearchNode(name="web", api_key="key")
+async def test_web_search_node_validates_response_shape_when_not_suppressed() -> None:
+    """WebSearchNode should validate Tavily payloads when suppression disabled."""
+    node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
         results={},
@@ -175,3 +176,62 @@ async def test_web_search_node_validates_response_shape() -> None:
             ValueError, match="WebSearchNode received non-JSON response"
         ):
             await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_returns_warning_when_query_missing() -> None:
+    """WebSearchNode should return warning payload when query is missing by default."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "   "},
+        results={},
+        structured_response=None,
+    )
+
+    payload = await node.run(state, {})
+    assert payload["results"] == []
+    assert "warning" in payload
+    assert payload["source"] == "web"
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_suppresses_http_errors_by_default() -> None:
+    """WebSearchNode should suppress HTTP errors when suppress_errors is True."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "hello"},
+        results={},
+        structured_response=None,
+    )
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(
+            return_value=httpx.Response(500, text="error")
+        )
+        payload = await node.run(state, {})
+
+    assert payload["results"] == []
+    assert "warning" in payload
+    assert payload["source"] == "web"
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_suppresses_unexpected_errors_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebSearchNode should suppress unexpected exceptions when configured."""
+    node = WebSearchNode(name="web", api_key="key")
+    state = State(
+        inputs={"query": "hello"},
+        results={},
+        structured_response=None,
+    )
+
+    async def boom(_: State) -> dict[str, Any]:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(node, "_run_search", boom)
+    payload = await node.run(state, {})
+    assert payload["results"] == []
+    assert payload["warning"] == "web search unavailable: kaboom"
+    assert payload["source"] == "web"
