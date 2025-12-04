@@ -35,12 +35,12 @@ A versatile assistant that can:
 ```mermaid
 flowchart TD
     start([START]) --> entry[EntryRoutingNode]
-    entry -->|documents provided| loader
-    entry -->|vector store has records| search
-    entry -->|otherwise| generator
+    entry -->|documents provided| loader[DocumentLoaderNode]
+    entry -->|vector store has records| search[VectorSearchNode]
+    entry -->|otherwise| generator[GroundedGeneratorNode]
 
     subgraph Ingestion
-        loader --> metadata --> chunking --> indexer
+        loader --> metadata[MetadataExtractorNode] --> chunking[ChunkingStrategyNode] --> indexer[EmbeddingIndexerNode]
     end
 
     indexer --> post{Inputs.message?}
