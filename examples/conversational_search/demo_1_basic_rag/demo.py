@@ -12,7 +12,7 @@ from orcheo.nodes.conversational_search.ingestion import (
     EmbeddingIndexerNode,
     MetadataExtractorNode,
 )
-from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
+from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
@@ -95,7 +95,7 @@ def create_search_nodes(
 ) -> dict[str, Any]:
     """Create and configure search and generation nodes."""
     retrieval_config = config["retrieval"]["search"]
-    search = VectorSearchNode(
+    search = DenseSearchNode(
         name="search",
         vector_store=vector_store,
         top_k=retrieval_config.get("top_k", 5),

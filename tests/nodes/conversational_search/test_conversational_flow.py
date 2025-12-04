@@ -4,6 +4,7 @@ from orcheo.nodes.conversational_search import (
     ChunkingStrategyNode,
     ConversationCompressorNode,
     ConversationStateNode,
+    DenseSearchNode,
     DocumentLoaderNode,
     EmbeddingIndexerNode,
     GroundedGeneratorNode,
@@ -12,7 +13,6 @@ from orcheo.nodes.conversational_search import (
     MemorySummarizerNode,
     QueryClarificationNode,
     TopicShiftDetectorNode,
-    VectorSearchNode,
 )
 from orcheo.nodes.conversational_search.ingestion import RawDocumentInput
 
@@ -41,7 +41,7 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
     indexer = EmbeddingIndexerNode(
         name="embedding_indexer", vector_store=vector_store, chunks_field="chunks"
     )
-    retriever = VectorSearchNode(
+    retriever = DenseSearchNode(
         name="retriever", vector_store=vector_store, query_key="query", top_k=2
     )
     generator = GroundedGeneratorNode(

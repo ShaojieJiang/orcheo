@@ -2,10 +2,10 @@ import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import (
     ChunkingStrategyNode,
+    DenseSearchNode,
     DocumentLoaderNode,
     EmbeddingIndexerNode,
     GroundedGeneratorNode,
-    VectorSearchNode,
 )
 from orcheo.nodes.conversational_search.ingestion import RawDocumentInput
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -36,7 +36,7 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
     indexer = EmbeddingIndexerNode(
         name="embedding_indexer", vector_store=vector_store, chunks_field="chunks"
     )
-    retriever = VectorSearchNode(
+    retriever = DenseSearchNode(
         name="retriever",
         vector_store=vector_store,
         query_key="query",

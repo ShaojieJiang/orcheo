@@ -29,12 +29,12 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 @registry.register(
     NodeMetadata(
-        name="VectorSearchNode",
-        description="Perform dense similarity search using a configured vector store.",
+        name="DenseSearchNode",
+        description="Perform embedding-based retrieval via a configured vector store.",
         category="conversational_search",
     )
 )
-class VectorSearchNode(TaskNode):
+class DenseSearchNode(TaskNode):
     """Node that performs dense retrieval against a vector store."""
 
     query_key: str = Field(
@@ -62,8 +62,8 @@ class VectorSearchNode(TaskNode):
         description="Optional metadata filters applied to the vector store query.",
     )
     source_name: str = Field(
-        default="vector",
-        description="Label used to annotate the originating retriever",
+        default="dense",
+        description="Label used to annotate the originating retriever.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -71,7 +71,7 @@ class VectorSearchNode(TaskNode):
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
-            msg = "VectorSearchNode requires a non-empty query string"
+            msg = "DenseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
         embeddings = await self._embed([query])
@@ -111,12 +111,12 @@ class VectorSearchNode(TaskNode):
 
 @registry.register(
     NodeMetadata(
-        name="BM25SearchNode",
+        name="SparseSearchNode",
         description="Perform sparse keyword retrieval using BM25 scoring.",
         category="conversational_search",
     )
 )
-class BM25SearchNode(TaskNode):
+class SparseSearchNode(TaskNode):
     """Node that computes BM25 scores over in-memory chunks."""
 
     source_result_key: str = Field(
@@ -140,7 +140,7 @@ class BM25SearchNode(TaskNode):
     k1: float = Field(default=1.5, gt=0)
     b: float = Field(default=0.75, ge=0.0, le=1.0)
     source_name: str = Field(
-        default="bm25", description="Label for the sparse retriever"
+        default="sparse", description="Label for the sparse retriever."
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -148,12 +148,12 @@ class BM25SearchNode(TaskNode):
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
-            msg = "BM25SearchNode requires a non-empty query string"
+            msg = "SparseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
         chunks = self._resolve_chunks(state)
         if not chunks:
-            msg = "BM25SearchNode requires at least one chunk to search"
+            msg = "SparseSearchNode requires at least one chunk to search"
             raise ValueError(msg)
 
         tokenized_corpus = [self._tokenize(chunk.content) for chunk in chunks]

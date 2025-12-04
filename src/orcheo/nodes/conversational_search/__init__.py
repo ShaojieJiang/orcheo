@@ -49,11 +49,11 @@ from orcheo.nodes.conversational_search.query_processing import (
     QueryRewriteNode,
 )
 from orcheo.nodes.conversational_search.retrieval import (
-    BM25SearchNode,
+    DenseSearchNode,
     HybridFusionNode,
     ReRankerNode,
     SourceRouterNode,
-    VectorSearchNode,
+    SparseSearchNode,
     WebSearchNode,
 )
 from orcheo.nodes.conversational_search.vector_store import (
@@ -70,7 +70,7 @@ __all__ = [
     "AnswerQualityEvaluationNode",
     "BaseMemoryStore",
     "BaseVectorStore",
-    "BM25SearchNode",
+    "SparseSearchNode",
     "ChunkingStrategyNode",
     "CitationsFormatterNode",
     "ConversationCompressorNode",
@@ -108,5 +108,5 @@ __all__ = [
     "TurnAnnotationNode",
     "UserFeedbackCollectionNode",
     "WebSearchNode",
-    "VectorSearchNode",
+    "DenseSearchNode",
 ]

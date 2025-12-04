@@ -36,7 +36,7 @@ A versatile assistant that can:
 flowchart TD
     start([START]) --> entry[EntryRoutingNode]
     entry -->|documents provided| loader[DocumentLoaderNode]
-    entry -->|vector store has records| search[VectorSearchNode]
+    entry -->|vector store has records| search[DenseSearchNode]
     entry -->|otherwise| generator[GroundedGeneratorNode]
 
     subgraph Ingestion
@@ -58,7 +58,7 @@ flowchart TD
 - **MetadataExtractorNode** (P0) - Extract title, source, section metadata
 - **ChunkingStrategyNode** (P0) - Split documents with overlap
 - **EmbeddingIndexerNode** (P0) - Embed chunks and store in InMemoryVectorStore
-- **VectorSearchNode** (P0) - Retrieve top-k relevant chunks (when documents exist)
+- **DenseSearchNode** (P0) - Retrieve top-k relevant chunks (when documents exist)
 - **GroundedGeneratorNode** (P0) - Generate answers with citations (RAG) or without (non-RAG)
 
 ### Branching Logic
@@ -85,7 +85,7 @@ embedding_indexer:
   model: "text-embedding-3-small"
   vector_store: "in_memory"
 
-vector_search:
+dense_search:
   top_k: 5
   similarity_threshold: 0.7
 
@@ -123,12 +123,12 @@ A legal document search system that needs both semantic understanding and exact 
 ```mermaid
 graph TD
     Query[/Query Input/]
-    Query --> VectorSearch[VectorSearchNode]
-    Query --> BM25[BM25SearchNode]
+    Query --> DenseSearch[DenseSearchNode]
+    Query --> SparseSearch[SparseSearchNode]
     Query --> WebSearch[WebSearchNode]
 
-    VectorSearch --> Fusion[HybridFusionNode]
-    BM25 --> Fusion
+    DenseSearch --> Fusion[HybridFusionNode]
+    SparseSearch --> Fusion
     WebSearch --> Fusion
 
     Fusion --> ReRanker[ReRankerNode]
@@ -139,16 +139,16 @@ graph TD
 ```
 
 ### Additional Nodes Demonstrated
-- **BM25SearchNode** (P0) - Keyword-based sparse retrieval
+- **SparseSearchNode** (P0) - Keyword-based sparse retrieval
 - **WebSearchNode** (P0) - Live web search for fresh results
-- **HybridFusionNode** (P0) - RRF fusion of vector, BM25, and web results
+- **HybridFusionNode** (P0) - RRF fusion of dense, sparse, and web results
 - **ReRankerNode** (P1) - Cross-encoder re-ranking
 - **ContextCompressorNode** (P0) - Deduplicate and compress retrieved context
 - **CitationsFormatterNode** (P1) - Format citations with URL, title, snippet
 
 ### Configuration Highlights
 ```yaml
-bm25_search:
+sparse_search:
   top_k: 10
 
 web_search:
@@ -159,8 +159,8 @@ web_search:
 hybrid_fusion:
   strategy: "reciprocal_rank_fusion"
   weights:
-    vector: 0.5
-    bm25: 0.3
+    dense: 0.5
+    sparse: 0.3
     web: 0.2
 
 reranker:
@@ -200,7 +200,7 @@ graph TD
 
     Classifier -->|search| Coref[CoreferenceResolverNode]
     Coref --> Rewrite[QueryRewriteNode]
-    Rewrite --> Search[VectorSearchNode]
+    Rewrite --> Search[DenseSearchNode]
     Search --> Generator[GroundedGeneratorNode]
     Generator --> ConvState2[ConversationStateNode - Update]
     ConvState2 --> TopicShift[TopicShiftDetectorNode]
@@ -281,7 +281,7 @@ graph TD
     ConvState --> Rewrite[QueryRewriteNode]
     Rewrite --> MultiHop[MultiHopPlannerNode]
     MultiHop --> Router[SourceRouterNode]
-    Router --> Search[VectorSearchNode]
+    Router --> Search[DenseSearchNode]
     Search --> Generator[GroundedGeneratorNode]
     Generator --> HallucinationGuard[HallucinationGuardNode]
     HallucinationGuard --> Policy[PolicyComplianceNode]
@@ -368,7 +368,7 @@ A research team iterating on retrieval strategies with systematic evaluation and
 graph TD
     Dataset[/DatasetNode/] --> ABTest[ABTestingNode]
 
-    ABTest -->|Variant A| VectorOnly[VectorSearchNode]
+    ABTest -->|Variant A| VectorOnly[DenseSearchNode]
     ABTest -->|Variant B| Hybrid[HybridFusionNode]
 
     VectorOnly --> RetrievalEval[RetrievalEvaluationNode]
@@ -490,8 +490,8 @@ User Feedback:
 | EmbeddingIndexerNode | ✓ | | | | |
 | IncrementalIndexerNode | | | | ✓ | |
 | **Retrieval** |
-| VectorSearchNode | ✓ | ✓ | ✓ | ✓ | ✓ |
-| BM25SearchNode | | ✓ | | | |
+| DenseSearchNode | ✓ | ✓ | ✓ | ✓ | ✓ |
+| SparseSearchNode | | ✓ | | | |
 | WebSearchNode | | ✓ | | | |
 | HybridFusionNode | | ✓ | | | ✓ |
 | ReRankerNode | | ✓ | | | |

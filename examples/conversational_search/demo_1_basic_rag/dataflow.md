@@ -623,7 +623,7 @@ results = [
 
 **Location:** Created in `build_graph()` function and passed to both:
 - `EmbeddingIndexerNode` (writes)
-- `VectorSearchNode` (reads)
+- `DenseSearchNode` (reads)
 
 **Storage:** Dictionary mapping chunk IDs to VectorRecord objects
 ```python
@@ -732,7 +732,7 @@ graph TD
 **Node Types:**
 - **entry_router, post_ingestion_router:** IfElseNode (DecisionNode) - Branching logic nodes
 - **loader, metadata, chunking, indexer:** TaskNode subclasses - Data processing nodes
-- **search:** VectorSearchNode (TaskNode) - Retrieval node
+- **search:** DenseSearchNode (TaskNode) - Retrieval node
 - **generator:** GroundedGeneratorNode (TaskNode) - Generation node
 
 **Edge Types:**

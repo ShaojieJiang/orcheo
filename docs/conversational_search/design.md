@@ -43,11 +43,11 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 ### Retrieval Components
 
-- **VectorSearchNode**
+- **DenseSearchNode**
   - Dense similarity search using BaseVectorStore abstraction
   - Returns scored document chunks with metadata
 
-- **BM25SearchNode**
+- **SparseSearchNode**
   - Keyword-based sparse retrieval for deterministic matching
   - Complements dense search for hybrid strategies
 
@@ -168,7 +168,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 3. **MetadataExtractorNode** attaches structured metadata
 4. **EmbeddingIndexerNode** generates embeddings and writes to vector store
 5. User submits query
-6. **VectorSearchNode** performs dense similarity search
+6. **DenseSearchNode** performs dense similarity search
 7. **GroundedGeneratorNode** generates response citing retrieved context
 8. Response returned to user with citations
 
@@ -176,8 +176,8 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 1. User submits query
 2. **QueryRewriteNode** expands query using conversation context
-3. **VectorSearchNode** performs dense retrieval (parallel)
-4. **BM25SearchNode** performs sparse retrieval (parallel)
+3. **DenseSearchNode** performs dense retrieval (parallel)
+4. **SparseSearchNode** performs sparse retrieval (parallel)
 5. **HybridFusionNode** merges results via RRF strategy
 6. **ReRankerNode** applies cross-encoder scoring to top-k
 7. **ContextCompressorNode** deduplicates and enforces token budget
@@ -195,7 +195,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 6. **QueryClassifierNode** routes to appropriate path:
    - If search intent: proceed to retrieval
    - If clarification needed: route to **QueryClarificationNode**
-7. **VectorSearchNode** retrieves relevant documents
+7. **DenseSearchNode** retrieves relevant documents
 8. **ContextCompressorNode** optimizes context
 9. **GroundedGeneratorNode** generates response
 10. **HallucinationGuardNode** validates response fidelity
@@ -209,7 +209,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 2. **MultiHopPlannerNode** creates retrieval plan with sequential hops
 3. For each hop:
    - **QueryRewriteNode** generates sub-query
-   - **VectorSearchNode** retrieves relevant context
+   - **DenseSearchNode** retrieves relevant context
    - Results accumulated for next hop
 4. **ContextCompressorNode** consolidates all retrieved context
 5. **GroundedGeneratorNode** synthesizes final response
@@ -305,7 +305,7 @@ nodes:
     type: query_rewrite
 
   - id: search
-    type: vector_search
+    type: dense_search
     config:
       vector_store: "{{inputs.vector_store_id}}"
       top_k: 10
@@ -339,7 +339,7 @@ nodes:
       dataset_id: "{{inputs.dataset_id}}"
 
   - id: run_retrieval
-    type: vector_search
+    type: dense_search
     config:
       vector_store: "{{inputs.vector_store_id}}"
 
@@ -421,11 +421,11 @@ class DocumentLoaderConfig(NodeConfig):
 }
 ```
 
-### VectorSearchNode
+### DenseSearchNode
 
 ```python
-class VectorSearchConfig(NodeConfig):
-    node_type: Literal["vector_search"] = "vector_search"
+class DenseSearchConfig(NodeConfig):
+    node_type: Literal["dense_search"] = "dense_search"
     vector_store: str  # Reference to configured store
     top_k: int = 10
     score_threshold: float = 0.0
@@ -770,7 +770,7 @@ class BaseMemoryStore(ABC):
 
 **Nodes Delivered**:
 - DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, EmbeddingIndexerNode
-- VectorSearchNode, BM25SearchNode, HybridFusionNode, WebSearchNode
+- DenseSearchNode, SparseSearchNode, HybridFusionNode, WebSearchNode
 - QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode
 - GroundedGeneratorNode
 

@@ -5,7 +5,7 @@ A LangGraph workflow that can answer questions with or without uploaded document
 ## Highlights
 - **Entry routing**: `EntryRoutingNode` inspects the current request plus vector store state to choose ingestion, search-only, or direct generation.
 - **Configurable ingestion**: `DocumentLoaderNode`, `MetadataExtractorNode`, `ChunkingStrategyNode`, and `EmbeddingIndexerNode` are parameterized through `DEFAULT_CONFIG`.
-- **Semantic search**: `VectorSearchNode` queries the in-memory store with adjustable `top_k` and score threshold.
+- **Semantic search**: `DenseSearchNode` queries the in-memory store with adjustable `top_k` and score threshold.
 - **Grounded generation**: `GroundedGeneratorNode` (OpenAI `gpt-4o-mini`) produces inline-cited answers using retrieved chunks or handles non-RAG prompts when no context exists.
 
 ## Requirements
@@ -78,7 +78,7 @@ Override these values when calling the workflow to tune chunk granularity or rec
 flowchart TD
     start([START]) --> entry[EntryRoutingNode]
     entry -->|documents provided| loader[DocumentLoaderNode]
-    entry -->|vector store has records| search[VectorSearchNode]
+    entry -->|vector store has records| search[DenseSearchNode]
     entry -->|otherwise| generator[GroundedGeneratorNode]
 
     subgraph Ingestion
