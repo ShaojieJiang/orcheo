@@ -142,6 +142,19 @@ class SparseSearchNode(TaskNode):
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
+    embedding_function: EmbeddingFunction | None = Field(
+        default=None,
+        description="Optional embedding function used when querying a vector store.",
+    )
+    vector_store: BaseVectorStore | None = Field(
+        default=None,
+        description="Optional vector store containing pre-indexed chunks to query.",
+    )
+    vector_store_candidate_k: int = Field(
+        default=50,
+        gt=0,
+        description="Number of candidates to fetch from the vector store.",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Score document chunks with BM25 and return the top matches."""
@@ -151,7 +164,10 @@ class SparseSearchNode(TaskNode):
             msg = "SparseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
-        chunks = self._resolve_chunks(state)
+        if self.vector_store is not None:
+            chunks = await self._fetch_chunks_from_vector_store(query)
+        else:
+            chunks = self._resolve_chunks(state)
         if not chunks:
             msg = "SparseSearchNode requires at least one chunk to search"
             raise ValueError(msg)
@@ -179,6 +195,58 @@ class SparseSearchNode(TaskNode):
         ][: self.top_k]
 
         return {"results": ranked}
+
+    async def _fetch_chunks_from_vector_store(self, query: str) -> list[DocumentChunk]:
+        """Retrieve candidate chunks from the vector store using the query embedding."""
+        if self.vector_store is None:
+            return []
+        embeddings = await self._embed([query])
+        results = await self.vector_store.search(
+            query=embeddings[0],
+            top_k=self.vector_store_candidate_k,
+        )
+        chunks: list[DocumentChunk] = []
+        for match in results:
+            metadata = dict(match.metadata or {})
+            chunk_text = match.text or metadata.get("text", "")
+            if not chunk_text:
+                continue
+            raw_index = metadata.get("chunk_index", 0)
+            if isinstance(raw_index, str):
+                try:
+                    chunk_index = int(raw_index)
+                except ValueError:
+                    chunk_index = 0
+            elif isinstance(raw_index, int | float):
+                chunk_index = int(raw_index)
+            else:
+                chunk_index = 0
+            chunk_index = max(0, chunk_index)
+            chunk_metadata = metadata.copy()
+            document_id_value = metadata.get("document_id")
+            document_id = str(document_id_value) if document_id_value else match.id
+            chunks.append(
+                DocumentChunk(
+                    id=match.id,
+                    document_id=document_id,
+                    index=chunk_index,
+                    content=chunk_text,
+                    metadata=chunk_metadata,
+                )
+            )
+        return chunks
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        embedder = self.embedding_function or deterministic_embedding_function
+        output = embedder(texts)
+        if inspect.isawaitable(output):
+            output = await output  # type: ignore[assignment]
+        if not isinstance(output, list) or not all(
+            isinstance(row, list) for row in output
+        ):
+            msg = "Embedding function must return List[List[float]]"
+            raise ValueError(msg)
+        return output
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})

@@ -58,7 +58,8 @@ dependencies = [
   "opentelemetry-api>=1.26.0",
   "opentelemetry-sdk>=1.26.0",
   "opentelemetry-exporter-otlp>=1.26.0",
-  "httpx>=0.28.1"
+  "httpx>=0.28.1",
+  "pinecone-client>=6.0.0"
 ]
 description = "Add your description here"
 name = "orcheo"

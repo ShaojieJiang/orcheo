@@ -143,6 +143,40 @@ async def test_sparse_search_requires_chunks() -> None:
         await node.run(state, {})
 
 
+@pytest.mark.asyncio
+async def test_sparse_search_vector_store_candidates() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="chunk-1",
+                values=[1.0, 0.0],
+                text="apples apples bananas",
+                metadata={"document_id": "doc-1", "chunk_index": 0},
+            ),
+            VectorRecord(
+                id="chunk-2",
+                values=[0.0, 1.0],
+                text="apples oranges",
+                metadata={"document_id": "doc-2", "chunk_index": 0},
+            ),
+        ]
+    )
+
+    node = SparseSearchNode(
+        name="sparse-vector-store",
+        vector_store=store,
+        vector_store_candidate_k=2,
+        top_k=1,
+        embedding_function=lambda texts: [[1.0, 0.0]],
+    )
+    state = State(inputs={"query": "apples"}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    assert [item.id for item in result["results"]] == ["chunk-1"]
+
+
 def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
     node = SparseSearchNode(name="sparse")
     state = State(

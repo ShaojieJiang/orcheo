@@ -49,6 +49,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 - **SparseSearchNode**
   - Keyword-based sparse retrieval for deterministic matching
+  - Optionally loads candidate chunks from a vector store (e.g., Pinecone) before computing BM25 for very large corpora
   - Complements dense search for hybrid strategies
 
 - **HybridFusionNode**

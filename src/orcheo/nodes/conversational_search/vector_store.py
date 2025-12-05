@@ -105,6 +105,8 @@ class PineconeVectorStore(BaseVectorStore):
     namespace: str | None = None
     client: Any | None = None
 
+    client_kwargs: dict[str, Any] = Field(default_factory=dict)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     async def upsert(self, records: Iterable[VectorRecord]) -> None:
@@ -185,7 +187,8 @@ class PineconeVectorStore(BaseVectorStore):
                 "Install it or provide a pre-configured client."
             )
             raise ImportError(msg) from exc
-        self.client = Pinecone()
+        client_kwargs = dict(self.client_kwargs or {})
+        self.client = Pinecone(**client_kwargs)
         return self.client
 
     def _resolve_index(self, client: Any) -> Any:
