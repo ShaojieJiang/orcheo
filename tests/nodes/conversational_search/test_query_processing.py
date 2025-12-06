@@ -1,3 +1,4 @@
+from typing import Any
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.models import SearchResult
@@ -94,24 +95,24 @@ async def test_query_classifier_finalization_branch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_context_compressor_deduplicates_and_budgets() -> None:
-    node = ContextCompressorNode(name="compress", max_tokens=4)
+async def test_context_compressor_summarizes_and_deduplicates() -> None:
+    node = ContextCompressorNode(name="compress", max_tokens=5)
     results = [
         SearchResult(id="a", score=0.9, text="first chunk", metadata={}),
         SearchResult(id="a", score=0.8, text="duplicate chunk", metadata={}),
         SearchResult(id="b", score=0.5, text="second chunk here", metadata={}),
     ]
     state = State(
-        inputs={},
+        inputs={"query": "demo"},
         results={"retrieval_results": results},
         structured_response=None,
     )
 
     result = await node.run(state, {})
 
-    assert [item.id for item in result["results"]] == ["a"]
-    assert result["total_tokens"] == 2
-    assert result["truncated"] is True
+    assert [item.id for item in result["original_results"]] == ["a", "b"]
+    assert result["results"][0].metadata["source_ids"] == ["a", "b"]
+    assert result["summary"].startswith("[1] first chunk [2] second")
 
 
 def test_normalize_messages_handles_mixed_payloads() -> None:
@@ -241,8 +242,8 @@ async def test_context_compressor_handles_results_mapping() -> None:
 
     result = await node.run(state, {})
 
-    assert result["results"][0].id == "a"
-    assert result["truncated"] is False
+    assert result["results"][0].source == "summary"
+    assert "small chunk" in result["summary"]
 
 
 @pytest.mark.asyncio
@@ -251,7 +252,8 @@ async def test_context_compressor_requires_results() -> None:
     state = State(inputs={}, results={}, structured_response=None)
 
     with pytest.raises(
-        ValueError, match="ContextCompressorNode requires retrieval results to compress"
+        ValueError,
+        match="ContextCompressorNode requires retrieval results to summarize",
     ):
         await node.run(state, {})
 
@@ -284,5 +286,43 @@ async def test_context_compressor_without_deduplication() -> None:
 
     result = await node.run(state, {})
 
-    assert [item.text for item in result["results"]] == ["alpha beta", "gamma delta"]
-    assert result["truncated"] is False
+    assert [item.id for item in result["original_results"]] == ["a", "a"]
+    assert result["summary"].startswith("[1] alpha beta\n[2] gamma")
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_invokes_ai_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class StubModel:
+        async def ainvoke(self, messages: list[Any]) -> Any:  # type: ignore[override]
+            captured["messages"] = messages
+            return type("Resp", (), {"content": "AI summary"})
+
+    def fake_init_chat_model(*_: Any, **__: Any) -> StubModel:
+        return StubModel()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.query_processing.init_chat_model",
+        fake_init_chat_model,
+    )
+
+    node = ContextCompressorNode(name="compress-ai", ai_model="fake-model")
+    results = [
+        SearchResult(id="x", score=0.9, text="context", metadata={}),
+    ]
+    state = State(
+        inputs={"query": "What is context?"},
+        results={"retrieval_results": results},
+        structured_response=None,
+    )
+
+    summary = await node.run(state, {})
+
+    assert summary["summary"] == "AI summary"
+    system_message = captured["messages"][0]
+    human_message = captured["messages"][1]
+    assert "retrieved context" in human_message.content.lower()
+    assert "summarizer" in system_message.content.lower()

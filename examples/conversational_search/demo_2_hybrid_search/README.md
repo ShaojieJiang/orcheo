@@ -1,15 +1,14 @@
-# Demo 2: Hybrid Search
+# Demo 2: Hybrid Search (2.1 indexing + 2.2 retrieval)
 
-Dense + sparse retrieval with reciprocal-rank fusion, optional web search, and a re-ranker. Uses the shared corpus and sample queries to illustrate how fusion changes context assembly.
+Dense + sparse retrieval with reciprocal-rank fusion, optional web search, and an AI context summarizer. Demo 2.1 indexes the local corpus into Pinecone; Demo 2.2 assumes those indexes exist and runs the retrieval + fusion workflow.
 
 ## Usage
-This demo is designed to be uploaded and executed on the Orcheo server.
+These demos are designed to be uploaded and executed on the Orcheo server.
 
-1. Upload `demo.py` to your Orcheo workspace.
-2. The server will detect the `graph` entrypoint and `DEFAULT_CONFIG`.
-3. Execute the workflow via the Orcheo Console or API.
+1) **Index**: upload and run `demo_2_1.py` to upsert deterministic embeddings + metadata into Pinecone.
+2) **Query**: upload and run `demo_2_2.py` to fan queries across dense, sparse, and web search before fusion and ranking.
 
 ## What to Expect
-- Uses `bm25`, `vector`, and `web_search` branches defined in `DEFAULT_CONFIG`.
-- Prints a preview of the configured retrieval stack and the sample dataset.
-- Modify `DEFAULT_CONFIG` in demo.py to tune how each retriever contributes.
+- `demo_2_1.py` prints the corpus stats and the Pinecone namespace/index used.
+- `demo_2_2.py` uses `bm25`, `vector`, and `web_search` branches defined in `DEFAULT_CONFIG` and outputs a grounded answer with citations.
+- Modify `DEFAULT_CONFIG` directly in each script to tune how each retriever contributes.

@@ -25,6 +25,9 @@ docs = [
   "mkdocs-material",
   "mkdocstrings[python]>=0.28.1"
 ]
+examples = [
+  "orcheo-backend"
+]
 
 [project]
 dependencies = [
@@ -59,7 +62,7 @@ dependencies = [
   "opentelemetry-sdk>=1.26.0",
   "opentelemetry-exporter-otlp>=1.26.0",
   "httpx>=0.28.1",
-  "pinecone-client>=6.0.0"
+  "pinecone>=8.0.0"
 ]
 description = "Add your description here"
 name = "orcheo"
@@ -147,6 +150,7 @@ max-complexity = 10
 convention = "google"
 
 [tool.uv.sources]
+orcheo-backend = {workspace = true}
 orcheo-sdk = {workspace = true}
 
 [tool.uv.workspace]

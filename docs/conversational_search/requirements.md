@@ -105,6 +105,7 @@ Parallel tracks after Phase 1:
 #### Deliverables
 - Node implementations with docstrings and typing.
 - Example graph demonstrating ingestion → retrieval → generation pipeline.
+- Demo 2.1/2.2 artifacts showing a dedicated indexing run plus the hybrid retrieval/fusion pipeline that assumes those indexes exist.
 - MkDocs reference page summarizing configuration tables and usage notes.
 - Automated unit tests per node and an integration test for a reference conversational search graph.
 

@@ -10,6 +10,11 @@ Foundational assets for five progressive conversational search demos. Milestone 
    uv run python examples/conversational_search/demo_1_basic_rag/run.py
    ```
 
+## Dependency groups
+
+- `uv sync --all-groups` brings in the core project, docs, and tooling dependencies needed to work with these demos.
+- `uv sync --group examples` installs the new `examples` dependency group (which adds the `orcheo-backend` workspace package) so scripts that rely on `orcheo_backend.app.dependencies` can resolve the vault helpers.
+
 ## What's Included
 - Shared sample corpus (`data/docs`), baseline queries (`data/queries.json`), and golden labels (`data/golden`, `data/labels`).
 - Five demo folders with config stubs, runner scripts, README scaffolds, and placeholder notebooks.

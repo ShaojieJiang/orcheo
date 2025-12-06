@@ -311,6 +311,12 @@ class WebSearchNode(TaskNode):
         default="query",
         description="Key within ``state.inputs`` containing the user query string.",
     )
+    provider: str = Field(
+        default="tavily",
+        description=(
+            "Web search provider identifier. Currently only 'tavily' is supported."
+        ),
+    )
     api_key: str | None = Field(
         default=None,
         description=(
@@ -387,6 +393,13 @@ class WebSearchNode(TaskNode):
 
     async def _run_search(self, state: State) -> dict[str, Any]:
         """Issue a Tavily search and normalise the response into SearchResult items."""
+        if self.provider != "tavily":
+            msg = (
+                "WebSearchNode only supports the 'tavily' provider "
+                f"(received '{self.provider}')"
+            )
+            raise ValueError(msg)
+
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():

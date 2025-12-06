@@ -9,7 +9,7 @@ A LangGraph workflow that can answer questions with or without uploaded document
 - **Grounded generation**: `GroundedGeneratorNode` (OpenAI `gpt-4o-mini`) produces inline-cited answers using retrieved chunks or handles non-RAG prompts when no context exists.
 
 ## Requirements
-1. Install dependencies: `uv sync --all-groups`
+1. Install dependencies: `uv sync --all-groups` (this installs the new `examples` dependency group so the `orcheo-backend` package is available for the vault helpers). If you already have the base dependencies, you can instead run `uv sync --group examples`.
 2. Create an OpenAI credential for the generator node:
    ```bash
    orcheo credential create openai_api_key --secret sk-your-key

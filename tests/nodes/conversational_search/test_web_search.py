@@ -88,6 +88,23 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
 
 
 @pytest.mark.asyncio
+async def test_web_search_node_rejects_unknown_provider() -> None:
+    node = WebSearchNode(
+        name="web", api_key="key", provider="bing", suppress_errors=False
+    )
+    state = State(
+        inputs={"query": "news"},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError, match="WebSearchNode only supports the 'tavily' provider"
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
 async def test_web_search_node_requires_query_when_not_suppressed() -> None:
     """WebSearchNode should reject empty queries when suppression is disabled."""
     node = WebSearchNode(name="web", api_key="key", suppress_errors=False)

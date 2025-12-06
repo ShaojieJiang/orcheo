@@ -14,7 +14,7 @@ This document defines the minimal set of demo workflows that collectively demons
 We organize demos into **5 progressive workflows** that map to the node composition patterns from the requirements document:
 
 1. **Demo 1: Basic RAG Pipeline** - Core ingestion and retrieval
-2. **Demo 2: Hybrid Search** - Multi-retrieval strategies with fusion and ranking
+2. **Demo 2: Hybrid Search** - Two-part sequence (2.1 builds indexes, 2.2 performs retrieval, fusion, and ranking)
 3. **Demo 3: Conversational Search** - Multi-turn conversation with memory
 4. **Demo 4: Production-Ready Pipeline** - Guardrails, compliance, and optimization
 5. **Demo 5: Evaluation & Research** - Metrics, analytics, and continuous improvement
@@ -111,12 +111,55 @@ System: "The capital of France is Paris. It is located in the north-central part
 
 ---
 
-## Demo 2: Hybrid Search with Ranking
+## Demo 2.1: Hybrid Search Indexing
 
-**Goal:** Show advanced retrieval combining dense and sparse search with fusion and re-ranking, plus live web search.
+**Goal:** Persist deterministic dense embeddings and the metadata required for sparse retrieval inside Pinecone so downstream demos can assume a fully populated vector store.
+
+### Use Case
+- Run ingestion once per corpus snapshot to keep index building orthogonal to multi-retriever experiments.
+- Surface the same vectors for both dense and sparse retrievers so that Keyword BM25 can rehydrate chunk content from Pinecone metadata.
+
+### Indexing Flow
+```mermaid
+graph LR
+    Docs[/Markdown Corpus/]
+    Docs --> Chunking[HybridCorpusPreparer]
+    Chunking --> Embeddings[Deterministic Embedding Function]
+    Embeddings --> Upsert[PineconeVectorStore]
+```
+
+### Configuration Highlights
+```yaml
+corpus:
+  docs_path: "examples/conversational_search/data/docs"
+  chunk_size: 600
+  chunk_overlap: 80
+
+vector_store:
+  type: "pinecone"
+  pinecone:
+    index_name: "orcheo-hybrid-demo"
+    namespace: "hybrid_search"
+    client_kwargs:
+      api_key: "[[pinecone_api_key]]"
+      environment: "[[pinecone_environment]]"
+```
+
+### Running the Demo
+```bash
+python examples/conversational_search/demo_2_hybrid_search/demo_2_1.py
+```
+
+## Demo 2.2: Hybrid Search with Ranking
+
+**Goal:** Show advanced retrieval combining dense and sparse search with fusion, AI summarization, and live web search.
+
+This demo assumes the Pinecone indexes have already been created by Demo 2.1 (indexing) so the workflow can concentrate on retrieval and grounding.
 
 ### Use Case
 A legal document search system that needs both semantic understanding and exact keyword matching for statute citations, with the ability to fetch fresh web results for recent case law.
+
+Before invoking this workflow, run Demo 2.1 so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
 
 ### Workflow Graph
 
@@ -131,8 +174,7 @@ graph TD
     SparseSearch --> Fusion
     WebSearch --> Fusion
 
-    Fusion --> ReRanker[ReRankerNode]
-    ReRanker --> Compressor[ContextCompressorNode]
+    Fusion --> Compressor[ContextCompressorNode]
     Compressor --> Generator[GroundedGeneratorNode]
     Generator --> Citations[CitationsFormatterNode]
     Citations --> Output[/Answer + Citations/]
@@ -142,8 +184,7 @@ graph TD
 - **SparseSearchNode** (P0) - Keyword-based sparse retrieval
 - **WebSearchNode** (P0) - Live web search for fresh results
 - **HybridFusionNode** (P0) - RRF fusion of dense, sparse, and web results
-- **ReRankerNode** (P1) - Cross-encoder re-ranking
-- **ContextCompressorNode** (P0) - Deduplicate and compress retrieved context
+- **ContextCompressorNode** (P0) - AI summarizer that condenses retrieved context
 - **CitationsFormatterNode** (P1) - Format citations with URL, title, snippet
 
 ### Configuration Highlights
@@ -163,13 +204,17 @@ hybrid_fusion:
     sparse: 0.3
     web: 0.2
 
-reranker:
-  model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-  top_k: 5
+context:
+  summary_model: "openai:gpt-4o-mini"
+  summary_prompt: >
+    Summarize the retrieved context into a concise paragraph using the
+    numbered citations for attribution.
+  max_tokens: 400
+```
 
-context_compressor:
-  max_tokens: 2000
-  deduplication_threshold: 0.85
+### Running the Demo
+```bash
+python examples/conversational_search/demo_2_hybrid_search/demo_2_2.py
 ```
 
 ### Sample Interaction
@@ -481,8 +526,8 @@ User Feedback:
 
 ## Node Coverage Matrix
 
-| Node | Demo 1 | Demo 2 | Demo 3 | Demo 4 | Demo 5 |
-|------|--------|--------|--------|--------|--------|
+| Node | Demo 1 | Demo 2 (Index + Retrieval) | Demo 3 | Demo 4 | Demo 5 |
+|------|--------|---------------------------|--------|--------|--------|
 | **Data Ingestion** |
 | DocumentLoaderNode | ✓ | | | | |
 | ChunkingStrategyNode | ✓ | | | | |
@@ -494,7 +539,7 @@ User Feedback:
 | SparseSearchNode | | ✓ | | | |
 | WebSearchNode | | ✓ | | | |
 | HybridFusionNode | | ✓ | | | ✓ |
-| ReRankerNode | | ✓ | | | |
+| ReRankerNode | | | | | |
 | SourceRouterNode | | | | ✓ | |
 | **Query Processing** |
 | QueryRewriteNode | | | ✓ | ✓ | |
@@ -545,9 +590,9 @@ User Feedback:
   - Focus: Core P0 nodes, simple linear flow
   - Deliverable: Working example with sample docs
 
-- **Demo 2**: Hybrid Search
-  - Focus: Multi-retrieval and fusion patterns
-  - Deliverable: Comparison metrics showing fusion benefits
+- **Demo 2**: Hybrid Search (2.1 indexing + 2.2 fusion)
+  - Focus: Build Pinecone indexes once (2.1) and replay multi-retriever fusion + ranking (2.2)
+  - Deliverable: Indexed corpus plus metrics comparing fusion outcomes
 
 ### Phase 2: Conversational Demos (Weeks 3-4)
 - **Demo 3**: Conversational Search
@@ -570,7 +615,7 @@ User Feedback:
 
 Each demo will include:
 
-1. **Python Script** (`demo_{n}_demo.py`)
+1. **Python Script(s)** (`demo_{n}.py` or `demo_{n}_k.py`)
    - Executable workflow runner for server-side execution
    - Inline configuration via `DEFAULT_CONFIG` dictionary
    - Sample queries
@@ -588,7 +633,7 @@ Each demo will include:
    - Expected results
    - Troubleshooting guide
 
-**Note:** All demos are designed to be uploaded to the Orcheo server and executed server-side using the workflow orchestration platform. Configuration is embedded directly in the demo.py files for simplicity.
+**Note:** All demos are designed to be uploaded to the Orcheo server and executed server-side using the workflow orchestration platform. Configuration is embedded directly in the demo scripts for simplicity.
 
 ---
 
@@ -649,7 +694,8 @@ examples/conversational_search/
 │       ├── docs/
 │       └── queries.json
 ├── demo_2_hybrid_search/
-│   ├── demo.py
+│   ├── demo_2_1.py
+│   ├── demo_2_2.py
 │   ├── README.md
 │   └── data/
 ├── demo_3_conversational/
