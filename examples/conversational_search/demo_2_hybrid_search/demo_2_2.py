@@ -7,6 +7,10 @@ from langgraph.graph import END, StateGraph
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.conversational_search.embedding_registry import (
+    OPENAI_TEXT_EMBEDDING_3_SMALL,
+    PINECONE_BM25_DEFAULT,
+)
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     GroundedGeneratorNode,
@@ -28,11 +32,16 @@ from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "retrieval": {
-        "dense": {"top_k": 8, "similarity_threshold": 0.0},
+        "dense": {
+            "top_k": 8,
+            "similarity_threshold": 0.0,
+            "embedding_method": OPENAI_TEXT_EMBEDDING_3_SMALL,
+        },
         "sparse": {
             "top_k": 10,
             "score_threshold": 0.0,
             "vector_store_candidate_k": 50,
+            "embedding_method": PINECONE_BM25_DEFAULT,
         },
         "web_search": {
             "provider": "tavily",
@@ -139,18 +148,28 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
     context_cfg = retrieval_cfg["context"]
     generation_cfg = merged_config["generation"]
 
+    dense_method = dense_cfg.get("embedding_method")
+    if not dense_method:
+        raise ValueError("Dense retriever requires 'embedding_method' in the config")
+
     dense_search = DenseSearchNode(
         name="dense_search",
         vector_store=vector_store,
+        embedding_method=dense_method,
         top_k=dense_cfg.get("top_k", 8),
         score_threshold=dense_cfg.get("similarity_threshold", 0.0),
     )
+
+    sparse_method = sparse_cfg.get("embedding_method")
+    if not sparse_method:
+        raise ValueError("Sparse retriever requires 'embedding_method' in the config")
 
     sparse_search = SparseSearchNode(
         name="sparse_search",
         top_k=sparse_cfg.get("top_k", 10),
         score_threshold=sparse_cfg.get("score_threshold", 0.0),
         vector_store=vector_store,
+        embedding_method=sparse_method,
         vector_store_candidate_k=sparse_cfg.get("vector_store_candidate_k", 50),
     )
 

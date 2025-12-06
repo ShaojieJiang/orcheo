@@ -1,6 +1,8 @@
 """Unit tests for conversational search ingestion primitives."""
 
 from __future__ import annotations
+import os
+from typing import Any
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
@@ -32,6 +34,16 @@ class _FakeDocument:
         self.source = source
 
 
+DEFAULT_TEST_EMBEDDING_NAME = "test-ingestion-embedding"
+
+
+def _test_default_embedder(texts: list[str]) -> list[list[float]]:
+    return [[float(len(text))] for text in texts]
+
+
+register_embedding_method(DEFAULT_TEST_EMBEDDING_NAME, _test_default_embedder)
+
+
 @pytest.mark.asyncio
 async def test_document_loader_combines_inline_and_state_documents() -> None:
     node = DocumentLoaderNode(
@@ -55,9 +67,9 @@ async def test_document_loader_combines_inline_and_state_documents() -> None:
 
     documents = result["documents"]
     assert len(documents) == 3
-    assert {doc.source for doc in documents} == {"inline"}
-    assert documents[1].metadata["project"] == "conversational"
-    assert documents[2].metadata["team"] == "ml"
+    assert {doc["source"] for doc in documents} == {"inline"}
+    assert documents[1]["metadata"]["project"] == "conversational"
+    assert documents[2]["metadata"]["team"] == "ml"
 
 
 def test_raw_document_input_accepts_document_payload() -> None:
@@ -216,6 +228,36 @@ async def test_chunking_strategy_preserves_selected_metadata_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chunking_strategy_strips_computed_fields_before_storage() -> None:
+    state = State(
+        inputs={},
+        results={
+            "document_loader": {
+                "documents": [
+                    {
+                        "id": "doc-serialize",
+                        "content": "abcdef",
+                        "metadata": {"purpose": "serialization"},
+                    }
+                ]
+            }
+        },
+        structured_response=None,
+    )
+    node = ChunkingStrategyNode(
+        name="chunking_strategy",
+        chunk_size=4,
+        chunk_overlap=1,
+    )
+
+    serialized = await node.__call__(state, {})
+    chunks = serialized["results"][node.name]["chunks"]
+
+    assert chunks
+    assert all("token_count" not in chunk for chunk in chunks)
+
+
+@pytest.mark.asyncio
 async def test_chunking_strategy_handles_empty_documents() -> None:
     state = State(inputs={}, results={}, structured_response=None)
     node = ChunkingStrategyNode(name="chunking_strategy")
@@ -341,6 +383,32 @@ async def test_metadata_extractor_does_not_add_title_for_blank_content() -> None
 
 
 @pytest.mark.asyncio
+async def test_task_node_serializes_pydantic_models() -> None:
+    loader_result = {
+        "documents": [
+            {
+                "id": "doc-serialize",
+                "content": "Serialized content",
+                "metadata": {"team": "ingestion"},
+            }
+        ]
+    }
+    state = State(
+        inputs={}, results={"document_loader": loader_result}, structured_response=None
+    )
+    node = MetadataExtractorNode(
+        name="metadata_extractor", required_fields=["team"], tags=["node"]
+    )
+
+    result = await node.__call__(state, {})
+
+    documents = result["results"][node.name]["documents"]
+    assert documents
+    assert isinstance(documents[0], dict)
+    assert documents[0]["metadata"]["team"] == "ingestion"
+
+
+@pytest.mark.asyncio
 async def test_chunk_embedding_node_uses_default_embedder() -> None:
     chunks = {
         "chunks": [
@@ -356,7 +424,10 @@ async def test_chunk_embedding_node_uses_default_embedder() -> None:
     state = State(
         inputs={}, results={"chunking_strategy": chunks}, structured_response=None
     )
-    node = ChunkEmbeddingNode(name="chunk_embedding")
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
 
     result = await node.run(state, {})
 
@@ -407,7 +478,10 @@ async def test_chunk_embedding_node_raises_on_embedding_length_mismatch() -> Non
 
 @pytest.mark.asyncio
 async def test_chunk_embedding_node_requires_chunks() -> None:
-    node = ChunkEmbeddingNode(name="chunk_embedding")
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
     state = State(inputs={}, results={}, structured_response=None)
 
     with pytest.raises(
@@ -435,7 +509,10 @@ async def test_chunk_embedding_node_detects_missing_metadata_key() -> None:
         },
         structured_response=None,
     )
-    node = ChunkEmbeddingNode(name="chunk_embedding")
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
 
     with pytest.raises(
         ValueError, match="Missing required metadata 'document_id' for chunk chunk-1"
@@ -450,7 +527,10 @@ async def test_chunk_embedding_node_rejects_non_list_chunks_payload() -> None:
         results={"chunking_strategy": {"chunks": "invalid"}},
         structured_response=None,
     )
-    node = ChunkEmbeddingNode(name="chunk_embedding")
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
 
     with pytest.raises(ValueError, match="chunks payload must be a list"):
         await node.run(state, {})
@@ -493,6 +573,87 @@ async def test_chunk_embedding_node_handles_multiple_functions() -> None:
     assert "dense" in embeddings and "sparse" in embeddings
     assert embeddings["dense"][0].id.endswith("-dense")
     assert embeddings["sparse"][0].metadata["embedding_type"] == "sparse"
+
+
+@pytest.mark.asyncio
+async def test_chunk_embedding_node_applies_credential_env_vars(monkeypatch) -> None:
+    env_key = "ORCHEO_EMBEDDING_KEY"
+    monkeypatch.delenv(env_key, raising=False)
+    recorded: list[str | None] = []
+
+    def embed(texts: list[str]) -> list[list[float]]:
+        recorded.append(os.environ.get(env_key))
+        return [[float(len(text))] for text in texts]
+
+    register_embedding_method("env-var-embed", embed)
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-env",
+                "document_id": "doc-env",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-env", "chunk_index": 0},
+            }
+        ]
+    }
+    state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": "env-var-embed"},
+        credential_env_vars={env_key: "temp-value"},
+    )
+
+    await node.run(state, {})
+
+    assert recorded == ["temp-value"]
+    assert os.environ.get(env_key) is None
+
+
+@pytest.mark.asyncio
+async def test_chunk_embedding_node_accepts_sparse_payloads() -> None:
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-sparse",
+                "document_id": "doc-sparse",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-sparse", "chunk_index": 0},
+            }
+        ]
+    }
+    state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+
+    def sparse_embedding(texts: list[str]) -> list[dict[str, Any]]:
+        return [
+            {
+                "values": [float(len(text))],
+                "sparse_values": {"indices": [1], "values": [0.5]},
+            }
+            for text in texts
+        ]
+
+    register_embedding_method("sparse-payload", sparse_embedding)
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"sparse": "sparse-payload"},
+    )
+
+    result = await node.run(state, {})
+
+    vector = result["chunk_embeddings"]["sparse"][0]
+    assert vector.sparse_values is not None
+    assert vector.sparse_values.indices == [1]
+    assert vector.values == [float(len("chunk text"))]
 
 
 @pytest.mark.asyncio
@@ -556,7 +717,11 @@ async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None
     )
 
     with pytest.raises(
-        ValueError, match="Embedding function must return List\\[List\\[float\\]\\]"
+        ValueError,
+        match=(
+            "Embedding function must return List\\[List\\[float\\]\\] or "
+            "sparse embedding payloads"
+        ),
     ):
         await node.run(state, {})
 
@@ -574,7 +739,10 @@ async def test_vector_store_upsert_persists_records() -> None:
             }
         ]
     }
-    chunk_node = ChunkEmbeddingNode(name="chunk_embedding")
+    chunk_node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
     embed_state = State(
         inputs={},
         results={"chunking_strategy": chunks_payload},
@@ -663,7 +831,10 @@ async def test_vector_store_upsert_rejects_missing_embedding_name() -> None:
             }
         ]
     }
-    chunk_node = ChunkEmbeddingNode(name="chunk_embedding")
+    chunk_node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_methods={"default": DEFAULT_TEST_EMBEDDING_NAME},
+    )
     embed_state = State(
         inputs={},
         results={"chunking_strategy": chunks_payload},
@@ -746,7 +917,7 @@ async def test_document_loader_reads_from_storage_path_utf8(tmp_path) -> None:
 
     documents = result["documents"]
     assert len(documents) == 1
-    assert documents[0].content == test_content
+    assert documents[0]["content"] == test_content
 
 
 @pytest.mark.asyncio
@@ -770,7 +941,7 @@ async def test_document_loader_reads_from_storage_path_latin1(tmp_path) -> None:
     documents = result["documents"]
     assert len(documents) == 1
     # Should decode as latin-1
-    assert documents[0].content == test_bytes.decode("latin-1")
+    assert documents[0]["content"] == test_bytes.decode("latin-1")
 
 
 @pytest.mark.asyncio
@@ -794,9 +965,9 @@ async def test_document_loader_expands_directory_paths(tmp_path) -> None:
     documents = result["documents"]
 
     assert len(documents) == 2
-    assert [doc.content for doc in documents] == ["alpha", "beta"]
-    assert all(doc.metadata["demo"] == "directory" for doc in documents)
-    assert [doc.source for doc in documents] == ["a.md", "b.md"]
+    assert [doc["content"] for doc in documents] == ["alpha", "beta"]
+    assert all(doc["metadata"]["demo"] == "directory" for doc in documents)
+    assert [doc["source"] for doc in documents] == ["a.md", "b.md"]
 
 
 @pytest.mark.asyncio

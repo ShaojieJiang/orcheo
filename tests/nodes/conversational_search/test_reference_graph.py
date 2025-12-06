@@ -8,8 +8,21 @@ from orcheo.nodes.conversational_search import (
     GroundedGeneratorNode,
     VectorStoreUpsertNode,
 )
-from orcheo.nodes.conversational_search.ingestion import RawDocumentInput
+from orcheo.nodes.conversational_search.ingestion import (
+    RawDocumentInput,
+    register_embedding_method,
+)
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
+
+
+REFERENCE_GRAPH_EMBEDDING = "reference-graph-embedding"
+
+
+def _reference_graph_embedder(texts: list[str]) -> list[list[float]]:
+    return [[float(len(text))] for text in texts]
+
+
+register_embedding_method(REFERENCE_GRAPH_EMBEDDING, _reference_graph_embedder)
 
 
 @pytest.mark.asyncio
@@ -34,7 +47,11 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
     chunker = ChunkingStrategyNode(
         name="chunking_strategy", chunk_size=64, chunk_overlap=8
     )
-    chunk_embedder = ChunkEmbeddingNode(name="chunk_embedding", chunks_field="chunks")
+    chunk_embedder = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        chunks_field="chunks",
+        embedding_methods={"default": REFERENCE_GRAPH_EMBEDDING},
+    )
     vector_upsert = VectorStoreUpsertNode(
         name="vector_upsert",
         source_result_key=chunk_embedder.name,
@@ -45,6 +62,7 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
         vector_store=vector_store,
         query_key="query",
         top_k=3,
+        embedding_method=REFERENCE_GRAPH_EMBEDDING,
     )
     generator = GroundedGeneratorNode(
         name="generator", context_result_key="retriever", context_field="results"

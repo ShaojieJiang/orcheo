@@ -13,7 +13,9 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.ingestion import (
-    DEFAULT_EMBEDDING_METHOD_NAME,
+    EMBEDDING_PAYLOAD_ERROR,
+    normalize_embedding_output,
+    require_dense_embeddings,
     resolve_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import (
@@ -45,8 +47,8 @@ class DenseSearchNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter that will be queried.",
     )
-    embedding_method: str | None = Field(
-        default=None,
+    embedding_method: str = Field(
+        ...,
         description="Named embedding method used to transform the query.",
     )
     top_k: int = Field(
@@ -97,17 +99,19 @@ class DenseSearchNode(TaskNode):
         return {"results": normalized}
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
-        embedder = resolve_embedding_method(method_name)
+        embedder = resolve_embedding_method(self.embedding_method)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output  # type: ignore[assignment]
-        if not isinstance(output, list) or not all(
-            isinstance(row, list) for row in output
-        ):
-            msg = "Embedding function must return List[List[float]]"
-            raise ValueError(msg)
-        return output
+        try:
+            vectors = normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+        try:
+            return require_dense_embeddings(vectors)
+        except ValueError as exc:
+            msg = "Dense embeddings must include dense vector values"
+            raise ValueError(msg) from exc
 
 
 @registry.register(
@@ -143,8 +147,8 @@ class SparseSearchNode(TaskNode):
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
-    embedding_method: str | None = Field(
-        default=None,
+    embedding_method: str = Field(
+        ...,
         description="Named embedding method used when querying a vector store.",
     )
     vector_store: BaseVectorStore | None = Field(
@@ -238,17 +242,19 @@ class SparseSearchNode(TaskNode):
         return chunks
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
-        embedder = resolve_embedding_method(method_name)
+        embedder = resolve_embedding_method(self.embedding_method)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output  # type: ignore[assignment]
-        if not isinstance(output, list) or not all(
-            isinstance(row, list) for row in output
-        ):
-            msg = "Embedding function must return List[List[float]]"
-            raise ValueError(msg)
-        return output
+        try:
+            vectors = normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+        try:
+            return require_dense_embeddings(vectors)
+        except ValueError as exc:
+            msg = "Dense embeddings must include dense vector values"
+            raise ValueError(msg) from exc
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})

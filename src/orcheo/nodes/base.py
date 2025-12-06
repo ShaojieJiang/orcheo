@@ -2,6 +2,7 @@
 
 import logging
 from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -124,6 +125,30 @@ class BaseNode(BaseRunnable):
         """Async run the node as a tool."""
         pass  # pragma: no cover
 
+    def _serialize_result(self, value: Any) -> Any:
+        """Convert Pydantic models inside outputs into serializable primitives."""
+        if isinstance(value, BaseModel):
+            computed_fields = getattr(
+                value.__class__, "__pydantic_computed_fields__", {}
+            )
+            computed_keys = {
+                field.alias or name for name, field in computed_fields.items()
+            }
+            dumped = value.model_dump()
+            for key in computed_keys:
+                if key in dumped:
+                    dumped.pop(key)
+            return self._serialize_result(dumped)
+        if isinstance(value, Mapping):
+            return {key: self._serialize_result(val) for key, val in value.items()}
+        if isinstance(value, tuple):
+            return tuple(self._serialize_result(item) for item in value)
+        if isinstance(value, Sequence) and not isinstance(
+            value, str | bytes | bytearray
+        ):
+            return [self._serialize_result(item) for item in value]
+        return value
+
 
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
@@ -132,7 +157,7 @@ class AINode(BaseNode):
         """Execute the node and wrap the result in a messages key."""
         self.decode_variables(state)
         result = await self.run(state, config)
-        return result
+        return self._serialize_result(result)
 
     @abstractmethod
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -147,7 +172,8 @@ class TaskNode(BaseNode):
         """Execute the node and wrap the result in a outputs key."""
         self.decode_variables(state)
         result = await self.run(state, config)
-        return {"results": {self.name: result}}
+        serialized_result = self._serialize_result(result)
+        return {"results": {self.name: serialized_result}}
 
     @abstractmethod
     async def run(

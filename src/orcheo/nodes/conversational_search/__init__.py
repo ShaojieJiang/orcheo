@@ -13,6 +13,15 @@ from orcheo.nodes.conversational_search.conversation import (
     SessionManagementNode,
     TopicShiftDetectorNode,
 )
+from orcheo.nodes.conversational_search.embedding_registry import (
+    OPENAI_TEXT_EMBEDDING_3_SMALL,
+    PINECONE_BM25_DEFAULT,
+)
+from orcheo.nodes.conversational_search.embeddings import (
+    register_langchain_embedding,
+    register_pinecone_bm25_embedding,
+    register_pinecone_splade_embedding,
+)
 from orcheo.nodes.conversational_search.evaluation import (  # pragma: no cover
     ABTestingNode,
     AnalyticsExportNode,
@@ -86,6 +95,11 @@ __all__ = [
     "FailureAnalysisNode",
     "FeedbackIngestionNode",
     "GroundedGeneratorNode",
+    "register_langchain_embedding",
+    "register_pinecone_bm25_embedding",
+    "register_pinecone_splade_embedding",
+    "OPENAI_TEXT_EMBEDDING_3_SMALL",
+    "PINECONE_BM25_DEFAULT",
     "HallucinationGuardNode",
     "HybridFusionNode",
     "InMemoryMemoryStore",

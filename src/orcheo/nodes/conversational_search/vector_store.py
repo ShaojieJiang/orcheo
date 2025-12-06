@@ -113,14 +113,16 @@ class PineconeVectorStore(BaseVectorStore):
         """Upsert ``records`` into Pinecone with dependency guards."""
         client = self._resolve_client()
         index = self._resolve_index(client)
-        payload = [
-            {
+        payload: list[dict[str, Any]] = []
+        for record in records:
+            entry: dict[str, Any] = {
                 "id": record.id,
                 "values": record.values,
                 "metadata": record.metadata | {"text": record.text},
             }
-            for record in records
-        ]
+            if record.sparse_values is not None:
+                entry["sparse_values"] = record.sparse_values.model_dump()
+            payload.append(entry)
         result = index.upsert(vectors=payload, namespace=self.namespace)
         if inspect.iscoroutine(result):
             await result

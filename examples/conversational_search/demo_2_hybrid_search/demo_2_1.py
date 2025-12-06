@@ -2,8 +2,11 @@
 
 from langgraph.graph import END, StateGraph
 from orcheo.graph.state import State
+from orcheo.nodes.conversational_search.embedding_registry import (
+    OPENAI_TEXT_EMBEDDING_3_SMALL,
+    PINECONE_BM25_DEFAULT,
+)
 from orcheo.nodes.conversational_search.ingestion import (
-    DEFAULT_EMBEDDING_METHOD_NAME,
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
@@ -15,6 +18,7 @@ from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
     PineconeVectorStore,
 )
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
 DEFAULT_DOCS_PATH = (
@@ -29,10 +33,11 @@ DEFAULT_VECTOR_STORE_KWARGS = {"api_key": "[[pinecone_api_key]]"}
 
 
 async def build_graph(
+    dense_embedding_method: str = OPENAI_TEXT_EMBEDDING_3_SMALL,
+    sparse_embedding_method: str = PINECONE_BM25_DEFAULT,
     vector_store: BaseVectorStore | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
-    embedding_method: str = DEFAULT_EMBEDDING_METHOD_NAME,
 ) -> StateGraph:
     """Construct the ingestion graph for the demo."""
     if vector_store is None:
@@ -59,7 +64,11 @@ async def build_graph(
     chunk_embedder = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key=chunking.name,
-        embedding_methods={"default": embedding_method},
+        embedding_methods={
+            "dense": dense_embedding_method,
+            "bm25": sparse_embedding_method,
+        },
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     vector_upsert = VectorStoreUpsertNode(
         name="vector_upsert",
@@ -82,3 +91,32 @@ async def build_graph(
     workflow.add_edge("vector_upsert", END)
 
     return workflow
+
+
+async def _run_manual_test() -> None:
+    """Run a lightweight manual ingestion pass using deterministic embeddings."""
+    graph = await build_graph()
+    workflow = graph.compile()
+    resolver = setup_credentials()
+    print("Running Demo 2.1 manual smoke test with InMemoryVectorStore")
+    with credential_resolution(resolver):
+        result = await workflow.ainvoke({"inputs": {}})
+    summary = result.get("results", {}).get("vector_upsert", {})
+    print("Manual test results:")
+    print(f"  Indexed: {summary.get('indexed', 'n/a')}")
+    print(f"  Embeddings persisted: {summary.get('embedding_names', [])}")
+    print(f"  Namespace: {summary.get('namespace')}")
+
+
+def setup_credentials() -> CredentialResolver:
+    """Return an active credential resolver for running the demo."""
+    from orcheo_backend.app.dependencies import get_vault
+
+    vault = get_vault()
+    return CredentialResolver(vault)
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_run_manual_test())

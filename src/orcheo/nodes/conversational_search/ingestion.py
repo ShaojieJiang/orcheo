@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 import asyncio
+import contextlib
 import hashlib
 import inspect
-from collections.abc import Callable, Iterable
+import os
+from collections.abc import Awaitable, Callable, Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +17,7 @@ from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import (
     Document,
     DocumentChunk,
+    SparseValues,
     VectorRecord,
 )
 from orcheo.nodes.conversational_search.vector_store import (
@@ -23,10 +27,18 @@ from orcheo.nodes.conversational_search.vector_store import (
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
-EmbeddingMethod = Callable[[list[str]], list[list[float]]]
+@dataclass
+class EmbeddingVector:
+    """Normalized embedding output supporting dense and sparse values."""
+
+    values: list[float]
+    sparse_values: SparseValues | None = None
+
+
+EmbeddingResult = list[list[float]] | list[EmbeddingVector] | list[dict[str, Any]]
+EmbeddingMethod = Callable[[list[str]], EmbeddingResult | Awaitable[EmbeddingResult]]
 
 _EMBEDDING_METHODS: dict[str, EmbeddingMethod] = {}
-DEFAULT_EMBEDDING_METHOD_NAME = "deterministic"
 
 
 def register_embedding_method(name: str, method: EmbeddingMethod) -> EmbeddingMethod:
@@ -43,24 +55,96 @@ def resolve_embedding_method(name: str) -> EmbeddingMethod:
         raise ValueError(f"Unknown embedding method '{name}'") from exc
 
 
-def _deterministic_embedding_method(texts: list[str]) -> list[list[float]]:
-    """Deterministic fallback embedding using SHA256 hashing."""
-    embeddings: list[list[float]] = []
-    for text in texts:
-        digest = hashlib.sha256(text.encode("utf-8")).digest()
-        vector = [byte / 255.0 for byte in digest[:16]]
-        embeddings.append(vector)
-    return embeddings
+def _coerce_float_list(values: Any) -> list[float]:
+    if not isinstance(values, list):
+        msg = "embedding value payload must be a list of floats"
+        raise ValueError(msg)
+    normalized: list[float] = []
+    for item in values:
+        if not isinstance(item, int | float):
+            msg = "embedding value payload must only contain numbers"
+            raise ValueError(msg)
+        normalized.append(float(item))
+    return normalized
 
 
-register_embedding_method(
-    DEFAULT_EMBEDDING_METHOD_NAME, _deterministic_embedding_method
-)
+def _coerce_sparse_values(payload: Any) -> SparseValues:
+    if isinstance(payload, SparseValues):
+        return payload
+    if not isinstance(payload, dict):
+        msg = "sparse embedding payload must be a mapping"
+        raise ValueError(msg)
+    return SparseValues.model_validate(payload)
 
 
-def _default_embedding_methods(_: dict[str, Any] | None = None) -> dict[str, str]:
-    """Return the default embedding method names used by ChunkEmbeddingNode."""
-    return {"default": DEFAULT_EMBEDDING_METHOD_NAME}
+def normalize_embedding_output(result: Any) -> list[EmbeddingVector]:
+    """Normalize embedding responses into ``EmbeddingVector`` entries."""
+    if not isinstance(result, list):
+        msg = "embedding response must be a list"
+        raise ValueError(msg)
+
+    normalized: list[EmbeddingVector] = []
+    for entry in result:
+        if isinstance(entry, EmbeddingVector):
+            normalized.append(entry)
+            continue
+        if isinstance(entry, list):
+            normalized.append(EmbeddingVector(values=_coerce_float_list(entry)))
+            continue
+        if isinstance(entry, dict):
+            sparse_payload = entry.get("sparse_values")
+            sparse = (
+                None
+                if sparse_payload is None
+                else _coerce_sparse_values(sparse_payload)
+            )
+            dense_values = entry.get("values")
+            if dense_values is None:
+                values: list[float] = []
+            else:
+                values = _coerce_float_list(dense_values)
+            if not values and sparse is None:
+                msg = "embedding payload must include dense or sparse values"
+                raise ValueError(msg)
+            normalized.append(EmbeddingVector(values=values, sparse_values=sparse))
+            continue
+        msg = "embedding payload entries must be lists or mappings"
+        raise ValueError(msg)
+    return normalized
+
+
+@contextlib.contextmanager
+def _temporary_env_vars(env_vars: dict[str, str | None]) -> Iterator[None]:
+    """Temporarily install environment variables for embedding execution."""
+    if not env_vars:
+        yield
+        return
+    previous: dict[str, str | None] = {}
+    for key, value in env_vars.items():
+        previous[key] = os.environ.get(key)
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def require_dense_embeddings(vectors: list[EmbeddingVector]) -> list[list[float]]:
+    """Ensure each embedding vector contains dense values."""
+    dense_values: list[list[float]] = []
+    for vector in vectors:
+        if not vector.values:
+            msg = "dense embeddings must include non-empty float values"
+            raise ValueError(msg)
+        dense_values.append(vector.values)
+    return dense_values
 
 
 class RawDocumentInput(BaseModel):
@@ -187,7 +271,8 @@ class DocumentLoaderNode(TaskNode):
                 )
             )
 
-        return {"documents": documents}
+        serialized_documents = [document.model_dump() for document in documents]
+        return {"documents": serialized_documents}
 
     def _expand_storage_paths(
         self,
@@ -435,7 +520,7 @@ class ChunkEmbeddingNode(TaskNode):
         default="chunks", description="Field containing chunk payloads"
     )
     embedding_methods: dict[str, str] = Field(
-        default_factory=_default_embedding_methods,
+        ...,
         description="Named embedding method identifiers used to transform chunk text.",
     )
     required_metadata_keys: list[str] = Field(
@@ -443,6 +528,10 @@ class ChunkEmbeddingNode(TaskNode):
         description=(
             "Metadata keys that must be present before embeddings are computed."
         ),
+    )
+    credential_env_vars: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Environment variables applied during embedding execution.",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -474,32 +563,34 @@ class ChunkEmbeddingNode(TaskNode):
         chunk_texts = [chunk.content for chunk in chunks]
         multiple_functions = len(self.embedding_methods) > 1
 
-        for name, method_name in self.embedding_methods.items():
-            embedding_function = resolve_embedding_method(method_name)
-            embeddings = await self._embed(chunk_texts, embedding_function)
-            if len(embeddings) != len(chunks):
-                msg = (
-                    "Embedding function returned "
-                    f"{len(embeddings)} embeddings for {len(chunks)} chunks"
-                )
-                raise ValueError(msg)
-
-            records: list[VectorRecord] = []
-            suffix = f"-{name}" if multiple_functions else ""
-            for chunk, vector in zip(chunks, embeddings, strict=True):
-                metadata = dict(chunk.metadata)
-                metadata.setdefault("chunk_id", chunk.id)
-                metadata["embedding_type"] = name
-                record_id = f"{chunk.id}{suffix}" if suffix else chunk.id
-                records.append(
-                    VectorRecord(
-                        id=record_id,
-                        values=vector,
-                        text=chunk.content,
-                        metadata=metadata,
+        with _temporary_env_vars(self.credential_env_vars):
+            for name, method_name in self.embedding_methods.items():
+                embedding_function = resolve_embedding_method(method_name)
+                embeddings = await self._embed(chunk_texts, embedding_function)
+                if len(embeddings) != len(chunks):
+                    msg = (
+                        "Embedding function returned "
+                        f"{len(embeddings)} embeddings for {len(chunks)} chunks"
                     )
-                )
-            records_by_function[name] = records
+                    raise ValueError(msg)
+
+                records: list[VectorRecord] = []
+                suffix = f"-{name}" if multiple_functions else ""
+                for chunk, vector in zip(chunks, embeddings, strict=True):
+                    metadata = dict(chunk.metadata)
+                    metadata.setdefault("chunk_id", chunk.id)
+                    metadata["embedding_type"] = name
+                    record_id = f"{chunk.id}{suffix}" if suffix else chunk.id
+                    records.append(
+                        VectorRecord(
+                            id=record_id,
+                            values=vector.values,
+                            text=chunk.content,
+                            metadata=metadata,
+                            sparse_values=vector.sparse_values,
+                        )
+                    )
+                records_by_function[name] = records
 
         return {"chunk_embeddings": records_by_function}
 
@@ -521,16 +612,14 @@ class ChunkEmbeddingNode(TaskNode):
         self,
         texts: list[str],
         embedder: EmbeddingMethod,
-    ) -> list[list[float]]:
+    ) -> list[EmbeddingVector]:
         result = embedder(texts)
         if inspect.isawaitable(result):
             result = await result
-        if not isinstance(result, list) or not all(
-            isinstance(row, list) for row in result
-        ):
-            msg = "Embedding function must return List[List[float]]"
-            raise ValueError(msg)
-        return result
+        try:
+            return normalize_embedding_output(result)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
 
 
 @registry.register(
@@ -643,9 +732,9 @@ class IncrementalIndexerNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter used for upserts.",
     )
-    embedding_method: str | None = Field(
-        default=None,
-        description="Optional embedding method identifier applied to chunk content.",
+    embedding_method: str = Field(
+        ...,
+        description="Embedding method identifier applied to chunk content.",
     )
     batch_size: int = Field(default=32, gt=0, description="Chunk batch size")
     max_retries: int = Field(default=2, ge=0, description="Retry attempts")
@@ -686,9 +775,10 @@ class IncrementalIndexerNode(TaskNode):
                 records.append(
                     VectorRecord(
                         id=chunk.id,
-                        values=vector,
+                        values=vector.values,
                         text=chunk.content,
                         metadata=metadata,
+                        sparse_values=vector.sparse_values,
                     )
                 )
 
@@ -716,18 +806,15 @@ class IncrementalIndexerNode(TaskNode):
             raise ValueError(msg)
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
 
-    async def _embed(self, texts: list[str]) -> list[list[float]]:
-        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
-        embedder = resolve_embedding_method(method_name)
+    async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
+        embedder = resolve_embedding_method(self.embedding_method)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output
-        if not isinstance(output, list) or not all(
-            isinstance(row, list) for row in output
-        ):
-            msg = "Embedding function must return List[List[float]]"
-            raise ValueError(msg)
-        return output
+        try:
+            return normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
 
     def _is_unchanged(self, record_id: str, content_hash: str) -> bool:
         store_records = getattr(self.vector_store, "records", None)
@@ -751,3 +838,8 @@ class IncrementalIndexerNode(TaskNode):
                     msg = "Vector store upsert failed after retries"
                     raise RuntimeError(msg) from exc
                 await asyncio.sleep(self.backoff_seconds * (2**attempt))
+
+
+EMBEDDING_PAYLOAD_ERROR = (
+    "Embedding function must return List[List[float]] or sparse embedding payloads"
+)

@@ -36,6 +36,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 - **ChunkEmbeddingNode**
   - Generates vector records per chunk using configurable embedding functions
   - Emits named embedding sets for downstream persistence or analytics
+  - Ships helper factories in `orcheo.nodes.conversational_search.embeddings` for common providers (LangChain dense models plus Pinecone BM25/SPLADE sparse encoders) so demos can register embedding identifiers declaratively
 
 - **VectorStoreUpsertNode**
   - Persists selected embedding sets into BaseVectorStore adapters (InMemory, Pinecone)

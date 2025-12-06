@@ -17,11 +17,21 @@ from orcheo.nodes.conversational_search.retrieval import (
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
 
 
+DEFAULT_TEST_RETRIEVAL_EMBEDDING = "test-retrieval-embedding"
+
+
+def _test_retrieval_embedder(texts: list[str]) -> list[list[float]]:
+    return [[float(len(text))] for text in texts]
+
+
+register_embedding_method(DEFAULT_TEST_RETRIEVAL_EMBEDDING, _test_retrieval_embedder)
+
+
 @pytest.mark.asyncio
 async def test_dense_search_node_returns_ranked_results() -> None:
     store = InMemoryVectorStore()
     texts = ["orcheo improves graphs", "another passage"]
-    embedder = resolve_embedding_method("deterministic")
+    embedder = resolve_embedding_method(DEFAULT_TEST_RETRIEVAL_EMBEDDING)
     embeddings = embedder(texts)
     await store.upsert(
         [
@@ -40,6 +50,7 @@ async def test_dense_search_node_returns_ranked_results() -> None:
     node = DenseSearchNode(
         name="dense",
         vector_store=store,
+        embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING,
         top_k=2,
         filter_metadata={"source": "demo"},
     )
@@ -55,7 +66,11 @@ async def test_dense_search_node_returns_ranked_results() -> None:
 
 @pytest.mark.asyncio
 async def test_dense_search_node_requires_non_empty_query() -> None:
-    node = DenseSearchNode(name="dense-empty", vector_store=InMemoryVectorStore())
+    node = DenseSearchNode(
+        name="dense-empty",
+        vector_store=InMemoryVectorStore(),
+        embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING,
+    )
     state = State(inputs={"query": ""}, results={}, structured_response=None)
 
     with pytest.raises(
@@ -89,9 +104,31 @@ async def test_dense_search_node_embedder_validates_output_type() -> None:
     )
 
     with pytest.raises(
-        ValueError, match="Embedding function must return List\\[List\\[float\\]\\]"
+        ValueError,
+        match=(
+            "Embedding function must return List\\[List\\[float\\]\\] or "
+            "sparse embedding payloads"
+        ),
     ):
         await node._embed(["test"])
+
+
+@pytest.mark.asyncio
+async def test_dense_search_node_requires_dense_values() -> None:
+    register_embedding_method(
+        "dense-sparse-only",
+        lambda texts: [{"sparse_values": {"indices": [1], "values": [0.5]}}],
+    )
+    node = DenseSearchNode(
+        name="dense-sparse-only",
+        vector_store=InMemoryVectorStore(),
+        embedding_method="dense-sparse-only",
+    )
+
+    with pytest.raises(
+        ValueError, match="Dense embeddings must include dense vector values"
+    ):
+        await node._embed(["query"])
 
 
 @pytest.mark.asyncio
@@ -117,7 +154,11 @@ async def test_sparse_search_orders_chunks_by_score() -> None:
         results={"chunking_strategy": {"chunks": chunks}},
         structured_response=None,
     )
-    node = SparseSearchNode(name="sparse", top_k=1)
+    node = SparseSearchNode(
+        name="sparse",
+        top_k=1,
+        embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING,
+    )
 
     result = await node.run(state, {})
 
@@ -127,7 +168,9 @@ async def test_sparse_search_orders_chunks_by_score() -> None:
 
 @pytest.mark.asyncio
 async def test_sparse_search_requires_non_empty_query() -> None:
-    node = SparseSearchNode(name="sparse")
+    node = SparseSearchNode(
+        name="sparse", embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING
+    )
     state = State(inputs={"query": "   "}, results={}, structured_response=None)
 
     with pytest.raises(
@@ -138,7 +181,9 @@ async def test_sparse_search_requires_non_empty_query() -> None:
 
 @pytest.mark.asyncio
 async def test_sparse_search_requires_chunks() -> None:
-    node = SparseSearchNode(name="sparse")
+    node = SparseSearchNode(
+        name="sparse", embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING
+    )
     state = State(inputs={"query": "bananas"}, results={}, structured_response=None)
 
     with pytest.raises(
@@ -183,7 +228,9 @@ async def test_sparse_search_vector_store_candidates() -> None:
 
 
 def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
-    node = SparseSearchNode(name="sparse")
+    node = SparseSearchNode(
+        name="sparse", embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING
+    )
     state = State(
         inputs={},
         results={"chunking_strategy": {"chunks": {"not": "a list"}}},
@@ -195,7 +242,11 @@ def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
 
 
 def test_sparse_score_skips_zero_denominator() -> None:
-    node = SparseSearchNode(name="sparse", b=1.0)
+    node = SparseSearchNode(
+        name="sparse",
+        b=1.0,
+        embedding_method=DEFAULT_TEST_RETRIEVAL_EMBEDDING,
+    )
     document_tokens: list[str] = []
     query_tokens = ["missing"]
     corpus = [document_tokens, ["present"]]

@@ -3,7 +3,11 @@
 import sys
 import types
 import pytest
-from orcheo.nodes.conversational_search.models import SearchResult, VectorRecord
+from orcheo.nodes.conversational_search.models import (
+    SearchResult,
+    SparseValues,
+    VectorRecord,
+)
 from orcheo.nodes.conversational_search.vector_store import (
     InMemoryVectorStore,
     PineconeVectorStore,
@@ -234,6 +238,25 @@ async def test_pinecone_vector_store_upserts_with_provided_client() -> None:
     assert namespace == "ns"
     assert payload[0]["metadata"]["foo"] == "bar"
     assert payload[0]["metadata"]["text"] == "doc text"
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_includes_sparse_values() -> None:
+    index = _DummyIndex()
+    client = _DummyClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-test", client=client)
+    record = VectorRecord(
+        id="rec-sparse",
+        values=[0.1],
+        text="doc text",
+        metadata={"foo": "bar"},
+        sparse_values=SparseValues(indices=[1, 3], values=[0.5, 0.25]),
+    )
+
+    await store.upsert([record])
+
+    payload, _ = index.calls[0]
+    assert payload[0]["sparse_values"] == {"indices": [1, 3], "values": [0.5, 0.25]}
 
 
 @pytest.mark.asyncio
