@@ -1,18 +1,19 @@
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     ConversationCompressorNode,
     ConversationStateNode,
     DenseSearchNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     GroundedGeneratorNode,
     InMemoryMemoryStore,
     InMemoryVectorStore,
     MemorySummarizerNode,
     QueryClarificationNode,
     TopicShiftDetectorNode,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.ingestion import RawDocumentInput
 
@@ -38,8 +39,11 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
     chunker = ChunkingStrategyNode(
         name="chunking_strategy", chunk_size=64, chunk_overlap=8
     )
-    indexer = EmbeddingIndexerNode(
-        name="embedding_indexer", vector_store=vector_store, chunks_field="chunks"
+    chunk_embedder = ChunkEmbeddingNode(name="chunk_embedding", chunks_field="chunks")
+    vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_embedder.name,
+        vector_store=vector_store,
     )
     retriever = DenseSearchNode(
         name="retriever", vector_store=vector_store, query_key="query", top_k=2
@@ -51,7 +55,12 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
     ingest_state = State(inputs={}, results={}, structured_response=None)
     ingest_state["results"][loader.name] = await loader.run(ingest_state, {})
     ingest_state["results"][chunker.name] = await chunker.run(ingest_state, {})
-    ingest_state["results"][indexer.name] = await indexer.run(ingest_state, {})
+    ingest_state["results"][chunk_embedder.name] = await chunk_embedder.run(
+        ingest_state, {}
+    )
+    ingest_state["results"][vector_upsert.name] = await vector_upsert.run(
+        ingest_state, {}
+    )
 
     conversation = ConversationStateNode(
         name="conversation_state", memory_store=memory_store

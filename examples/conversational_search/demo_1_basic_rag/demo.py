@@ -7,10 +7,11 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     MetadataExtractorNode,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -75,18 +76,22 @@ def create_ingestion_nodes(
         chunk_overlap=chunking_config.get("chunk_overlap", 80),
     )
 
-    indexer = EmbeddingIndexerNode(
-        name="indexer",
+    chunk_embedding = ChunkEmbeddingNode(
+        name="chunk_embedding",
         source_result_key="chunking",
+    )
+    vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_embedding.name,
         vector_store=vector_store,
-        # Using default deterministic embedding function
     )
 
     return {
         "loader": loader,
         "metadata": metadata,
         "chunking": chunking,
-        "indexer": indexer,
+        "chunk_embedding": chunk_embedding,
+        "vector_upsert": vector_upsert,
     }
 
 
@@ -194,11 +199,12 @@ def define_workflow(
     # Ingestion flow
     workflow.add_edge("loader", "metadata")
     workflow.add_edge("metadata", "chunking")
-    workflow.add_edge("chunking", "indexer")
+    workflow.add_edge("chunking", "chunk_embedding")
+    workflow.add_edge("chunk_embedding", "vector_upsert")
 
     # Post-ingestion routing
     workflow.add_conditional_edges(
-        "indexer",
+        "vector_upsert",
         post_ingestion_router,
         {
             "true": "search",  # Query/message present -> search

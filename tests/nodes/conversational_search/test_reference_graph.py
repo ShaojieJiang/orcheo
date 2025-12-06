@@ -1,11 +1,12 @@
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DenseSearchNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     GroundedGeneratorNode,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.ingestion import RawDocumentInput
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -33,8 +34,11 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
     chunker = ChunkingStrategyNode(
         name="chunking_strategy", chunk_size=64, chunk_overlap=8
     )
-    indexer = EmbeddingIndexerNode(
-        name="embedding_indexer", vector_store=vector_store, chunks_field="chunks"
+    chunk_embedder = ChunkEmbeddingNode(name="chunk_embedding", chunks_field="chunks")
+    vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_embedder.name,
+        vector_store=vector_store,
     )
     retriever = DenseSearchNode(
         name="retriever",
@@ -58,8 +62,10 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
     chunk_result = await chunker.run(state, {})
     state["results"][chunker.name] = chunk_result
 
-    index_result = await indexer.run(state, {})
-    state["results"][indexer.name] = index_result
+    chunk_embedding_result = await chunk_embedder.run(state, {})
+    state["results"][chunk_embedder.name] = chunk_embedding_result
+    upsert_result = await vector_upsert.run(state, {})
+    state["results"][vector_upsert.name] = upsert_result
 
     retrieval_result = await retriever.run(state, {})
     state["results"][retriever.name] = retrieval_result

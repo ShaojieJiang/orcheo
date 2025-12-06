@@ -621,9 +621,10 @@ results = [
 
 **Implementation:** `InMemoryVectorStore` (singleton instance shared across ingestion and retrieval)
 
-**Location:** Created in `build_graph()` function and passed to both:
-- `EmbeddingIndexerNode` (writes)
-- `DenseSearchNode` (reads)
+**Location:** Created in `build_graph()` function and passed to:
+- `ChunkEmbeddingNode` (emits vector records for persistence metadata)
+- `VectorStoreUpsertNode` (upserts records into the store)
+- `DenseSearchNode` (reads for retrieval)
 
 **Storage:** Dictionary mapping chunk IDs to VectorRecord objects
 ```python

@@ -4,11 +4,12 @@ from __future__ import annotations
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     MetadataExtractorNode,
     RawDocumentInput,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.models import Document
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -339,7 +340,7 @@ async def test_metadata_extractor_does_not_add_title_for_blank_content() -> None
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_uses_default_embedder_and_in_memory_store() -> None:
+async def test_chunk_embedding_node_uses_default_embedder() -> None:
     chunks = {
         "chunks": [
             {
@@ -351,23 +352,23 @@ async def test_embedding_indexer_uses_default_embedder_and_in_memory_store() -> 
             }
         ]
     }
-    vector_store = InMemoryVectorStore()
     state = State(
         inputs={}, results={"chunking_strategy": chunks}, structured_response=None
     )
-    node = EmbeddingIndexerNode(name="embedding_indexer", vector_store=vector_store)
+    node = ChunkEmbeddingNode(name="chunk_embedding")
 
     result = await node.run(state, {})
 
-    assert result["indexed"] == 1
-    assert "chunk-1" in vector_store.records
-    stored = vector_store.records["chunk-1"]
-    assert len(stored.values) == 16
+    embeddings = result["chunk_embeddings"]
+    assert "default" in embeddings
+    stored = embeddings["default"][0]
     assert stored.metadata["document_id"] == "doc-1"
+    assert stored.metadata["embedding_type"] == "default"
+    assert stored.metadata["chunk_id"] == "chunk-1"
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_raises_on_embedding_length_mismatch() -> None:
+async def test_chunk_embedding_node_raises_on_embedding_length_mismatch() -> None:
     chunks = {
         "chunks": [
             {
@@ -386,7 +387,6 @@ async def test_embedding_indexer_raises_on_embedding_length_mismatch() -> None:
             },
         ]
     }
-    vector_store = InMemoryVectorStore()
     state = State(
         inputs={}, results={"chunking_strategy": chunks}, structured_response=None
     )
@@ -394,33 +394,28 @@ async def test_embedding_indexer_raises_on_embedding_length_mismatch() -> None:
     def short_embedding_function(texts: list[str]) -> list[list[float]]:
         return [[0.0] * 4 for _ in texts[:1]]
 
-    node = EmbeddingIndexerNode(
-        name="embedding_indexer",
-        vector_store=vector_store,
-        embedding_function=short_embedding_function,
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_functions={"default": short_embedding_function},
     )
 
     with pytest.raises(ValueError, match="returned 1 embeddings for 2 chunks"):
         await node.run(state, {})
 
-    assert vector_store.records == {}
-
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_requires_chunks() -> None:
-    node = EmbeddingIndexerNode(
-        name="embedding_indexer", vector_store=InMemoryVectorStore()
-    )
+async def test_chunk_embedding_node_requires_chunks() -> None:
+    node = ChunkEmbeddingNode(name="chunk_embedding")
     state = State(inputs={}, results={}, structured_response=None)
 
     with pytest.raises(
-        ValueError, match="EmbeddingIndexerNode requires at least one chunk"
+        ValueError, match="ChunkEmbeddingNode requires at least one chunk"
     ):
         await node.run(state, {})
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_detects_missing_metadata_key() -> None:
+async def test_chunk_embedding_node_detects_missing_metadata_key() -> None:
     state = State(
         inputs={},
         results={
@@ -438,7 +433,7 @@ async def test_embedding_indexer_detects_missing_metadata_key() -> None:
         },
         structured_response=None,
     )
-    node = EmbeddingIndexerNode(name="embedding_indexer")
+    node = ChunkEmbeddingNode(name="chunk_embedding")
 
     with pytest.raises(
         ValueError, match="Missing required metadata 'document_id' for chunk chunk-1"
@@ -447,20 +442,57 @@ async def test_embedding_indexer_detects_missing_metadata_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_rejects_non_list_chunks_payload() -> None:
+async def test_chunk_embedding_node_rejects_non_list_chunks_payload() -> None:
     state = State(
         inputs={},
         results={"chunking_strategy": {"chunks": "invalid"}},
         structured_response=None,
     )
-    node = EmbeddingIndexerNode(name="embedding_indexer")
+    node = ChunkEmbeddingNode(name="chunk_embedding")
 
     with pytest.raises(ValueError, match="chunks payload must be a list"):
         await node.run(state, {})
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_accepts_async_embedding_function() -> None:
+async def test_chunk_embedding_node_handles_multiple_functions() -> None:
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-1",
+                "document_id": "doc-1",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-1", "chunk_index": 0},
+            }
+        ]
+    }
+    state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+
+    def dense(texts: list[str]) -> list[list[float]]:
+        return [[1.0] * 8 for _ in texts]
+
+    def sparse(texts: list[str]) -> list[list[float]]:
+        return [[0.0] * 4 for _ in texts]
+
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_functions={"dense": dense, "sparse": sparse},
+    )
+    result = await node.run(state, {})
+
+    embeddings = result["chunk_embeddings"]
+    assert "dense" in embeddings and "sparse" in embeddings
+    assert embeddings["dense"][0].id.endswith("-dense")
+    assert embeddings["sparse"][0].metadata["embedding_type"] == "sparse"
+
+
+@pytest.mark.asyncio
+async def test_chunk_embedding_node_accepts_async_embedding_function() -> None:
     async def embed(texts: list[str]) -> list[list[float]]:
         return [[float(len(text))] for text in texts]
 
@@ -475,26 +507,23 @@ async def test_embedding_indexer_accepts_async_embedding_function() -> None:
             }
         ]
     }
-    vector_store = InMemoryVectorStore()
-    node = EmbeddingIndexerNode(
-        name="embedding_indexer",
-        vector_store=vector_store,
-        embedding_function=embed,
-    )
     state = State(
         inputs={},
         results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_functions={"async": embed},
+    )
 
     result = await node.run(state, {})
 
-    assert result["indexed"] == 1
-    assert vector_store.records["chunk-async"].values == [float(len("chunk async"))]
+    assert result["chunk_embeddings"]["async"][0].values == [float(len("chunk async"))]
 
 
 @pytest.mark.asyncio
-async def test_embedding_indexer_rejects_invalid_embedding_response() -> None:
+async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None:
     def embed(texts: list[str]) -> str:
         return "invalid"
 
@@ -515,14 +544,162 @@ async def test_embedding_indexer_rejects_invalid_embedding_response() -> None:
         },
         structured_response=None,
     )
-    node = EmbeddingIndexerNode(
-        name="embedding_indexer",
-        embedding_function=embed,
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_functions={"default": embed},
     )
 
     with pytest.raises(
         ValueError, match="Embedding function must return List\\[List\\[float\\]\\]"
     ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_persists_records() -> None:
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-1",
+                "document_id": "doc-1",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-1", "chunk_index": 0},
+            }
+        ]
+    }
+    chunk_node = ChunkEmbeddingNode(name="chunk_embedding")
+    embed_state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+    embed_result = await chunk_node.run(embed_state, {})
+
+    vector_store = InMemoryVectorStore()
+    upsert_node = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_node.name,
+        vector_store=vector_store,
+    )
+    upsert_state = State(
+        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+    )
+
+    result = await upsert_node.run(upsert_state, {})
+
+    assert result["indexed"] == len(embed_result["chunk_embeddings"]["default"])
+    assert result["embedding_names"] == ["default"]
+    assert len(vector_store.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_filters_embedding_names() -> None:
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-2",
+                "document_id": "doc-2",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-2", "chunk_index": 0},
+            }
+        ]
+    }
+
+    def dense(texts: list[str]) -> list[list[float]]:
+        return [[1.0] * 4 for _ in texts]
+
+    def sparse(texts: list[str]) -> list[list[float]]:
+        return [[0.5] * 4 for _ in texts]
+
+    chunk_node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        embedding_functions={"dense": dense, "sparse": sparse},
+    )
+    embed_state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+    embed_result = await chunk_node.run(embed_state, {})
+
+    vector_store = InMemoryVectorStore()
+    upsert_node = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_node.name,
+        vector_store=vector_store,
+        embedding_names=["dense"],
+    )
+    upsert_state = State(
+        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+    )
+
+    result = await upsert_node.run(upsert_state, {})
+
+    assert result["embedding_names"] == ["dense"]
+    assert result["indexed"] == len(embed_result["chunk_embeddings"]["dense"])
+    assert all(record.id.endswith("-dense") for record in vector_store.records.values())
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_rejects_missing_embedding_name() -> None:
+    chunks_payload = {
+        "chunks": [
+            {
+                "id": "chunk-3",
+                "document_id": "doc-3",
+                "index": 0,
+                "content": "chunk text",
+                "metadata": {"document_id": "doc-3", "chunk_index": 0},
+            }
+        ]
+    }
+    chunk_node = ChunkEmbeddingNode(name="chunk_embedding")
+    embed_state = State(
+        inputs={},
+        results={"chunking_strategy": chunks_payload},
+        structured_response=None,
+    )
+    embed_result = await chunk_node.run(embed_state, {})
+
+    upsert_node = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_node.name,
+        embedding_names=["missing"],
+        vector_store=InMemoryVectorStore(),
+    )
+    upsert_state = State(
+        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+    )
+
+    with pytest.raises(ValueError, match="Embedding names not found in payload"):
+        await upsert_node.run(upsert_state, {})
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_rejects_invalid_payload() -> None:
+    state = State(
+        inputs={},
+        results={"chunk_embedding": {"chunk_embeddings": "invalid"}},
+        structured_response=None,
+    )
+    node = VectorStoreUpsertNode(name="vector_upsert")
+
+    with pytest.raises(ValueError, match="Embedding payload must be a mapping"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_requires_records() -> None:
+    state = State(
+        inputs={},
+        results={"chunk_embedding": {"chunk_embeddings": {}}},
+        structured_response=None,
+    )
+    node = VectorStoreUpsertNode(name="vector_upsert")
+
+    with pytest.raises(ValueError, match="No vector records available to persist"):
         await node.run(state, {})
 
 

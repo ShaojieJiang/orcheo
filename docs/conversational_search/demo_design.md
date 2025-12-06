@@ -40,10 +40,10 @@ flowchart TD
     entry -->|otherwise| generator[GroundedGeneratorNode]
 
     subgraph Ingestion
-        loader --> metadata[MetadataExtractorNode] --> chunking[ChunkingStrategyNode] --> indexer[EmbeddingIndexerNode]
+        loader --> metadata[MetadataExtractorNode] --> chunking[ChunkingStrategyNode] --> chunk_embedding[ChunkEmbeddingNode] --> vector_upsert[VectorStoreUpsertNode]
     end
 
-    indexer --> post{Inputs.message?}
+    vector_upsert --> post{Inputs.message?}
     post -->|true| search
     post -->|false| end1([END])
 
@@ -57,7 +57,8 @@ flowchart TD
 - **DocumentLoaderNode** (P0) - Load markdown documentation files
 - **MetadataExtractorNode** (P0) - Extract title, source, section metadata
 - **ChunkingStrategyNode** (P0) - Split documents with overlap
-- **EmbeddingIndexerNode** (P0) - Embed chunks and store in InMemoryVectorStore
+- **ChunkEmbeddingNode** (P0) - Embed chunks using deterministic/dense models and emit named vector records
+- **VectorStoreUpsertNode** (P0) - Persist chunk embeddings into the configured vector store
 - **DenseSearchNode** (P0) - Retrieve top-k relevant chunks (when documents exist)
 - **GroundedGeneratorNode** (P0) - Generate answers with citations (RAG) or without (non-RAG)
 
@@ -81,8 +82,10 @@ chunking:
   chunk_size: 512
   chunk_overlap: 50
 
-embedding_indexer:
-  model: "text-embedding-3-small"
+chunk_embedding:
+  embedding_functions:
+    default: "text-embedding-3-small"
+vector_upsert:
   vector_store: "in_memory"
 
 dense_search:
@@ -123,9 +126,12 @@ System: "The capital of France is Paris. It is located in the north-central part
 ```mermaid
 graph LR
     Docs[/Markdown Corpus/]
-    Docs --> Chunking[HybridCorpusPreparer]
-    Chunking --> Embeddings[Deterministic Embedding Function]
-    Embeddings --> Upsert[PineconeVectorStore]
+    Docs --> Loader[DocumentLoaderNode]
+    Loader --> Metadata[MetadataExtractorNode]
+    Metadata --> Chunking[ChunkingStrategyNode]
+    Chunking --> ChunkEmbedding[ChunkEmbeddingNode (deterministic embedding)]
+    ChunkEmbedding --> VectorUpsert[VectorStoreUpsertNode]
+    VectorUpsert --> VectorStore[PineconeVectorStore]
 ```
 
 ### Configuration Highlights
@@ -532,7 +538,8 @@ User Feedback:
 | DocumentLoaderNode | ✓ | | | | |
 | ChunkingStrategyNode | ✓ | | | | |
 | MetadataExtractorNode | ✓ | | | | |
-| EmbeddingIndexerNode | ✓ | | | | |
+| ChunkEmbeddingNode | ✓ | | | | |
+| VectorStoreUpsertNode | ✓ | | | | |
 | IncrementalIndexerNode | | | | ✓ | |
 | **Retrieval** |
 | DenseSearchNode | ✓ | ✓ | ✓ | ✓ | ✓ |

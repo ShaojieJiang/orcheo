@@ -30,7 +30,7 @@ Graph builders, applied researchers, and operations engineers who assemble conve
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
 |---------|--------------|------------|----------|---------------------|
-| Workflow builder | Drop in nodes for ingestion, chunking, retrieval, fusion, and generation | I can launch conversational search experiments without rewriting infrastructure | P0 | DocumentLoaderNode, ChunkingStrategyNode, EmbeddingIndexerNode, DenseSearchNode, SparseSearchNode, HybridFusionNode, and GroundedGeneratorNode available with configs |
+| Workflow builder | Drop in nodes for ingestion, chunking, retrieval, fusion, and generation | I can launch conversational search experiments without rewriting infrastructure | P0 | DocumentLoaderNode, ChunkingStrategyNode, ChunkEmbeddingNode, VectorStoreUpsertNode, DenseSearchNode, SparseSearchNode, HybridFusionNode, and GroundedGeneratorNode available with configs |
 | Retrieval researcher | Swap retrievers, rankers, and planners while reusing shared interfaces | I can benchmark new strategies quickly | P0 | Base abstractions for retrievers/vector stores/memory plus configurable nodes that are independently testable |
 | Operations lead | Enable guardrails and compliance across conversations | I can safely run conversational agents in production | P1 | Guard nodes (HallucinationGuardNode, PolicyComplianceNode), and session/memory controls exposed |
 
@@ -52,7 +52,8 @@ Conversational search functionality will live under `orcheo.nodes.conversational
 | **Data Ingestion** | DocumentLoaderNode | P0 | Connectors for file, web, and API sources with format normalization |
 | | ChunkingStrategyNode | P0 | Configurable character/token rules with overlap control for optimal indexing |
 | | MetadataExtractorNode | P0 | Attaches structured metadata (title, source, tags) powering filters and ranking |
-| | EmbeddingIndexerNode | P0 | Runs embedding models, writes to Pinecone (primary v1 adapter), and validates schema |
+| | ChunkEmbeddingNode | P0 | Applies embedding functions to chunk text and returns named vector record sets |
+| | VectorStoreUpsertNode | P0 | Persists selected embedding sets into BaseVectorStore adapters and reports indexed IDs |
 | | IncrementalIndexerNode | P1 | Delta-sync pipeline that detects adds/updates/deletes without full reindexing |
 | **Retrieval** | DenseSearchNode | P0 | Dense similarity search built atop the base vector store abstraction |
 | | SparseSearchNode | P0 | Keyword retrieval for sparse/deterministic matching |

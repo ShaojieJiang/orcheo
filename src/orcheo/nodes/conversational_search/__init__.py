@@ -35,11 +35,12 @@ from orcheo.nodes.conversational_search.generation import (
     StreamingGeneratorNode,
 )
 from orcheo.nodes.conversational_search.ingestion import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     IncrementalIndexerNode,
     MetadataExtractorNode,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.query_processing import (
     ContextCompressorNode,
@@ -80,7 +81,8 @@ __all__ = [
     "DataAugmentationNode",
     "DatasetNode",
     "DocumentLoaderNode",
-    "EmbeddingIndexerNode",
+    "ChunkEmbeddingNode",
+    "VectorStoreUpsertNode",
     "FailureAnalysisNode",
     "FeedbackIngestionNode",
     "GroundedGeneratorNode",

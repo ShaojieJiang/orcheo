@@ -361,15 +361,16 @@ class MetadataExtractorNode(TaskNode):
 
 @registry.register(
     NodeMetadata(
-        name="EmbeddingIndexerNode",
+        name="ChunkEmbeddingNode",
         description=(
-            "Generate embeddings for document chunks and write to a vector store."
+            "Generate vector records for document chunks via "
+            "configurable embedding functions."
         ),
         category="conversational_search",
     )
 )
-class EmbeddingIndexerNode(TaskNode):
-    """Node that embeds chunks and stores them via a configurable vector store."""
+class ChunkEmbeddingNode(TaskNode):
+    """Embed document chunks through one or more embedding functions."""
 
     source_result_key: str = Field(
         default="chunking_strategy",
@@ -378,26 +379,33 @@ class EmbeddingIndexerNode(TaskNode):
     chunks_field: str = Field(
         default="chunks", description="Field containing chunk payloads"
     )
-    vector_store: BaseVectorStore = Field(
-        default_factory=InMemoryVectorStore,
-        description="Vector store adapter used for persistence",
-    )
-    embedding_function: EmbeddingFunction | None = Field(
-        default=None,
-        description="Callable that converts text batches into embedding vectors",
+    embedding_functions: dict[str, EmbeddingFunction] = Field(
+        default_factory=lambda: {"default": deterministic_embedding_function},
+        description="Named embedding functions used to transform chunk text.",
     )
     required_metadata_keys: list[str] = Field(
         default_factory=lambda: ["document_id", "chunk_index"],
-        description="Metadata keys that must be present before upsert",
+        description=(
+            "Metadata keys that must be present " "before embeddings are computed."
+        ),
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @field_validator("embedding_functions")
+    @classmethod
+    def _validate_embedding_functions(
+        cls, value: dict[str, EmbeddingFunction]
+    ) -> dict[str, EmbeddingFunction]:
+        if not value:
+            raise ValueError("At least one embedding function must be configured")
+        return value
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Embed chunks and persist vectors via the configured store."""
+        """Convert chunks into vector records keyed by embedding name."""
         chunks = self._resolve_chunks(state)
         if not chunks:
-            msg = "EmbeddingIndexerNode requires at least one chunk"
+            msg = "ChunkEmbeddingNode requires at least one chunk"
             raise ValueError(msg)
 
         for key in self.required_metadata_keys:
@@ -406,30 +414,37 @@ class EmbeddingIndexerNode(TaskNode):
                     msg = f"Missing required metadata '{key}' for chunk {chunk.id}"
                     raise ValueError(msg)
 
-        embeddings = await self._embed([chunk.content for chunk in chunks])
-        if len(embeddings) != len(chunks):
-            msg = (
-                "Embedding function returned "
-                f"{len(embeddings)} embeddings for {len(chunks)} chunks"
-            )
-            raise ValueError(msg)
+        records_by_function: dict[str, list[VectorRecord]] = {}
+        chunk_texts = [chunk.content for chunk in chunks]
+        multiple_functions = len(self.embedding_functions) > 1
 
-        records = [
-            VectorRecord(
-                id=chunk.id,
-                values=vector,
-                text=chunk.content,
-                metadata=chunk.metadata,
-            )
-            for chunk, vector in zip(chunks, embeddings, strict=True)
-        ]
-        await self.vector_store.upsert(records)
+        for name, embedding_function in self.embedding_functions.items():
+            embeddings = await self._embed(chunk_texts, embedding_function)
+            if len(embeddings) != len(chunks):
+                msg = (
+                    "Embedding function returned "
+                    f"{len(embeddings)} embeddings for {len(chunks)} chunks"
+                )
+                raise ValueError(msg)
 
-        return {
-            "indexed": len(records),
-            "ids": [record.id for record in records],
-            "namespace": getattr(self.vector_store, "namespace", None),
-        }
+            records: list[VectorRecord] = []
+            suffix = f"-{name}" if multiple_functions else ""
+            for chunk, vector in zip(chunks, embeddings, strict=True):
+                metadata = dict(chunk.metadata)
+                metadata.setdefault("chunk_id", chunk.id)
+                metadata["embedding_type"] = name
+                record_id = f"{chunk.id}{suffix}" if suffix else chunk.id
+                records.append(
+                    VectorRecord(
+                        id=record_id,
+                        values=vector,
+                        text=chunk.content,
+                        metadata=metadata,
+                    )
+                )
+            records_by_function[name] = records
+
+        return {"chunk_embeddings": records_by_function}
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})
@@ -445,8 +460,11 @@ class EmbeddingIndexerNode(TaskNode):
             raise ValueError(msg)
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
 
-    async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or deterministic_embedding_function
+    async def _embed(
+        self,
+        texts: list[str],
+        embedder: EmbeddingFunction,
+    ) -> list[list[float]]:
         result = embedder(texts)
         if inspect.isawaitable(result):
             result = await result
@@ -456,6 +474,93 @@ class EmbeddingIndexerNode(TaskNode):
             msg = "Embedding function must return List[List[float]]"
             raise ValueError(msg)
         return result
+
+
+@registry.register(
+    NodeMetadata(
+        name="VectorStoreUpsertNode",
+        description=(
+            "Persist vector records produced by an embedding node " "into storage."
+        ),
+        category="conversational_search",
+    )
+)
+class VectorStoreUpsertNode(TaskNode):
+    """Node that writes pre-computed vector records into a vector store."""
+
+    source_result_key: str = Field(
+        default="chunk_embedding",
+        description="Name of the upstream result entry containing embeddings.",
+    )
+    embeddings_field: str = Field(
+        default="chunk_embeddings",
+        description="Field in upstream result that stores vector records.",
+    )
+    embedding_names: list[str] | None = Field(
+        default=None,
+        description="Subset of embedding keys to persist (defaults to all available).",
+    )
+    vector_store: BaseVectorStore = Field(
+        default_factory=InMemoryVectorStore,
+        description="Vector store adapter used for persistence.",
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Upsert vector records into the configured store."""
+        payload = self._resolve_embedding_records(state)
+        if not payload:
+            msg = "VectorStoreUpsertNode requires embedding records to persist"
+            raise ValueError(msg)
+
+        selected_names: list[str]
+        if self.embedding_names:
+            missing = [name for name in self.embedding_names if name not in payload]
+            if missing:
+                msg = f"Embedding names not found in payload: {missing}"
+                raise ValueError(msg)
+            selected_names = list(self.embedding_names)
+        else:
+            selected_names = list(payload.keys())
+
+        records: list[VectorRecord] = []
+        for name in selected_names:
+            entries = payload.get(name, [])
+            if not isinstance(entries, list):
+                msg = f"Embedding payload for '{name}' must be a list"
+                raise ValueError(msg)
+            records.extend(VectorRecord.model_validate(record) for record in entries)
+
+        if not records:
+            msg = "No vector records available to persist"
+            raise ValueError(msg)
+
+        await self.vector_store.upsert(records)
+
+        return {
+            "indexed": len(records),
+            "ids": [record.id for record in records],
+            "embedding_names": selected_names,
+            "namespace": getattr(self.vector_store, "namespace", None),
+        }
+
+    def _resolve_embedding_records(
+        self,
+        state: State,
+    ) -> dict[str, list[VectorRecord]]:
+        results = state.get("results", {})
+        source = results.get(self.source_result_key, {})
+        if isinstance(source, dict) and self.embeddings_field in source:
+            payload = source[self.embeddings_field]
+        else:
+            payload = results.get(self.embeddings_field)
+        if not payload:
+            return {}
+        if not isinstance(payload, dict):
+            msg = "Embedding payload must be a mapping of names to vector records"
+            raise ValueError(msg)
+        return payload
 
 
 @registry.register(

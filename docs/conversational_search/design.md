@@ -27,15 +27,19 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 - **ChunkingStrategyNode**
   - Applies configurable character/token chunking rules with overlap control
-  - Interfaces with DocumentLoaderNode output and feeds EmbeddingIndexerNode
+  - Interfaces with DocumentLoaderNode output and feeds ChunkEmbeddingNode
 
 - **MetadataExtractorNode**
   - Attaches structured metadata (title, source, tags) to documents
   - Powers filtering and ranking in downstream retrieval nodes
 
-- **EmbeddingIndexerNode**
-  - Runs embedding models and writes to vector stores (Pinecone primary adapter)
-  - Depends on BaseVectorStore abstraction for multi-vendor support
+- **ChunkEmbeddingNode**
+  - Generates vector records per chunk using configurable embedding functions
+  - Emits named embedding sets for downstream persistence or analytics
+
+- **VectorStoreUpsertNode**
+  - Persists selected embedding sets into BaseVectorStore adapters (InMemory, Pinecone)
+  - Returns indexed IDs, counts, and namespace metadata for observability
 
 - **IncrementalIndexerNode**
   - Delta-sync pipeline detecting adds/updates/deletes
@@ -167,11 +171,12 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 1. **DocumentLoaderNode** ingests documents from configured sources
 2. **ChunkingStrategyNode** splits documents into chunks with overlap
 3. **MetadataExtractorNode** attaches structured metadata
-4. **EmbeddingIndexerNode** generates embeddings and writes to vector store
-5. User submits query
-6. **DenseSearchNode** performs dense similarity search
-7. **GroundedGeneratorNode** generates response citing retrieved context
-8. Response returned to user with citations
+4. **ChunkEmbeddingNode** generates vector records for each chunk
+5. **VectorStoreUpsertNode** persists selected vectors into the configured store
+6. User submits query
+7. **DenseSearchNode** performs dense similarity search
+8. **GroundedGeneratorNode** generates response citing retrieved context
+9. Response returned to user with citations
 
 ### Flow 2: Hybrid Search with Re-ranking
 
@@ -265,12 +270,16 @@ nodes:
     config:
       extract_fields: ["title", "author", "date"]
 
-  - id: index
-    type: embedding_indexer
+  - id: chunk_embedding
+    type: chunk_embedding
+    config:
+      embedding_functions:
+        default: "{{inputs.embedding_model}}"
+
+  - id: vector_upsert
+    type: vector_store_upsert
     config:
       vector_store: "{{inputs.vector_store_id}}"
-      embedding_model: "text-embedding-3-small"
-      batch_size: 100
 
 edges:
   - from: load_docs
@@ -278,7 +287,9 @@ edges:
   - from: chunk
     to: extract_metadata
   - from: extract_metadata
-    to: index
+    to: chunk_embedding
+  - from: chunk_embedding
+    to: vector_upsert
 ```
 
 Trigger manually or via webhook:
@@ -770,7 +781,7 @@ class BaseMemoryStore(ABC):
 **Target**: Enable experimentation with basic conversational search
 
 **Nodes Delivered**:
-- DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, EmbeddingIndexerNode
+- DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, ChunkEmbeddingNode, VectorStoreUpsertNode
 - DenseSearchNode, SparseSearchNode, HybridFusionNode, WebSearchNode
 - QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode
 - GroundedGeneratorNode
