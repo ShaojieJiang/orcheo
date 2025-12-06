@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 from uuid import UUID
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from langchain_core.runnables import RunnableConfig
 from opentelemetry.trace import Span, Tracer
 from orcheo.config import get_settings
@@ -79,6 +79,24 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     app_logger.debug("=" * 80)
 
 
+_CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
+
+
+async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
+    """Send JSON only while the websocket is open."""
+    try:
+        await websocket.send_json(payload)
+    except WebSocketDisconnect:
+        logger.debug("Websocket disconnected before payload could be sent.")
+        return False
+    except RuntimeError as exc:
+        if str(exc) == _CANNOT_SEND_AFTER_CLOSE:
+            logger.debug("Websocket already closed; skipping payload send.")
+            return False
+        raise
+    return True
+
+
 async def _emit_trace_update(
     history_store: RunHistoryStore,
     websocket: WebSocket,
@@ -100,7 +118,7 @@ async def _emit_trace_update(
         record, step=step, include_root=include_root, complete=complete
     )
     if update is not None:
-        await websocket.send_json(update.model_dump(mode="json"))
+        await _safe_send_json(websocket, update.model_dump(mode="json"))
 
 
 async def _stream_workflow_updates(
@@ -122,7 +140,7 @@ async def _stream_workflow_updates(
         record_workflow_step(tracer, step)
         history_step = await history_store.append_step(execution_id, step)
         try:
-            await websocket.send_json(step)
+            await _safe_send_json(websocket, step)
         except Exception as exc:  # pragma: no cover
             logger.error("Error processing messages: %s", exc)
             raise
@@ -317,7 +335,7 @@ async def execute_workflow(
         record_workflow_completion(span_context.span)
         await history_store.append_step(execution_id, completion_payload)
         await history_store.mark_completed(execution_id)
-        await websocket.send_json(completion_payload)  # pragma: no cover
+        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
 
         await _emit_trace_update(
             history_store,

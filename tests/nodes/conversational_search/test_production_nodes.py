@@ -1,4 +1,6 @@
+import sys
 import time
+import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
@@ -21,6 +23,7 @@ from orcheo.nodes.conversational_search.ingestion import (
 from orcheo.nodes.conversational_search.models import DocumentChunk, SearchResult
 from orcheo.nodes.conversational_search.query_processing import MultiHopPlannerNode
 from orcheo.nodes.conversational_search.retrieval import (
+    PineconeRerankNode,
     ReRankerNode,
     SourceRouterNode,
 )
@@ -476,6 +479,92 @@ async def test_reranker_length_penalty_and_router_validation() -> None:
             ),
             {},
         )
+
+
+@pytest.mark.asyncio
+async def test_pinecone_rerank_node_calls_inference_and_orders_results() -> None:
+    class _FakeRerankResult:
+        def __init__(self, data: list[dict[str, Any]]) -> None:
+            self.data = data
+
+    class _FakeInference:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def rerank(self, **kwargs: Any) -> _FakeRerankResult:
+            self.calls.append(kwargs)
+            return _FakeRerankResult(
+                data=[
+                    {
+                        "document": {"_id": "res-2", "chunk_text": "second text"},
+                        "score": 0.95,
+                    },
+                    {
+                        "document": {"_id": "res-1", "chunk_text": "first text"},
+                        "score": 0.9,
+                    },
+                ]
+            )
+
+    fake_module = types.ModuleType("pinecone")
+
+    class _FakePinecone:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.inference = _FakeInference()
+            fake_module.client = self
+
+    fake_module.Pinecone = _FakePinecone
+
+    entries = [
+        SearchResult(
+            id="res-1",
+            score=0.2,
+            text="first text",
+            metadata={"tier": "a"},
+            source="dense",
+            sources=["dense"],
+        ),
+        SearchResult(
+            id="res-2",
+            score=0.3,
+            text="second text",
+            metadata={"tier": "b"},
+            source="bm25",
+            sources=["bm25"],
+        ),
+    ]
+    state = State(
+        inputs={"query": "legal query"},
+        results={"fusion": {"results": entries}},
+        structured_response=None,
+    )
+
+    node = PineconeRerankNode(
+        name="pinecone-rerank",
+        client_kwargs={"api_key": "token"},
+        top_n=2,
+        parameters={"truncate": "END"},
+    )
+
+    with patch.dict(sys.modules, {"pinecone": fake_module}):
+        reranked = await node.run(state, {})
+
+    client = fake_module.client
+    assert client.kwargs == {"api_key": "token"}
+    call = client.inference.calls[0]
+    assert call["model"] == "bge-reranker-v2-m3"
+    assert call["query"] == "legal query"
+    assert call["rank_fields"] == ["chunk_text"]
+    assert call["parameters"] == {"truncate": "END"}
+    documents = call["documents"]
+    assert documents[0]["_id"] == "res-1"
+    assert documents[1]["chunk_text"] == "second text"
+    assert documents[0]["metadata"] == entries[0].metadata
+
+    assert reranked["results"][0].id == "res-2"
+    assert reranked["results"][1].id == "res-1"
+    assert reranked["results"][0].source == "bm25"
 
 
 @pytest.mark.asyncio

@@ -663,16 +663,12 @@ class ReRankerNode(TaskNode):
         return {"results": reranked[: self.top_k]}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
-        results = state.get("results", {})
-        payload = results.get(self.source_result_key, {})
-        if isinstance(payload, dict) and self.results_field in payload:
-            entries = payload[self.results_field]
-        else:
-            entries = payload
-        if not isinstance(entries, list):
-            msg = "ReRankerNode requires a list of retrieval results"
-            raise ValueError(msg)
-        return [SearchResult.model_validate(item) for item in entries]
+        return _resolve_retrieval_results(
+            state,
+            self.source_result_key,
+            self.results_field,
+            error_message="ReRankerNode requires a list of retrieval results",
+        )
 
     def _score(self, entry: SearchResult) -> float:
         base_score = entry.score
@@ -723,3 +719,194 @@ class SourceRouterNode(TaskNode):
             msg = "SourceRouterNode requires a list of retrieval results"
             raise ValueError(msg)
         return [SearchResult.model_validate(item) for item in entries]
+
+
+@registry.register(
+    NodeMetadata(
+        name="PineconeRerankNode",
+        description=(
+            "Rerank retrieval results via Pinecone inference for tighter ordering."
+        ),
+        category="conversational_search",
+    )
+)
+class PineconeRerankNode(TaskNode):
+    """Node that uses Pinecone's inference reranker to re-score merged results."""
+
+    model: str = Field(
+        default="bge-reranker-v2-m3",
+        description="Pinecone hosted reranking model identifier.",
+    )
+    source_result_key: str = Field(
+        default="fusion", description="Result entry holding merged retrieval outputs."
+    )
+    results_field: str = Field(
+        default="results",
+        description="Key in the source entry containing SearchResult list.",
+    )
+    query_key: str = Field(
+        default="query",
+        description="Key within ``state.inputs`` that contains the active query.",
+    )
+    rank_fields: list[str] = Field(
+        default_factory=lambda: ["chunk_text"],
+        description="Document fields evaluated by the reranking model.",
+    )
+    top_n: int = Field(
+        default=10,
+        gt=0,
+        description="Maximum reranked results returned from Pinecone.",
+    )
+    return_documents: bool = Field(
+        default=True,
+        description="Whether the reranker should return document payloads.",
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional parameters passed to the reranking request (e.g., truncate)."
+        ),
+    )
+    client_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments forwarded to Pinecone client.",
+    )
+    document_text_field: str = Field(
+        default="chunk_text",
+        description="Field name within each document that contains passage text.",
+    )
+    document_id_field: str = Field(
+        default="_id",
+        description=(
+            "Field name within each document that acts as the unique identifier."
+        ),
+    )
+    client: Any | None = Field(
+        default=None,
+        description="Optional preconfigured Pinecone client (primarily for testing).",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Call Pinecone inference to rerank merged search results."""
+        entries = _resolve_retrieval_results(
+            state, self.source_result_key, self.results_field
+        )
+        if not entries:
+            return {"results": []}
+
+        query = self._resolve_query(state)
+        documents = self._build_documents(entries)
+        client = self._resolve_client()
+        inference = getattr(client, "inference", None)
+        if inference is None:
+            raise RuntimeError(
+                "Pinecone client lacks an inference interface for reranking"
+            )
+
+        rerank_result = inference.rerank(
+            model=self.model,
+            query=query,
+            documents=documents,
+            rank_fields=self.rank_fields,
+            top_n=self.top_n,
+            return_documents=self.return_documents,
+            parameters=self.parameters or None,
+        )
+        if inspect.isawaitable(rerank_result):
+            rerank_result = await rerank_result
+
+        data = getattr(rerank_result, "data", None)
+        if data is None and isinstance(rerank_result, dict):
+            data = rerank_result.get("data", [])
+        data = data or []
+
+        entry_map = {entry.id: entry for entry in entries}
+        reranked: list[SearchResult] = []
+        for row in data:
+            doc = (row or {}).get("document") or {}
+            doc_id = str(
+                doc.get(self.document_id_field)
+                or row.get("id")
+                or row.get("document_id")
+                or ""
+            )
+            base_entry = entry_map.get(doc_id)
+            text = doc.get(self.document_text_field) or (
+                base_entry.text if base_entry else ""
+            )
+            metadata = doc.get("metadata")
+            if metadata is None:
+                metadata = base_entry.metadata if base_entry else {}
+            score = float(row.get("score", 0.0))
+            reranked.append(
+                SearchResult(
+                    id=doc_id
+                    or (base_entry.id if base_entry else f"reranker-{len(reranked)}"),
+                    score=score,
+                    text=text or "",
+                    metadata=metadata,
+                    source=base_entry.source if base_entry else "reranker",
+                    sources=base_entry.sources if base_entry else ["reranker"],
+                )
+            )
+        reranked.sort(key=lambda result: result.score, reverse=True)
+        return {"results": reranked[: self.top_n]}
+
+    def _resolve_query(self, state: State) -> str:
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("PineconeRerankNode requires a non-empty query string")
+        return query.strip()
+
+    def _build_documents(self, entries: list[SearchResult]) -> list[dict[str, Any]]:
+        documents: list[dict[str, Any]] = []
+        for entry in entries:
+            document: dict[str, Any] = {
+                self.document_id_field: entry.id,
+                self.document_text_field: entry.text,
+            }
+            if entry.metadata:
+                document["metadata"] = dict(entry.metadata)
+            documents.append(document)
+        return documents
+
+    def _resolve_client(self) -> Any:
+        if self.client is not None:
+            return self.client
+        try:
+            from pinecone import Pinecone  # type: ignore
+        except ImportError as exc:  # pragma: no cover - dependency guard
+            msg = (
+                "PineconeRerankNode requires the 'pinecone-client' dependency. "
+                "Install it or provide a configured client."
+            )
+            raise ImportError(msg) from exc
+        client_kwargs = dict(self.client_kwargs or {})
+        self.client = Pinecone(**client_kwargs)
+        return self.client
+
+
+def _resolve_retrieval_results(
+    state: State,
+    source_result_key: str,
+    results_field: str,
+    *,
+    error_message: str = "Retrieved results must be provided as a list",
+) -> list[SearchResult]:
+    results = state.get("results", {})
+    payload = results.get(source_result_key, {})
+    if isinstance(payload, dict) and results_field in payload:
+        entries = payload[results_field]
+    else:
+        entries = payload
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise ValueError(error_message)
+    normalized: list[SearchResult] = []
+    for item in entries:
+        if item is None:
+            continue
+        normalized.append(SearchResult.model_validate(item))
+    return normalized

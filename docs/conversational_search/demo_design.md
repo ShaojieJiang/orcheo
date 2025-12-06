@@ -11,15 +11,59 @@ This document defines the minimal set of demo workflows that collectively demons
 
 ## Demo Strategy
 
-We organize demos into **5 progressive workflows** that map to the node composition patterns from the requirements document:
+We organize demos into **6 workflows** that map to the node composition patterns from the requirements document: Demo 0 builds the hybrid index foundation, and the remaining five progressive demos build on top of that indexing work.
 
-1. **Demo 1: Basic RAG Pipeline** - Core ingestion and retrieval
-2. **Demo 2: Hybrid Search** - Two-part sequence (2.1 builds indexes, 2.2 performs retrieval, fusion, and ranking)
-3. **Demo 3: Conversational Search** - Multi-turn conversation with memory
-4. **Demo 4: Production-Ready Pipeline** - Guardrails, compliance, and optimization
-5. **Demo 5: Evaluation & Research** - Metrics, analytics, and continuous improvement
+1. **Demo 0: Hybrid Search Indexing** - Persist deterministic dense embeddings and sparse metadata inside Pinecone so downstream retrieval demos can assume a populated vector store.
+2. **Demo 1: Basic RAG Pipeline** - Core ingestion and retrieval
+3. **Demo 2: Hybrid Search** - Retrieval, fusion, and ranking (Demo 0 prepopulates the indexes so this workflow focuses on multi-retriever fusion and summarization)
+4. **Demo 3: Conversational Search** - Multi-turn conversation with memory
+5. **Demo 4: Production-Ready Pipeline** - Guardrails, compliance, and optimization
+6. **Demo 5: Evaluation & Research** - Metrics, analytics, and continuous improvement
 
 ---
+
+## Demo 0: Hybrid Search Indexing
+
+**Goal:** Persist deterministic dense embeddings and the metadata required for sparse retrieval inside Pinecone so downstream demos can assume a fully populated vector store.
+
+### Use Case
+- Run ingestion once per corpus snapshot to keep index building orthogonal to multi-retriever experiments.
+- Surface the same vectors for both dense and sparse retrievers so that Keyword BM25 can rehydrate chunk content from Pinecone metadata.
+
+### Indexing Flow
+```mermaid
+graph TD
+    Start([START]) --> MarkdownCorpus[/Markdown Corpus/]
+    MarkdownCorpus --> DocumentLoaderNode[DocumentLoaderNode]
+    DocumentLoaderNode --> MetadataExtractorNode[MetadataExtractorNode]
+    MetadataExtractorNode --> ChunkingStrategyNode[ChunkingStrategyNode]
+    ChunkingStrategyNode --> ChunkEmbeddingNode["ChunkEmbeddingNode (dense + BM25)"]
+    ChunkEmbeddingNode --> VectorStoreUpsertNodeDense["VectorStoreUpsertNode (dense)"]
+    VectorStoreUpsertNodeDense --> VectorStoreUpsertNodeSparse["VectorStoreUpsertNode (BM25)"]
+    VectorStoreUpsertNodeSparse --> End([END])
+```
+
+### Configuration Highlights
+```yaml
+corpus:
+  docs_path: "examples/conversational_search/data/docs"
+  chunk_size: 600
+  chunk_overlap: 80
+
+vector_store:
+  type: "pinecone"
+  pinecone:
+    index_name: "orcheo-hybrid-demo"
+    namespace: "hybrid_search"
+    client_kwargs:
+      api_key: "[[pinecone_api_key]]"
+      environment: "[[pinecone_environment]]"
+```
+
+### Running the Demo
+```bash
+python examples/conversational_search/demo_0/hybrid_indexing.py
+```
 
 ## Demo 1: Basic RAG Pipeline
 
@@ -114,58 +158,16 @@ System: "The capital of France is Paris. It is located in the north-central part
 
 ---
 
-## Demo 2.1: Hybrid Search Indexing
-
-**Goal:** Persist deterministic dense embeddings and the metadata required for sparse retrieval inside Pinecone so downstream demos can assume a fully populated vector store.
-
-### Use Case
-- Run ingestion once per corpus snapshot to keep index building orthogonal to multi-retriever experiments.
-- Surface the same vectors for both dense and sparse retrievers so that Keyword BM25 can rehydrate chunk content from Pinecone metadata.
-
-### Indexing Flow
-```mermaid
-graph LR
-    Docs[/Markdown Corpus/]
-    Docs --> Loader[DocumentLoaderNode]
-    Loader --> Metadata[MetadataExtractorNode]
-    Metadata --> Chunking[ChunkingStrategyNode]
-    Chunking --> ChunkEmbedding[ChunkEmbeddingNode (deterministic embedding)]
-    ChunkEmbedding --> VectorUpsert[VectorStoreUpsertNode]
-    VectorUpsert --> VectorStore[PineconeVectorStore]
-```
-
-### Configuration Highlights
-```yaml
-corpus:
-  docs_path: "examples/conversational_search/data/docs"
-  chunk_size: 600
-  chunk_overlap: 80
-
-vector_store:
-  type: "pinecone"
-  pinecone:
-    index_name: "orcheo-hybrid-demo"
-    namespace: "hybrid_search"
-    client_kwargs:
-      api_key: "[[pinecone_api_key]]"
-      environment: "[[pinecone_environment]]"
-```
-
-### Running the Demo
-```bash
-python examples/conversational_search/demo_2_hybrid_search/demo_2_1.py
-```
-
 ## Demo 2.2: Hybrid Search with Ranking
 
 **Goal:** Show advanced retrieval combining dense and sparse search with fusion, AI summarization, and live web search.
 
-This demo assumes the Pinecone indexes have already been created by Demo 2.1 (indexing) so the workflow can concentrate on retrieval and grounding.
+This demo assumes the Pinecone indexes have already been created by Demo 0 (hybrid indexing) so the workflow can concentrate on retrieval and grounding.
 
 ### Use Case
 A legal document search system that needs both semantic understanding and exact keyword matching for statute citations, with the ability to fetch fresh web results for recent case law.
 
-Before invoking this workflow, run Demo 2.1 so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
+Before invoking this workflow, run Demo 0 (hybrid indexing) so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
 
 ### Workflow Graph
 
@@ -530,9 +532,11 @@ User Feedback:
 
 ---
 
-## Node Coverage Matrix
+## Node Coverage Matrix (Demos 1-5)
 
-| Node | Demo 1 | Demo 2 (Index + Retrieval) | Demo 3 | Demo 4 | Demo 5 |
+The matrix below tracks node coverage for the five progressive demos; Demo 0 is a preparatory indexing workflow that reuses the ingestion nodes already shown in Demo 1 and therefore is not enumerated separately.
+
+| Node | Demo 1 | Demo 2 (Retrieval + Fusion) | Demo 3 | Demo 4 | Demo 5 |
 |------|--------|---------------------------|--------|--------|--------|
 | **Data Ingestion** |
 | DocumentLoaderNode | ✓ | | | | |
@@ -593,13 +597,17 @@ User Feedback:
 ## Implementation Roadmap
 
 ### Phase 1: Basic Demos (Weeks 1-2)
+- **Demo 0**: Hybrid Search Indexing
+  - Focus: Persist deterministic dense embeddings and metadata so downstream demos can start with a populated vector store
+  - Deliverable: Pinecone indexes with dense and sparse vectors that can be reused for retrieval experiments
+
 - **Demo 1**: Basic RAG Pipeline
   - Focus: Core P0 nodes, simple linear flow
   - Deliverable: Working example with sample docs
 
-- **Demo 2**: Hybrid Search (2.1 indexing + 2.2 fusion)
-  - Focus: Build Pinecone indexes once (2.1) and replay multi-retriever fusion + ranking (2.2)
-  - Deliverable: Indexed corpus plus metrics comparing fusion outcomes
+- **Demo 2**: Hybrid Search (retrieval + fusion)
+  - Focus: Multi-retriever fusion and ranking built on the indexes created by Demo 0
+  - Deliverable: Retrieval workflow with metrics comparing fusion outcomes
 
 ### Phase 2: Conversational Demos (Weeks 3-4)
 - **Demo 3**: Conversational Search
@@ -694,6 +702,8 @@ Each demo will include:
 
 ```
 examples/conversational_search/
+├── demo_0/
+│   └── hybrid_indexing.py
 ├── demo_1_basic_rag/
 │   ├── demo.py
 │   ├── README.md
@@ -701,7 +711,6 @@ examples/conversational_search/
 │       ├── docs/
 │       └── queries.json
 ├── demo_2_hybrid_search/
-│   ├── demo_2_1.py
 │   ├── demo_2_2.py
 │   ├── README.md
 │   └── data/
@@ -726,11 +735,11 @@ examples/conversational_search/
 
 ## Conclusion
 
-These 5 progressive demos provide complete coverage of all conversational search nodes while maintaining clear separation of concerns. Each demo builds on previous concepts while introducing new capabilities, making it easy for users to learn incrementally and for developers to maintain the codebase.
+These 5 progressive demos, underpinned by the preparatory Demo 0 indexing workflow, provide complete coverage of all conversational search nodes while maintaining clear separation of concerns. Each demo builds on previous concepts while introducing new capabilities, making it easy for users to learn incrementally and for developers to maintain the codebase.
 
 The design prioritizes:
 - **Minimal overlap**: Each node appears in exactly the demos where it's most relevant
 - **Progressive complexity**: Demos increase in sophistication from basic RAG to full evaluation pipelines
 - **Real-world scenarios**: Each demo maps to actual use cases teams would encounter
-- **Complete coverage**: 39 out of 40 nodes demonstrated across the 5 workflows (only ConversationCompressorNode omitted as it's similar to MemorySummarizerNode)
+- **Complete coverage**: 39 out of 40 nodes demonstrated across the five progressive workflows (only ConversationCompressorNode omitted as it's similar to MemorySummarizerNode); Demo 0 reuses the same ingestion nodes instead of expanding the matrix
 - **Visual clarity**: Mermaid diagrams provide clear visual representation of workflow graphs

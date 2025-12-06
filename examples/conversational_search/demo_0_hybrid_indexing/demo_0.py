@@ -27,7 +27,8 @@ DEFAULT_DOCS_PATH = (
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_CHUNK_OVERLAP = 64
-DEFAULT_VECTOR_STORE_INDEX = "orcheo-demo"
+DEFAULT_VECTOR_STORE_INDEX_DENSE = "orcheo-demo-dense"
+DEFAULT_VECTOR_STORE_INDEX_SPARSE = "orcheo-demo-sparse"
 DEFAULT_VECTOR_STORE_NAMESPACE = "hybrid_search"
 DEFAULT_VECTOR_STORE_KWARGS = {"api_key": "[[pinecone_api_key]]"}
 
@@ -36,13 +37,23 @@ async def build_graph(
     dense_embedding_method: str = OPENAI_TEXT_EMBEDDING_3_SMALL,
     sparse_embedding_method: str = PINECONE_BM25_DEFAULT,
     vector_store: BaseVectorStore | None = None,
+    dense_vector_store: BaseVectorStore | None = None,
+    sparse_vector_store: BaseVectorStore | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> StateGraph:
     """Construct the ingestion graph for the demo."""
-    if vector_store is None:
-        vector_store = PineconeVectorStore(
-            index_name=DEFAULT_VECTOR_STORE_INDEX,
+    dense_store = dense_vector_store or vector_store
+    sparse_store = sparse_vector_store or vector_store
+    if dense_store is None:
+        dense_store = PineconeVectorStore(
+            index_name=DEFAULT_VECTOR_STORE_INDEX_DENSE,
+            namespace=DEFAULT_VECTOR_STORE_NAMESPACE,
+            client_kwargs=DEFAULT_VECTOR_STORE_KWARGS,
+        )
+    if sparse_store is None:
+        sparse_store = PineconeVectorStore(
+            index_name=DEFAULT_VECTOR_STORE_INDEX_SPARSE,
             namespace=DEFAULT_VECTOR_STORE_NAMESPACE,
             client_kwargs=DEFAULT_VECTOR_STORE_KWARGS,
         )
@@ -70,10 +81,17 @@ async def build_graph(
         },
         credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
-    vector_upsert = VectorStoreUpsertNode(
-        name="vector_upsert",
+    dense_vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert_dense",
         source_result_key=chunk_embedder.name,
-        vector_store=vector_store,
+        embedding_names=["dense"],
+        vector_store=dense_store,
+    )
+    sparse_vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert_sparse",
+        source_result_key=chunk_embedder.name,
+        embedding_names=["bm25"],
+        vector_store=sparse_store,
     )
 
     workflow = StateGraph(State)
@@ -81,14 +99,16 @@ async def build_graph(
     workflow.add_node("metadata_extractor", metadata_extractor)
     workflow.add_node("chunking_strategy", chunking)
     workflow.add_node("chunk_embedding", chunk_embedder)
-    workflow.add_node("vector_upsert", vector_upsert)
+    workflow.add_node("vector_upsert_dense", dense_vector_upsert)
+    workflow.add_node("vector_upsert_sparse", sparse_vector_upsert)
 
     workflow.set_entry_point("document_loader")
     workflow.add_edge("document_loader", "metadata_extractor")
     workflow.add_edge("metadata_extractor", "chunking_strategy")
     workflow.add_edge("chunking_strategy", "chunk_embedding")
-    workflow.add_edge("chunk_embedding", "vector_upsert")
-    workflow.add_edge("vector_upsert", END)
+    workflow.add_edge("chunk_embedding", "vector_upsert_dense")
+    workflow.add_edge("vector_upsert_dense", "vector_upsert_sparse")
+    workflow.add_edge("vector_upsert_sparse", END)
 
     return workflow
 
@@ -98,14 +118,22 @@ async def _run_manual_test() -> None:
     graph = await build_graph()
     workflow = graph.compile()
     resolver = setup_credentials()
-    print("Running Demo 2.1 manual smoke test with InMemoryVectorStore")
+    print("Running Demo 2.1 manual smoke test with Pinecone")
     with credential_resolution(resolver):
         result = await workflow.ainvoke({"inputs": {}})
-    summary = result.get("results", {}).get("vector_upsert", {})
+    results = result.get("results", {})
+    dense_summary = results.get("vector_upsert_dense", {})
+    sparse_summary = results.get("vector_upsert_sparse", {})
+
     print("Manual test results:")
-    print(f"  Indexed: {summary.get('indexed', 'n/a')}")
-    print(f"  Embeddings persisted: {summary.get('embedding_names', [])}")
-    print(f"  Namespace: {summary.get('namespace')}")
+    print("  Dense index:")
+    print(f"    Indexed: {dense_summary.get('indexed', 'n/a')}")
+    print(f"    Embeddings persisted: {dense_summary.get('embedding_names', [])}")
+    print(f"    Namespace: {dense_summary.get('namespace')}")
+    print("  Sparse index:")
+    print(f"    Indexed: {sparse_summary.get('indexed', 'n/a')}")
+    print(f"    Embeddings persisted: {sparse_summary.get('embedding_names', [])}")
+    print(f"    Namespace: {sparse_summary.get('namespace')}")
 
 
 def setup_credentials() -> CredentialResolver:

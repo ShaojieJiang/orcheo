@@ -5,10 +5,10 @@ Dense + sparse retrieval with reciprocal-rank fusion, optional web search, and a
 ## Usage
 These demos are designed to be uploaded and executed on the Orcheo server.
 
-1) **Index**: upload and run `demo_2_1.py` to upsert deterministic embeddings + metadata into Pinecone.
-2) **Query**: upload and run `demo_2_2.py` to fan queries across dense, sparse, and web search before fusion and ranking.
+1) **Index**: upload and run `examples/conversational_search/demo_0_hybrid_indexing/demo_0.py` to upsert deterministic embeddings + metadata into Pinecone.
+2) **Query**: upload and run `examples/conversational_search/demo_2_hybrid_search/demo_2.py` to fan queries across dense, sparse, and web search before fusion and ranking.
 
 ## What to Expect
-- `demo_2_1.py` prints the corpus stats and the Pinecone namespace/index used.
-- `demo_2_2.py` uses `bm25`, `vector`, and `web_search` branches defined in `DEFAULT_CONFIG` and outputs a grounded answer with citations.
+- `examples/conversational_search/demo_0_hybrid_indexing/demo_0.py` prints the corpus stats and the Pinecone namespace/index used.
+- `examples/conversational_search/demo_2_hybrid_search/demo_2.py` uses `bm25`, `vector`, and `web_search` branches defined in `DEFAULT_CONFIG` and outputs a grounded answer with citations.
 - Modify `DEFAULT_CONFIG` directly in each script to tune how each retriever contributes.

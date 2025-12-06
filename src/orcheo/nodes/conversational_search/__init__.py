@@ -61,6 +61,7 @@ from orcheo.nodes.conversational_search.query_processing import (
 from orcheo.nodes.conversational_search.retrieval import (
     DenseSearchNode,
     HybridFusionNode,
+    PineconeRerankNode,
     ReRankerNode,
     SourceRouterNode,
     SparseSearchNode,
@@ -114,6 +115,7 @@ __all__ = [
     "PolicyComplianceNode",
     "QueryClarificationNode",
     "QueryClassifierNode",
+    "PineconeRerankNode",
     "QueryRewriteNode",
     "ReRankerNode",
     "RetrievalEvaluationNode",
