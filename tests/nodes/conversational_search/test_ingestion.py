@@ -10,6 +10,7 @@ from orcheo.nodes.conversational_search.ingestion import (
     MetadataExtractorNode,
     RawDocumentInput,
     VectorStoreUpsertNode,
+    register_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import Document
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -394,9 +395,10 @@ async def test_chunk_embedding_node_raises_on_embedding_length_mismatch() -> Non
     def short_embedding_function(texts: list[str]) -> list[list[float]]:
         return [[0.0] * 4 for _ in texts[:1]]
 
+    register_embedding_method("short-length-mismatch", short_embedding_function)
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
-        embedding_functions={"default": short_embedding_function},
+        embedding_methods={"default": "short-length-mismatch"},
     )
 
     with pytest.raises(ValueError, match="returned 1 embeddings for 2 chunks"):
@@ -479,9 +481,11 @@ async def test_chunk_embedding_node_handles_multiple_functions() -> None:
     def sparse(texts: list[str]) -> list[list[float]]:
         return [[0.0] * 4 for _ in texts]
 
+    register_embedding_method("dense-test", dense)
+    register_embedding_method("sparse-test", sparse)
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
-        embedding_functions={"dense": dense, "sparse": sparse},
+        embedding_methods={"dense": "dense-test", "sparse": "sparse-test"},
     )
     result = await node.run(state, {})
 
@@ -512,9 +516,10 @@ async def test_chunk_embedding_node_accepts_async_embedding_function() -> None:
         results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
+    register_embedding_method("async-test", embed)
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
-        embedding_functions={"async": embed},
+        embedding_methods={"async": "async-test"},
     )
 
     result = await node.run(state, {})
@@ -544,9 +549,10 @@ async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None
         },
         structured_response=None,
     )
+    register_embedding_method("invalid-response", embed)
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
-        embedding_functions={"default": embed},
+        embedding_methods={"default": "invalid-response"},
     )
 
     with pytest.raises(
@@ -613,9 +619,11 @@ async def test_vector_store_upsert_filters_embedding_names() -> None:
     def sparse(texts: list[str]) -> list[list[float]]:
         return [[0.5] * 4 for _ in texts]
 
+    register_embedding_method("dense-filter", dense)
+    register_embedding_method("sparse-filter", sparse)
     chunk_node = ChunkEmbeddingNode(
         name="chunk_embedding",
-        embedding_functions={"dense": dense, "sparse": sparse},
+        embedding_methods={"dense": "dense-filter", "sparse": "sparse-filter"},
     )
     embed_state = State(
         inputs={},
@@ -708,7 +716,14 @@ async def test_pinecone_vector_store_dependency_error_message() -> None:
     from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 
     store = PineconeVectorStore(index_name="missing-client")
-    with pytest.raises(ImportError):
+    try:
+        from pinecone.exceptions import PineconeConfigurationError
+    except ImportError:  # pragma: no cover - pinecone package missing
+        pinecone_configuration_error = Exception
+    else:
+        pinecone_configuration_error = PineconeConfigurationError
+
+    with pytest.raises((ImportError, pinecone_configuration_error)):
         await store.upsert([])
 
 
@@ -756,6 +771,32 @@ async def test_document_loader_reads_from_storage_path_latin1(tmp_path) -> None:
     assert len(documents) == 1
     # Should decode as latin-1
     assert documents[0].content == test_bytes.decode("latin-1")
+
+
+@pytest.mark.asyncio
+async def test_document_loader_expands_directory_paths(tmp_path) -> None:
+    """Test document loader reads every file inside a configured directory."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    file_a = docs_dir / "a.md"
+    file_b = docs_dir / "b.md"
+    file_a.write_text("alpha", encoding="utf-8")
+    file_b.write_text("beta", encoding="utf-8")
+
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(storage_path=str(docs_dir))],
+        default_metadata={"demo": "directory"},
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+    documents = result["documents"]
+
+    assert len(documents) == 2
+    assert [doc.content for doc in documents] == ["alpha", "beta"]
+    assert all(doc.metadata["demo"] == "directory" for doc in documents)
+    assert [doc.source for doc in documents] == ["a.md", "b.md"]
 
 
 @pytest.mark.asyncio

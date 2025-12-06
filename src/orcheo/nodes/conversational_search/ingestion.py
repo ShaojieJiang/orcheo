@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import inspect
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -22,18 +23,44 @@ from orcheo.nodes.conversational_search.vector_store import (
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
-EmbeddingFunction = Callable[[list[str]], list[list[float]]]
+EmbeddingMethod = Callable[[list[str]], list[list[float]]]
+
+_EMBEDDING_METHODS: dict[str, EmbeddingMethod] = {}
+DEFAULT_EMBEDDING_METHOD_NAME = "deterministic"
 
 
-def deterministic_embedding_function(texts: list[str]) -> list[list[float]]:
+def register_embedding_method(name: str, method: EmbeddingMethod) -> EmbeddingMethod:
+    """Register an embedding callable for later resolution."""
+    _EMBEDDING_METHODS[name] = method
+    return method
+
+
+def resolve_embedding_method(name: str) -> EmbeddingMethod:
+    """Return the callable tied to ``name`` or raise ``ValueError``."""
+    try:
+        return _EMBEDDING_METHODS[name]
+    except KeyError as exc:  # pragma: no cover - failure path exercised in tests
+        raise ValueError(f"Unknown embedding method '{name}'") from exc
+
+
+def _deterministic_embedding_method(texts: list[str]) -> list[list[float]]:
     """Deterministic fallback embedding using SHA256 hashing."""
     embeddings: list[list[float]] = []
     for text in texts:
         digest = hashlib.sha256(text.encode("utf-8")).digest()
-        # Convert first 16 bytes to floats in [0, 1]
         vector = [byte / 255.0 for byte in digest[:16]]
         embeddings.append(vector)
     return embeddings
+
+
+register_embedding_method(
+    DEFAULT_EMBEDDING_METHOD_NAME, _deterministic_embedding_method
+)
+
+
+def _default_embedding_methods(_: dict[str, Any] | None = None) -> dict[str, str]:
+    """Return the default embedding method names used by ChunkEmbeddingNode."""
+    return {"default": DEFAULT_EMBEDDING_METHOD_NAME}
 
 
 class RawDocumentInput(BaseModel):
@@ -110,8 +137,6 @@ class DocumentLoaderNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Normalize inline and state-supplied payloads into documents."""
-        from pathlib import Path
-
         payloads = list(self.documents)
         state_documents = state.get("inputs", {}).get(self.input_key)
         if state_documents:
@@ -121,6 +146,7 @@ class DocumentLoaderNode(TaskNode):
             payloads.extend(state_documents)
 
         raw_inputs = [RawDocumentInput.from_unknown(value) for value in payloads]
+        raw_inputs = self._expand_storage_paths(raw_inputs)
         if not raw_inputs:
             msg = "No documents provided to DocumentLoaderNode"
             raise ValueError(msg)
@@ -150,6 +176,7 @@ class DocumentLoaderNode(TaskNode):
                     "Provide either 'content' or 'storage_path'."
                 )
                 raise ValueError(msg)
+            assert content is not None
 
             documents.append(
                 Document(
@@ -161,6 +188,34 @@ class DocumentLoaderNode(TaskNode):
             )
 
         return {"documents": documents}
+
+    def _expand_storage_paths(
+        self,
+        raw_inputs: list[RawDocumentInput],
+    ) -> list[RawDocumentInput]:
+        """Expand directory storage paths into per-file document payloads."""
+        expanded: list[RawDocumentInput] = []
+        for raw in raw_inputs:
+            storage_path = raw.storage_path
+            if not storage_path:
+                expanded.append(raw)
+                continue
+
+            path = Path(storage_path)
+            if path.is_dir():
+                for child in sorted(path.iterdir(), key=lambda entry: entry.name):
+                    if not child.is_file():
+                        continue
+                    expanded.append(
+                        RawDocumentInput(
+                            storage_path=str(child),
+                            metadata=dict(raw.metadata),
+                            source=raw.source or child.name,
+                        )
+                    )
+            else:
+                expanded.append(raw)
+        return expanded
 
 
 @registry.register(
@@ -379,26 +434,27 @@ class ChunkEmbeddingNode(TaskNode):
     chunks_field: str = Field(
         default="chunks", description="Field containing chunk payloads"
     )
-    embedding_functions: dict[str, EmbeddingFunction] = Field(
-        default_factory=lambda: {"default": deterministic_embedding_function},
-        description="Named embedding functions used to transform chunk text.",
+    embedding_methods: dict[str, str] = Field(
+        default_factory=_default_embedding_methods,
+        description="Named embedding method identifiers used to transform chunk text.",
     )
     required_metadata_keys: list[str] = Field(
         default_factory=lambda: ["document_id", "chunk_index"],
         description=(
-            "Metadata keys that must be present " "before embeddings are computed."
+            "Metadata keys that must be present before embeddings are computed."
         ),
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @field_validator("embedding_functions")
+    @field_validator("embedding_methods")
     @classmethod
-    def _validate_embedding_functions(
-        cls, value: dict[str, EmbeddingFunction]
-    ) -> dict[str, EmbeddingFunction]:
+    def _validate_embedding_methods(cls, value: dict[str, str]) -> dict[str, str]:
         if not value:
-            raise ValueError("At least one embedding function must be configured")
+            raise ValueError("At least one embedding method must be configured")
+        for method_name in value.values():
+            if method_name not in _EMBEDDING_METHODS:
+                raise ValueError(f"Unknown embedding method '{method_name}'")
         return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -416,9 +472,10 @@ class ChunkEmbeddingNode(TaskNode):
 
         records_by_function: dict[str, list[VectorRecord]] = {}
         chunk_texts = [chunk.content for chunk in chunks]
-        multiple_functions = len(self.embedding_functions) > 1
+        multiple_functions = len(self.embedding_methods) > 1
 
-        for name, embedding_function in self.embedding_functions.items():
+        for name, method_name in self.embedding_methods.items():
+            embedding_function = resolve_embedding_method(method_name)
             embeddings = await self._embed(chunk_texts, embedding_function)
             if len(embeddings) != len(chunks):
                 msg = (
@@ -463,7 +520,7 @@ class ChunkEmbeddingNode(TaskNode):
     async def _embed(
         self,
         texts: list[str],
-        embedder: EmbeddingFunction,
+        embedder: EmbeddingMethod,
     ) -> list[list[float]]:
         result = embedder(texts)
         if inspect.isawaitable(result):
@@ -480,7 +537,7 @@ class ChunkEmbeddingNode(TaskNode):
     NodeMetadata(
         name="VectorStoreUpsertNode",
         description=(
-            "Persist vector records produced by an embedding node " "into storage."
+            "Persist vector records produced by an embedding node into storage."
         ),
         category="conversational_search",
     )
@@ -511,7 +568,7 @@ class VectorStoreUpsertNode(TaskNode):
         """Upsert vector records into the configured store."""
         payload = self._resolve_embedding_records(state)
         if not payload:
-            msg = "VectorStoreUpsertNode requires embedding records to persist"
+            msg = "No vector records available to persist"
             raise ValueError(msg)
 
         selected_names: list[str]
@@ -586,9 +643,9 @@ class IncrementalIndexerNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter used for upserts.",
     )
-    embedding_function: EmbeddingFunction | None = Field(
+    embedding_method: str | None = Field(
         default=None,
-        description="Optional embedding callable applied to chunk content.",
+        description="Optional embedding method identifier applied to chunk content.",
     )
     batch_size: int = Field(default=32, gt=0, description="Chunk batch size")
     max_retries: int = Field(default=2, ge=0, description="Retry attempts")
@@ -660,7 +717,8 @@ class IncrementalIndexerNode(TaskNode):
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or deterministic_embedding_function
+        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
+        embedder = resolve_embedding_method(method_name)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output

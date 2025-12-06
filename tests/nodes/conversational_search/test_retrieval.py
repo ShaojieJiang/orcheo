@@ -1,7 +1,8 @@
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
-    deterministic_embedding_function,
+    register_embedding_method,
+    resolve_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import (
     DocumentChunk,
@@ -20,7 +21,8 @@ from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
 async def test_dense_search_node_returns_ranked_results() -> None:
     store = InMemoryVectorStore()
     texts = ["orcheo improves graphs", "another passage"]
-    embeddings = deterministic_embedding_function(texts)
+    embedder = resolve_embedding_method("deterministic")
+    embeddings = embedder(texts)
     await store.upsert(
         [
             VectorRecord(
@@ -67,10 +69,11 @@ async def test_dense_search_node_async_embedder_returns_nested_list() -> None:
     async def embed(texts: list[str]) -> list[list[float]]:
         return [[1.0, 2.0]]
 
+    register_embedding_method("dense-async", embed)
     node = DenseSearchNode(
         name="dense-async",
         vector_store=InMemoryVectorStore(),
-        embedding_function=embed,
+        embedding_method="dense-async",
     )
 
     assert await node._embed(["test"]) == [[1.0, 2.0]]
@@ -78,10 +81,11 @@ async def test_dense_search_node_async_embedder_returns_nested_list() -> None:
 
 @pytest.mark.asyncio
 async def test_dense_search_node_embedder_validates_output_type() -> None:
+    register_embedding_method("dense-bad", lambda texts: [text for text in texts])
     node = DenseSearchNode(
         name="dense-bad-embed",
         vector_store=InMemoryVectorStore(),
-        embedding_function=lambda texts: [text for text in texts],
+        embedding_method="dense-bad",
     )
 
     with pytest.raises(
@@ -163,12 +167,13 @@ async def test_sparse_search_vector_store_candidates() -> None:
         ]
     )
 
+    register_embedding_method("sparse-vector-store", lambda texts: [[1.0, 0.0]])
     node = SparseSearchNode(
         name="sparse-vector-store",
         vector_store=store,
         vector_store_candidate_k=2,
         top_k=1,
-        embedding_function=lambda texts: [[1.0, 0.0]],
+        embedding_method="sparse-vector-store",
     )
     state = State(inputs={"query": "apples"}, results={}, structured_response=None)
 

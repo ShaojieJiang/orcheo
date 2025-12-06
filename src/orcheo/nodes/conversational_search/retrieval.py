@@ -13,8 +13,8 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.ingestion import (
-    EmbeddingFunction,
-    deterministic_embedding_function,
+    DEFAULT_EMBEDDING_METHOD_NAME,
+    resolve_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import (
     DocumentChunk,
@@ -45,9 +45,9 @@ class DenseSearchNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter that will be queried.",
     )
-    embedding_function: EmbeddingFunction | None = Field(
+    embedding_method: str | None = Field(
         default=None,
-        description="Callable that embeds the query into a vector for retrieval.",
+        description="Named embedding method used to transform the query.",
     )
     top_k: int = Field(
         default=5, gt=0, description="Maximum number of results to return"
@@ -97,7 +97,8 @@ class DenseSearchNode(TaskNode):
         return {"results": normalized}
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or deterministic_embedding_function
+        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
+        embedder = resolve_embedding_method(method_name)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output  # type: ignore[assignment]
@@ -142,9 +143,9 @@ class SparseSearchNode(TaskNode):
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
-    embedding_function: EmbeddingFunction | None = Field(
+    embedding_method: str | None = Field(
         default=None,
-        description="Optional embedding function used when querying a vector store.",
+        description="Named embedding method used when querying a vector store.",
     )
     vector_store: BaseVectorStore | None = Field(
         default=None,
@@ -237,7 +238,8 @@ class SparseSearchNode(TaskNode):
         return chunks
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or deterministic_embedding_function
+        method_name = self.embedding_method or DEFAULT_EMBEDDING_METHOD_NAME
+        embedder = resolve_embedding_method(method_name)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output  # type: ignore[assignment]
