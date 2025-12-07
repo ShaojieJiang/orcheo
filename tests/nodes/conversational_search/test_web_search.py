@@ -9,6 +9,7 @@ import respx
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import WebSearchNode
+from orcheo.nodes.conversational_search.models import SearchResult
 
 
 @pytest.mark.asyncio
@@ -72,7 +73,8 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
 
     assert payload["answer"] == "summary answer"
     assert payload["source"] == "web"
-    results = payload["results"]
+    raw_results = payload["results"]
+    results = [SearchResult.model_validate(entry) for entry in raw_results]
     assert results[0].id == "https://example.com"
     assert results[0].metadata["url"] == "https://example.com"
     assert results[0].metadata["title"] == "Example Title"

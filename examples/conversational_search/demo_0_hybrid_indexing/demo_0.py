@@ -21,9 +21,7 @@ from orcheo.nodes.conversational_search.vector_store import (
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-DEFAULT_DOCS_PATH = (
-    "/Users/shaojiejiang/Development/orcheo/examples/conversational_search/data/docs"
-)
+DEFAULT_DOCS_PATH = "path/to/your/docs"
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_CHUNK_OVERLAP = 64

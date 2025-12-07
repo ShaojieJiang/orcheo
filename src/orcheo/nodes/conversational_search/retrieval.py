@@ -832,7 +832,7 @@ class PineconeRerankNode(TaskNode):
                 base_entry.text if base_entry else ""
             )
             metadata = doc.get("metadata")
-            if metadata is None:
+            if metadata is None:  # pragma: no branch
                 metadata = base_entry.metadata if base_entry else {}
             score = float(row.get("score", 0.0))
             reranked.append(

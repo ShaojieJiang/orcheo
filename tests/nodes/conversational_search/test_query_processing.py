@@ -326,3 +326,96 @@ async def test_context_compressor_invokes_ai_model(
     human_message = captured["messages"][1]
     assert "retrieved context" in human_message.content.lower()
     assert "summarizer" in system_message.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_returns_empty_when_no_entries() -> None:
+    node = ContextCompressorNode(name="compress-empty")
+    state = State(
+        inputs={}, results={"retrieval_results": []}, structured_response=None
+    )
+
+    result = await node.run(state, {})
+
+    assert result["results"] == []
+    assert result["summary"] == ""
+    assert result["original_results"] == []
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_handles_blank_context_block() -> None:
+    node = ContextCompressorNode(name="compress-blank")
+    entry = SearchResult(
+        id="blank",
+        score=0.5,
+        text="   ",
+        metadata={},
+        source="blank",
+        sources=["blank"],
+    )
+    state = State(
+        inputs={"query": "question"},
+        results={"retrieval_results": [entry]},
+        structured_response=None,
+    )
+
+    node._build_context_block = lambda entries: ""
+
+    result = await node.run(state, {})
+
+    assert result["summary"] == ""
+    assert result["original_results"][0].id == "blank"
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_summary_with_model_requires_ai_model() -> None:
+    node = ContextCompressorNode(name="compress-model")
+
+    with pytest.raises(
+        ValueError,
+        match="AI model identifier is required for model-based summarization",
+    ):
+        await node._summarize_with_model("query", "context")
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_summary_with_model_handles_empty_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubModel:
+        async def ainvoke(self, messages: list[Any]) -> Any:  # type: ignore[override]
+            return type("Resp", (), {"content": ""})()
+
+    def fake_init_chat_model(*_: Any, **__: Any) -> Any:
+        return StubModel()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.query_processing.init_chat_model",
+        fake_init_chat_model,
+    )
+
+    node = ContextCompressorNode(name="compress-model-response", ai_model="fake")
+    entry = SearchResult(
+        id="x",
+        score=0.8,
+        text="content",
+        metadata={},
+        source="source",
+        sources=["source"],
+    )
+    state = State(
+        inputs={"query": "What is context?"},
+        results={"retrieval_results": [entry]},
+        structured_response=None,
+    )
+
+    with pytest.raises(ValueError, match="Summarizer model returned an empty response"):
+        await node.run(state, {})
+
+
+def test_context_compressor_collect_sources_defaults_to_retrieval() -> None:
+    entry = SearchResult(
+        id="a", score=1.0, text="text", metadata={}, source=None, sources=[]
+    )
+
+    assert ContextCompressorNode._collect_sources([entry]) == ["retrieval"]

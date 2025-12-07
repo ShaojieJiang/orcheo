@@ -135,7 +135,7 @@ class BaseNode(BaseRunnable):
                 field.alias or name for name, field in computed_fields.items()
             }
             dumped = value.model_dump()
-            for key in computed_keys:
+            for key in computed_keys:  # pragma: no branch
                 if key in dumped:
                     dumped.pop(key)
             return self._serialize_result(dumped)

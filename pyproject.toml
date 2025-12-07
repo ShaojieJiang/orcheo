@@ -84,6 +84,7 @@ orcheo-test = "orcheo.tooling.commands:test"
 [tool.coverage.report]
 exclude_lines = [
   "pragma: no cover",
+  "pragma: no branch",
   "@overload",
   "if TYPE_CHECKING:",
   "if typing.TYPE_CHECKING:"

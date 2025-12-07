@@ -9,9 +9,15 @@ from orcheo.nodes.conversational_search.ingestion import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
+    EmbeddingVector,
     MetadataExtractorNode,
     RawDocumentInput,
+    SparseValues,
     VectorStoreUpsertNode,
+    _coerce_float_list,
+    _coerce_sparse_values,
+    _temporary_env_vars,
+    normalize_embedding_output,
     register_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import Document
@@ -42,6 +48,78 @@ def _test_default_embedder(texts: list[str]) -> list[list[float]]:
 
 
 register_embedding_method(DEFAULT_TEST_EMBEDDING_NAME, _test_default_embedder)
+
+
+def test_coerce_float_list_rejects_non_list() -> None:
+    with pytest.raises(ValueError, match="embedding value payload must be a list"):
+        _coerce_float_list("invalid")
+
+
+def test_coerce_float_list_rejects_invalid_items() -> None:
+    with pytest.raises(
+        ValueError, match="embedding value payload must only contain numbers"
+    ):
+        _coerce_float_list([1.0, "bad"])
+
+
+def test_coerce_sparse_values_returns_instance() -> None:
+    sparse = SparseValues(indices=[0], values=[0.5])
+    assert _coerce_sparse_values(sparse) is sparse
+
+
+def test_coerce_sparse_values_rejects_non_mapping() -> None:
+    with pytest.raises(ValueError, match="sparse embedding payload must be a mapping"):
+        _coerce_sparse_values("not-a-mapping")
+
+
+def test_normalize_embedding_output_preserves_vectors() -> None:
+    vector = EmbeddingVector(values=[1.0])
+    normalized = normalize_embedding_output([vector])
+    assert normalized[0] is vector
+
+
+def test_normalize_embedding_output_requires_dense_or_sparse() -> None:
+    with pytest.raises(
+        ValueError,
+        match="embedding payload must include dense or sparse values",
+    ):
+        normalize_embedding_output([{}])
+
+
+def test_temporary_env_vars_restore_existing_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "ORCHEO_TEST_TEMP"
+    monkeypatch.setenv(key, "original")
+
+    with _temporary_env_vars({key: "temporary"}):
+        assert os.environ[key] == "temporary"
+
+    assert os.environ[key] == "original"
+
+
+def test_temporary_env_vars_removes_missing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "ORCHEO_TEST_REMOVE"
+    monkeypatch.delenv(key, raising=False)
+
+    with _temporary_env_vars({key: "temp"}):
+        assert os.environ[key] == "temp"
+
+    assert key not in os.environ
+
+
+def test_temporary_env_vars_supports_explicit_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "ORCHEO_TEST_REMOVE_NONE"
+    monkeypatch.setenv(key, "original")
+
+    with _temporary_env_vars({key: None}):
+        assert key not in os.environ
+
+    assert os.environ[key] == "original"
 
 
 @pytest.mark.asyncio
@@ -726,6 +804,20 @@ async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None
         await node.run(state, {})
 
 
+def test_chunk_embedding_node_requires_methods() -> None:
+    with pytest.raises(
+        ValueError, match="At least one embedding method must be configured"
+    ):
+        ChunkEmbeddingNode(name="chunk_embedding", embedding_methods={})
+
+
+def test_chunk_embedding_node_rejects_unknown_method() -> None:
+    with pytest.raises(ValueError, match="Unknown embedding method 'not-registered'"):
+        ChunkEmbeddingNode(
+            name="chunk_embedding", embedding_methods={"default": "not-registered"}
+        )
+
+
 @pytest.mark.asyncio
 async def test_vector_store_upsert_persists_records() -> None:
     chunks_payload = {
@@ -883,6 +975,44 @@ async def test_vector_store_upsert_requires_records() -> None:
 
 
 @pytest.mark.asyncio
+async def test_vector_store_upsert_rejects_non_list_entries() -> None:
+    state = State(
+        inputs={},
+        results={"chunk_embedding": {"chunk_embeddings": {"default": "not-a-list"}}},
+        structured_response=None,
+    )
+    node = VectorStoreUpsertNode(name="vector_upsert")
+
+    with pytest.raises(
+        ValueError, match="Embedding payload for 'default' must be a list"
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_vector_store_upsert_rejects_empty_records_with_payload() -> None:
+    state = State(
+        inputs={},
+        results={"chunk_embedding": {"chunk_embeddings": {"default": []}}},
+        structured_response=None,
+    )
+    node = VectorStoreUpsertNode(name="vector_upsert")
+
+    with pytest.raises(ValueError, match="No vector records available to persist"):
+        await node.run(state, {})
+
+
+def test_vector_store_resolves_root_payload() -> None:
+    node = VectorStoreUpsertNode(name="vector_upsert")
+    state = State(
+        inputs={},
+        results={"chunk_embeddings": {"default": []}},
+        structured_response=None,
+    )
+    assert node._resolve_embedding_records(state) == {"default": []}
+
+
+@pytest.mark.asyncio
 async def test_pinecone_vector_store_dependency_error_message() -> None:
     from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 
@@ -968,6 +1098,23 @@ async def test_document_loader_expands_directory_paths(tmp_path) -> None:
     assert [doc["content"] for doc in documents] == ["alpha", "beta"]
     assert all(doc["metadata"]["demo"] == "directory" for doc in documents)
     assert [doc["source"] for doc in documents] == ["a.md", "b.md"]
+
+
+def test_document_loader_expand_storage_paths_skips_directories(tmp_path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    file_a = docs_dir / "a.txt"
+    file_a.write_text("alpha", encoding="utf-8")
+    subdir = docs_dir / "nested"
+    subdir.mkdir()
+
+    node = DocumentLoaderNode(name="document_loader")
+    raw_input = RawDocumentInput(storage_path=str(docs_dir))
+
+    expanded = node._expand_storage_paths([raw_input])
+
+    assert len(expanded) == 1
+    assert expanded[0].storage_path == str(file_a)
 
 
 @pytest.mark.asyncio

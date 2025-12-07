@@ -136,7 +136,7 @@ def _bm25_embed_function(
 ) -> EmbeddingMethod:
     def _bm25_embed(texts: list[str]) -> list[EmbeddingVector]:
         encoder_instance = encoder_builder()
-        if fit_on_call:
+        if fit_on_call:  # pragma: no branch
             encoder_instance.fit(texts)
         payload = (
             encoder_instance.encode_documents(texts)

@@ -3,6 +3,7 @@
 import sys
 import types
 import pytest
+from orcheo.nodes.conversational_search.ingestion import EmbeddingVector
 from orcheo.nodes.conversational_search.models import (
     SearchResult,
     SparseValues,
@@ -30,6 +31,7 @@ class _DummyIndex:
         namespace: str | None,
         include_metadata: bool,
         filter: dict | None,
+        sparse_vector: dict[str, object] | None,
     ) -> dict[str, object]:
         payload = {
             "vector": vector,
@@ -37,6 +39,7 @@ class _DummyIndex:
             "namespace": namespace,
             "include_metadata": include_metadata,
             "filter": filter,
+            "sparse_vector": sparse_vector,
         }
         self.queries.append(payload)
         return {
@@ -88,6 +91,7 @@ class _AsyncQueryIndex:
         namespace: str | None,
         include_metadata: bool,
         filter: dict | None,
+        sparse_vector: dict[str, object] | None,
     ) -> _AsyncQueryResult:
         payload = {
             "vector": vector,
@@ -95,6 +99,7 @@ class _AsyncQueryIndex:
             "namespace": namespace,
             "include_metadata": include_metadata,
             "filter": filter,
+            "sparse_vector": sparse_vector,
         }
         self.queries.append(payload)
         return _AsyncQueryResult(
@@ -126,6 +131,7 @@ class _EmptyMatchesIndex:
         namespace: str | None,
         include_metadata: bool,
         filter: dict | None,
+        sparse_vector: dict[str, object] | None,
     ) -> dict[str, object]:
         payload = {
             "vector": vector,
@@ -133,6 +139,7 @@ class _EmptyMatchesIndex:
             "namespace": namespace,
             "include_metadata": include_metadata,
             "filter": filter,
+            "sparse_vector": sparse_vector,
         }
         self.queries.append(payload)
         return {}
@@ -159,6 +166,7 @@ class _CustomQueryIndex:
         namespace: str | None,
         include_metadata: bool,
         filter: dict | None,
+        sparse_vector: dict[str, object] | None,
     ) -> dict[str, object]:
         payload = {
             "vector": vector,
@@ -166,6 +174,7 @@ class _CustomQueryIndex:
             "namespace": namespace,
             "include_metadata": include_metadata,
             "filter": filter,
+            "sparse_vector": sparse_vector,
         }
         self.queries.append(payload)
         return {"matches": self.matches}
@@ -201,6 +210,7 @@ class _AttributeIndex:
         namespace: str | None,
         include_metadata: bool,
         filter: dict | None,
+        sparse_vector: dict[str, object] | None,
     ) -> dict[str, object]:
         payload = {
             "vector": vector,
@@ -208,6 +218,7 @@ class _AttributeIndex:
             "namespace": namespace,
             "include_metadata": include_metadata,
             "filter": filter,
+            "sparse_vector": sparse_vector,
         }
         self.queries.append(payload)
         return {"matches": self.matches}
@@ -352,6 +363,16 @@ async def test_in_memory_vector_store_validates_dimensions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_memory_vector_store_requires_dense_embeddings_for_queries() -> None:
+    store = InMemoryVectorStore()
+
+    with pytest.raises(
+        ValueError, match="dense embeddings must include non-empty float values"
+    ):
+        await store.search(query=EmbeddingVector(values=[]))
+
+
+@pytest.mark.asyncio
 async def test_pinecone_vector_store_search_normalizes_matches() -> None:
     index = _DummyIndex()
     client = _DummyClient(index=index)
@@ -366,6 +387,18 @@ async def test_pinecone_vector_store_search_normalizes_matches() -> None:
         metadata={"text": "doc text", "topic": "demo"},
     )
     assert index.queries[-1]["top_k"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_requires_dense_or_sparse_embeddings() -> None:
+    index = _DummyIndex()
+    client = _DummyClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-query", client=client)
+
+    with pytest.raises(
+        ValueError, match="query embeddings must include dense or sparse values"
+    ):
+        await store.search(query=EmbeddingVector(values=[]))
 
 
 def test_in_memory_vector_store_cosine_similarity_handles_edge_cases() -> None:
