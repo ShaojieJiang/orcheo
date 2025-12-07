@@ -7,14 +7,26 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
 from orcheo.nodes.conversational_search.ingestion import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     MetadataExtractorNode,
+    VectorStoreUpsertNode,
+    register_embedding_method,
 )
-from orcheo.nodes.conversational_search.retrieval import VectorSearchNode
+from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+
+
+DEFAULT_DEMO_1_EMBEDDING = "demo1-embedding"
+
+
+def _demo1_embedder(texts: list[str]) -> list[list[float]]:
+    return [[float(len(text))] for text in texts]
+
+
+register_embedding_method(DEFAULT_DEMO_1_EMBEDDING, _demo1_embedder)
 
 
 # Default configuration inlined for server execution
@@ -75,18 +87,24 @@ def create_ingestion_nodes(
         chunk_overlap=chunking_config.get("chunk_overlap", 80),
     )
 
-    indexer = EmbeddingIndexerNode(
-        name="indexer",
+    chunk_embedding = ChunkEmbeddingNode(
+        name="chunk_embedding",
         source_result_key="chunking",
+        embedding_methods={"default": DEFAULT_DEMO_1_EMBEDDING},
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+    )
+    vector_upsert = VectorStoreUpsertNode(
+        name="vector_upsert",
+        source_result_key=chunk_embedding.name,
         vector_store=vector_store,
-        # Using default deterministic embedding function
     )
 
     return {
         "loader": loader,
         "metadata": metadata,
         "chunking": chunking,
-        "indexer": indexer,
+        "chunk_embedding": chunk_embedding,
+        "vector_upsert": vector_upsert,
     }
 
 
@@ -95,11 +113,12 @@ def create_search_nodes(
 ) -> dict[str, Any]:
     """Create and configure search and generation nodes."""
     retrieval_config = config["retrieval"]["search"]
-    search = VectorSearchNode(
+    search = DenseSearchNode(
         name="search",
         vector_store=vector_store,
         top_k=retrieval_config.get("top_k", 5),
         score_threshold=retrieval_config.get("similarity_threshold", 0.0),
+        embedding_method=DEFAULT_DEMO_1_EMBEDDING,
     )
 
     # generation_config was unused, so we just instantiate the node
@@ -194,11 +213,12 @@ def define_workflow(
     # Ingestion flow
     workflow.add_edge("loader", "metadata")
     workflow.add_edge("metadata", "chunking")
-    workflow.add_edge("chunking", "indexer")
+    workflow.add_edge("chunking", "chunk_embedding")
+    workflow.add_edge("chunk_embedding", "vector_upsert")
 
     # Post-ingestion routing
     workflow.add_conditional_edges(
-        "indexer",
+        "vector_upsert",
         post_ingestion_router,
         {
             "true": "search",  # Query/message present -> search

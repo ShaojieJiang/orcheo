@@ -621,9 +621,10 @@ results = [
 
 **Implementation:** `InMemoryVectorStore` (singleton instance shared across ingestion and retrieval)
 
-**Location:** Created in `build_graph()` function and passed to both:
-- `EmbeddingIndexerNode` (writes)
-- `VectorSearchNode` (reads)
+**Location:** Created in `build_graph()` function and passed to:
+- `ChunkEmbeddingNode` (emits vector records for persistence metadata)
+- `VectorStoreUpsertNode` (upserts records into the store)
+- `DenseSearchNode` (reads for retrieval)
 
 **Storage:** Dictionary mapping chunk IDs to VectorRecord objects
 ```python
@@ -732,7 +733,7 @@ graph TD
 **Node Types:**
 - **entry_router, post_ingestion_router:** IfElseNode (DecisionNode) - Branching logic nodes
 - **loader, metadata, chunking, indexer:** TaskNode subclasses - Data processing nodes
-- **search:** VectorSearchNode (TaskNode) - Retrieval node
+- **search:** DenseSearchNode (TaskNode) - Retrieval node
 - **generator:** GroundedGeneratorNode (TaskNode) - Generation node
 
 **Edge Types:**

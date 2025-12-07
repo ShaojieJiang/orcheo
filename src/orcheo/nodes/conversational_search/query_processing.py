@@ -3,6 +3,8 @@
 from __future__ import annotations
 import re
 from typing import Any
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
@@ -204,29 +206,91 @@ class QueryClassifierNode(TaskNode):
 @registry.register(
     NodeMetadata(
         name="ContextCompressorNode",
-        description="Deduplicate and budget retrieval results for downstream nodes.",
+        description=(
+            "Summarize retrieved context using an AI model so downstream nodes can "
+            "consume a condensed evidence block."
+        ),
         category="conversational_search",
     )
 )
 class ContextCompressorNode(TaskNode):
-    """Deduplicate and trim retrieval results to a token budget."""
+    """Summarize retrieval results into a compact evidence block."""
 
+    query_key: str = Field(
+        default="query",
+        description="Key within ``state.inputs`` that holds the active query.",
+    )
     results_field: str = Field(
         default="retrieval_results",
         description="Key in ``state.results`` that holds retrieval payloads.",
     )
     max_tokens: int = Field(
-        default=800, gt=0, description="Maximum whitespace token budget for context."
+        default=400,
+        gt=0,
+        description="Maximum whitespace token budget for fallback summaries.",
+    )
+    max_passages: int = Field(
+        default=8,
+        gt=0,
+        description="Maximum number of passages to feed into the summarizer.",
     )
     deduplicate: bool = Field(
         default=True, description="Whether to drop duplicate result identifiers."
     )
+    ai_model: str | None = Field(
+        default=None,
+        description=(
+            "Optional chat model identifier (e.g., 'openai:gpt-4o-mini') used to "
+            "summarize the retrieved context."
+        ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments supplied to ``init_chat_model``.",
+    )
+    summary_prompt: str = Field(
+        default=(
+            "You are a retrieval summarizer. Given a user query and retrieved "
+            "passages, write a concise paragraph (<= {max_tokens} tokens) that "
+            "captures the key facts needed to answer the query. Mention important "
+            "sources inline using their numeric identifiers (e.g., [1])."
+        ),
+        description="Prompt prefix for AI-based summarization.",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return a token-budgeted subset of retrieval results."""
+        """Summarize retrieved passages into a compact evidence block."""
+        entries = self._resolve_entries(state)
+        if not entries:
+            return {"results": [], "summary": "", "original_results": []}
+
+        query = self._resolve_query(state)
+        trimmed = entries[: self.max_passages]
+        summary_text = await self._summarize(query, trimmed)
+
+        summary_result = SearchResult(
+            id="context-summary",
+            score=1.0,
+            text=summary_text,
+            metadata={
+                "source_ids": [entry.id for entry in trimmed],
+                "summary": True,
+            },
+            source="summary",
+            sources=self._collect_sources(trimmed),
+        )
+
+        return {
+            "results": [summary_result],
+            "summary": summary_text,
+            "original_results": trimmed,
+            "source_count": len(summary_result.sources),
+        }
+
+    def _resolve_entries(self, state: State) -> list[SearchResult]:
         results_payload = state.get("results", {}).get(self.results_field)
         if results_payload is None:
-            msg = "ContextCompressorNode requires retrieval results to compress"
+            msg = "ContextCompressorNode requires retrieval results to summarize"
             raise ValueError(msg)
 
         if isinstance(results_payload, dict) and "results" in results_payload:
@@ -238,32 +302,88 @@ class ContextCompressorNode(TaskNode):
             msg = "retrieval results must be provided as a list"
             raise ValueError(msg)
 
-        results = [SearchResult.model_validate(item) for item in entries]
-        sorted_results = sorted(results, key=lambda item: item.score, reverse=True)
+        normalized = [
+            SearchResult.model_validate(item) for item in entries if item is not None
+        ]
 
-        kept: list[SearchResult] = []
+        sorted_results = sorted(normalized, key=lambda item: item.score, reverse=True)
+        if not self.deduplicate:
+            return sorted_results
+
+        deduped: list[SearchResult] = []
         seen_ids: set[str] = set()
-        total_tokens = 0
-        truncated = False
-
-        for result in sorted_results:
-            if self.deduplicate and result.id in seen_ids:
+        for entry in sorted_results:
+            if entry.id in seen_ids:
                 continue
+            deduped.append(entry)
+            seen_ids.add(entry.id)
+        return deduped
 
-            tokens = self._token_count(result.text)
-            if total_tokens + tokens > self.max_tokens:
-                truncated = True
-                break
+    def _resolve_query(self, state: State) -> str:
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message") or ""
+        return str(query).strip()
 
-            kept.append(result)
-            total_tokens += tokens
-            seen_ids.add(result.id)
+    async def _summarize(self, query: str, entries: list[SearchResult]) -> str:
+        context_block = self._build_context_block(entries)
+        if not context_block:
+            return ""
 
-        return {"results": kept, "total_tokens": total_tokens, "truncated": truncated}
+        if self.ai_model:
+            return await self._summarize_with_model(query, context_block)
+
+        return self._fallback_summary(context_block)
+
+    def _build_context_block(self, entries: list[SearchResult]) -> str:
+        lines = []
+        for index, entry in enumerate(entries, start=1):
+            snippet = entry.text.strip().replace("\n", " ")
+            lines.append(f"[{index}] {snippet}")
+        return "\n".join(lines)
+
+    async def _summarize_with_model(self, query: str, context_block: str) -> str:
+        if not self.ai_model:
+            msg = "AI model identifier is required for model-based summarization"
+            raise ValueError(msg)
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+
+        prompt = (
+            "User Query: {query}\n\nRetrieved Context:\n{context}\n\n"
+            "Summaries must stay within {max_tokens} tokens."
+        ).format(
+            query=query or "[unknown]",
+            context=context_block,
+            max_tokens=self.max_tokens,
+        )
+
+        messages = [
+            SystemMessage(
+                content=self.summary_prompt.format(max_tokens=self.max_tokens)
+            ),
+            HumanMessage(content=prompt),
+        ]
+        response = await model.ainvoke(messages)  # type: ignore[arg-type]
+        content = getattr(response, "content", response)
+        text = str(content).strip()
+        if not text:
+            msg = "Summarizer model returned an empty response"
+            raise ValueError(msg)
+        return text
+
+    def _fallback_summary(self, context_block: str) -> str:
+        tokens = context_block.split()
+        if len(tokens) <= self.max_tokens:
+            return context_block
+        truncated = tokens[: self.max_tokens]
+        return " ".join(truncated) + " …"
 
     @staticmethod
-    def _token_count(text: str) -> int:
-        return len(text.split())
+    def _collect_sources(entries: list[SearchResult]) -> list[str]:
+        sources: list[str] = []
+        for entry in entries:
+            if entry.source and entry.source not in sources:
+                sources.append(entry.source)
+        return sources or ["retrieval"]
 
 
 @registry.register(

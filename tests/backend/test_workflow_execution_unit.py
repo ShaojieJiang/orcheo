@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 import pytest
+from fastapi import WebSocketDisconnect
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
 from orcheo_backend.app.history import RunHistoryError
 from orcheo_backend.app.workflow_execution import (
@@ -199,3 +200,43 @@ async def test_emit_trace_update_ignores_history_errors() -> None:
 
     history_store.get_history.assert_awaited_once_with("exec-missing")
     assert websocket.send_json.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_handles_disconnect() -> None:
+    """Websocket disconnections during _safe_send_json return False."""
+
+    websocket = AsyncMock()
+    websocket.send_json.side_effect = WebSocketDisconnect()
+
+    assert (
+        await workflow_execution._safe_send_json(websocket, {"status": "payload"})
+    ) is False
+    websocket.send_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_handles_closed_state() -> None:
+    """RuntimeErrors after a close are skipped."""
+
+    websocket = AsyncMock()
+    websocket.send_json.side_effect = RuntimeError(
+        workflow_execution._CANNOT_SEND_AFTER_CLOSE
+    )
+
+    assert (
+        await workflow_execution._safe_send_json(websocket, {"status": "payload"})
+    ) is False
+    websocket.send_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_propagates_other_errors() -> None:
+    """RuntimeErrors unrelated to close should bubble up."""
+
+    websocket = AsyncMock()
+    error = RuntimeError("unexpected")
+    websocket.send_json.side_effect = error
+
+    with pytest.raises(RuntimeError):
+        await workflow_execution._safe_send_json(websocket, {})

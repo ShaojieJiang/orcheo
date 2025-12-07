@@ -127,8 +127,10 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
             result = _run_awaitable_in_thread(obj)
         else:
             try:
-                result = asyncio.run(_await_awaitable(obj))
+                awaitable_wrapper = _await_awaitable(obj)
+                result = asyncio.run(awaitable_wrapper)
             except RuntimeError:
+                awaitable_wrapper.close()
                 result = _run_awaitable_with_new_loop(obj)
         resolved = _resolve_graph(result)
     elif callable(obj):

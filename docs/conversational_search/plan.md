@@ -27,9 +27,9 @@ This plan translates the Conversational Search PRD and Design into a sequenced d
 
 #### Task Checklist
 
-- [x] Task 1.1: Implement ingestion primitives (DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, EmbeddingIndexerNode) with schema validation and Pinecone adapter.
+- [x] Task 1.1: Implement ingestion primitives (DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, ChunkEmbeddingNode, VectorStoreUpsertNode) with schema validation and Pinecone adapter.
   - Dependencies: Access to embedding model provider and Pinecone credentials.
-- [x] Task 1.2: Ship retrieval stack (VectorSearchNode, BM25SearchNode) plus HybridFusionNode with RRF/weighted strategies.
+- [x] Task 1.2: Ship retrieval stack (DenseSearchNode, SparseSearchNode) plus HybridFusionNode with RRF/weighted strategies.
   - Dependencies: Task 1.1 indexed corpus; BaseVectorStore abstraction.
 - [x] Task 1.3: Add core query processing (QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode) to improve retrieval quality.
   - Dependencies: Conversation state schema; Task 1.2 retrievers.

@@ -60,6 +60,20 @@ class DocumentChunk(BaseModel):
         return self
 
 
+class SparseValues(BaseModel):
+    """Sparse embedding data compatible with Pinecone's sparse_vector payload."""
+
+    indices: list[int] = Field(
+        min_length=1, description="Indices referenced in the sparse vector"
+    )
+    values: list[float] = Field(
+        min_length=1,
+        description="Non-zero values corresponding to each index in `indices`",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class VectorRecord(BaseModel):
     """Payload stored in a vector database."""
 
@@ -68,6 +82,13 @@ class VectorRecord(BaseModel):
     text: str = Field(description="Raw text that generated the embedding")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Metadata persisted alongside the vector"
+    )
+    sparse_values: SparseValues | None = Field(
+        default=None,
+        description=(
+            "Optional sparse embedding representation that mirrors Pinecone's "
+            "`sparse_vector` payload (indices + values)."
+        ),
     )
 
     model_config = ConfigDict(extra="forbid")

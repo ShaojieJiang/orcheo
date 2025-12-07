@@ -27,15 +27,20 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 - **ChunkingStrategyNode**
   - Applies configurable character/token chunking rules with overlap control
-  - Interfaces with DocumentLoaderNode output and feeds EmbeddingIndexerNode
+  - Interfaces with DocumentLoaderNode output and feeds ChunkEmbeddingNode
 
 - **MetadataExtractorNode**
   - Attaches structured metadata (title, source, tags) to documents
   - Powers filtering and ranking in downstream retrieval nodes
 
-- **EmbeddingIndexerNode**
-  - Runs embedding models and writes to vector stores (Pinecone primary adapter)
-  - Depends on BaseVectorStore abstraction for multi-vendor support
+- **ChunkEmbeddingNode**
+  - Generates vector records per chunk using configurable embedding functions
+  - Emits named embedding sets for downstream persistence or analytics
+  - Ships helper factories in `orcheo.nodes.conversational_search.embeddings` for common providers (LangChain dense models plus Pinecone BM25/SPLADE sparse encoders) so demos can register embedding identifiers declaratively
+
+- **VectorStoreUpsertNode**
+  - Persists selected embedding sets into BaseVectorStore adapters (InMemory, Pinecone)
+  - Returns indexed IDs, counts, and namespace metadata for observability
 
 - **IncrementalIndexerNode**
   - Delta-sync pipeline detecting adds/updates/deletes
@@ -43,12 +48,13 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 ### Retrieval Components
 
-- **VectorSearchNode**
+- **DenseSearchNode**
   - Dense similarity search using BaseVectorStore abstraction
   - Returns scored document chunks with metadata
 
-- **BM25SearchNode**
+- **SparseSearchNode**
   - Keyword-based sparse retrieval for deterministic matching
+  - Optionally loads candidate chunks from a vector store (e.g., Pinecone) before computing BM25 for very large corpora
   - Complements dense search for hybrid strategies
 
 - **HybridFusionNode**
@@ -166,18 +172,19 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 1. **DocumentLoaderNode** ingests documents from configured sources
 2. **ChunkingStrategyNode** splits documents into chunks with overlap
 3. **MetadataExtractorNode** attaches structured metadata
-4. **EmbeddingIndexerNode** generates embeddings and writes to vector store
-5. User submits query
-6. **VectorSearchNode** performs dense similarity search
-7. **GroundedGeneratorNode** generates response citing retrieved context
-8. Response returned to user with citations
+4. **ChunkEmbeddingNode** generates vector records for each chunk
+5. **VectorStoreUpsertNode** persists selected vectors into the configured store
+6. User submits query
+7. **DenseSearchNode** performs dense similarity search
+8. **GroundedGeneratorNode** generates response citing retrieved context
+9. Response returned to user with citations
 
 ### Flow 2: Hybrid Search with Re-ranking
 
 1. User submits query
 2. **QueryRewriteNode** expands query using conversation context
-3. **VectorSearchNode** performs dense retrieval (parallel)
-4. **BM25SearchNode** performs sparse retrieval (parallel)
+3. **DenseSearchNode** performs dense retrieval (parallel)
+4. **SparseSearchNode** performs sparse retrieval (parallel)
 5. **HybridFusionNode** merges results via RRF strategy
 6. **ReRankerNode** applies cross-encoder scoring to top-k
 7. **ContextCompressorNode** deduplicates and enforces token budget
@@ -195,7 +202,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 6. **QueryClassifierNode** routes to appropriate path:
    - If search intent: proceed to retrieval
    - If clarification needed: route to **QueryClarificationNode**
-7. **VectorSearchNode** retrieves relevant documents
+7. **DenseSearchNode** retrieves relevant documents
 8. **ContextCompressorNode** optimizes context
 9. **GroundedGeneratorNode** generates response
 10. **HallucinationGuardNode** validates response fidelity
@@ -209,7 +216,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 2. **MultiHopPlannerNode** creates retrieval plan with sequential hops
 3. For each hop:
    - **QueryRewriteNode** generates sub-query
-   - **VectorSearchNode** retrieves relevant context
+   - **DenseSearchNode** retrieves relevant context
    - Results accumulated for next hop
 4. **ContextCompressorNode** consolidates all retrieved context
 5. **GroundedGeneratorNode** synthesizes final response
@@ -264,12 +271,16 @@ nodes:
     config:
       extract_fields: ["title", "author", "date"]
 
-  - id: index
-    type: embedding_indexer
+  - id: chunk_embedding
+    type: chunk_embedding
+    config:
+      embedding_functions:
+        default: "{{inputs.embedding_model}}"
+
+  - id: vector_upsert
+    type: vector_store_upsert
     config:
       vector_store: "{{inputs.vector_store_id}}"
-      embedding_model: "text-embedding-3-small"
-      batch_size: 100
 
 edges:
   - from: load_docs
@@ -277,7 +288,9 @@ edges:
   - from: chunk
     to: extract_metadata
   - from: extract_metadata
-    to: index
+    to: chunk_embedding
+  - from: chunk_embedding
+    to: vector_upsert
 ```
 
 Trigger manually or via webhook:
@@ -305,7 +318,7 @@ nodes:
     type: query_rewrite
 
   - id: search
-    type: vector_search
+    type: dense_search
     config:
       vector_store: "{{inputs.vector_store_id}}"
       top_k: 10
@@ -339,7 +352,7 @@ nodes:
       dataset_id: "{{inputs.dataset_id}}"
 
   - id: run_retrieval
-    type: vector_search
+    type: dense_search
     config:
       vector_store: "{{inputs.vector_store_id}}"
 
@@ -421,11 +434,11 @@ class DocumentLoaderConfig(NodeConfig):
 }
 ```
 
-### VectorSearchNode
+### DenseSearchNode
 
 ```python
-class VectorSearchConfig(NodeConfig):
-    node_type: Literal["vector_search"] = "vector_search"
+class DenseSearchConfig(NodeConfig):
+    node_type: Literal["dense_search"] = "dense_search"
     vector_store: str  # Reference to configured store
     top_k: int = 10
     score_threshold: float = 0.0
@@ -769,8 +782,8 @@ class BaseMemoryStore(ABC):
 **Target**: Enable experimentation with basic conversational search
 
 **Nodes Delivered**:
-- DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, EmbeddingIndexerNode
-- VectorSearchNode, BM25SearchNode, HybridFusionNode, WebSearchNode
+- DocumentLoaderNode, ChunkingStrategyNode, MetadataExtractorNode, ChunkEmbeddingNode, VectorStoreUpsertNode
+- DenseSearchNode, SparseSearchNode, HybridFusionNode, WebSearchNode
 - QueryRewriteNode, CoreferenceResolverNode, QueryClassifierNode, ContextCompressorNode
 - GroundedGeneratorNode
 

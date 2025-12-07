@@ -13,6 +13,15 @@ from orcheo.nodes.conversational_search.conversation import (
     SessionManagementNode,
     TopicShiftDetectorNode,
 )
+from orcheo.nodes.conversational_search.embedding_registry import (
+    OPENAI_TEXT_EMBEDDING_3_SMALL,
+    PINECONE_BM25_DEFAULT,
+)
+from orcheo.nodes.conversational_search.embeddings import (
+    register_langchain_embedding,
+    register_pinecone_bm25_embedding,
+    register_pinecone_splade_embedding,
+)
 from orcheo.nodes.conversational_search.evaluation import (  # pragma: no cover
     ABTestingNode,
     AnalyticsExportNode,
@@ -35,11 +44,12 @@ from orcheo.nodes.conversational_search.generation import (
     StreamingGeneratorNode,
 )
 from orcheo.nodes.conversational_search.ingestion import (
+    ChunkEmbeddingNode,
     ChunkingStrategyNode,
     DocumentLoaderNode,
-    EmbeddingIndexerNode,
     IncrementalIndexerNode,
     MetadataExtractorNode,
+    VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.query_processing import (
     ContextCompressorNode,
@@ -49,11 +59,12 @@ from orcheo.nodes.conversational_search.query_processing import (
     QueryRewriteNode,
 )
 from orcheo.nodes.conversational_search.retrieval import (
-    BM25SearchNode,
+    DenseSearchNode,
     HybridFusionNode,
+    PineconeRerankNode,
     ReRankerNode,
     SourceRouterNode,
-    VectorSearchNode,
+    SparseSearchNode,
     WebSearchNode,
 )
 from orcheo.nodes.conversational_search.vector_store import (
@@ -70,7 +81,7 @@ __all__ = [
     "AnswerQualityEvaluationNode",
     "BaseMemoryStore",
     "BaseVectorStore",
-    "BM25SearchNode",
+    "SparseSearchNode",
     "ChunkingStrategyNode",
     "CitationsFormatterNode",
     "ConversationCompressorNode",
@@ -80,10 +91,16 @@ __all__ = [
     "DataAugmentationNode",
     "DatasetNode",
     "DocumentLoaderNode",
-    "EmbeddingIndexerNode",
+    "ChunkEmbeddingNode",
+    "VectorStoreUpsertNode",
     "FailureAnalysisNode",
     "FeedbackIngestionNode",
     "GroundedGeneratorNode",
+    "register_langchain_embedding",
+    "register_pinecone_bm25_embedding",
+    "register_pinecone_splade_embedding",
+    "OPENAI_TEXT_EMBEDDING_3_SMALL",
+    "PINECONE_BM25_DEFAULT",
     "HallucinationGuardNode",
     "HybridFusionNode",
     "InMemoryMemoryStore",
@@ -98,6 +115,7 @@ __all__ = [
     "PolicyComplianceNode",
     "QueryClarificationNode",
     "QueryClassifierNode",
+    "PineconeRerankNode",
     "QueryRewriteNode",
     "ReRankerNode",
     "RetrievalEvaluationNode",
@@ -108,5 +126,5 @@ __all__ = [
     "TurnAnnotationNode",
     "UserFeedbackCollectionNode",
     "WebSearchNode",
-    "VectorSearchNode",
+    "DenseSearchNode",
 ]

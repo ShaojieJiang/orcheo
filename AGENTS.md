@@ -35,13 +35,15 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 
 **CRITICAL QUALITY REQUIREMENTS**:
 - For Python code:
+  - `make format` to auto-format the code
   - `make lint` MUST pass with ZERO errors or warnings before completing any task
-  - `make test` MUST pass with all tests green
-  - Run both commands after ANY code modification
+  - Run the smallest relevant pytest target for your change (e.g., `uv run pytest tests/nodes/test_foo.py`)
+  - Document which test command you ran; ensure it passes with all tests green before completion
 - For TypeScript/JavaScript code (Canvas):
   - `make canvas-format` to auto-format the code
   - `make canvas-lint` MUST pass with ZERO errors or warnings
-  - `make canvas-test` MUST pass with all tests green
+  - Run the smallest relevant Canvas test target for your change (prefer targeted npm/vitest commands)
+  - Document which Canvas test command you ran; ensure it passes with all tests green before completion
   - Run all three commands after ANY TypeScript/JavaScript code modification
 
 ## Commit & Pull Request Guidelines

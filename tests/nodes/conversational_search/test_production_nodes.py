@@ -1,4 +1,7 @@
+import sys
 import time
+import types
+from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import Field
@@ -13,10 +16,14 @@ from orcheo.nodes.conversational_search.generation import (
     HallucinationGuardNode,
     StreamingGeneratorNode,
 )
-from orcheo.nodes.conversational_search.ingestion import IncrementalIndexerNode
+from orcheo.nodes.conversational_search.ingestion import (
+    IncrementalIndexerNode,
+    register_embedding_method,
+)
 from orcheo.nodes.conversational_search.models import DocumentChunk, SearchResult
 from orcheo.nodes.conversational_search.query_processing import MultiHopPlannerNode
 from orcheo.nodes.conversational_search.retrieval import (
+    PineconeRerankNode,
     ReRankerNode,
     SourceRouterNode,
 )
@@ -34,6 +41,16 @@ class FlakyVectorStore(InMemoryVectorStore):
             self.failures -= 1
             raise RuntimeError("transient failure")
         await super().upsert(records)
+
+
+PRODUCTION_TEST_EMBEDDING_NAME = "test-production-embedding"
+
+
+def _production_test_embedder(texts: list[str]) -> list[list[float]]:
+    return [[float(len(text))] for text in texts]
+
+
+register_embedding_method(PRODUCTION_TEST_EMBEDDING_NAME, _production_test_embedder)
 
 
 @pytest.mark.asyncio
@@ -58,6 +75,7 @@ async def test_incremental_indexer_retries_and_skips_duplicates() -> None:
     node = IncrementalIndexerNode(
         name="indexer",
         vector_store=store,
+        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
         max_retries=1,
         backoff_seconds=0.0,
     )
@@ -92,6 +110,7 @@ async def test_incremental_indexer_raises_after_exhausting_retries() -> None:
     node = IncrementalIndexerNode(
         name="indexer-error",
         vector_store=store,
+        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
         max_retries=0,
         backoff_seconds=0.0,
     )
@@ -104,7 +123,9 @@ async def test_incremental_indexer_raises_after_exhausting_retries() -> None:
 @pytest.mark.asyncio
 async def test_incremental_indexer_validates_inputs() -> None:
     node = IncrementalIndexerNode(
-        name="indexer-empty", vector_store=InMemoryVectorStore()
+        name="indexer-empty",
+        vector_store=InMemoryVectorStore(),
+        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
     )
     empty_state = State(inputs={}, results={}, structured_response=None)
 
@@ -119,10 +140,11 @@ async def test_incremental_indexer_validates_inputs() -> None:
     chunk = DocumentChunk(
         id="c-1", document_id="d-1", index=0, content="text", metadata={}
     )
+    register_embedding_method("bad-embed", bad_embed)
     node_bad = IncrementalIndexerNode(
         name="indexer-bad",
         vector_store=InMemoryVectorStore(),
-        embedding_function=bad_embed,
+        embedding_method="bad-embed",
     )
     bad_state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
 
@@ -143,7 +165,9 @@ class ListRecordStore(BaseVectorStore):
 @pytest.mark.asyncio
 async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -> None:
     node = IncrementalIndexerNode(
-        name="indexer-invalid", vector_store=InMemoryVectorStore()
+        name="indexer-invalid",
+        vector_store=InMemoryVectorStore(),
+        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
     )
     with pytest.raises(ValueError, match="chunks payload must be a list"):
         await node.run(
@@ -154,13 +178,48 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
         id="c-unchanged", document_id="doc-1", index=0, content="body", metadata={}
     )
     node_skip = IncrementalIndexerNode(
-        name="indexer-weird", vector_store=ListRecordStore(), skip_unchanged=True
+        name="indexer-weird",
+        vector_store=ListRecordStore(),
+        skip_unchanged=True,
+        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
     )
     result = await node_skip.run(
         State(inputs={}, results={"chunks": [chunk]}, structured_response=None), {}
     )
 
     assert result["indexed_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_incremental_indexer_persists_sparse_embeddings() -> None:
+    chunk = DocumentChunk(
+        id="chunk-sparse",
+        document_id="doc-sparse",
+        index=0,
+        content="body",
+        metadata={},
+    )
+
+    def sparse_only_embedding(texts: list[str]) -> list[dict[str, Any]]:
+        return [{"sparse_values": {"indices": [7], "values": [0.75]}} for _ in texts]
+
+    register_embedding_method("sparse-only-indexer", sparse_only_embedding)
+    store = InMemoryVectorStore()
+    node = IncrementalIndexerNode(
+        name="indexer-sparse",
+        vector_store=store,
+        embedding_method="sparse-only-indexer",
+        skip_unchanged=False,
+    )
+    state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    assert result["indexed_count"] == 1
+    stored = store.records.get("chunk-sparse")
+    assert stored is not None
+    assert stored.sparse_values is not None
+    assert stored.values == []
 
 
 @pytest.mark.asyncio
@@ -420,6 +479,92 @@ async def test_reranker_length_penalty_and_router_validation() -> None:
             ),
             {},
         )
+
+
+@pytest.mark.asyncio
+async def test_pinecone_rerank_node_calls_inference_and_orders_results() -> None:
+    class _FakeRerankResult:
+        def __init__(self, data: list[dict[str, Any]]) -> None:
+            self.data = data
+
+    class _FakeInference:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def rerank(self, **kwargs: Any) -> _FakeRerankResult:
+            self.calls.append(kwargs)
+            return _FakeRerankResult(
+                data=[
+                    {
+                        "document": {"_id": "res-2", "chunk_text": "second text"},
+                        "score": 0.95,
+                    },
+                    {
+                        "document": {"_id": "res-1", "chunk_text": "first text"},
+                        "score": 0.9,
+                    },
+                ]
+            )
+
+    fake_module = types.ModuleType("pinecone")
+
+    class _FakePinecone:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.inference = _FakeInference()
+            fake_module.client = self
+
+    fake_module.Pinecone = _FakePinecone
+
+    entries = [
+        SearchResult(
+            id="res-1",
+            score=0.2,
+            text="first text",
+            metadata={"tier": "a"},
+            source="dense",
+            sources=["dense"],
+        ),
+        SearchResult(
+            id="res-2",
+            score=0.3,
+            text="second text",
+            metadata={"tier": "b"},
+            source="bm25",
+            sources=["bm25"],
+        ),
+    ]
+    state = State(
+        inputs={"query": "legal query"},
+        results={"fusion": {"results": entries}},
+        structured_response=None,
+    )
+
+    node = PineconeRerankNode(
+        name="pinecone-rerank",
+        client_kwargs={"api_key": "token"},
+        top_n=2,
+        parameters={"truncate": "END"},
+    )
+
+    with patch.dict(sys.modules, {"pinecone": fake_module}):
+        reranked = await node.run(state, {})
+
+    client = fake_module.client
+    assert client.kwargs == {"api_key": "token"}
+    call = client.inference.calls[0]
+    assert call["model"] == "bge-reranker-v2-m3"
+    assert call["query"] == "legal query"
+    assert call["rank_fields"] == ["chunk_text"]
+    assert call["parameters"] == {"truncate": "END"}
+    documents = call["documents"]
+    assert documents[0]["_id"] == "res-1"
+    assert documents[1]["chunk_text"] == "second text"
+    assert documents[0]["metadata"] == entries[0].metadata
+
+    assert reranked["results"][0].id == "res-2"
+    assert reranked["results"][1].id == "res-1"
+    assert reranked["results"][0].source == "bm25"
 
 
 @pytest.mark.asyncio

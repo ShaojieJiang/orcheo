@@ -13,8 +13,11 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.ingestion import (
-    EmbeddingFunction,
-    deterministic_embedding_function,
+    EMBEDDING_PAYLOAD_ERROR,
+    EmbeddingVector,
+    normalize_embedding_output,
+    require_dense_embeddings,
+    resolve_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import (
     DocumentChunk,
@@ -29,12 +32,12 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 @registry.register(
     NodeMetadata(
-        name="VectorSearchNode",
-        description="Perform dense similarity search using a configured vector store.",
+        name="DenseSearchNode",
+        description="Perform embedding-based retrieval via a configured vector store.",
         category="conversational_search",
     )
 )
-class VectorSearchNode(TaskNode):
+class DenseSearchNode(TaskNode):
     """Node that performs dense retrieval against a vector store."""
 
     query_key: str = Field(
@@ -45,9 +48,9 @@ class VectorSearchNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter that will be queried.",
     )
-    embedding_function: EmbeddingFunction | None = Field(
-        default=None,
-        description="Callable that embeds the query into a vector for retrieval.",
+    embedding_method: str = Field(
+        ...,
+        description="Named embedding method used to transform the query.",
     )
     top_k: int = Field(
         default=5, gt=0, description="Maximum number of results to return"
@@ -62,8 +65,8 @@ class VectorSearchNode(TaskNode):
         description="Optional metadata filters applied to the vector store query.",
     )
     source_name: str = Field(
-        default="vector",
-        description="Label used to annotate the originating retriever",
+        default="dense",
+        description="Label used to annotate the originating retriever.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -71,7 +74,7 @@ class VectorSearchNode(TaskNode):
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
-            msg = "VectorSearchNode requires a non-empty query string"
+            msg = "DenseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
         embeddings = await self._embed([query])
@@ -97,26 +100,29 @@ class VectorSearchNode(TaskNode):
         return {"results": normalized}
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = self.embedding_function or deterministic_embedding_function
+        embedder = resolve_embedding_method(self.embedding_method)
         output = embedder(texts)
         if inspect.isawaitable(output):
             output = await output  # type: ignore[assignment]
-        if not isinstance(output, list) or not all(
-            isinstance(row, list) for row in output
-        ):
-            msg = "Embedding function must return List[List[float]]"
-            raise ValueError(msg)
-        return output
+        try:
+            vectors = normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+        try:
+            return require_dense_embeddings(vectors)
+        except ValueError as exc:
+            msg = "Dense embeddings must include dense vector values"
+            raise ValueError(msg) from exc
 
 
 @registry.register(
     NodeMetadata(
-        name="BM25SearchNode",
+        name="SparseSearchNode",
         description="Perform sparse keyword retrieval using BM25 scoring.",
         category="conversational_search",
     )
 )
-class BM25SearchNode(TaskNode):
+class SparseSearchNode(TaskNode):
     """Node that computes BM25 scores over in-memory chunks."""
 
     source_result_key: str = Field(
@@ -140,7 +146,20 @@ class BM25SearchNode(TaskNode):
     k1: float = Field(default=1.5, gt=0)
     b: float = Field(default=0.75, ge=0.0, le=1.0)
     source_name: str = Field(
-        default="bm25", description="Label for the sparse retriever"
+        default="sparse", description="Label for the sparse retriever."
+    )
+    embedding_method: str = Field(
+        ...,
+        description="Named embedding method used when querying a vector store.",
+    )
+    vector_store: BaseVectorStore | None = Field(
+        default=None,
+        description="Optional vector store containing pre-indexed chunks to query.",
+    )
+    vector_store_candidate_k: int = Field(
+        default=50,
+        gt=0,
+        description="Number of candidates to fetch from the vector store.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -148,12 +167,15 @@ class BM25SearchNode(TaskNode):
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
-            msg = "BM25SearchNode requires a non-empty query string"
+            msg = "SparseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
-        chunks = self._resolve_chunks(state)
+        if self.vector_store is not None:
+            chunks = await self._fetch_chunks_from_vector_store(query)
+        else:
+            chunks = self._resolve_chunks(state)
         if not chunks:
-            msg = "BM25SearchNode requires at least one chunk to search"
+            msg = "SparseSearchNode requires at least one chunk to search"
             raise ValueError(msg)
 
         tokenized_corpus = [self._tokenize(chunk.content) for chunk in chunks]
@@ -179,6 +201,57 @@ class BM25SearchNode(TaskNode):
         ][: self.top_k]
 
         return {"results": ranked}
+
+    async def _fetch_chunks_from_vector_store(self, query: str) -> list[DocumentChunk]:
+        """Retrieve candidate chunks from the vector store using the query embedding."""
+        if self.vector_store is None:
+            return []
+        embeddings = await self._embed([query])
+        results = await self.vector_store.search(
+            query=embeddings[0],
+            top_k=self.vector_store_candidate_k,
+        )
+        chunks: list[DocumentChunk] = []
+        for match in results:
+            metadata = dict(match.metadata or {})
+            chunk_text = match.text or metadata.get("text", "")
+            if not chunk_text:
+                continue
+            raw_index = metadata.get("chunk_index", 0)
+            if isinstance(raw_index, str):
+                try:
+                    chunk_index = int(raw_index)
+                except ValueError:
+                    chunk_index = 0
+            elif isinstance(raw_index, int | float):
+                chunk_index = int(raw_index)
+            else:
+                chunk_index = 0
+            chunk_index = max(0, chunk_index)
+            chunk_metadata = metadata.copy()
+            document_id_value = metadata.get("document_id")
+            document_id = str(document_id_value) if document_id_value else match.id
+            chunks.append(
+                DocumentChunk(
+                    id=match.id,
+                    document_id=document_id,
+                    index=chunk_index,
+                    content=chunk_text,
+                    metadata=chunk_metadata,
+                )
+            )
+        return chunks
+
+    async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
+        embedder = resolve_embedding_method(self.embedding_method)
+        output = embedder(texts)
+        if inspect.isawaitable(output):
+            output = await output  # type: ignore[assignment]
+        try:
+            vectors = normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+        return vectors
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})
@@ -243,6 +316,12 @@ class WebSearchNode(TaskNode):
         default="query",
         description="Key within ``state.inputs`` containing the user query string.",
     )
+    provider: str = Field(
+        default="tavily",
+        description=(
+            "Web search provider identifier. Currently only 'tavily' is supported."
+        ),
+    )
     api_key: str | None = Field(
         default=None,
         description=(
@@ -293,9 +372,39 @@ class WebSearchNode(TaskNode):
         default="web",
         description="Label used to annotate Tavily-sourced results.",
     )
+    suppress_errors: bool = Field(
+        default=True,
+        description=(
+            "Return empty results instead of raising when Tavily is unavailable."
+        ),
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Run Tavily search, optionally suppressing failures."""
+        try:
+            return await self._run_search(state)
+        except ValueError as exc:
+            if not self.suppress_errors:
+                raise
+            return {"results": [], "warning": str(exc), "source": self.source_name}
+        except Exception as exc:  # pragma: no cover - network/runtime guard
+            if not self.suppress_errors:
+                raise
+            return {
+                "results": [],
+                "warning": f"web search unavailable: {exc!s}",
+                "source": self.source_name,
+            }
+
+    async def _run_search(self, state: State) -> dict[str, Any]:
         """Issue a Tavily search and normalise the response into SearchResult items."""
+        if self.provider != "tavily":
+            msg = (
+                "WebSearchNode only supports the 'tavily' provider "
+                f"(received '{self.provider}')"
+            )
+            raise ValueError(msg)
+
         inputs = state.get("inputs", {})
         query = inputs.get(self.query_key) or inputs.get("message")
         if not isinstance(query, str) or not query.strip():
@@ -332,7 +441,11 @@ class WebSearchNode(TaskNode):
             self._parse_result(entry, index) for index, entry in enumerate(raw_results)
         ]
 
-        return {"results": results, "answer": data.get("answer")}
+        return {
+            "results": results,
+            "answer": data.get("answer"),
+            "source": self.source_name,
+        }
 
     def _build_payload(self, query: str, api_key: str) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -547,16 +660,12 @@ class ReRankerNode(TaskNode):
         return {"results": reranked[: self.top_k]}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
-        results = state.get("results", {})
-        payload = results.get(self.source_result_key, {})
-        if isinstance(payload, dict) and self.results_field in payload:
-            entries = payload[self.results_field]
-        else:
-            entries = payload
-        if not isinstance(entries, list):
-            msg = "ReRankerNode requires a list of retrieval results"
-            raise ValueError(msg)
-        return [SearchResult.model_validate(item) for item in entries]
+        return _resolve_retrieval_results(
+            state,
+            self.source_result_key,
+            self.results_field,
+            error_message="ReRankerNode requires a list of retrieval results",
+        )
 
     def _score(self, entry: SearchResult) -> float:
         base_score = entry.score
@@ -607,3 +716,194 @@ class SourceRouterNode(TaskNode):
             msg = "SourceRouterNode requires a list of retrieval results"
             raise ValueError(msg)
         return [SearchResult.model_validate(item) for item in entries]
+
+
+@registry.register(
+    NodeMetadata(
+        name="PineconeRerankNode",
+        description=(
+            "Rerank retrieval results via Pinecone inference for tighter ordering."
+        ),
+        category="conversational_search",
+    )
+)
+class PineconeRerankNode(TaskNode):
+    """Node that uses Pinecone's inference reranker to re-score merged results."""
+
+    model: str = Field(
+        default="bge-reranker-v2-m3",
+        description="Pinecone hosted reranking model identifier.",
+    )
+    source_result_key: str = Field(
+        default="fusion", description="Result entry holding merged retrieval outputs."
+    )
+    results_field: str = Field(
+        default="results",
+        description="Key in the source entry containing SearchResult list.",
+    )
+    query_key: str = Field(
+        default="query",
+        description="Key within ``state.inputs`` that contains the active query.",
+    )
+    rank_fields: list[str] = Field(
+        default_factory=lambda: ["chunk_text"],
+        description="Document fields evaluated by the reranking model.",
+    )
+    top_n: int = Field(
+        default=10,
+        gt=0,
+        description="Maximum reranked results returned from Pinecone.",
+    )
+    return_documents: bool = Field(
+        default=True,
+        description="Whether the reranker should return document payloads.",
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional parameters passed to the reranking request (e.g., truncate)."
+        ),
+    )
+    client_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments forwarded to Pinecone client.",
+    )
+    document_text_field: str = Field(
+        default="chunk_text",
+        description="Field name within each document that contains passage text.",
+    )
+    document_id_field: str = Field(
+        default="_id",
+        description=(
+            "Field name within each document that acts as the unique identifier."
+        ),
+    )
+    client: Any | None = Field(
+        default=None,
+        description="Optional preconfigured Pinecone client (primarily for testing).",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Call Pinecone inference to rerank merged search results."""
+        entries = _resolve_retrieval_results(
+            state, self.source_result_key, self.results_field
+        )
+        if not entries:
+            return {"results": []}
+
+        query = self._resolve_query(state)
+        documents = self._build_documents(entries)
+        client = self._resolve_client()
+        inference = getattr(client, "inference", None)
+        if inference is None:
+            raise RuntimeError(
+                "Pinecone client lacks an inference interface for reranking"
+            )
+
+        rerank_result = inference.rerank(
+            model=self.model,
+            query=query,
+            documents=documents,
+            rank_fields=self.rank_fields,
+            top_n=self.top_n,
+            return_documents=self.return_documents,
+            parameters=self.parameters or None,
+        )
+        if inspect.isawaitable(rerank_result):
+            rerank_result = await rerank_result
+
+        data = getattr(rerank_result, "data", None)
+        if data is None and isinstance(rerank_result, dict):
+            data = rerank_result.get("data", [])
+        data = data or []
+
+        entry_map = {entry.id: entry for entry in entries}
+        reranked: list[SearchResult] = []
+        for row in data:
+            doc = (row or {}).get("document") or {}
+            doc_id = str(
+                doc.get(self.document_id_field)
+                or row.get("id")
+                or row.get("document_id")
+                or ""
+            )
+            base_entry = entry_map.get(doc_id)
+            text = doc.get(self.document_text_field) or (
+                base_entry.text if base_entry else ""
+            )
+            metadata = doc.get("metadata")
+            if metadata is None:  # pragma: no branch
+                metadata = base_entry.metadata if base_entry else {}
+            score = float(row.get("score", 0.0))
+            reranked.append(
+                SearchResult(
+                    id=doc_id
+                    or (base_entry.id if base_entry else f"reranker-{len(reranked)}"),
+                    score=score,
+                    text=text or "",
+                    metadata=metadata,
+                    source=base_entry.source if base_entry else "reranker",
+                    sources=base_entry.sources if base_entry else ["reranker"],
+                )
+            )
+        reranked.sort(key=lambda result: result.score, reverse=True)
+        return {"results": reranked[: self.top_n]}
+
+    def _resolve_query(self, state: State) -> str:
+        inputs = state.get("inputs", {})
+        query = inputs.get(self.query_key) or inputs.get("message")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("PineconeRerankNode requires a non-empty query string")
+        return query.strip()
+
+    def _build_documents(self, entries: list[SearchResult]) -> list[dict[str, Any]]:
+        documents: list[dict[str, Any]] = []
+        for entry in entries:
+            document: dict[str, Any] = {
+                self.document_id_field: entry.id,
+                self.document_text_field: entry.text,
+            }
+            if entry.metadata:
+                document["metadata"] = dict(entry.metadata)
+            documents.append(document)
+        return documents
+
+    def _resolve_client(self) -> Any:
+        if self.client is not None:
+            return self.client
+        try:
+            from pinecone import Pinecone  # type: ignore
+        except ImportError as exc:  # pragma: no cover - dependency guard
+            msg = (
+                "PineconeRerankNode requires the 'pinecone-client' dependency. "
+                "Install it or provide a configured client."
+            )
+            raise ImportError(msg) from exc
+        client_kwargs = dict(self.client_kwargs or {})
+        self.client = Pinecone(**client_kwargs)
+        return self.client
+
+
+def _resolve_retrieval_results(
+    state: State,
+    source_result_key: str,
+    results_field: str,
+    *,
+    error_message: str = "Retrieved results must be provided as a list",
+) -> list[SearchResult]:
+    results = state.get("results", {})
+    payload = results.get(source_result_key, {})
+    if isinstance(payload, dict) and results_field in payload:
+        entries = payload[results_field]
+    else:
+        entries = payload
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise ValueError(error_message)
+    normalized: list[SearchResult] = []
+    for item in entries:
+        if item is None:
+            continue
+        normalized.append(SearchResult.model_validate(item))
+    return normalized
