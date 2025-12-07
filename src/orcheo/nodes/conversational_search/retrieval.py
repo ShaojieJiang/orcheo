@@ -175,8 +175,12 @@ class SparseSearchNode(TaskNode):
         else:
             chunks = self._resolve_chunks(state)
         if not chunks:
-            msg = "SparseSearchNode requires at least one chunk to search"
-            raise ValueError(msg)
+            warning = (
+                "SparseSearchNode did not receive any document chunks; "
+                "ensure the configured vector store contains indexed data before "
+                "running the demo."
+            )
+            return {"results": [], "warning": warning, "source": self.source_name}
 
         tokenized_corpus = [self._tokenize(chunk.content) for chunk in chunks]
         avg_length = sum(len(doc) for doc in tokenized_corpus) / len(tokenized_corpus)

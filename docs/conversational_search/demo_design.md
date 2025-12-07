@@ -158,7 +158,7 @@ System: "The capital of France is Paris. It is located in the north-central part
 
 ---
 
-## Demo 2.2: Hybrid Search with Ranking
+## Demo 2: Hybrid Search with Ranking
 
 **Goal:** Show advanced retrieval combining dense and sparse search with fusion, AI summarization, and live web search.
 
@@ -167,7 +167,7 @@ This demo assumes the Pinecone indexes have already been created by Demo 0 (hybr
 ### Use Case
 A legal document search system that needs both semantic understanding and exact keyword matching for statute citations, with the ability to fetch fresh web results for recent case law.
 
-Before invoking this workflow, run Demo 0 (hybrid indexing) so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
+Before invoking this workflow, run Demo 0 (hybrid indexing) so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, a ReRankerNode reorders the combined results and an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
 
 ### Workflow Graph
 
@@ -182,7 +182,8 @@ graph TD
     SparseSearch --> Fusion
     WebSearch --> Fusion
 
-    Fusion --> Compressor[ContextCompressorNode]
+    Fusion --> ReRanker[ReRankerNode]
+    ReRanker --> Compressor[ContextCompressorNode]
     Compressor --> Generator[GroundedGeneratorNode]
     Generator --> Citations[CitationsFormatterNode]
     Citations --> Output[/Answer + Citations/]
@@ -192,6 +193,7 @@ graph TD
 - **SparseSearchNode** (P0) - Keyword-based sparse retrieval
 - **WebSearchNode** (P0) - Live web search for fresh results
 - **HybridFusionNode** (P0) - RRF fusion of dense, sparse, and web results
+- **ReRankerNode** (P1) - Apply secondary ordering to fused results (Demo uses PineconeRerankNode)
 - **ContextCompressorNode** (P0) - AI summarizer that condenses retrieved context
 - **CitationsFormatterNode** (P1) - Format citations with URL, title, snippet
 
@@ -222,7 +224,7 @@ context:
 
 ### Running the Demo
 ```bash
-python examples/conversational_search/demo_2_hybrid_search/demo_2_2.py
+python examples/conversational_search/demo_2_hybrid_search/demo_2.py
 ```
 
 ### Sample Interaction
@@ -550,7 +552,7 @@ The matrix below tracks node coverage for the five progressive demos; Demo 0 is 
 | SparseSearchNode | | ✓ | | | |
 | WebSearchNode | | ✓ | | | |
 | HybridFusionNode | | ✓ | | | ✓ |
-| ReRankerNode | | | | | |
+| ReRankerNode | | ✓ | | | |
 | SourceRouterNode | | | | ✓ | |
 | **Query Processing** |
 | QueryRewriteNode | | | ✓ | ✓ | |
