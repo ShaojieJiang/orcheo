@@ -255,6 +255,7 @@ class GroundedGeneratorNode(TaskNode):
                     "snippet": _truncate_snippet(entry.text),
                     "sources": entry.sources
                     or ([entry.source] if entry.source else []),
+                    "metadata": entry.metadata,
                 }
             )
         return citations
@@ -584,25 +585,110 @@ class CitationsFormatterNode(TaskNode):
 
         formatted: list[str] = []
         normalized: list[dict[str, Any]] = []
+        references: list[dict[str, str]] = []
         for citation in citations:
             if not isinstance(citation, dict):
                 msg = "Citation entries must be mappings"
                 raise ValueError(msg)
             citation_id = citation.get("id") or str(len(formatted) + 1)
             snippet = citation.get("snippet", "").strip()
-            sources = citation.get("sources") or []
+            raw_sources = citation.get("sources")
+            if isinstance(raw_sources, list):
+                sources = [str(item) for item in raw_sources if item is not None]
+            elif raw_sources is None:
+                sources = []
+            else:
+                sources = [str(raw_sources)]
+            metadata = citation.get("metadata")
+            normalized_metadata = metadata if isinstance(metadata, dict) else {}
             normalized.append(
                 {
                     "id": str(citation_id),
                     "snippet": snippet,
                     "sources": sources,
+                    "source_id": citation.get("source_id"),
+                    "metadata": normalized_metadata,
                 }
             )
             source_label = (
-                f" sources={','.join(sources)}"
+                f" (sources: {', '.join(sources)})"
                 if sources and self.include_sources
                 else ""
             )
-            formatted.append(f"[{citation_id}] {snippet}{source_label}".strip())
+            base_text = snippet or str(citation_id)
+            external_url = self._resolve_reference_url(citation, normalized_metadata)
+            source_reference = f" ([source]({external_url}))" if external_url else ""
+            formatted_text = (
+                f"[{citation_id}] {base_text}{source_label}{source_reference}".strip()
+            )
+            formatted.append(formatted_text)
+            references.append(
+                {
+                    "id": str(citation_id),
+                    "line": formatted_text,
+                }
+            )
 
-        return {"formatted": formatted, "citations": normalized}
+        base_reply = ""
+        if isinstance(payload, dict):
+            raw_reply = payload.get("reply")
+            if isinstance(raw_reply, str):
+                base_reply = raw_reply
+        reply = self._build_markdown_reply(base_reply, references)
+
+        self._overwrite_source_reply(state, reply, normalized)
+
+        return {"reply": reply, "formatted": formatted, "citations": normalized}
+
+    def _overwrite_source_reply(
+        self, state: State, reply: str, citations: list[dict[str, Any]]
+    ) -> None:
+        """Update the original source payload with the formatted reply."""
+        results = state.get("results")
+        if not isinstance(results, dict):
+            return
+        source_payload = results.get(self.source_result_key)
+        if not isinstance(source_payload, dict):
+            return
+        source_payload["reply"] = reply
+        source_payload["citations"] = citations
+
+    def _resolve_reference_url(
+        self, citation: dict[str, Any], metadata: dict[str, Any]
+    ) -> str | None:
+        """Prefer a URL from citation metadata or the citation dictionary."""
+        url_fields = (
+            "url",
+            "link",
+            "source_url",
+            "permalink",
+            "href",
+        )
+        candidates: list[str | None] = []
+        for field in url_fields:
+            candidate = citation.get(field)
+            if candidate is None:
+                candidate = metadata.get(field)
+            candidates.append(candidate)
+        source_id = citation.get("source_id")
+        candidates.append(source_id)
+
+        for candidate in candidates:
+            if isinstance(candidate, str):
+                trimmed = candidate.strip()
+                if trimmed.startswith(("http://", "https://")):
+                    return trimmed
+        return None
+
+    def _build_markdown_reply(
+        self, base_reply: str, references: list[dict[str, str]]
+    ) -> str:
+        """Return the markdown reply that appends formatted reference entries."""
+        sections: list[str] = []
+        trimmed = base_reply.strip()
+        if trimmed:
+            sections.append(trimmed)
+        if references:
+            lines = [f"- {ref['line']}" for ref in references]
+            sections.append("References:\n" + "\n".join(lines))
+        return "\n\n".join(sections).strip()

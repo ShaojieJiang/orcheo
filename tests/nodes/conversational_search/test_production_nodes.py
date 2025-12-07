@@ -576,14 +576,46 @@ async def test_citations_formatter_normalizes_entries() -> None:
     node = CitationsFormatterNode(name="formatter")
     state = State(
         inputs={},
-        results={"grounded_generator": {"citations": citations}},
+        results={
+            "grounded_generator": {"reply": "Answer base [1]", "citations": citations}
+        },
         structured_response=None,
     )
 
     formatted = await node.run(state, {})
 
     assert formatted["formatted"][0].startswith("[1]")
+    assert formatted["reply"].startswith("Answer base [1]")
+    assert "References:" in formatted["reply"]
+    assert "- [1] text (sources: vector)" in formatted["reply"]
+    assert "- [2] other" in formatted["reply"]
     assert formatted["citations"][0]["sources"] == ["vector"]
+
+
+@pytest.mark.asyncio
+async def test_citations_formatter_links_snippet_when_metadata_includes_url() -> None:
+    citations = [
+        {
+            "id": "1",
+            "snippet": "text",
+            "sources": ["vector"],
+            "metadata": {"url": "https://example.com", "title": "Example Title"},
+        }
+    ]
+    node = CitationsFormatterNode(name="formatter-links")
+    state = State(
+        inputs={},
+        results={
+            "grounded_generator": {"reply": "Answer base [1]", "citations": citations}
+        },
+        structured_response=None,
+    )
+
+    formatted = await node.run(state, {})
+
+    assert "References:" in formatted["reply"]
+    assert "- [1] text (sources: vector)" in formatted["reply"]
+    assert "([source](https://example.com))" in formatted["formatted"][0]
 
 
 @pytest.mark.asyncio

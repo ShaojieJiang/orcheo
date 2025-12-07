@@ -365,8 +365,8 @@ async def run_demo_2(
         result = await app.ainvoke(payload)  # type: ignore[arg-type]
 
     generator_output = result.get("results", {}).get("generator", {})
-    reply = generator_output.get("reply", "")
     citations_payload = result.get("results", {}).get("citations", {})
+    reply = citations_payload.get("reply") or generator_output.get("reply", "")
 
     print("Query:", query)
     print("\n--- Grounded Answer ---")
