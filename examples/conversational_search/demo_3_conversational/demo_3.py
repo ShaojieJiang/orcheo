@@ -1,8 +1,5 @@
 """Conversational Search Demo 3: stateful chat with query routing."""
 
-from __future__ import annotations
-import asyncio
-from pathlib import Path
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -31,7 +28,6 @@ from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-DATA_ROOT = Path(__file__).resolve().parents[1] / "data" / "docs"
 SKIP_USER_MESSAGE_KEY = "__demo3_skip_user_message"
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -122,12 +118,8 @@ class ConversationContextNode(TaskNode):
 class ResultToInputsNode(TaskNode):
     """Copy selected fields from a named result entry into the graph inputs."""
 
-    source_result_key: str = Field(
-        ..., description="Result entry providing field values"
-    )
-    mappings: dict[str, str] = Field(
-        ..., description="Map of input target -> result field"
-    )
+    source_result_key: str = Field(description="Result entry providing field values")
+    mappings: dict[str, str] = Field(description="Map of input target -> result field")
     allow_missing: bool = Field(
         default=True,
         description="If false, missing fields raise an error",
@@ -304,21 +296,17 @@ async def build_graph(
     return workflow
 
 
-def _print_demo_introduction(vector_store_cfg: dict[str, Any], doc_count: int) -> None:
-    """Print vector store info and document availability."""
+def print_demo_introduction(vector_store_cfg: dict[str, Any]) -> None:
+    """Print vector store info for the demo."""
     print("Conversation controls:", DEFAULT_CONFIG["conversation"])
     print(
         "This demo relies on Pinecone index "
         f"{vector_store_cfg['index_name']} in namespace "
         f"{vector_store_cfg['namespace']}."
     )
-    if doc_count:
-        print(f"Demo 0 should ingest the {doc_count} documents under {DATA_ROOT}.")
-    else:
-        print(f"No reference documents were found at {DATA_ROOT}; run Demo 0 first.")
 
 
-def _print_classification_info(branch: str, classifier: dict[str, Any]) -> None:
+def print_classification_info(branch: str, classifier: dict[str, Any]) -> None:
     """Emit classification results for the current turn."""
     print(
         " Classification:",
@@ -327,7 +315,7 @@ def _print_classification_info(branch: str, classifier: dict[str, Any]) -> None:
     )
 
 
-def _print_clarification_requests(clarifications: list[str]) -> None:
+def print_clarification_requests(clarifications: list[str]) -> None:
     """Print any clarification questions returned by the graph."""
     if not clarifications:
         return
@@ -336,7 +324,7 @@ def _print_clarification_requests(clarifications: list[str]) -> None:
         print(f"  - {question}")
 
 
-async def _handle_finalize_branch(
+async def handle_finalize_branch(
     results: dict[str, Any], memory_store: InMemoryMemoryStore
 ) -> None:
     """Emit summary information and fetch the stored summary."""
@@ -346,7 +334,7 @@ async def _handle_finalize_branch(
     print(" Stored summary:", saved)
 
 
-def _print_search_branch_details(results: dict[str, Any]) -> None:
+def print_search_branch_details(results: dict[str, Any]) -> None:
     """Print retrieval-related outputs for a search classification."""
     coref = results.get("coreference_resolver", {})
     if coref.get("resolved"):
@@ -386,7 +374,7 @@ def _print_search_branch_details(results: dict[str, Any]) -> None:
         )
 
 
-async def _process_demo_turn(
+async def process_demo_turn(
     app: Any,
     memory_store: InMemoryMemoryStore,
     turn_index: int,
@@ -405,29 +393,28 @@ async def _process_demo_turn(
     results = result.get("results", {})
     classifier = results.get("query_classifier", {})
     branch = classifier.get("classification", "search")
-    _print_classification_info(branch, classifier)
+    print_classification_info(branch, classifier)
 
     if branch == "clarification":
         clarifications = results.get("query_clarification", {}).get(
             "clarifications", []
         )
-        _print_clarification_requests(clarifications)
+        print_clarification_requests(clarifications)
         return
 
     if branch == "finalize":
-        await _handle_finalize_branch(results, memory_store)
+        await handle_finalize_branch(results, memory_store)
         return
 
-    _print_search_branch_details(results)
+    print_search_branch_details(results)
 
 
 async def run_demo() -> None:
     """Run the conversational demo turn loop using the compiled workflow."""
     vector_store_cfg = DEFAULT_CONFIG["vector_store"]
     vector_store = build_vector_store_from_config(vector_store_cfg)
-    doc_count = len(list(DATA_ROOT.glob("*.md"))) if DATA_ROOT.exists() else 0
 
-    _print_demo_introduction(vector_store_cfg, doc_count)
+    print_demo_introduction(vector_store_cfg)
 
     memory_store = InMemoryMemoryStore(
         max_sessions=DEFAULT_CONFIG["conversation"]["max_sessions"],
@@ -442,7 +429,7 @@ async def run_demo() -> None:
 
     with credential_resolution(resolver):
         for turn_index, message in enumerate(CONVERSATION_TURNS, start=1):
-            await _process_demo_turn(app, memory_store, turn_index, message)
+            await process_demo_turn(app, memory_store, turn_index, message)
 
     print("\nDemo complete.")
 
@@ -456,4 +443,6 @@ def setup_credentials() -> CredentialResolver:
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(run_demo())
