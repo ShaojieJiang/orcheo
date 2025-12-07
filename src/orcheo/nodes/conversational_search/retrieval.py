@@ -14,6 +14,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.ingestion import (
     EMBEDDING_PAYLOAD_ERROR,
+    EmbeddingVector,
     normalize_embedding_output,
     require_dense_embeddings,
     resolve_embedding_method,
@@ -241,7 +242,7 @@ class SparseSearchNode(TaskNode):
             )
         return chunks
 
-    async def _embed(self, texts: list[str]) -> list[list[float]]:
+    async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
         embedder = resolve_embedding_method(self.embedding_method)
         output = embedder(texts)
         if inspect.isawaitable(output):
@@ -250,11 +251,7 @@ class SparseSearchNode(TaskNode):
             vectors = normalize_embedding_output(output)
         except ValueError as exc:
             raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
-        try:
-            return require_dense_embeddings(vectors)
-        except ValueError as exc:
-            msg = "Dense embeddings must include dense vector values"
-            raise ValueError(msg) from exc
+        return vectors
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})

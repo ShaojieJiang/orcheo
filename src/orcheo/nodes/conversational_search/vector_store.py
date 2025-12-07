@@ -5,9 +5,13 @@ import inspect
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 from orcheo.nodes.conversational_search.models import SearchResult, VectorRecord
+
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard
+    from orcheo.nodes.conversational_search.ingestion import EmbeddingVector
 
 
 class BaseVectorStore(ABC, BaseModel):
@@ -22,7 +26,7 @@ class BaseVectorStore(ABC, BaseModel):
     @abstractmethod
     async def search(
         self,
-        query: list[float],
+        query: EmbeddingVector | list[float],
         top_k: int = 10,
         filter_metadata: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
@@ -41,11 +45,18 @@ class InMemoryVectorStore(BaseVectorStore):
 
     async def search(
         self,
-        query: list[float],
+        query: EmbeddingVector | list[float],
         top_k: int = 10,
         filter_metadata: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
         """Perform cosine similarity search over in-memory vectors."""
+        if not isinstance(query, list):
+            if not query.values:
+                msg = "dense embeddings must include non-empty float values"
+                raise ValueError(msg)
+            dense_query = query.values
+        else:
+            dense_query = query
         candidates = list(self.records.values())
         if filter_metadata:
             candidates = [
@@ -59,7 +70,7 @@ class InMemoryVectorStore(BaseVectorStore):
 
         scored: list[SearchResult] = []
         for record in candidates:
-            score = self._cosine_similarity(query, record.values)
+            score = self._cosine_similarity(dense_query, record.values)
             scored.append(
                 SearchResult(
                     id=record.id,
@@ -129,20 +140,33 @@ class PineconeVectorStore(BaseVectorStore):
 
     async def search(
         self,
-        query: list[float],
+        query: EmbeddingVector | list[float],
         top_k: int = 10,
         filter_metadata: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
         """Query Pinecone for the most similar vectors."""
         client = self._resolve_client()
         index = self._resolve_index(client)
-        result = index.query(
-            vector=query,
-            top_k=top_k,
-            namespace=self.namespace,
-            include_metadata=True,
-            filter=filter_metadata or None,
-        )
+        if isinstance(query, list):
+            vector_payload = query
+            sparse_payload = None
+        else:
+            vector_payload = query.values
+            sparse_payload = query.sparse_values
+
+        if not vector_payload and sparse_payload is None:
+            msg = "query embeddings must include dense or sparse values"
+            raise ValueError(msg)
+
+        query_kwargs: dict[str, Any] = {
+            "vector": vector_payload or None,
+            "sparse_vector": sparse_payload.model_dump() if sparse_payload else None,
+            "top_k": top_k,
+            "namespace": self.namespace,
+            "include_metadata": True,
+            "filter": filter_metadata or None,
+        }
+        result = index.query(**query_kwargs)
         if inspect.iscoroutine(result):
             result = await result
 
