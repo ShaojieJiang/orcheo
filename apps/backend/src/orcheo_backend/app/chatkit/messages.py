@@ -116,6 +116,7 @@ def build_inputs_payload(
         "message": message_text,
         "history": history,
         "thread_id": thread.id,
+        "session_id": thread.id,
         "metadata": dict(thread.metadata),
     }
 

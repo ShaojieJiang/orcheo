@@ -225,6 +225,7 @@ def test_build_inputs_payload_basic() -> None:
     assert payload["message"] == "Hello"
     assert payload["history"] == [{"role": "user", "content": "Hi"}]
     assert payload["thread_id"] == "thr_basic"
+    assert payload["session_id"] == "thr_basic"
     assert payload["metadata"] == {"key": "value"}
     assert "documents" not in payload
 
