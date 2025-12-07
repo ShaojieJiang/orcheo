@@ -1,6 +1,5 @@
 """Hybrid search Demo 2.2: retrieve + fuse over prebuilt Pinecone indexes."""
 
-import asyncio
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -208,9 +207,11 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
         workflow.add_node(name, node)
 
     workflow.set_entry_point("dense_search")
+    workflow.set_entry_point("sparse_search")
+    workflow.set_entry_point("web_search")
     for source, dest in (
-        ("dense_search", "sparse_search"),
-        ("sparse_search", "web_search"),
+        ("dense_search", "retrieval_collector"),
+        ("sparse_search", "retrieval_collector"),
         ("web_search", "retrieval_collector"),
         ("retrieval_collector", "fusion"),
         ("fusion", "reranker"),
@@ -386,4 +387,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(main())

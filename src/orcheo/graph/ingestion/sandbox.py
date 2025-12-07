@@ -142,6 +142,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
             "dict": dict,
             "list": list,
             "set": set,
+            "any": builtins.any,
             "type": type,
         }
     )
