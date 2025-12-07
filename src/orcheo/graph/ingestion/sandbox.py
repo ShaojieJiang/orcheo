@@ -16,6 +16,7 @@ from typing import Any, cast
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.Eval import default_guarded_getitem, default_guarded_getiter
 from RestrictedPython.Guards import (
+    full_write_guard,
     guarded_iter_unpack_sequence,
     guarded_unpack_sequence,
 )
@@ -160,6 +161,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
         "_iter_unpack_sequence_": guarded_iter_unpack_sequence,
         "_unpack_sequence_": guarded_unpack_sequence,
         "_print_": print,
+        "_write_": full_write_guard,
     }
     return namespace
 
