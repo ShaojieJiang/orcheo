@@ -22,11 +22,12 @@ from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 DEFAULT_DEMO_1_EMBEDDING = "demo1-embedding"
 
 
-def _demo1_embedder(texts: list[str]) -> list[list[float]]:
+def demo1_embedder(texts: list[str]) -> list[list[float]]:
+    """Embedding function for demo 1."""
     return [[float(len(text))] for text in texts]
 
 
-register_embedding_method(DEFAULT_DEMO_1_EMBEDDING, _demo1_embedder)
+register_embedding_method(DEFAULT_DEMO_1_EMBEDDING, demo1_embedder)
 
 
 # Default configuration inlined for server execution

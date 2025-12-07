@@ -1,6 +1,5 @@
 """Hybrid search Demo 2.2: retrieve + fuse over prebuilt Pinecone indexes."""
 
-import asyncio
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -105,8 +104,9 @@ class RetrievalCollectorNode(TaskNode):
 
     retriever_map: dict[str, str] = Field(default_factory=default_retriever_map)
 
-    async def run(self, state: State, _: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Gather retriever outputs and ensure at least one result is present."""
+        del config
         collected: dict[str, Any] = {}
         results = state.get("results", {})
         for logical_name, result_key in self.retriever_map.items():
@@ -143,12 +143,12 @@ def configure_vector_stores(
     dense_cfg = config.get("dense") or fallback_cfg
     sparse_cfg = config.get("sparse") or fallback_cfg
     return {
-        "dense": _build_vector_store(dense_cfg),
-        "sparse": _build_vector_store(sparse_cfg),
+        "dense": build_vector_store(dense_cfg),
+        "sparse": build_vector_store(sparse_cfg),
     }
 
 
-def _build_vector_store(cfg: dict[str, Any] | None) -> BaseVectorStore:
+def build_vector_store(cfg: dict[str, Any] | None) -> BaseVectorStore:
     """Create a concrete vector store from the supplied configuration."""
     if not cfg:
         return InMemoryVectorStore()
@@ -188,14 +188,14 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
     generation_cfg = merged_config["generation"]
 
     nodes = {
-        "dense_search": _build_dense_search_node(dense_cfg, vector_stores["dense"]),
-        "sparse_search": _build_sparse_search_node(sparse_cfg, vector_stores["sparse"]),
-        "web_search": _build_web_search_node(web_cfg),
+        "dense_search": build_dense_search_node(dense_cfg, vector_stores["dense"]),
+        "sparse_search": build_sparse_search_node(sparse_cfg, vector_stores["sparse"]),
+        "web_search": build_web_search_node(web_cfg),
         "retrieval_collector": RetrievalCollectorNode(name="retrieval_collector"),
-        "fusion": _build_hybrid_fusion_node(fusion_cfg),
-        "reranker": _build_reranker_node(merged_config.get("reranker", {})),
-        "context_summarizer": _build_context_summarizer_node(context_cfg),
-        "generator": _build_generator_node(generation_cfg),
+        "fusion": build_hybrid_fusion_node(fusion_cfg),
+        "reranker": build_reranker_node(merged_config.get("reranker", {})),
+        "context_summarizer": build_context_summarizer_node(context_cfg),
+        "generator": build_generator_node(generation_cfg),
         "citations": CitationsFormatterNode(
             name="citations",
             source_result_key="generator",
@@ -207,9 +207,11 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
         workflow.add_node(name, node)
 
     workflow.set_entry_point("dense_search")
+    workflow.set_entry_point("sparse_search")
+    workflow.set_entry_point("web_search")
     for source, dest in (
-        ("dense_search", "sparse_search"),
-        ("sparse_search", "web_search"),
+        ("dense_search", "retrieval_collector"),
+        ("sparse_search", "retrieval_collector"),
         ("web_search", "retrieval_collector"),
         ("retrieval_collector", "fusion"),
         ("fusion", "reranker"),
@@ -223,7 +225,7 @@ async def build_graph(config: dict[str, Any] | None = None) -> StateGraph:
     return workflow
 
 
-def _build_dense_search_node(
+def build_dense_search_node(
     cfg: dict[str, Any],
     vector_store: BaseVectorStore,
 ) -> DenseSearchNode:
@@ -240,7 +242,7 @@ def _build_dense_search_node(
     )
 
 
-def _build_sparse_search_node(
+def build_sparse_search_node(
     cfg: dict[str, Any],
     vector_store: BaseVectorStore,
 ) -> SparseSearchNode:
@@ -258,7 +260,7 @@ def _build_sparse_search_node(
     )
 
 
-def _build_web_search_node(cfg: dict[str, Any]) -> WebSearchNode:
+def build_web_search_node(cfg: dict[str, Any]) -> WebSearchNode:
     """Create the optional web search node."""
     return WebSearchNode(
         name="web_search",
@@ -274,7 +276,7 @@ def _build_web_search_node(cfg: dict[str, Any]) -> WebSearchNode:
     )
 
 
-def _build_hybrid_fusion_node(cfg: dict[str, Any]) -> HybridFusionNode:
+def build_hybrid_fusion_node(cfg: dict[str, Any]) -> HybridFusionNode:
     """Create the fusion node that merges retriever outputs."""
     strategy = cfg.get("strategy", "rrf")
     if strategy == "reciprocal_rank_fusion":
@@ -289,7 +291,7 @@ def _build_hybrid_fusion_node(cfg: dict[str, Any]) -> HybridFusionNode:
     )
 
 
-def _build_reranker_node(cfg: dict[str, Any]) -> PineconeRerankNode:
+def build_reranker_node(cfg: dict[str, Any]) -> PineconeRerankNode:
     """Create the reranker node using provided Pinecone settings."""
     return PineconeRerankNode(
         name="reranker",
@@ -306,7 +308,7 @@ def _build_reranker_node(cfg: dict[str, Any]) -> PineconeRerankNode:
     )
 
 
-def _build_context_summarizer_node(cfg: dict[str, Any]) -> ContextCompressorNode:
+def build_context_summarizer_node(cfg: dict[str, Any]) -> ContextCompressorNode:
     """Create the context summarizer node with its prompt configuration."""
     context_prompt = cfg.get(
         "summary_prompt",
@@ -322,7 +324,7 @@ def _build_context_summarizer_node(cfg: dict[str, Any]) -> ContextCompressorNode
     )
 
 
-def _build_generator_node(cfg: dict[str, Any]) -> GroundedGeneratorNode:
+def build_generator_node(cfg: dict[str, Any]) -> GroundedGeneratorNode:
     """Create the grounded generator node."""
     return GroundedGeneratorNode(
         name="generator",
@@ -341,7 +343,7 @@ def setup_credentials() -> CredentialResolver:
     return CredentialResolver(vault)
 
 
-async def run_demo_2_2(
+async def run_demo_2(
     config: dict[str, Any] | None = None,
     resolver: CredentialResolver | None = None,
 ) -> None:
@@ -363,8 +365,8 @@ async def run_demo_2_2(
         result = await app.ainvoke(payload)  # type: ignore[arg-type]
 
     generator_output = result.get("results", {}).get("generator", {})
-    reply = generator_output.get("reply", "")
     citations_payload = result.get("results", {}).get("citations", {})
+    reply = citations_payload.get("reply") or generator_output.get("reply", "")
 
     print("Query:", query)
     print("\n--- Grounded Answer ---")
@@ -381,8 +383,10 @@ async def run_demo_2_2(
 async def main() -> None:
     """Entrypoint used when invoking this demo as a standalone script."""
     resolver = setup_credentials()
-    await run_demo_2_2(resolver=resolver)
+    await run_demo_2(resolver=resolver)
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(main())

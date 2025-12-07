@@ -195,10 +195,11 @@ async def test_sparse_search_requires_chunks() -> None:
     )
     state = State(inputs={"query": "bananas"}, results={}, structured_response=None)
 
-    with pytest.raises(
-        ValueError, match="SparseSearchNode requires at least one chunk to search"
-    ):
-        await node.run(state, {})
+    result = await node.run(state, {})
+
+    assert result["results"] == []
+    assert "warning" in result
+    assert "SparseSearchNode did not receive any document chunks" in result["warning"]
 
 
 @pytest.mark.asyncio
