@@ -643,6 +643,75 @@ async def test_citations_formatter_validates_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_citations_formatter_handles_source_and_metadata_variations() -> None:
+    citations = [
+        {"id": "1", "snippet": "first snippet", "sources": None, "metadata": "invalid"},
+        {
+            "id": "2",
+            "snippet": "second snippet",
+            "sources": "legacy",
+            "metadata": {"permalink": " https://example.org "},
+        },
+    ]
+    node = CitationsFormatterNode(name="formatter-variations")
+    state = State(
+        inputs={},
+        results={
+            "grounded_generator": {
+                "reply": "  Base answer  ",
+                "citations": citations,
+            }
+        },
+        structured_response=None,
+    )
+
+    formatted = await node.run(state, {})
+
+    assert formatted["citations"][0]["sources"] == []
+    assert formatted["citations"][0]["metadata"] == {}
+    assert formatted["citations"][1]["sources"] == ["legacy"]
+    assert (
+        formatted["formatted"][1]
+        == "[2] second snippet (sources: legacy) ([source](https://example.org))"
+    )
+    assert formatted["reply"].startswith("Base answer")
+    assert "- [1] first snippet" in formatted["reply"]
+    assert "- [2] second snippet (sources: legacy)" in formatted["reply"]
+    assert state["results"]["grounded_generator"]["reply"] == formatted["reply"]
+    assert state["results"]["grounded_generator"]["citations"] == formatted["citations"]
+
+
+@pytest.mark.asyncio
+async def test_citations_formatter_handles_list_payload_without_overwriting_state() -> (
+    None
+):
+    citations = [{"id": "alpha", "snippet": "list snippet", "sources": []}]
+    node = CitationsFormatterNode(name="formatter-list")
+    state = State(
+        inputs={},
+        results={"grounded_generator": citations},
+        structured_response=None,
+    )
+
+    formatted = await node.run(state, {})
+
+    assert formatted["reply"] == "References:\n- [alpha] list snippet"
+    assert formatted["citations"][0]["id"] == "alpha"
+    assert state["results"]["grounded_generator"] is citations
+
+
+def test_citations_formatter_overwrite_source_reply_handles_invalid_state() -> None:
+    node = CitationsFormatterNode(name="formatter-overwrite")
+    invalid_results = {"results": None}
+    node._overwrite_source_reply(invalid_results, "reply", [])
+    assert invalid_results["results"] is None
+
+    list_payload_state = {"results": {"grounded_generator": []}}
+    node._overwrite_source_reply(list_payload_state, "reply", [])
+    assert list_payload_state["results"]["grounded_generator"] == []
+
+
+@pytest.mark.asyncio
 async def test_answer_caching_stores_and_serves_cached_response() -> None:
     node = AnswerCachingNode(name="cache", ttl_seconds=None, max_entries=2)
 

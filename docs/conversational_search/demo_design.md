@@ -303,13 +303,13 @@ topic_shift_detector:
 ### Sample Interaction
 ```
 User: "How do I reset my password?"
-System: "You can reset your password by clicking 'Forgot Password'..."
+AI: "You can reset your password by clicking 'Forgot Password'..."
 
 User: "Where is that button?"  [coreference: "that button" = "Forgot Password"]
-System: "The 'Forgot Password' button is located below the login form..."
+AI: "The 'Forgot Password' button is located below the login form..."
 
 User: "What about API keys?"  [topic shift detected]
-System: "I notice you're switching to API keys. To summarize our password discussion: ... Now, regarding API keys..."
+AI: "I notice you're switching to API keys. To summarize our password discussion: ... Now, regarding API keys..."
 ```
 
 ---
