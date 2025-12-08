@@ -209,6 +209,7 @@ async def build_graph(
         name="generator",
         context_result_key=dense_search.name,
         citation_style=generation_cfg.get("citation_style", "inline"),
+        ai_model="openai:gpt-4o-mini",
     )
     assistant_sync = ResultToInputsNode(
         name="generator_to_inputs",
