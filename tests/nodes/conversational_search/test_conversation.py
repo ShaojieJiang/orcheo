@@ -579,6 +579,36 @@ async def test_query_clarification_requires_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_query_clarification_falls_back_to_message_input() -> None:
+    node = QueryClarificationNode(name="clarifier")
+    state = State(
+        inputs={"message": "Clarify which option to focus on"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["needs_clarification"] is True
+    assert result["clarifications"]
+
+
+@pytest.mark.asyncio
+async def test_query_clarification_falls_back_to_user_message_when_message_missing() -> (  # noqa: E501
+    None
+):
+    node = QueryClarificationNode(name="clarifier")
+    state = State(
+        inputs={"user_message": "Clarify which option to focus on"},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+    assert result["needs_clarification"] is True
+    assert result["clarifications"]
+
+
+@pytest.mark.asyncio
 async def test_query_clarification_uses_summary_context_hint() -> None:
     node = QueryClarificationNode(name="clarifier")
     state = State(

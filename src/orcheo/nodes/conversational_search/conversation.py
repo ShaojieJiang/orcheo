@@ -360,7 +360,7 @@ class AnswerCachingNode(TaskNode):
     """Cache responses for repeated user queries using TTL-based eviction."""
 
     query_key: str = Field(
-        default="query", description="Key within inputs containing the user query"
+        default="message", description="Key within inputs containing the user message"
     )
     source_result_key: str = Field(
         default="grounded_generator",
@@ -377,7 +377,13 @@ class AnswerCachingNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return cached response for repeated queries when available."""
-        query = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "AnswerCachingNode requires a non-empty query"
             raise ValueError(msg)
@@ -546,7 +552,7 @@ class TopicShiftDetectorNode(TaskNode):
     """Heuristic detector for topic shifts using token overlap."""
 
     query_key: str = Field(
-        default="query", description="Key holding the active query string."
+        default="message", description="Key holding the active message string."
     )
     source_result_key: str = Field(
         default="conversation_state",
@@ -587,7 +593,13 @@ class TopicShiftDetectorNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Score the new query against recent turns and flag topic shifts."""
-        query_raw = state.get("inputs", {}).get(self.query_key)
+        inputs = state.get("inputs", {})
+        query_raw = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query_raw, str) or not query_raw.strip():
             msg = "TopicShiftDetectorNode requires a non-empty query"
             raise ValueError(msg)
@@ -689,7 +701,8 @@ class QueryClarificationNode(TaskNode):
     """Produce clarifying questions based on the active query and context."""
 
     query_key: str = Field(
-        default="query", description="Key within ``state.inputs`` holding the query."
+        default="message",
+        description="Key within ``state.inputs`` holding the user message.",
     )
     history_key: str = Field(
         default="conversation_history",
@@ -706,8 +719,9 @@ class QueryClarificationNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Generate clarifying questions when the query appears ambiguous."""
-        query_raw = state.get("inputs", {}).get(self.query_key)
-        if not isinstance(query_raw, str) or not query_raw.strip():
+        inputs = state.get("inputs", {})
+        query_raw = self._resolve_query(inputs)
+        if not query_raw:
             msg = "QueryClarificationNode requires a non-empty query"
             raise ValueError(msg)
         query = query_raw.strip()
@@ -726,6 +740,17 @@ class QueryClarificationNode(TaskNode):
             "needs_clarification": bool(clarifications),
             "context_hint": context_hint or None,
         }
+
+    def _resolve_query(self, inputs: dict[str, Any]) -> str | None:
+        """Return the most meaningful query candidate available in inputs."""
+        candidate = inputs.get(self.query_key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+        for fallback in ("message", "user_message", "query"):
+            candidate = inputs.get(fallback)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+        return None
 
     def _build_questions(self, query: str, context_hint: str) -> list[str]:
         questions: list[str] = []

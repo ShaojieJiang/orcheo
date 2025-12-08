@@ -41,8 +41,8 @@ class DenseSearchNode(TaskNode):
     """Node that performs dense retrieval against a vector store."""
 
     query_key: str = Field(
-        default="query",
-        description="Key within ``state.inputs`` containing the user query string.",
+        default="message",
+        description="Key within ``state.inputs`` containing the user message string.",
     )
     vector_store: BaseVectorStore = Field(
         default_factory=InMemoryVectorStore,
@@ -72,7 +72,12 @@ class DenseSearchNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Embed the query and perform similarity search."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "DenseSearchNode requires a non-empty query string"
             raise ValueError(msg)
@@ -133,7 +138,7 @@ class SparseSearchNode(TaskNode):
         default="chunks", description="Field containing chunk payloads"
     )
     query_key: str = Field(
-        default="query", description="Key within inputs holding the user query"
+        default="message", description="Key within inputs holding the user message"
     )
     top_k: int = Field(
         default=5, gt=0, description="Maximum number of results to return"
@@ -165,7 +170,12 @@ class SparseSearchNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Score document chunks with BM25 and return the top matches."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "SparseSearchNode requires a non-empty query string"
             raise ValueError(msg)
@@ -317,8 +327,8 @@ class WebSearchNode(TaskNode):
     """Node that retrieves fresh web results using Tavily search."""
 
     query_key: str = Field(
-        default="query",
-        description="Key within ``state.inputs`` containing the user query string.",
+        default="message",
+        description="Key within ``state.inputs`` containing the user message string.",
     )
     provider: str = Field(
         default="tavily",
@@ -410,7 +420,12 @@ class WebSearchNode(TaskNode):
             raise ValueError(msg)
 
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "WebSearchNode requires a non-empty query string"
             raise ValueError(msg)
@@ -746,8 +761,8 @@ class PineconeRerankNode(TaskNode):
         description="Key in the source entry containing SearchResult list.",
     )
     query_key: str = Field(
-        default="query",
-        description="Key within ``state.inputs`` that contains the active query.",
+        default="message",
+        description="Key within ``state.inputs`` that contains the active message.",
     )
     rank_fields: list[str] = Field(
         default_factory=lambda: ["chunk_text"],
@@ -855,7 +870,12 @@ class PineconeRerankNode(TaskNode):
 
     def _resolve_query(self, state: State) -> str:
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             raise ValueError("PineconeRerankNode requires a non-empty query string")
         return query.strip()

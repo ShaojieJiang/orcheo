@@ -41,7 +41,8 @@ class GroundedGeneratorNode(TaskNode):
     """Node that generates grounded responses using retrieved context."""
 
     query_key: str = Field(
-        default="query", description="Key within ``state.inputs`` holding the query."
+        default="message",
+        description="Key within ``state.inputs`` holding the user message.",
     )
     context_result_key: str = Field(
         default="retriever",
@@ -83,7 +84,12 @@ class GroundedGeneratorNode(TaskNode):
         If no context is available, generates a response without RAG or citations.
         """
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "GroundedGeneratorNode requires a non-empty query string"
             raise ValueError(msg)
