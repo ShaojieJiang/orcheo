@@ -1,7 +1,5 @@
 """Production-ready conversational search demo highlighting guardrails and caching."""
 
-import types
-from collections import OrderedDict
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -189,7 +187,7 @@ def build_vector_store_from_config(cfg: dict[str, Any] | None) -> BaseVectorStor
     return InMemoryVectorStore()
 
 
-def _build_demo_nodes(
+def build_demo_nodes(
     *,
     vector_store: BaseVectorStore,
     memory_store: InMemoryMemoryStore,
@@ -199,11 +197,11 @@ def _build_demo_nodes(
     multi_hop_cfg: dict[str, Any],
     privacy_cfg: dict[str, Any],
     streaming_cfg: dict[str, Any],
-    shared_cache: OrderedDict[str, tuple[str, float | None]],
+    shared_cache: dict[str, tuple[str, float | None]],
     guardrails: list[str],
-) -> OrderedDict[str, TaskNode]:
+) -> dict[str, TaskNode]:
     """Create the nodes that drive the production conversational graph."""
-    nodes: OrderedDict[str, TaskNode] = OrderedDict()
+    nodes: dict[str, TaskNode] = {}
 
     nodes["session_manager"] = SessionManagementNode(
         name="session_manager",
@@ -316,9 +314,8 @@ def _build_demo_nodes(
         prompt_key="stream_prompt",
         chunk_size=streaming_cfg.get("chunk_size", 8),
         buffer_limit=streaming_cfg.get("buffer_limit", 64),
-        ai_model=None,
+        ai_model="openai:gpt-4o-mini",
     )
-    streaming._default_ai_model = types.MethodType(lambda self, query: query, streaming)
     nodes["streaming_generator"] = streaming
 
     nodes["conversation_state_update"] = ConversationStateNode(
@@ -342,7 +339,7 @@ def _build_demo_nodes(
     return nodes
 
 
-def _assemble_demo_workflow(nodes: OrderedDict[str, TaskNode]) -> StateGraph:
+def assemble_demo_workflow(nodes: dict[str, TaskNode]) -> StateGraph:
     """Wire the provided nodes together into the demo StateGraph."""
     workflow = StateGraph(State)
     for node in nodes.values():
@@ -424,9 +421,9 @@ async def build_graph(
         max_total_turns=session_cfg.get("max_total_turns"),
     )
 
-    shared_cache: OrderedDict[str, tuple[str, float | None]] = OrderedDict()
+    shared_cache: dict[str, tuple[str, float | None]] = {}
 
-    nodes = _build_demo_nodes(
+    nodes = build_demo_nodes(
         vector_store=vector_store,
         memory_store=memory_store,
         retrieval_cfg=retrieval_cfg,
@@ -439,7 +436,7 @@ async def build_graph(
         guardrails=merged_config["guardrails"].get("blocked_terms", []),
     )
 
-    return _assemble_demo_workflow(nodes)
+    return assemble_demo_workflow(nodes)
 
 
 def print_demo_introduction(retrieval_cfg: dict[str, Any]) -> None:
