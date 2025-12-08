@@ -41,7 +41,8 @@ class QueryRewriteNode(TaskNode):
     """Rewrite queries using conversation history and simple heuristics."""
 
     query_key: str = Field(
-        default="query", description="Key within ``state.inputs`` holding the query."
+        default="message",
+        description="Key within ``state.inputs`` holding the user message.",
     )
     history_key: str = Field(
         default="history",
@@ -69,7 +70,12 @@ class QueryRewriteNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Rewrite queries using recent history when pronouns are detected."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "QueryRewriteNode requires a non-empty query string"
             raise ValueError(msg)
@@ -110,7 +116,8 @@ class CoreferenceResolverNode(TaskNode):
     """Resolve pronouns in queries using the latest referenced entity."""
 
     query_key: str = Field(
-        default="query", description="Key within ``state.inputs`` holding the query."
+        default="message",
+        description="Key within ``state.inputs`` holding the user message.",
     )
     history_key: str = Field(
         default="history",
@@ -124,7 +131,12 @@ class CoreferenceResolverNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Replace pronouns in the query using a recent referent if available."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "CoreferenceResolverNode requires a non-empty query string"
             raise ValueError(msg)
@@ -176,13 +188,19 @@ class QueryClassifierNode(TaskNode):
     """Heuristic classifier for determining query intent."""
 
     query_key: str = Field(
-        default="query", description="Key within ``state.inputs`` holding the query."
+        default="message",
+        description="Key within ``state.inputs`` holding the user message.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Classify the query as search, clarification, or finalization."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "QueryClassifierNode requires a non-empty query string"
             raise ValueError(msg)
@@ -217,8 +235,8 @@ class ContextCompressorNode(TaskNode):
     """Summarize retrieval results into a compact evidence block."""
 
     query_key: str = Field(
-        default="query",
-        description="Key within ``state.inputs`` that holds the active query.",
+        default="message",
+        description="Key within ``state.inputs`` that holds the active message.",
     )
     results_field: str = Field(
         default="retrieval_results",
@@ -321,7 +339,13 @@ class ContextCompressorNode(TaskNode):
 
     def _resolve_query(self, state: State) -> str:
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message") or ""
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+            or ""
+        )
         return str(query).strip()
 
     async def _summarize(self, query: str, entries: list[SearchResult]) -> str:
@@ -397,7 +421,7 @@ class MultiHopPlannerNode(TaskNode):
     """Decompose complex queries into sequential hop plans."""
 
     query_key: str = Field(
-        default="query", description="Key within inputs containing the question"
+        default="message", description="Key within inputs containing the user message"
     )
     max_hops: int = Field(default=3, gt=0)
     delimiter: str = Field(default=" and ", description="Delimiter used for splitting")
@@ -405,7 +429,12 @@ class MultiHopPlannerNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Derive sequential hop plan from a composite query."""
         inputs = state.get("inputs", {})
-        query = inputs.get(self.query_key) or inputs.get("message")
+        query = (
+            inputs.get(self.query_key)
+            or inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+        )
         if not isinstance(query, str) or not query.strip():
             msg = "MultiHopPlannerNode requires a non-empty query"
             raise ValueError(msg)
