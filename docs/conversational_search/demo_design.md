@@ -249,23 +249,26 @@ A customer support chatbot that handles follow-up questions and maintains conver
 
 ```mermaid
 graph TD
-    Start([Session Start]) --> ConvState1[ConversationStateNode - Initialize]
-    ConvState1 --> Query[/User Query Input/]
-    Query --> Classifier[QueryClassifierNode]
+    Start([START]) --> ConversationStateNode_Init[ConversationStateNode - Initialize]
+    ConversationStateNode_Init --> ConversationContextNode[ConversationContextNode]
+    ConversationContextNode --> QueryClassifierNode[QueryClassifierNode]
 
-    Classifier -->|search| Coref[CoreferenceResolverNode]
-    Coref --> Rewrite[QueryRewriteNode]
-    Rewrite --> Search[DenseSearchNode]
-    Search --> Generator[GroundedGeneratorNode]
-    Generator --> ConvState2[ConversationStateNode - Update]
-    ConvState2 --> TopicShift[TopicShiftDetectorNode]
-    TopicShift --> Query
+    QueryClassifierNode -->|search| CoreferenceResolverNode[CoreferenceResolverNode]
+    CoreferenceResolverNode --> ResultToInputsNode_Coreference[ResultToInputsNode]
+    ResultToInputsNode_Coreference --> QueryRewriteNode[QueryRewriteNode]
+    QueryRewriteNode --> ResultToInputsNode_Rewrite[ResultToInputsNode]
+    ResultToInputsNode_Rewrite --> DenseSearchNode[DenseSearchNode]
+    DenseSearchNode --> GroundedGeneratorNode[GroundedGeneratorNode]
+    GroundedGeneratorNode --> ResultToInputsNode_Generator[ResultToInputsNode]
+    ResultToInputsNode_Generator --> ConversationStateNode_Update[ConversationStateNode - Update]
+    ConversationStateNode_Update --> TopicShiftDetectorNode[TopicShiftDetectorNode]
+    TopicShiftDetectorNode --> End([END])
 
-    Classifier -->|clarify| Clarification[QueryClarificationNode]
-    Clarification --> Query
+    QueryClassifierNode -->|clarify| QueryClarificationNode[QueryClarificationNode]
+    QueryClarificationNode --> End
 
-    Classifier -->|finalize| MemorySumm[MemorySummarizerNode]
-    MemorySumm --> End([End Session])
+    QueryClassifierNode -->|finalize| MemorySummarizerNode[MemorySummarizerNode]
+    MemorySummarizerNode --> End
 ```
 
 ### Additional Nodes Demonstrated
