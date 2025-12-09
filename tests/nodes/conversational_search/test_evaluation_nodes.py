@@ -354,6 +354,29 @@ async def test_ab_testing_node_validates_variants_and_gating() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ab_testing_node_handles_nested_evaluation_metrics() -> None:
+    node = ABTestingNode(name="ab", min_metric_threshold=0.5)
+    result = await node.run(
+        State(
+            inputs={
+                "variants": [
+                    {"name": "variant_a", "score": 0.8},
+                    {"name": "variant_b", "score": 0.4},
+                ],
+                "evaluation_metrics": {
+                    "variant_a": {"recall_at_k": 0.6, "ndcg": 0.45},
+                    "variant_b": {"recall_at_k": 0.4, "ndcg": 0.3},
+                },
+            }
+        ),
+        {},
+    )
+
+    assert result["winner"]["name"] == "variant_a"
+    assert result["rollout_allowed"] is False
+
+
+@pytest.mark.asyncio
 async def test_ab_testing_node_skips_optional_checks() -> None:
     node = ABTestingNode(
         name="ab",

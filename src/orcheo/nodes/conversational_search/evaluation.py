@@ -698,10 +698,16 @@ class ABTestingNode(TaskNode):
             winner.get(self.primary_metric, 0.0) >= self.min_metric_threshold
         )
         if evaluation_metrics:
-            rollout_allowed = rollout_allowed and all(
-                value >= self.min_metric_threshold
+            metrics_to_evaluate = [
+                normalized
                 for value in evaluation_metrics.values()
-            )
+                if (normalized := self._normalize_evaluation_metric(value)) is not None
+            ]
+            if metrics_to_evaluate:
+                rollout_allowed = rollout_allowed and all(
+                    metric >= self.min_metric_threshold
+                    for metric in metrics_to_evaluate
+                )
 
         feedback_score = inputs.get("feedback_score")
         if isinstance(feedback_score, int | float):
@@ -714,6 +720,25 @@ class ABTestingNode(TaskNode):
             "ranking": ranked,
             "rollout_allowed": rollout_allowed,
         }
+
+    def _normalize_evaluation_metric(self, value: Any) -> float | None:
+        """Extract a comparable numeric value from evaluation metric payloads."""
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, dict):
+            metric_candidates: list[float] = []
+            primary_candidate = value.get(self.primary_metric)
+            if isinstance(primary_candidate, int | float):
+                return float(primary_candidate)
+            score_candidate = value.get("score")
+            if isinstance(score_candidate, int | float):
+                return float(score_candidate)
+            metric_candidates.extend(
+                float(val) for val in value.values() if isinstance(val, int | float)
+            )
+            if metric_candidates:
+                return max(metric_candidates)
+        return None
 
 
 @registry.register(
