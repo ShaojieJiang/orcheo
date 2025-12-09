@@ -1,10 +1,12 @@
 """Evaluation, analytics, compliance, and augmentation nodes."""
 
 from __future__ import annotations
+import json
 import math
 import re
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -30,25 +32,260 @@ class DatasetNode(TaskNode):
 
     dataset_key: str = Field(default="dataset")
     split_key: str = Field(default="split")
+    limit_key: str = Field(default="limit")
+    references_key: str = Field(default="references")
+    keyword_corpus_key: str = Field(default="keyword_corpus")
     dataset: list[dict[str, Any]] = Field(default_factory=list)
+    references: dict[str, str] = Field(default_factory=dict)
+    keyword_corpus: list[dict[str, str]] = Field(default_factory=list)
+    golden_path: str | None = Field(
+        default=None, description="Path to golden dataset JSON."
+    )
+    queries_path: str | None = Field(
+        default=None, description="Path to baseline queries JSON."
+    )
+    labels_path: str | None = Field(
+        default=None, description="Path to relevance labels JSON."
+    )
+    docs_path: str | None = Field(
+        default=None, description="Path to knowledge base docs."
+    )
+    split: str | None = Field(
+        default=None, description="Optional dataset split when loading from files."
+    )
+    limit: int | None = Field(
+        default=None, ge=1, description="Optional dataset cap when loading from files."
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return a dataset filtered by split and limited when requested."""
-        inputs = state.get("inputs", {})
-        dataset = inputs.get(self.dataset_key, self.dataset)
+        del config
+        inputs = state.get("inputs") or {}
+        state["inputs"] = inputs
+
+        requested_split = inputs.get(self.split_key, self.split)
+        requested_limit = inputs.get(self.limit_key, self.limit)
+
+        dataset = self._dataset_from_inputs(inputs)
+        references = self._references_from_inputs(inputs)
+        keyword_corpus = self._keyword_corpus_from_inputs(inputs)
+
+        dataset, references, keyword_corpus = self._load_if_needed(
+            dataset, references, keyword_corpus, requested_split, requested_limit
+        )
+        dataset, references, keyword_corpus = self._validate_inputs(
+            dataset, references, keyword_corpus
+        )
+
+        dataset = self._filter_dataset(dataset, requested_split, requested_limit)
+
+        self._update_inputs(
+            inputs,
+            dataset,
+            references,
+            keyword_corpus,
+            requested_split,
+            requested_limit,
+        )
+
+        return {
+            "dataset": dataset,
+            "references": references,
+            "keyword_corpus": keyword_corpus,
+            "count": len(dataset),
+            "split": requested_split,
+            "limit": requested_limit,
+        }
+
+    def _dataset_from_inputs(self, inputs: dict[str, Any]) -> Any:
+        dataset = inputs.get(self.dataset_key)
+        if dataset is not None:
+            return dataset
+        return self.dataset
+
+    def _references_from_inputs(self, inputs: dict[str, Any]) -> dict[str, str] | None:
+        references = inputs.get(self.references_key)
+        if references is not None:
+            return references
+        return self.references or None
+
+    def _keyword_corpus_from_inputs(
+        self, inputs: dict[str, Any]
+    ) -> list[dict[str, str]] | None:
+        keyword_corpus = inputs.get(self.keyword_corpus_key)
+        if keyword_corpus is not None:
+            return keyword_corpus
+        return self.keyword_corpus or None
+
+    def _load_if_needed(
+        self,
+        dataset: Any,
+        references: dict[str, str] | None,
+        keyword_corpus: list[dict[str, str]] | None,
+        split: str | None,
+        limit: int | None,
+    ) -> tuple[
+        list[dict[str, Any]], dict[str, str] | None, list[dict[str, str]] | None
+    ]:
+        if not self._should_load_from_files(dataset):
+            return dataset, references, keyword_corpus
+
+        dataset, loaded_references, loaded_corpus = self._load_from_files(split, limit)
+        references = references if references is not None else loaded_references
+        keyword_corpus = keyword_corpus if keyword_corpus is not None else loaded_corpus
+        return dataset, references, keyword_corpus
+
+    def _validate_inputs(
+        self,
+        dataset: Any,
+        references: dict[str, str] | None,
+        keyword_corpus: list[dict[str, str]] | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, str]]]:
         if not isinstance(dataset, list):
             msg = "DatasetNode expects dataset to be a list"
             raise ValueError(msg)
+        if references is None:
+            references = {}
+        if keyword_corpus is None:
+            keyword_corpus = []
+        if not isinstance(references, dict):
+            msg = "DatasetNode expects references to be a dict"
+            raise ValueError(msg)
+        if not isinstance(keyword_corpus, list):
+            msg = "DatasetNode expects keyword_corpus to be a list"
+            raise ValueError(msg)
+        return dataset, references, keyword_corpus
 
-        split = inputs.get(self.split_key)
+    def _update_inputs(
+        self,
+        inputs: dict[str, Any],
+        dataset: list[dict[str, Any]],
+        references: dict[str, str] | None,
+        keyword_corpus: list[dict[str, str]] | None,
+        split: str | None,
+        limit: int | None,
+    ) -> None:
+        inputs[self.dataset_key] = dataset
+        inputs[self.references_key] = references or {}
+        inputs[self.keyword_corpus_key] = keyword_corpus or []
+        if split is not None:
+            inputs[self.split_key] = split
+        if limit is not None:
+            inputs[self.limit_key] = limit
+
+    def _filter_dataset(
+        self,
+        dataset: list[dict[str, Any]],
+        split: str | None,
+        limit: int | None,
+    ) -> list[dict[str, Any]]:
+        filtered = dataset
         if isinstance(split, str):
-            dataset = [row for row in dataset if row.get("split") == split]
+            filtered = [row for row in filtered if row.get("split") == split]
 
-        limit = inputs.get("limit")
         if isinstance(limit, int) and limit > 0:
-            dataset = dataset[:limit]
+            filtered = filtered[:limit]
+        return filtered
 
-        return {"dataset": dataset, "count": len(dataset)}
+    def _should_load_from_files(self, dataset: Any) -> bool:
+        if not self._has_file_sources():
+            return False
+        if dataset is None:
+            return True
+        return isinstance(dataset, list) and not dataset
+
+    def _has_file_sources(self) -> bool:
+        return any(
+            [
+                self.golden_path,
+                self.queries_path,
+                self.labels_path,
+                self.docs_path,
+            ]
+        )
+
+    def _load_from_files(
+        self,
+        split: str | None,
+        limit: int | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, str]]]:
+        missing = [
+            name
+            for name, value in {
+                "golden_path": self.golden_path,
+                "queries_path": self.queries_path,
+                "labels_path": self.labels_path,
+                "docs_path": self.docs_path,
+            }.items()
+            if not value
+        ]
+        if missing:
+            msg = f"DatasetNode requires {', '.join(missing)} to load from files"
+            raise ValueError(msg)
+
+        golden_data = self._load_json(self.golden_path)
+        queries_data = self._load_json(self.queries_path)
+        labels_data = self._load_json(self.labels_path)
+
+        label_map: dict[str, list[str]] = {}
+        for entry in labels_data:
+            query_id = str(entry.get("query_id"))
+            label_map.setdefault(query_id, [])
+            doc_id = str(entry.get("doc_id"))
+            label_map[query_id].append(doc_id)
+
+        dataset: list[dict[str, Any]] = []
+        references: dict[str, str] = {}
+        active_split = split or self.split
+
+        for item in golden_data:
+            query_id = str(item.get("id"))
+            relevant_ids = [
+                str(doc) for doc in item.get("expected_citations", []) if doc
+            ]
+            dataset.append(
+                {
+                    "id": query_id,
+                    "query": item.get("query", ""),
+                    "relevant_ids": relevant_ids,
+                    "split": active_split or item.get("split", "test"),
+                }
+            )
+            references[query_id] = item.get("expected_answer", "")
+
+        for item in queries_data:
+            query_id = str(item.get("id"))
+            dataset.append(
+                {
+                    "id": query_id,
+                    "query": item.get("question", ""),
+                    "relevant_ids": label_map.get(query_id, []),
+                    "split": active_split or item.get("split", "test"),
+                }
+            )
+
+        dataset = self._filter_dataset(dataset, active_split, limit)
+        keyword_corpus = self.keyword_corpus or self._build_keyword_corpus()
+
+        return dataset, references, keyword_corpus
+
+    def _load_json(self, path: str | None) -> Any:
+        if path is None:
+            msg = "JSON path must be provided."
+            raise ValueError(msg)
+        with Path(path).open("r", encoding="utf-8") as file:
+            return json.load(file)
+
+    def _build_keyword_corpus(self) -> list[dict[str, str]]:
+        if self.docs_path is None:
+            return []
+        corpus: list[dict[str, str]] = []
+        for path in sorted(Path(self.docs_path).glob("*.md")):
+            content = path.read_text(encoding="utf-8")
+            corpus.append(
+                {"id": path.name, "content": content.strip(), "source": path.name}
+            )
+        return corpus
 
 
 @registry.register(

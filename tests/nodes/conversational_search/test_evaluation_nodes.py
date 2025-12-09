@@ -1,5 +1,7 @@
 """Tests for conversational search evaluation and analytics nodes."""
 
+import json
+from pathlib import Path
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.evaluation import (
@@ -37,6 +39,59 @@ async def test_dataset_node_filters_split_and_limit() -> None:
 
     assert result["count"] == 1
     assert result["dataset"] == [{"id": "q1", "split": "eval"}]
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_loads_from_files(tmp_path: Path) -> None:
+    golden_path = tmp_path / "golden.json"
+    queries_path = tmp_path / "queries.json"
+    labels_path = tmp_path / "labels.json"
+    docs_path = tmp_path / "docs"
+    docs_path.mkdir()
+
+    golden_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "g1",
+                    "query": "capital of France",
+                    "expected_citations": ["d1"],
+                    "expected_answer": "Paris",
+                    "split": "test",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    queries_path.write_text(
+        json.dumps([{"id": "q2", "question": "What is Python?", "split": "train"}]),
+        encoding="utf-8",
+    )
+    labels_path.write_text(
+        json.dumps([{"query_id": "q2", "doc_id": "d2"}]), encoding="utf-8"
+    )
+    (docs_path / "d1.md").write_text("Paris is the capital city.", encoding="utf-8")
+    (docs_path / "d2.md").write_text("Python is a programming language.", "utf-8")
+
+    node = DatasetNode(
+        name="dataset",
+        golden_path=str(golden_path),
+        queries_path=str(queries_path),
+        labels_path=str(labels_path),
+        docs_path=str(docs_path),
+        split="test",
+        limit=1,
+    )
+
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert result["dataset"][0]["id"] == "g1"
+    assert result["references"] == {"g1": "Paris"}
+    assert len(result["keyword_corpus"]) == 2
+    assert state["inputs"]["dataset"] == result["dataset"]
+    assert state["inputs"]["references"] == {"g1": "Paris"}
 
 
 @pytest.mark.asyncio
