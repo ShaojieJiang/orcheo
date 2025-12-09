@@ -1,5 +1,6 @@
 """Production-ready conversational search demo highlighting guardrails and caching."""
 
+from collections import OrderedDict
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -197,7 +198,7 @@ def build_demo_nodes(
     multi_hop_cfg: dict[str, Any],
     privacy_cfg: dict[str, Any],
     streaming_cfg: dict[str, Any],
-    shared_cache: dict[str, tuple[str, float | None]],
+    shared_cache: OrderedDict[str, tuple[str, float | None]],
     guardrails: list[str],
 ) -> dict[str, TaskNode]:
     """Create the nodes that drive the production conversational graph."""
@@ -421,7 +422,7 @@ async def build_graph(
         max_total_turns=session_cfg.get("max_total_turns"),
     )
 
-    shared_cache: dict[str, tuple[str, float | None]] = {}
+    shared_cache: OrderedDict[str, tuple[str, float | None]] = OrderedDict()
 
     nodes = build_demo_nodes(
         vector_store=vector_store,
