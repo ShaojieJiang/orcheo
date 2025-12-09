@@ -73,3 +73,12 @@ def test_async_allowing_transformer_visit_name_dunder_name() -> None:
     # The result should be the node itself (not transformed)
     assert isinstance(result, ast.Name)
     assert result.id == "__name__"
+
+
+def test_create_sandbox_namespace_allows_common_builtins() -> None:
+    """Ensure restricted namespace exposes safe aggregate builtins."""
+    namespace = sandbox.create_sandbox_namespace()
+    safe_builtins = namespace["__builtins__"]
+
+    assert safe_builtins["max"](1, 3) == 3
+    assert safe_builtins["min"](1, 3) == 1

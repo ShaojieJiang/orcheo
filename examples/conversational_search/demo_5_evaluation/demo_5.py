@@ -417,7 +417,7 @@ class VariantScoringNode(TaskNode):
         return round(0.5 * recall + 0.3 * ndcg + 0.2 * faithfulness, 3)
 
 
-def _prepare_config_and_stores(
+def prepare_config_and_stores(
     config: dict[str, Any] | None,
     vector_store: BaseVectorStore | None,
     sparse_vector_store: BaseVectorStore | None,
@@ -437,7 +437,7 @@ def _prepare_config_and_stores(
     return merged_config, resolved_vector_store, resolved_sparse_store
 
 
-def _build_retrieval_nodes(
+def build_retrieval_nodes(
     merged_config: dict[str, Any],
     vector_store: BaseVectorStore,
     sparse_vector_store: BaseVectorStore,
@@ -524,7 +524,7 @@ def _build_retrieval_nodes(
     }
 
 
-def _build_generation_nodes(
+def build_generation_nodes(
     generation_cfg: dict[str, Any],
 ) -> dict[str, TaskNode]:
     """Create generation nodes for batched answer production."""
@@ -553,7 +553,7 @@ def _build_generation_nodes(
     }
 
 
-def _build_feedback_and_analysis_nodes(
+def build_feedback_and_analysis_nodes(
     merged_config: dict[str, Any],
 ) -> dict[str, TaskNode]:
     """Create evaluation, scoring, feedback, and analytics nodes."""
@@ -650,14 +650,14 @@ async def build_graph(
 
     Requires the Pinecone index seeded by Demo 0; no in-memory fallback is provided.
     """
-    merged_config, vector_store, sparse_vector_store = _prepare_config_and_stores(
+    merged_config, vector_store, sparse_vector_store = prepare_config_and_stores(
         config, vector_store, sparse_vector_store
     )
-    retrieval_nodes = _build_retrieval_nodes(
+    retrieval_nodes = build_retrieval_nodes(
         merged_config, vector_store, sparse_vector_store
     )
-    generation_nodes = _build_generation_nodes(merged_config["generation"])
-    evaluation_nodes = _build_feedback_and_analysis_nodes(merged_config)
+    generation_nodes = build_generation_nodes(merged_config["generation"])
+    evaluation_nodes = build_feedback_and_analysis_nodes(merged_config)
 
     nodes: dict[str, TaskNode] = {
         **retrieval_nodes,
