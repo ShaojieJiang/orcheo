@@ -462,14 +462,14 @@ def print_plan_details(plan: list[dict[str, Any]]) -> None:
         print(f"  - {identifier}: {query} (depends on {depends})")
 
 
-def _print_cached_response(cached_reply: str | None) -> None:
+def print_cached_response(cached_reply: str | None) -> None:
     """Show cached answer metadata before returning (guardrails already satisfied)."""
     print(" Cache hit: serving cached answer.")
     if cached_reply:
         print(" Cached reply:", cached_reply)
 
 
-def _print_cached_final_reply(cached_reply: str | None) -> None:
+def print_cached_final_reply(cached_reply: str | None) -> None:
     """Emit cached policy/memory/response summaries."""
     print(" Policy compliance: cached answer (pre-sanitized)")
     if cached_reply:
@@ -478,7 +478,7 @@ def _print_cached_final_reply(cached_reply: str | None) -> None:
     print(" Final reply:", cached_reply)
 
 
-def _print_uncached_retrieval_details(results: dict[str, Any]) -> None:
+def print_uncached_retrieval_details(results: dict[str, Any]) -> None:
     """Log plan, retrieval hits, routing decisions, and guardrail status."""
     plan = results.get("multi_hop_planner", {}).get("plan", [])
     if plan:
@@ -503,7 +503,7 @@ def _print_uncached_retrieval_details(results: dict[str, Any]) -> None:
     print(" Hallucination guard:", "allowed" if allowed else "blocked")
 
 
-def _print_uncached_final_reply(results: dict[str, Any]) -> None:
+def print_uncached_final_reply(results: dict[str, Any]) -> None:
     """Emit policy evaluation, streaming output, and privacy state for new answers."""
     policy = results.get("policy_compliance", {})
     print(" Policy compliance:", policy.get("compliant"))
@@ -541,12 +541,12 @@ async def process_demo_turn(app: Any, turn_index: int, message: str) -> None:
     cached = cache_status.get("cached", False)
     cached_reply = cache_status.get("reply")
     if cached:
-        _print_cached_response(cached_reply)
-        _print_cached_final_reply(cached_reply)
+        print_cached_response(cached_reply)
+        print_cached_final_reply(cached_reply)
         return
 
-    _print_uncached_retrieval_details(results)
-    _print_uncached_final_reply(results)
+    print_uncached_retrieval_details(results)
+    print_uncached_final_reply(results)
 
 
 async def run_demo() -> None:
