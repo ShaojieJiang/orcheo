@@ -327,28 +327,51 @@ An enterprise knowledge assistant with strict compliance requirements, hallucina
 ### Workflow Graph
 
 ```mermaid
-graph TD
-    Docs[/Indexed Documents/] --> Incremental[IncrementalIndexerNode - Background]
-
-    Request[/User Request/] --> Session[SessionManagementNode]
-    Session --> CacheCheck[AnswerCachingNode - Check]
-
-    CacheCheck -->|cache hit| Return[/Return Cached Answer/]
-
-    CacheCheck -->|cache miss| ConvState[ConversationStateNode]
-    ConvState --> Rewrite[QueryRewriteNode]
-    Rewrite --> MultiHop[MultiHopPlannerNode]
-    MultiHop --> Router[SourceRouterNode]
-    Router --> Search[DenseSearchNode]
-    Search --> Generator[GroundedGeneratorNode]
-    Generator --> HallucinationGuard[HallucinationGuardNode]
-    HallucinationGuard --> Policy[PolicyComplianceNode]
-    Policy --> Privacy[MemoryPrivacyNode]
-    Privacy --> CacheStore[AnswerCachingNode - Store]
-    CacheStore --> Streaming[StreamingGeneratorNode]
-    Streaming --> Response[/Stream Response/]
-
-    Incremental -.->|updates| Search
+graph TD;
+        __start__([START])
+        session_manager(SessionManagementNode)
+        conversation_state(ConversationStateNode)
+        conversation_history_sync(ResultToInputsNode)
+        answer_cache_check(AnswerCachingNode)
+        query_rewrite(QueryRewriteNode)
+        rewrite_to_search(ResultToInputsNode)
+        multi_hop_planner(MultiHopPlannerNode)
+        plan_to_search_query(PlanToSearchQueryNode)
+        dense_search(DenseSearchNode)
+        source_router(SourceRouterNode)
+        grounded_generator(GroundedGeneratorNode)
+        hallucination_guard(HallucinationGuardNode)
+        guard_to_policy(ResultToInputsNode)
+        policy_compliance(PolicyComplianceNode)
+        memory_privacy(MemoryPrivacyNode)
+        answer_cache_store(AnswerCachingNode)
+        policy_to_stream_inputs(ResultToInputsNode)
+        streaming_generator(StreamingGeneratorNode)
+        conversation_state_update(ConversationStateNode)
+        cache_hit_to_inputs(ResultToInputsNode)
+        __end__([END])
+        __start__ --> session_manager;
+        answer_cache_check -. &nbsp;hit&nbsp; .-> cache_hit_to_inputs;
+        answer_cache_check -. &nbsp;miss&nbsp; .-> query_rewrite;
+        answer_cache_store --> policy_to_stream_inputs;
+        cache_hit_to_inputs --> conversation_state_update;
+        conversation_history_sync --> answer_cache_check;
+        conversation_state --> conversation_history_sync;
+        dense_search --> source_router;
+        grounded_generator --> hallucination_guard;
+        guard_to_policy --> policy_compliance;
+        hallucination_guard --> guard_to_policy;
+        memory_privacy --> answer_cache_store;
+        multi_hop_planner --> plan_to_search_query;
+        plan_to_search_query --> dense_search;
+        policy_compliance --> memory_privacy;
+        policy_to_stream_inputs --> streaming_generator;
+        query_rewrite --> rewrite_to_search;
+        rewrite_to_search --> multi_hop_planner;
+        session_manager --> conversation_state;
+        source_router --> grounded_generator;
+        streaming_generator --> conversation_state_update;
+        conversation_state_update --> __end__;
 ```
 
 ### Additional Nodes Demonstrated

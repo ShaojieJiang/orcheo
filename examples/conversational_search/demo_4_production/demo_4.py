@@ -266,7 +266,7 @@ def build_demo_nodes(
     nodes["grounded_generator"] = GroundedGeneratorNode(
         name="grounded_generator",
         context_result_key=nodes["dense_search"].name,
-        ai_model=None,
+        ai_model="openai:gpt-4o-mini",
         citation_style="inline",
     )
 
@@ -374,7 +374,7 @@ def assemble_demo_workflow(nodes: dict[str, TaskNode]) -> StateGraph:
     )
 
     routing_edges = [
-        ("cache_hit_to_inputs", "policy_compliance"),
+        ("cache_hit_to_inputs", "conversation_state_update"),
         ("query_rewrite", "rewrite_to_search"),
         ("rewrite_to_search", "multi_hop_planner"),
         ("multi_hop_planner", "plan_to_search_query"),
@@ -462,48 +462,49 @@ def print_plan_details(plan: list[dict[str, Any]]) -> None:
         print(f"  - {identifier}: {query} (depends on {depends})")
 
 
-async def process_demo_turn(app: Any, turn_index: int, message: str) -> None:
-    """Drive the graph for a user turn and surface guardrail outputs."""
-    print(f"\n--- Turn {turn_index}: {message}")
-    payload = {
-        "inputs": {
-            "session_id": SESSION_ID,
-            "message": message,
-            "user_message": message,
-            "search_query": message,
-        }
-    }
-    result = await app.ainvoke(payload)  # type: ignore[arg-type]
-    results = result.get("results", {})
+def _print_cached_response(cached_reply: str | None) -> None:
+    """Show cached answer metadata before returning (guardrails already satisfied)."""
+    print(" Cache hit: serving cached answer.")
+    if cached_reply:
+        print(" Cached reply:", cached_reply)
 
-    cache_status = results.get("answer_cache_check", {})
-    cached = cache_status.get("cached", False)
-    if cached:
-        print(" Cache hit: serving cached answer.")
-        print(" Cached reply:", cache_status.get("reply"))
-    else:
-        plan = results.get("multi_hop_planner", {}).get("plan", [])
-        if plan:
-            print_plan_details(plan)
 
-        hits = results.get("dense_search", {}).get("results", [])
-        if hits:
-            print(" Retrieval hits:")
-            for rank, hit in enumerate(hits[:3], start=1):
-                score = hit.get("score", 0.0)
-                title = hit.get("metadata", {}).get("source") or hit.get("id")
-                print(f"  {rank}. {title} (score={score:.2f})")
+def _print_cached_final_reply(cached_reply: str | None) -> None:
+    """Emit cached policy/memory/response summaries."""
+    print(" Policy compliance: cached answer (pre-sanitized)")
+    if cached_reply:
+        print(" Sanitized reply:", cached_reply)
+    print(" Memory privacy: cached answer (no new evaluation)")
+    print(" Final reply:", cached_reply)
 
-        router = results.get("source_router", {}).get("routed", {})
-        if router:
-            print(" Sources routed:")
-            for source, entries in router.items():
-                print(f"  - {source}: {len(entries)} hits")
 
-        guard = results.get("hallucination_guard", {})
-        allowed = guard.get("allowed")
-        print(" Hallucination guard:", "allowed" if allowed else "blocked")
+def _print_uncached_retrieval_details(results: dict[str, Any]) -> None:
+    """Log plan, retrieval hits, routing decisions, and guardrail status."""
+    plan = results.get("multi_hop_planner", {}).get("plan", [])
+    if plan:
+        print_plan_details(plan)
 
+    hits = results.get("dense_search", {}).get("results", [])
+    if hits:
+        print(" Retrieval hits:")
+        for rank, hit in enumerate(hits[:3], start=1):
+            score = hit.get("score", 0.0)
+            title = hit.get("metadata", {}).get("source") or hit.get("id")
+            print(f"  {rank}. {title} (score={score:.2f})")
+
+    router = results.get("source_router", {}).get("routed", {})
+    if router:
+        print(" Sources routed:")
+        for source, entries in router.items():
+            print(f"  - {source}: {len(entries)} hits")
+
+    guard = results.get("hallucination_guard", {})
+    allowed = guard.get("allowed")
+    print(" Hallucination guard:", "allowed" if allowed else "blocked")
+
+
+def _print_uncached_final_reply(results: dict[str, Any]) -> None:
+    """Emit policy evaluation, streaming output, and privacy state for new answers."""
     policy = results.get("policy_compliance", {})
     print(" Policy compliance:", policy.get("compliant"))
     print(" Sanitized reply:", policy.get("sanitized"))
@@ -520,6 +521,32 @@ async def process_demo_turn(app: Any, turn_index: int, message: str) -> None:
     print(" Memory privacy: stored", len(sanitized_history), "turns")
 
     print(" Final streaming reply:", streaming.get("reply"))
+
+
+async def process_demo_turn(app: Any, turn_index: int, message: str) -> None:
+    """Drive the graph for a user turn and surface guardrail outputs."""
+    print(f"\n--- Turn {turn_index}: {message}")
+    payload = {
+        "inputs": {
+            "session_id": SESSION_ID,
+            "message": message,
+            "user_message": message,
+            "search_query": message,
+        }
+    }
+    result = await app.ainvoke(payload)  # type: ignore[arg-type]
+    results = result.get("results", {})
+
+    cache_status = results.get("answer_cache_check", {})
+    cached = cache_status.get("cached", False)
+    cached_reply = cache_status.get("reply")
+    if cached:
+        _print_cached_response(cached_reply)
+        _print_cached_final_reply(cached_reply)
+        return
+
+    _print_uncached_retrieval_details(results)
+    _print_uncached_final_reply(results)
 
 
 async def run_demo() -> None:
