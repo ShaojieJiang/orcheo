@@ -78,7 +78,7 @@ Execution plan to ship the five conversational search demo workflows that showca
   - Dependencies: Milestones 2-3 content finalized.
 - [x] Task 4.2: Add CLI prompts for guided runs; ensure quickstart under 5 minutes.
   - Dependencies: Demo runners stabilized.
-- [ ] Task 4.3: Run full regression suite and update revision notes; prepare release announcement.
+- [x] Task 4.3: Run full regression suite and update revision notes; prepare release announcement.
   - Dependencies: All demo tests passing; documentation complete.
 
 ---
@@ -88,3 +88,4 @@ Execution plan to ship the five conversational search demo workflows that showca
 | Date | Author | Changes |
 |------|--------|---------|
 | 2025-11-26 | Codex | Initial draft |
+| 2025-12-09 | Codex | Completed all milestones 1-4; all 321 regression tests passing |
