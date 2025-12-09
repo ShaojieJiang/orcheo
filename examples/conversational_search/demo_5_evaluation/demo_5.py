@@ -82,12 +82,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "generation": {
         "citation_style": "inline",
+        "model": "openai:gpt-4o-mini",
     },
     "ab_testing": {
         "experiment_id": "retrieval_comparison_001",
         "min_metric_threshold": 0.35,
     },
-    "llm_judge": {"min_score": 0.5},
+    "llm_judge": {"min_score": 0.5, "model": "openai:gpt-4o-mini"},
 }
 
 
@@ -570,6 +571,7 @@ def build_feedback_and_analysis_nodes(
         name="llm_judge",
         answers_key="answers",
         min_score=merged_config["llm_judge"].get("min_score", 0.5),
+        ai_model=merged_config["llm_judge"].get("model"),
     )
     variant_scoring = VariantScoringNode(name="variant_scoring")
     variant_to_inputs = ResultToInputsNode(
