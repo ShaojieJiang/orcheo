@@ -447,25 +447,57 @@ A research team iterating on retrieval strategies with systematic evaluation and
 
 ```mermaid
 graph TD
-    Dataset[/DatasetNode/] --> ABTest[ABTestingNode]
+DatasetNode["DatasetNode (dataset)"]
+VariantRetrievalNode["VariantRetrievalNode (variant_retrieval)"]
+RetrievalToInputs["ResultToInputsNode (retrieval_to_inputs)"]
+RetrievalEvalVector["RetrievalEvaluationNode (retrieval_eval_vector)"]
+RetrievalEvalHybrid["RetrievalEvaluationNode (retrieval_eval_hybrid)"]
+BatchGeneratorNode["BatchGenerationNode (batch_generator)"]
+GenerationToInputs["ResultToInputsNode (generation_to_inputs)"]
+AnswerQualityNode["AnswerQualityEvaluationNode (answer_quality)"]
+AnswerMetricsToInputs["ResultToInputsNode (answer_metrics_to_inputs)"]
+LLMJudgeNode["LLMJudgeNode (llm_judge)"]
+VariantScoringNode["VariantScoringNode (variant_scoring)"]
+VariantToInputs["ResultToInputsNode (variant_to_inputs)"]
+ABTestingNode["ABTestingNode (ab_testing)"]
+FeedbackSynthesisNode["FeedbackSynthesisNode (feedback_synthesis)"]
+FeedbackToInputs["ResultToInputsNode (feedback_to_inputs)"]
+UserFeedbackNode["UserFeedbackCollectionNode (user_feedback)"]
+FeedbackCollectionToInputs["ResultToInputsNode (feedback_collection_to_inputs)"]
+FeedbackNormalizerNode["FeedbackNormalizerNode (feedback_normalizer)"]
+FeedbackIngestionNode["FeedbackIngestionNode (feedback_ingestion)"]
+MetricsToInputs["ResultToInputsNode (metrics_to_inputs)"]
+FailureAnalysisNode["FailureAnalysisNode (failure_analysis)"]
+AnalyticsInputsNode["ResultToInputsNode (analytics_inputs)"]
+AnalyticsExportNode["AnalyticsExportNode (analytics_export)"]
+DataAugmentationNode["DataAugmentationNode (data_augmentation)"]
+TurnAnnotationNode["TurnAnnotationNode (turn_annotation)"]
 
-    ABTest -->|Variant A| VectorOnly[DenseSearchNode]
-    ABTest -->|Variant B| Hybrid[HybridFusionNode]
-
-    VectorOnly --> RetrievalEval[RetrievalEvaluationNode]
-    Hybrid --> RetrievalEval
-
-    RetrievalEval --> Generator[GroundedGeneratorNode]
-    Generator --> AnswerQuality[AnswerQualityEvaluationNode]
-    AnswerQuality --> LLMJudge[LLMJudgeNode]
-    LLMJudge --> UserFeedback[UserFeedbackCollectionNode]
-    UserFeedback --> FeedbackIngest[FeedbackIngestionNode]
-    FeedbackIngest --> FailureAnalysis[FailureAnalysisNode]
-    FailureAnalysis --> Analytics[/AnalyticsExportNode/]
-
-    Analytics -.->|offline| DataAug[DataAugmentationNode]
-    DataAug -.->|offline| TurnAnnotation[TurnAnnotationNode]
-    TurnAnnotation -.->|feedback loop| Dataset
+DatasetNode --> VariantRetrievalNode
+VariantRetrievalNode --> RetrievalToInputs
+RetrievalToInputs --> RetrievalEvalVector
+RetrievalEvalVector --> RetrievalEvalHybrid
+RetrievalEvalHybrid --> BatchGeneratorNode
+BatchGeneratorNode --> GenerationToInputs
+GenerationToInputs --> AnswerQualityNode
+AnswerQualityNode --> AnswerMetricsToInputs
+AnswerMetricsToInputs --> LLMJudgeNode
+LLMJudgeNode --> VariantScoringNode
+VariantScoringNode --> VariantToInputs
+VariantToInputs --> ABTestingNode
+ABTestingNode --> FeedbackSynthesisNode
+FeedbackSynthesisNode --> FeedbackToInputs
+FeedbackToInputs --> UserFeedbackNode
+UserFeedbackNode --> FeedbackCollectionToInputs
+FeedbackCollectionToInputs --> FeedbackNormalizerNode
+FeedbackNormalizerNode --> FeedbackIngestionNode
+FeedbackIngestionNode --> MetricsToInputs
+MetricsToInputs --> FailureAnalysisNode
+FailureAnalysisNode --> AnalyticsInputsNode
+AnalyticsInputsNode --> AnalyticsExportNode
+AnalyticsExportNode --> DataAugmentationNode
+DataAugmentationNode --> TurnAnnotationNode
+TurnAnnotationNode --> End([END])
 ```
 
 ### Additional Nodes Demonstrated

@@ -1,5 +1,10 @@
 """Tests for conversational search evaluation and analytics nodes."""
 
+import json
+import sys
+import types
+from pathlib import Path
+from typing import Any
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.evaluation import (
@@ -37,6 +42,59 @@ async def test_dataset_node_filters_split_and_limit() -> None:
 
     assert result["count"] == 1
     assert result["dataset"] == [{"id": "q1", "split": "eval"}]
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_loads_from_files(tmp_path: Path) -> None:
+    golden_path = tmp_path / "golden.json"
+    queries_path = tmp_path / "queries.json"
+    labels_path = tmp_path / "labels.json"
+    docs_path = tmp_path / "docs"
+    docs_path.mkdir()
+
+    golden_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "g1",
+                    "query": "capital of France",
+                    "expected_citations": ["d1"],
+                    "expected_answer": "Paris",
+                    "split": "test",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    queries_path.write_text(
+        json.dumps([{"id": "q2", "question": "What is Python?", "split": "train"}]),
+        encoding="utf-8",
+    )
+    labels_path.write_text(
+        json.dumps([{"query_id": "q2", "doc_id": "d2"}]), encoding="utf-8"
+    )
+    (docs_path / "d1.md").write_text("Paris is the capital city.", encoding="utf-8")
+    (docs_path / "d2.md").write_text("Python is a programming language.", "utf-8")
+
+    node = DatasetNode(
+        name="dataset",
+        golden_path=str(golden_path),
+        queries_path=str(queries_path),
+        labels_path=str(labels_path),
+        docs_path=str(docs_path),
+        split="test",
+        limit=1,
+    )
+
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert result["dataset"][0]["id"] == "g1"
+    assert result["references"] == {"g1": "Paris"}
+    assert len(result["keyword_corpus"]) == 2
+    assert state["inputs"]["dataset"] == result["dataset"]
+    assert state["inputs"]["references"] == {"g1": "Paris"}
 
 
 @pytest.mark.asyncio
@@ -197,6 +255,52 @@ async def test_dataset_node_skips_split_and_limit_when_invalid() -> None:
     assert result["dataset"] == dataset
 
 
+def test_dataset_node_input_helpers_and_update() -> None:
+    node = DatasetNode(name="dataset")
+    references = {"q1": "answer"}
+    keyword_corpus = [{"id": "k1", "content": "payload"}]
+    inputs = {
+        "references": references,
+        "keyword_corpus": keyword_corpus,
+    }
+
+    assert node._references_from_inputs(inputs) == references
+    assert node._keyword_corpus_from_inputs(inputs) == keyword_corpus
+
+    container: dict[str, Any] = {}
+    node._update_inputs(
+        container,
+        [{"id": "q1"}],
+        references,
+        keyword_corpus,
+        "eval",
+        2,
+    )
+    assert container["split"] == "eval"
+    assert container["limit"] == 2
+
+
+def test_dataset_node_validation_and_loading_helpers() -> None:
+    node = DatasetNode(name="dataset")
+    with pytest.raises(ValueError, match="references to be a dict"):
+        node._validate_inputs([{}], references="bad", keyword_corpus=[])
+
+    with pytest.raises(ValueError, match="keyword_corpus to be a list"):
+        node._validate_inputs([{}], references={}, keyword_corpus="bad")
+
+    assert node._build_keyword_corpus() == []
+    with pytest.raises(ValueError, match="JSON path must be provided"):
+        node._load_json(None)
+
+    node.golden_path = "golden"
+    assert node._should_load_from_files(None) is True
+    assert node._should_load_from_files([]) is True
+
+    node = DatasetNode(name="dataset")
+    with pytest.raises(ValueError, match="golden_path"):
+        node._load_from_files(None, None)
+
+
 @pytest.mark.asyncio
 async def test_retrieval_node_requires_list_inputs() -> None:
     node = RetrievalEvaluationNode(name="retrieval")
@@ -254,6 +358,82 @@ def test_llm_judge_score_and_flags_edge_cases() -> None:
 
 
 @pytest.mark.asyncio
+async def test_llm_judge_uses_model_response(monkeypatch) -> None:
+    node = LLMJudgeNode(name="judge", ai_model="fake-model", min_score=0.5)
+
+    class DummyResponse:
+        def __init__(self) -> None:
+            self.content = json.dumps({"score": 0.9, "flags": ["low_confidence"]})
+
+    class DummyModel:
+        async def ainvoke(self, messages: list[Any]) -> DummyResponse:
+            return DummyResponse()
+
+    def fake_init(model_name: str, **kwargs: Any) -> DummyModel:
+        return DummyModel()
+
+    fake_chat_models = types.ModuleType("langchain.chat_models")
+    fake_chat_models.init_chat_model = fake_init
+    monkeypatch.setitem(sys.modules, "langchain.chat_models", fake_chat_models)
+
+    def fake_message_factory(*, content: str) -> types.SimpleNamespace:
+        return types.SimpleNamespace(content=content)
+
+    fake_messages = types.ModuleType("langchain_core.messages")
+    fake_messages.SystemMessage = fake_message_factory
+    fake_messages.HumanMessage = fake_message_factory
+    monkeypatch.setitem(sys.modules, "langchain_core.messages", fake_messages)
+
+    state = State(inputs={"answers": [{"id": "q1", "answer": "Hello"}]})
+    result = await node.run(state, {})
+
+    assert result["approved_ratio"] == 1.0
+    assert result["verdicts"][0]["flags"] == ["low_confidence"]
+
+
+def test_llm_judge_parse_model_response_variations() -> None:
+    node = LLMJudgeNode(name="judge")
+    json_response = types.SimpleNamespace(
+        content=json.dumps({"score": 0.42, "flags": ["safety"]})
+    )
+    score, flags = node._parse_model_response(json_response, "fallback")
+    assert score == pytest.approx(0.42)
+    assert flags == ["safety"]
+
+    dict_response = {"content": "score 0.33"}
+    score, flags = node._parse_model_response(dict_response, "fallback")
+    assert score == pytest.approx(0.33)
+    assert flags == []
+
+    fallback_content = "unsafe text ???"
+    score, flags = node._parse_model_response("no digits", fallback_content)
+    assert score == node._score(fallback_content)
+    assert "low_confidence" in flags
+    assert "safety" in flags
+
+
+def test_llm_judge_parse_model_response_handles_non_string_content() -> None:
+    node = LLMJudgeNode(name="judge")
+
+    class JsonContent:
+        def __str__(self) -> str:
+            return json.dumps({"score": 0.25, "flags": ["low_confidence"]})
+
+    response = types.SimpleNamespace(content=JsonContent())
+    score, flags = node._parse_model_response(response, "fallback")
+    assert score == pytest.approx(0.25)
+    assert flags == ["low_confidence"]
+
+
+def test_llm_judge_parse_model_response_handles_dict_input_json() -> None:
+    node = LLMJudgeNode(name="judge")
+    dict_response = {"content": json.dumps({"score": 0.66, "flags": ["safety"]})}
+    score, flags = node._parse_model_response(dict_response, "fallback")
+    assert score == pytest.approx(0.66)
+    assert flags == ["safety"]
+
+
+@pytest.mark.asyncio
 async def test_failure_analysis_flags_low_answer_quality() -> None:
     node = FailureAnalysisNode(
         name="failures",
@@ -299,6 +479,29 @@ async def test_ab_testing_node_validates_variants_and_gating() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ab_testing_node_handles_nested_evaluation_metrics() -> None:
+    node = ABTestingNode(name="ab", min_metric_threshold=0.5)
+    result = await node.run(
+        State(
+            inputs={
+                "variants": [
+                    {"name": "variant_a", "score": 0.8},
+                    {"name": "variant_b", "score": 0.4},
+                ],
+                "evaluation_metrics": {
+                    "variant_a": {"recall_at_k": 0.6, "ndcg": 0.45},
+                    "variant_b": {"recall_at_k": 0.4, "ndcg": 0.3},
+                },
+            }
+        ),
+        {},
+    )
+
+    assert result["winner"]["name"] == "variant_a"
+    assert result["rollout_allowed"] is False
+
+
+@pytest.mark.asyncio
 async def test_ab_testing_node_skips_optional_checks() -> None:
     node = ABTestingNode(
         name="ab",
@@ -316,6 +519,69 @@ async def test_ab_testing_node_skips_optional_checks() -> None:
     )
     assert result["winner"]["name"] == "solo"
     assert result["rollout_allowed"] is True
+
+
+def test_ab_testing_normalize_evaluation_metrics_branches() -> None:
+    node = ABTestingNode(name="ab", primary_metric="recall")
+    assert node._normalize_evaluation_metric({"recall": 0.75}) == 0.75
+    assert node._normalize_evaluation_metric(0.8) == 0.8
+    node.primary_metric = "score"
+    assert node._normalize_evaluation_metric({"score": 0.65}) == 0.65
+    assert node._normalize_evaluation_metric({"precision": 0.3, "f1": 0.7}) == 0.7
+
+
+def test_ab_testing_normalize_evaluation_metric_score_candidate_and_candidates() -> (
+    None
+):
+    node = ABTestingNode(name="ab", primary_metric="precision")
+    assert node._normalize_evaluation_metric({"score": 0.55}) == 0.55
+
+    node.primary_metric = "other_metric"
+    assert node._normalize_evaluation_metric({"alpha": 0.2, "beta": 0.9}) == 0.9
+
+
+@pytest.mark.asyncio
+async def test_ab_testing_node_rollout_with_metrics_and_feedback() -> None:
+    node = ABTestingNode(
+        name="ab",
+        min_metric_threshold=0.5,
+        min_feedback_score=0.4,
+    )
+    result = await node.run(
+        State(
+            inputs={
+                "variants": [
+                    {"name": "alpha", "score": 0.8},
+                ],
+                "evaluation_metrics": {"alpha": {"score": 0.6}},
+                "feedback_score": 0.45,
+            }
+        ),
+        {},
+    )
+
+    assert result["winner"]["name"] == "alpha"
+    assert result["rollout_allowed"] is True
+
+
+@pytest.mark.asyncio
+async def test_ab_testing_node_evaluation_metrics_gate_rollout() -> None:
+    node = ABTestingNode(name="ab", min_metric_threshold=0.7)
+    result = await node.run(
+        State(
+            inputs={
+                "variants": [{"name": "alpha", "score": 0.9}],
+                "evaluation_metrics": {
+                    "alpha": {"score": 0.65},
+                    "beta": {"precision": 0.8},
+                },
+            }
+        ),
+        {},
+    )
+
+    assert result["winner"]["name"] == "alpha"
+    assert result["rollout_allowed"] is False
 
 
 @pytest.mark.asyncio
