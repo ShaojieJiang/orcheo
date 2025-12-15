@@ -33,6 +33,34 @@ async def test_create_checkpointer_sqlite(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
+async def test_create_checkpointer_sqlite_backfills_is_alive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ensure SQLite connection gets the is_alive shim LangGraph expects."""
+
+    sqlite_file = tmp_path / "backfill.sqlite3"
+    monkeypatch.setenv("ORCHEO_SQLITE_PATH", str(sqlite_file))
+
+    fake_conn = MagicMock()
+    fake_conn.close = AsyncMock()
+    fake_conn._running = True
+    fake_conn._connection = object()
+
+    monkeypatch.setattr(
+        "orcheo.persistence.aiosqlite.connect", AsyncMock(return_value=fake_conn)
+    )
+    monkeypatch.setattr("orcheo.persistence.AsyncSqliteSaver", MagicMock())
+
+    settings = config.get_settings(refresh=True)
+
+    async with create_checkpointer(settings):
+        pass
+
+    assert callable(fake_conn.is_alive)
+    assert fake_conn.is_alive()
+
+
+@pytest.mark.asyncio
 async def test_create_checkpointer_sqlite_creates_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

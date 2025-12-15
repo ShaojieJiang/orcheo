@@ -97,8 +97,8 @@ class WorkflowTool(BaseModel):
 class AgentNode(AINode):
     """Node for executing an AI agent with tools."""
 
-    model_name: str
-    """Model name for the agent."""
+    ai_model: str
+    """Identifier of the AI chat model to use."""
     model_settings: dict | None = None
     """TODO: Implement model settings for the agent."""
     model_kwargs: dict[str, Any] = Field(
@@ -190,7 +190,7 @@ class AgentNode(AINode):
             response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
         # Initialize chat model with model_kwargs
-        model = init_chat_model(self.model_name, **self.model_kwargs)
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
         agent = create_agent(
             model,
             tools=tools,

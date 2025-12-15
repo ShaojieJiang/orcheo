@@ -36,7 +36,7 @@ def agent():
 
     return AgentNode(
         name="test_agent",
-        model_name="openai:gpt-4o-mini",
+        ai_model="openai:gpt-4o-mini",
         system_prompt="Test prompt",
     )
 

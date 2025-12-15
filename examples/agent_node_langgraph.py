@@ -24,7 +24,7 @@ def build_graph() -> StateGraph:
     graph = StateGraph(State)
     agent_node = AgentNode(
         name="agent",
-        model_name="openai:gpt-4o-mini",
+        ai_model="openai:gpt-4o-mini",
         predefined_tools=["greet_user"],
         response_format=StructuredResponse,
     )
