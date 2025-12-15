@@ -97,33 +97,33 @@ N/A
 
 ## LAUNCH/ROLLOUT PLAN
 
-### Success metrics
-| KPIs | Target & Rationale |
-|------|--------------------|
-| Primary: widget render success rate | ≥ 99% of widget items streamed without serialization errors |
-| Secondary: action round-trip success | ≥ 95% of actions produce a workflow response without retries |
-| Guardrail: ChatKit error notices | < 1% of messages emit widget-related errors |
+### Success signals (log-based)
+| Signals | Rationale |
+|---------|-----------|
+| No recurring widget hydration errors in logs | Confirms render paths are stable |
+| Action handling logs rarely report failures | Confirms actions reliably reach workflows |
+| ChatKit notice/error logs remain quiet | Guardrail that user-facing errors stay rare |
 
 ### Rollout Strategy
-- Dev behind feature flag; test with sample `chatkit_widgets` workflow.
-- Enable in staging with public and JWT surfaces; monitor logs.
+- Enable in dev with sample `chatkit_widgets` workflow and monitor logs.
+- Enable in staging with public and JWT surfaces; continue log monitoring.
 - Gradual enablement in production after passing integration tests.
 
 ### Experiment Plan (if applicable)
-No formal experiment; rely on staged rollout with telemetry.
+No formal experiment; rely on staged rollout with log review.
 
 ### Estimated Launch Phases (if applicable)
 
 | Phase | Target | Description |
 |-------|--------|-------------|
 | **Phase 1** | Dev only | Validate serialization/action handling with sample widgets |
-| **Phase 2** | Staging users | Enable for QA and internal authors; monitor metrics |
+| **Phase 2** | Staging users | Enable for QA and internal authors; monitor logs |
 | **Phase 3** | Prod public/Canvas | Default-on for published workflows after sign-off |
 
 ## HYPOTHESIS & RISKS
 Hypothesis: Allowing workflows to render widgets in ChatKit will increase task completion and reduce prompt complexity for structured inputs.
 Risks: Large/invalid widgets could cause server errors or UI crashes; action loops could overload workflows; inconsistent auth metadata could block action handling.
-Risk Mitigation: Enforce payload validation and size caps, emit user-facing notices on error, log with thread/workflow ids, keep feature flag for rapid disable, and reuse existing auth/metadata helpers.
+Risk Mitigation: Enforce payload validation and size caps, emit user-facing notices on error, and log with thread/workflow ids; rely on deploy rollback for rapid disable, and reuse existing auth/metadata helpers.
 
 ## APPENDIX
 None.

@@ -56,18 +56,20 @@ Streaming widget updates are deferred until after this MVP completes.
 
 ---
 
-### Milestone 3: Testing, telemetry, and rollout
+### Milestone 3: Testing, logging, and rollout
 
-**Description:** Harden the feature with tests, telemetry, and staged deployment.
+**Description:** Harden the feature with tests, logging, and staged deployment (no feature flag).
 
 #### Task Checklist
 
-- [ ] Unit/integration tests covering widget serialization, action round-trip, and history load
+- [x] Unit/integration tests covering widget serialization, action round-trip, and history load
   - Dependencies: Milestone 1
-- [ ] Add logging/metrics for widget render/action failures with thread/workflow ids
+- [x] Add logging for widget render/action failures with thread/workflow ids
   - Dependencies: Backend hooks
-- [ ] Stage rollout with feature flag; monitor error rates; promote to production
+  - Implemented structured logging in `apps/backend/src/orcheo_backend/app/chatkit/server.py` with thread/workflow/action context and covered by `tests/backend/test_chatkit_server_widgets.py`.
+- [x] Stage rollout without feature flag; monitor error logs; promote to production
   - Dependencies: Milestones 1 and 2
+  - Rollout path: keep widget support always-on, deploy to staging with sample widget workflow, monitor logs for `Skipping widget payload` and `Widget action failed` entries keyed by `thread_id`/`workflow_id`. Promote to production once staging is clean.
 
 ---
 

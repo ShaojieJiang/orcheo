@@ -155,6 +155,57 @@ async def test_widget_hydration_emits_notice_on_invalid_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_widget_hydration_logs_thread_and_workflow(caplog) -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_invalid_logging",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_user",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    tool_message = ToolMessage(
+        content=[{"type": "text", "text": '{"type": "Card"}'}],
+        tool_call_id="call-1",
+        name="widget_tool",
+        artifact={"structured_content": {"unexpected": "value"}},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [tool_message]}, None)
+    )
+
+    with caplog.at_level("WARNING", logger="orcheo_backend.app.chatkit.server"):
+        events = [event async for event in server.respond(thread, user_item, context)]
+
+    notices = [event for event in events if isinstance(event, NoticeEvent)]
+    assert notices
+
+    log_record = next(
+        record
+        for record in caplog.records
+        if "Skipping widget payload" in record.message
+    )
+    assert log_record.thread_id == str(thread.id)
+    assert log_record.workflow_id == str(workflow.id)
+    assert "unexpected" in log_record.message
+
+
+@pytest.mark.asyncio
 async def test_widget_hydration_enforces_size_limit() -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)
@@ -206,6 +257,46 @@ async def test_widget_hydration_enforces_size_limit() -> None:
         if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
     ]
     assert not widget_events
+
+
+@pytest.mark.asyncio
+async def test_action_logs_failures_with_ids(caplog) -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_action_failure",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    widget_item = WidgetItem(
+        id="widget_sender_failure",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    action: dict[str, object] = {"type": "submit", "payload": {"value": "ok"}}
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        side_effect=RuntimeError("workflow error")
+    )
+
+    with caplog.at_level("ERROR", logger="orcheo_backend.app.chatkit.server"):
+        with pytest.raises(RuntimeError):
+            async for _ in server.action(thread, action, widget_item, context):
+                pass
+
+    log_record = next(
+        record for record in caplog.records if "Widget action failed" in record.message
+    )
+    assert log_record.thread_id == str(thread.id)
+    assert log_record.workflow_id == str(workflow.id)
+    assert log_record.widget_action_type == action["type"]
 
 
 @pytest.mark.asyncio

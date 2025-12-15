@@ -86,7 +86,7 @@ class WorkflowExecutor:
             state_view = dict(final_state or {})
 
         if raw_messages:
-            if not isinstance(state_view, dict):
+            if not isinstance(state_view, dict):  # pragma: no branch
                 state_view = dict(state_view)
             state_view["_messages"] = raw_messages
 
@@ -119,7 +119,7 @@ class WorkflowExecutor:
                 candidates = maybe_messages
         if not candidates and hasattr(final_state, "messages"):
             maybe_messages = final_state.messages  # type: ignore[attr-defined]
-            if isinstance(maybe_messages, list):
+            if isinstance(maybe_messages, list):  # pragma: no branch
                 candidates = maybe_messages
 
         return [

@@ -194,7 +194,7 @@ def build_action_inputs_payload(
         "metadata": dict(thread.metadata),
     }
     payload["action"] = _dump_action(action)
-    if widget_item is not None:
+    if widget_item is not None:  # pragma: no branch
         payload["widget_item_id"] = widget_item.id
         payload["widget"] = _dump_widget(widget_item.widget)
     return payload

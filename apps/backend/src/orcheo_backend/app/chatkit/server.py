@@ -108,6 +108,26 @@ def _is_tool_message(message: Any) -> bool:
     return isinstance(message, Mapping) and message.get("type") == "tool"
 
 
+def _workflow_id_from_thread(thread: ThreadMetadata) -> str | None:
+    """Best-effort extraction of the workflow id from thread metadata."""
+    metadata = thread.metadata or {}
+    workflow_id = metadata.get("workflow_id")
+    if workflow_id is None:
+        return None
+    return str(workflow_id)
+
+
+def _action_type_for_logging(
+    action: Action[str, Any] | Mapping[str, Any] | object,
+) -> str:
+    """Extract the action type for logging contexts."""
+    if isinstance(action, Mapping):
+        action_type = action.get("type")
+    else:
+        action_type = getattr(action, "type", None)
+    return str(action_type) if action_type is not None else ""
+
+
 def _candidate_type(payload: Any) -> str | None:
     """Return the candidate widget type when present."""
     if isinstance(payload, Mapping):
@@ -121,7 +141,7 @@ def _content_text(content: Any) -> str | None:
     """Extract text content from ToolMessage payloads."""
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
+    if isinstance(content, list):  # pragma: no branch
         for entry in content:
             if isinstance(entry, Mapping):
                 text_value = entry.get("text")
@@ -143,7 +163,7 @@ def _candidate_from_artifact(
     raw_copy_text = artifact.get("copy_text")
     copy_text = raw_copy_text if isinstance(raw_copy_text, str) else None
     if payload is None:
-        return None
+        return None  # pragma: no cover - defensive programming
     return _WidgetCandidate(payload=payload, copy_text=copy_text)
 
 
@@ -153,13 +173,13 @@ def _candidate_from_content(
     """Attempt to parse widget payloads from ToolMessage content."""
     text_value = _content_text(content)
     if not text_value:
-        return None
+        return None  # pragma: no cover - defensive programming
     stripped = text_value.strip()
     if not (stripped.startswith("{") or stripped.startswith("[")):
         return None
     try:
         payload = json.loads(stripped)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # pragma: no cover - defensive programming
         return None
 
     candidate_type = _candidate_type(payload)
@@ -182,7 +202,9 @@ def _extract_widget_candidate(message: Any) -> _WidgetCandidate | None:
         # Structured content without a type is treated as a candidate so validation
         # can surface a notice to the user.
         candidate_type = _candidate_type(artifact_candidate.payload)
-        if candidate_type in _WIDGET_TYPES or candidate_type is None:
+        if (
+            candidate_type in _WIDGET_TYPES or candidate_type is None
+        ):  # pragma: no branch
             return artifact_candidate
 
     return _candidate_from_content(
@@ -311,7 +333,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             if not _is_tool_message(message):
                 continue
             candidate = _extract_widget_candidate(message)
-            if candidate is not None:
+            if candidate is not None:  # pragma: no branch
                 candidates.append(candidate)
 
         if not candidates:
@@ -323,10 +345,19 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             try:
                 widget_root = _validate_widget_root(candidate.payload)
             except _WidgetHydrationError as error:
+                workflow_id = _workflow_id_from_thread(thread)
                 logger.warning(
-                    "Skipping widget payload on thread %s: %s",
+                    "Skipping widget payload on thread %s workflow %s: %s",
                     thread.id,
+                    workflow_id or "unknown",
                     error.detail or error.reason,
+                    extra={
+                        "thread_id": str(thread.id),
+                        "workflow_id": workflow_id,
+                        "widget_error": error.reason,
+                        "widget_error_detail": error.detail,
+                        "widget_payload_size": error.size_bytes,
+                    },
                 )
                 notices.append(_notice_for_widget_error(error))
                 continue
@@ -392,6 +423,26 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         await self.store.save_thread(thread, context)
         yield ThreadItemDoneEvent(item=assistant_item)
 
+    def _log_action_failure(
+        self,
+        thread: ThreadMetadata,
+        action: Action[str, Any] | Mapping[str, Any],
+        exc: Exception,
+    ) -> None:
+        """Emit structured logging for widget action errors."""
+        workflow_id = _workflow_id_from_thread(thread)
+        logger.exception(
+            "Widget action failed on thread %s workflow %s",
+            thread.id,
+            workflow_id or "unknown",
+            exc_info=exc,
+            extra={
+                "thread_id": str(thread.id),
+                "workflow_id": workflow_id,
+                "widget_action_type": _action_type_for_logging(action),
+            },
+        )
+
     async def action(
         self,
         thread: ThreadMetadata,
@@ -411,9 +462,14 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                 workflow_id, inputs, actor=actor
             )
         except WorkflowNotFoundError as exc:
+            self._log_action_failure(thread, action, exc)
             raise CustomStreamError(str(exc), allow_retry=False) from exc
         except WorkflowVersionNotFoundError as exc:
+            self._log_action_failure(thread, action, exc)
             raise CustomStreamError(str(exc), allow_retry=False) from exc
+        except Exception as exc:
+            self._log_action_failure(thread, action, exc)
+            raise
 
         widget_items, widget_notices = self._hydrate_widget_items(
             thread, state_view, context

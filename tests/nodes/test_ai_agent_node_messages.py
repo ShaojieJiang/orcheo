@@ -96,3 +96,88 @@ async def test_agentnode_prefers_existing_messages(
     assert len(messages) == 1
     assert isinstance(messages[0], HumanMessage)
     assert messages[0].content == "Use these messages instead."
+
+
+def test_messages_from_inputs_handles_history_and_prompt() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "history": [
+            {"role": "assistant", "content": "Welcome!"},
+            "not a mapping",
+            {"role": "user", "content": "  "},
+            {"role": "user", "content": "Tell me more"},
+        ],
+        "prompt": "   Add this prompt  ",
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert len(messages) == 3
+    assert messages[0].content == "Welcome!"
+    assert messages[1].content == "Tell me more"
+    assert messages[2].content == "Add this prompt"
+
+
+def test_normalize_messages_creates_base_messages() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = [
+        AIMessage(content="existing"),
+        {"role": "assistant", "content": "helper"},
+        {"role": "other", "content": "fallback"},
+        {"role": "user", "content": ""},
+        123,
+    ]
+    normalized = node._normalize_messages(inputs)
+    assert len(normalized) == 3
+    assert normalized[0].content == "existing"
+    assert normalized[1].content == "helper"
+    assert normalized[2].content == "fallback"
+
+
+def test_build_messages_uses_inputs_when_messages_absent() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        inputs={
+            "message": "Fallback message",
+            "history": [{"role": "assistant", "content": "Earlier"}],
+        },
+        results={},
+        messages=[],
+        structured_response=None,
+    )
+    messages = node._build_messages(state)
+    assert len(messages) == 2
+    assert messages[0].content == "Earlier"
+    assert messages[1].content == "Fallback message"
+
+
+def test_messages_from_inputs_prefers_user_message_over_prompt() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "history": [{"role": "assistant", "content": "Old"}],
+        "user_message": "  user input  ",
+        "prompt": "should be ignored",
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert messages[-1].content == "user input"
+
+
+def test_messages_from_inputs_handles_query_value() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "query": "  q  ",
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert len(messages) == 1
+    assert messages[0].content == "q"
+
+
+def test_build_messages_prefers_existing_state_messages() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[{"role": "assistant", "content": "Existing"}],
+        inputs={"message": "ignored"},
+        results={},
+        structured_response=None,
+    )
+    messages = node._build_messages(state)
+    assert len(messages) == 1
+    assert messages[0].content == "Existing"

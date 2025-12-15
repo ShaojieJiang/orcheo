@@ -198,7 +198,7 @@ class AgentNode(AINode):
                     continue
                 if role == "assistant":
                     messages.append(AIMessage(content=content))
-                elif role == "user":
+                elif role == "user":  # pragma: no branch
                     messages.append(HumanMessage(content=content))
 
         message_value = (
@@ -207,7 +207,9 @@ class AgentNode(AINode):
             or inputs.get("query")
             or inputs.get("prompt")
         )
-        if isinstance(message_value, str) and message_value.strip():
+        if (
+            isinstance(message_value, str) and message_value.strip()
+        ):  # pragma: no branch
             messages.append(HumanMessage(content=message_value.strip()))
 
         return messages

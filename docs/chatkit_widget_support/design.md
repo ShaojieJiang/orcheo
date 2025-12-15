@@ -121,11 +121,11 @@ Server hydrates widget payloads from ToolMessages (prefer `artifact["structured_
 
 ## Rollout Plan
 
-1. Phase 1: Dev flag on backend + sample workflow; validate UI rendering and action handling.
+1. Phase 1: Dev enablement with sample workflow; validate UI rendering and action handling.
 2. Phase 2: Staging enablement for public page and Canvas bubble; monitor widget error logs.
-3. Phase 3: Production rollout after tests pass; keep kill switch/flag for quick disable.
+3. Phase 3: Production rollout after tests pass; rely on logging and deploy rollback for quick disable.
 
-Feature flag and size limits guard against regressions; no schema migrations beyond store reuse.
+Logging and size limits guard against regressions; no schema migrations beyond store reuse.
 
 ## Open Issues
 
