@@ -5,8 +5,10 @@ import cn from "classnames";
 import { Badge, type BadgeProps } from "./Badge";
 import { getSpanCategoryIcon, getSpanCategoryLabel } from "./shared";
 
-export interface SpanBadgeProps
-  extends Omit<BadgeProps, "label" | "iconStart" | "iconEnd"> {
+export interface SpanBadgeProps extends Omit<
+  BadgeProps,
+  "label" | "iconStart" | "iconEnd"
+> {
   category: TraceSpanCategory;
 }
 

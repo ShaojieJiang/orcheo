@@ -59,9 +59,9 @@ const hasGetClientSecret = (api: OptionalApiConfig): api is HostedApiConfig =>
 const hasCustomApiConfig = (api: OptionalApiConfig): api is CustomApiConfig =>
   Boolean(
     api &&
-      typeof api === "object" &&
-      typeof api.url === "string" &&
-      typeof api.domainKey === "string",
+    typeof api === "object" &&
+    typeof api.url === "string" &&
+    typeof api.domainKey === "string",
   );
 
 const useInitialGreeting = (

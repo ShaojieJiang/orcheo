@@ -47,11 +47,11 @@ Streaming widget updates are deferred until after this MVP completes.
 
 #### Task Checklist
 
-- [ ] Add `widgets.onAction` handler and call `control.sendAction` in ChatKit React integration
+- [x] Add `widgets.onAction` handler and call `control.sendAction` in ChatKit React integration
   - Dependencies: Backend action endpoint available
-- [ ] Verify widget rendering in public page and Canvas bubble (dev/staging)
+- [x] Verify widget rendering in public page and Canvas bubble (dev/staging)
   - Dependencies: Sample workflow with widgets
-- [ ] Handle error/notice display for widget failures without breaking chat
+- [x] Handle error/notice display for widget failures without breaking chat
   - Dependencies: Backend error payloads
 
 ---
