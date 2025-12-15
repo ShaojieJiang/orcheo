@@ -3,10 +3,12 @@
 from __future__ import annotations
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy
 from langchain.chat_models import init_chat_model
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -181,6 +183,67 @@ class AgentNode(AINode):
 
         return tools
 
+    def _messages_from_inputs(self, inputs: Mapping[str, Any]) -> list[BaseMessage]:
+        """Build LangChain messages from ChatKit-style inputs."""
+        history = inputs.get("history")
+        messages: list[BaseMessage] = []
+
+        if isinstance(history, list):
+            for turn in history:
+                if not isinstance(turn, Mapping):
+                    continue
+                content = turn.get("content")
+                role = turn.get("role")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                if role == "assistant":
+                    messages.append(AIMessage(content=content))
+                elif role == "user":
+                    messages.append(HumanMessage(content=content))
+
+        message_value = (
+            inputs.get("message")
+            or inputs.get("user_message")
+            or inputs.get("query")
+            or inputs.get("prompt")
+        )
+        if isinstance(message_value, str) and message_value.strip():
+            messages.append(HumanMessage(content=message_value.strip()))
+
+        return messages
+
+    def _normalize_messages(self, messages: Any) -> list[BaseMessage]:
+        """Normalize caller-provided messages into LangChain BaseMessages."""
+        normalized: list[BaseMessage] = []
+        if not isinstance(messages, list):
+            return normalized
+
+        for message in messages:
+            if isinstance(message, BaseMessage):
+                normalized.append(message)
+                continue
+            if not isinstance(message, Mapping):
+                continue
+            content = message.get("content")
+            role = message.get("role")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            if role == "assistant":
+                normalized.append(AIMessage(content=content))
+            else:
+                normalized.append(HumanMessage(content=content))
+
+        return normalized
+
+    def _build_messages(self, state: State) -> list[BaseMessage]:
+        """Construct the message list for the agent invocation."""
+        existing_messages = self._normalize_messages(state.get("messages"))
+        if existing_messages:
+            return existing_messages
+
+        inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
+        return self._messages_from_inputs(inputs)
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         tools = await self._prepare_tools()
@@ -199,6 +262,8 @@ class AgentNode(AINode):
         )
         # TODO: for models that don't support ProviderStrategy, use ToolStrategy
 
-        # Execute agent with state as input
-        result = await agent.ainvoke(state, config)  # type: ignore[arg-type]
+        messages = self._build_messages(state)
+        # Execute agent with normalized messages as input
+        payload: dict[str, Any] = {"messages": messages}
+        result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
         return result

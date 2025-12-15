@@ -103,6 +103,12 @@ disallow_untyped_defs = true
 ignore_missing_imports = true
 python_version = "3.12"
 
+[tool.pytest.ini_options]
+filterwarnings = [
+  "ignore:.*named widget classes is deprecated.*:DeprecationWarning",
+  "ignore:.*named action classes is deprecated.*:DeprecationWarning"
+]
+
 [tool.ruff]
 exclude = ["docs", "build"]
 line-length = 88

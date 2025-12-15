@@ -1,0 +1,258 @@
+"""Tests covering ChatKit widget serialization and action handling."""
+
+from __future__ import annotations
+import warnings
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+import pytest
+from chatkit.types import (
+    AssistantMessageItem,
+    InferenceOptions,
+    NoticeEvent,
+    ThreadItemDoneEvent,
+    ThreadMetadata,
+    UserMessageItem,
+    UserMessageTextContent,
+    WidgetItem,
+)
+from chatkit.widgets import DynamicWidgetRoot
+from langchain_core.messages import ToolMessage
+from pydantic import TypeAdapter
+from orcheo_backend.app.chatkit import ChatKitRequestContext
+from orcheo_backend.app.chatkit.server import _MAX_WIDGET_PAYLOAD_BYTES
+from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from tests.backend.chatkit_test_utils import (
+    create_chatkit_test_server,
+    create_workflow_with_graph,
+)
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*named widget classes is deprecated.*",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*named action classes is deprecated.*",
+    category=DeprecationWarning,
+)
+
+
+def _sample_widget_root() -> dict[str, object]:
+    return {
+        "type": "Card",
+        "children": [
+            {"type": "Text", "value": "Example widget"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_respond_hydrates_widget_toolmessage() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_user",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    tool_message = ToolMessage(
+        content=[{"type": "text", "text": "widget payload"}],
+        tool_call_id="call-1",
+        name="widget_tool",
+        artifact={"structured_content": _sample_widget_root()},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [tool_message]}, None)
+    )
+
+    events = [event async for event in server.respond(thread, user_item, context)]
+
+    widget_events = [
+        event
+        for event in events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert len(widget_events) == 1
+    assert widget_events[0].item.widget.type == "Card"
+
+    stored_items = await server.store.load_thread_items(
+        thread.id, after=None, limit=10, order="asc", context=context
+    )
+    assert any(isinstance(item, WidgetItem) for item in stored_items.data)
+    assert any(isinstance(item, AssistantMessageItem) for item in stored_items.data)
+
+
+@pytest.mark.asyncio
+async def test_widget_hydration_emits_notice_on_invalid_payload() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_invalid",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_user",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    tool_message = ToolMessage(
+        content=[{"type": "text", "text": '{"type": "Card"}'}],
+        tool_call_id="call-1",
+        name="widget_tool",
+        artifact={"structured_content": {"unexpected": "value"}},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [tool_message]}, None)
+    )
+
+    events = [event async for event in server.respond(thread, user_item, context)]
+
+    notices = [event for event in events if isinstance(event, NoticeEvent)]
+    assert len(notices) == 1
+    assert "Widget" in notices[0].title
+
+    widget_events = [
+        event
+        for event in events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert not widget_events
+
+    stored_items = await server.store.load_thread_items(
+        thread.id, after=None, limit=10, order="asc", context=context
+    )
+    assert not any(isinstance(item, WidgetItem) for item in stored_items.data)
+
+
+@pytest.mark.asyncio
+async def test_widget_hydration_enforces_size_limit() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_large",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = UserMessageItem(
+        id="msg_user",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[],
+        quoted_text=None,
+        inference_options=InferenceOptions(),
+    )
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    oversized_text = "x" * (_MAX_WIDGET_PAYLOAD_BYTES + 5_000)
+    oversized_widget = {
+        "type": "Card",
+        "children": [{"type": "Text", "value": oversized_text}],
+    }
+    tool_message = ToolMessage(
+        content=[{"type": "text", "text": "too large"}],
+        tool_call_id="call-1",
+        name="widget_tool",
+        artifact={"structured_content": oversized_widget},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [tool_message]}, None)
+    )
+
+    events = [event async for event in server.respond(thread, user_item, context)]
+
+    notices = [event for event in events if isinstance(event, NoticeEvent)]
+    assert len(notices) == 1
+    assert "large" in notices[0].message.lower()
+
+    widget_events = [
+        event
+        for event in events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert not widget_events
+
+
+@pytest.mark.asyncio
+async def test_action_routes_widget_payload_to_workflow() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_action",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    widget_item = WidgetItem(
+        id="widget_sender",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    captured_inputs: dict[str, object] = {}
+
+    async def fake_run(workflow_id, inputs, actor="chatkit"):
+        captured_inputs.update(inputs)
+        return ("Action reply", {"messages": []}, None)
+
+    server._run_workflow = AsyncMock(side_effect=fake_run)  # type: ignore[attr-defined]
+
+    action: dict[str, object] = {"type": "submit", "payload": {"value": "ok"}}
+
+    events = [
+        event async for event in server.action(thread, action, widget_item, context)
+    ]
+
+    assert captured_inputs["action"] == action
+    assert captured_inputs["widget_item_id"] == widget_item.id
+    assert isinstance(captured_inputs["widget"], dict)
+    assert captured_inputs["widget"]["type"] == "Card"
+
+    assistant_events = [
+        event
+        for event in events
+        if isinstance(event, ThreadItemDoneEvent)
+        and isinstance(event.item, AssistantMessageItem)
+    ]
+    assert assistant_events, "Assistant reply should still be emitted"

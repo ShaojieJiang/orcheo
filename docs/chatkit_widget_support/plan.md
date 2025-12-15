@@ -30,13 +30,13 @@ Streaming widget updates are deferred until after this MVP completes.
 
 #### Task Checklist
 
-- [ ] Confirm widget payloads are available via ToolMessage artifact/content and hydrate them into `WidgetItem`s (ToolMessages are the widget source)
+- [x] Confirm widget payloads are available via ToolMessage artifact/content and hydrate them into `WidgetItem`s (ToolMessages are the widget source)
   - Dependencies: None
-- [ ] Confirm ChatKit history loads include the hydrated widget ToolMessages without additional storage work
+- [x] Confirm ChatKit history loads include the hydrated widget ToolMessages without additional storage work
   - Dependencies: None
-- [ ] Implement `action()` handler to route widget `Action` payloads to WorkflowExecutor
+- [x] Implement `action()` handler to route widget `Action` payloads to WorkflowExecutor
   - Dependencies: Widget serialization in place
-- [ ] Add validation/size caps and user-facing error notices for invalid widgets
+- [x] Add validation/size caps and user-facing error notices for invalid widgets
   - Dependencies: None
 
 ---

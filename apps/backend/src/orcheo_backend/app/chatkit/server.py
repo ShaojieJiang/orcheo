@@ -1,25 +1,52 @@
 """ChatKit server implementation streaming Orcheo workflow results."""
+# ruff: noqa: I001
 
 from __future__ import annotations
+import json
+import logging
+import warnings
 from collections.abc import AsyncIterator, Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
-from chatkit.errors import CustomStreamError
-from chatkit.server import ChatKitServer
-from chatkit.store import Store
-from chatkit.types import (
-    AssistantMessageItem,
-    ThreadItemDoneEvent,
-    ThreadMetadata,
-    ThreadStreamEvent,
-    UserMessageItem,
-)
+
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=".*named widget classes is deprecated.*",
+        category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*named action classes is deprecated.*",
+        category=DeprecationWarning,
+    )
+    from chatkit.errors import CustomStreamError
+    from chatkit.server import ChatKitServer
+    from chatkit.store import Store
+    from chatkit.types import (
+        Action,
+        AssistantMessageItem,
+        NoticeEvent,
+        ThreadItemDoneEvent,
+        ThreadMetadata,
+        ThreadStreamEvent,
+        UserMessageItem,
+        WidgetItem,
+        WidgetRoot,
+    )
+    from chatkit.widgets import DynamicWidgetRoot
 from dynaconf import Dynaconf
+from langchain_core.messages import ToolMessage
+from pydantic import TypeAdapter, ValidationError
 from orcheo.config import get_settings
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
-from orcheo_backend.app.chatkit.message_utils import collect_text_from_user_content
+from orcheo_backend.app.chatkit.message_utils import (
+    build_action_inputs_payload,
+    collect_text_from_user_content,
+)
 from orcheo_backend.app.chatkit.messages import (
     build_assistant_item,
     build_history,
@@ -36,6 +63,165 @@ from orcheo_backend.app.repository import (
     WorkflowRun,
     WorkflowVersionNotFoundError,
 )
+
+
+logger = logging.getLogger(__name__)
+
+_WIDGET_ROOT_ADAPTER: TypeAdapter[DynamicWidgetRoot] = TypeAdapter(DynamicWidgetRoot)
+_MAX_WIDGET_PAYLOAD_BYTES = 50_000
+_WIDGET_TYPES = {"Card", "ListView"}
+
+
+class _WidgetCandidate(NamedTuple):
+    """Intermediate representation of a widget payload."""
+
+    payload: Any
+    copy_text: str | None = None
+
+
+class _WidgetHydrationError(Exception):
+    """Raised when widget payloads fail validation or policy checks."""
+
+    def __init__(
+        self,
+        reason: str,
+        detail: str | None = None,
+        *,
+        size_bytes: int | None = None,
+    ) -> None:
+        self.reason = reason
+        self.detail = detail
+        self.size_bytes = size_bytes
+        super().__init__(reason)
+
+
+def _messages_from_state(state_view: Mapping[str, Any]) -> list[Any]:
+    """Return LangChain messages embedded in the workflow state."""
+    messages = state_view.get("_messages") or state_view.get("messages") or []
+    return messages if isinstance(messages, list) else []
+
+
+def _is_tool_message(message: Any) -> bool:
+    """Return True when ``message`` represents a ToolMessage."""
+    if isinstance(message, ToolMessage):
+        return True
+    return isinstance(message, Mapping) and message.get("type") == "tool"
+
+
+def _candidate_type(payload: Any) -> str | None:
+    """Return the candidate widget type when present."""
+    if isinstance(payload, Mapping):
+        type_value = payload.get("type")
+    else:
+        type_value = getattr(payload, "type", None)
+    return str(type_value) if type_value is not None else None
+
+
+def _content_text(content: Any) -> str | None:
+    """Extract text content from ToolMessage payloads."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for entry in content:
+            if isinstance(entry, Mapping):
+                text_value = entry.get("text")
+                if isinstance(text_value, str):
+                    return text_value
+            text_attr = getattr(entry, "text", None)
+            if isinstance(text_attr, str):
+                return text_attr
+    return None
+
+
+def _candidate_from_artifact(
+    artifact: Mapping[str, Any] | None,
+) -> _WidgetCandidate | None:
+    """Return a candidate when structured content is embedded in the artifact."""
+    if not isinstance(artifact, Mapping):
+        return None
+    payload = artifact.get("structured_content")
+    raw_copy_text = artifact.get("copy_text")
+    copy_text = raw_copy_text if isinstance(raw_copy_text, str) else None
+    if payload is None:
+        return None
+    return _WidgetCandidate(payload=payload, copy_text=copy_text)
+
+
+def _candidate_from_content(
+    content: Any, copy_text: str | None
+) -> _WidgetCandidate | None:
+    """Attempt to parse widget payloads from ToolMessage content."""
+    text_value = _content_text(content)
+    if not text_value:
+        return None
+    stripped = text_value.strip()
+    if not (stripped.startswith("{") or stripped.startswith("[")):
+        return None
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+
+    candidate_type = _candidate_type(payload)
+    if candidate_type not in _WIDGET_TYPES:
+        return None
+
+    return _WidgetCandidate(payload=payload, copy_text=copy_text)
+
+
+def _extract_widget_candidate(message: Any) -> _WidgetCandidate | None:
+    """Return a widget candidate when the ToolMessage contains widget payloads."""
+    artifact = getattr(message, "artifact", None)
+    content = getattr(message, "content", None)
+    if isinstance(message, Mapping):
+        artifact = message.get("artifact")
+        content = message.get("content")
+
+    artifact_candidate = _candidate_from_artifact(artifact)
+    if artifact_candidate:
+        # Structured content without a type is treated as a candidate so validation
+        # can surface a notice to the user.
+        candidate_type = _candidate_type(artifact_candidate.payload)
+        if candidate_type in _WIDGET_TYPES or candidate_type is None:
+            return artifact_candidate
+
+    return _candidate_from_content(
+        content, getattr(artifact_candidate, "copy_text", None)
+    )
+
+
+def _validate_widget_root(payload: Any) -> WidgetRoot:
+    """Validate and size-check a widget payload."""
+    try:
+        widget_root = _WIDGET_ROOT_ADAPTER.validate_python(payload)
+    except ValidationError as exc:
+        raise _WidgetHydrationError("invalid_widget", detail=str(exc)) from exc
+
+    serialized = widget_root.model_dump_json(exclude_none=True)
+    size_bytes = len(serialized.encode("utf-8"))
+    if size_bytes > _MAX_WIDGET_PAYLOAD_BYTES:
+        raise _WidgetHydrationError(
+            "too_large",
+            detail="Widget payload exceeds maximum size",
+            size_bytes=size_bytes,
+        )
+
+    return widget_root
+
+
+def _notice_for_widget_error(error: _WidgetHydrationError) -> NoticeEvent:
+    """Build a user-facing notice describing widget hydration issues."""
+    if error.reason == "too_large":
+        limit_kb = int(_MAX_WIDGET_PAYLOAD_BYTES / 1024)
+        message = (
+            f"The workflow returned a widget that is too large to display "
+            f"(limit is roughly {limit_kb} KB)."
+        )
+        title = "Widget too large"
+    else:
+        message = "The workflow returned a widget that could not be rendered."
+        title = "Widget unavailable"
+    return NoticeEvent(level="danger", message=message, title=title)
 
 
 class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
@@ -113,6 +299,50 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Delegate to the assistant item helper."""
         return build_assistant_item(self.store, thread, reply, context)
 
+    def _hydrate_widget_items(
+        self,
+        thread: ThreadMetadata,
+        state_view: Mapping[str, Any],
+        context: ChatKitRequestContext,
+    ) -> tuple[list[WidgetItem], list[NoticeEvent]]:
+        """Hydrate widget thread items from LangChain ToolMessages."""
+        candidates: list[_WidgetCandidate] = []
+        for message in _messages_from_state(state_view):
+            if not _is_tool_message(message):
+                continue
+            candidate = _extract_widget_candidate(message)
+            if candidate is not None:
+                candidates.append(candidate)
+
+        if not candidates:
+            return [], []
+
+        widget_items: list[WidgetItem] = []
+        notices: list[NoticeEvent] = []
+        for candidate in candidates:
+            try:
+                widget_root = _validate_widget_root(candidate.payload)
+            except _WidgetHydrationError as error:
+                logger.warning(
+                    "Skipping widget payload on thread %s: %s",
+                    thread.id,
+                    error.detail or error.reason,
+                )
+                notices.append(_notice_for_widget_error(error))
+                continue
+
+            widget_items.append(
+                WidgetItem(
+                    id=self.store.generate_item_id("message", thread, context),
+                    thread_id=thread.id,
+                    created_at=datetime.now(UTC),
+                    widget=widget_root,
+                    copy_text=candidate.copy_text,
+                )
+            )
+
+        return widget_items, notices
+
     async def _run_workflow(
         self,
         workflow_id: UUID,
@@ -139,7 +369,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
 
         actor = str(context.get("actor") or "chatkit")
         try:
-            reply, _state, run = await self._run_workflow(
+            reply, state_view, run = await self._run_workflow(
                 workflow_id, inputs, actor=actor
             )
         except WorkflowNotFoundError as exc:
@@ -147,7 +377,54 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         except WorkflowVersionNotFoundError as exc:
             raise CustomStreamError(str(exc), allow_retry=False) from exc
 
+        widget_items, widget_notices = self._hydrate_widget_items(
+            thread, state_view, context
+        )
         self._record_run_metadata(thread, run)
+        for notice in widget_notices:
+            yield notice
+        for widget_item in widget_items:
+            await self.store.add_thread_item(thread.id, widget_item, context)
+            yield ThreadItemDoneEvent(item=widget_item)
+
+        assistant_item = self._build_assistant_item(thread, reply, context)
+        await self.store.add_thread_item(thread.id, assistant_item, context)
+        await self.store.save_thread(thread, context)
+        yield ThreadItemDoneEvent(item=assistant_item)
+
+    async def action(
+        self,
+        thread: ThreadMetadata,
+        action: Action[str, Any] | Mapping[str, Any],
+        sender: WidgetItem | None,
+        context: ChatKitRequestContext,
+    ) -> AsyncIterator[ThreadStreamEvent]:
+        """Handle widget actions by re-invoking the workflow."""
+        self._ensure_workflow_metadata(thread, context)
+        workflow_id = self._require_workflow_id(thread)
+        history = await self._history(thread, context)
+        inputs = build_action_inputs_payload(thread, action, history, sender)
+
+        actor = str(context.get("actor") or "chatkit")
+        try:
+            reply, state_view, run = await self._run_workflow(
+                workflow_id, inputs, actor=actor
+            )
+        except WorkflowNotFoundError as exc:
+            raise CustomStreamError(str(exc), allow_retry=False) from exc
+        except WorkflowVersionNotFoundError as exc:
+            raise CustomStreamError(str(exc), allow_retry=False) from exc
+
+        widget_items, widget_notices = self._hydrate_widget_items(
+            thread, state_view, context
+        )
+        self._record_run_metadata(thread, run)
+        for notice in widget_notices:
+            yield notice
+        for widget_item in widget_items:
+            await self.store.add_thread_item(thread.id, widget_item, context)
+            yield ThreadItemDoneEvent(item=widget_item)
+
         assistant_item = self._build_assistant_item(thread, reply, context)
         await self.store.add_thread_item(thread.id, assistant_item, context)
         await self.store.save_thread(thread, context)
