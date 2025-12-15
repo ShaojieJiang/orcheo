@@ -335,7 +335,7 @@ async def test_action_handles_workflow_not_found(
     server._log_action_failure = log_mock
 
     with pytest.raises(CustomStreamError):
-        async for _ in server.action(thread, {"type": "action"}, None, {}):
+        async for _ in server.action(thread, {"type": "submit"}, None, {}):
             ...
     assert log_mock.called
 
@@ -363,7 +363,7 @@ async def test_action_handles_version_not_found(
     server._log_action_failure = Mock()
 
     with pytest.raises(CustomStreamError):
-        async for _ in server.action(thread, {"type": "action"}, None, {}):
+        async for _ in server.action(thread, {"type": "submit"}, None, {}):
             ...
     assert server._log_action_failure.called
 
@@ -392,7 +392,7 @@ async def test_action_logs_and_reraises_generic_exceptions(
     server._log_action_failure = log_mock
 
     with pytest.raises(RuntimeError):
-        async for _ in server.action(thread, {"type": "action"}, None, {}):
+        async for _ in server.action(thread, {"type": "submit"}, None, {}):
             ...
     assert log_mock.called
 
@@ -443,7 +443,7 @@ async def test_action_streams_widgets_and_assistant(
     store.add_thread_item = AsyncMock()
     store.save_thread = AsyncMock()
     events: list[Any] = []
-    async for event in server.action(thread, {"type": "action"}, None, context):
+    async for event in server.action(thread, {"type": "submit"}, None, context):
         events.append(event)
 
     assert events[0] is notice

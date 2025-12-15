@@ -70,6 +70,7 @@ logger = logging.getLogger(__name__)
 _WIDGET_ROOT_ADAPTER: TypeAdapter[DynamicWidgetRoot] = TypeAdapter(DynamicWidgetRoot)
 _MAX_WIDGET_PAYLOAD_BYTES = 50_000
 _WIDGET_TYPES = {"Card", "ListView"}
+_ALLOWED_WIDGET_ACTION_TYPES = {"submit"}
 
 
 class _WidgetCandidate(NamedTuple):
@@ -443,6 +444,31 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             },
         )
 
+    def _is_supported_action_type(
+        self,
+        thread: ThreadMetadata,
+        action: Action[str, Any] | Mapping[str, Any],
+    ) -> bool:
+        """Return True when the widget action should be dispatched."""
+        action_type = _action_type_for_logging(action)
+        if action_type in _ALLOWED_WIDGET_ACTION_TYPES:
+            return True
+
+        workflow_id = _workflow_id_from_thread(thread)
+        logger.warning(
+            "Ignoring widget action on thread %s workflow %s with unsupported type %s",
+            thread.id,
+            workflow_id or "unknown",
+            action_type or "unknown",
+            extra={
+                "thread_id": str(thread.id),
+                "workflow_id": workflow_id,
+                "widget_action_type": action_type,
+                "allowed_widget_action_types": sorted(_ALLOWED_WIDGET_ACTION_TYPES),
+            },
+        )
+        return False
+
     async def action(
         self,
         thread: ThreadMetadata,
@@ -453,6 +479,8 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Handle widget actions by re-invoking the workflow."""
         self._ensure_workflow_metadata(thread, context)
         workflow_id = self._require_workflow_id(thread)
+        if not self._is_supported_action_type(thread, action):
+            return
         history = await self._history(thread, context)
         inputs = build_action_inputs_payload(thread, action, history, sender)
 

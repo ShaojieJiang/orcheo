@@ -300,6 +300,51 @@ async def test_action_logs_failures_with_ids(caplog) -> None:
 
 
 @pytest.mark.asyncio
+async def test_action_skips_unsupported_type(caplog) -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widgets_action_reject",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    widget_item = WidgetItem(
+        id="widget_sender_reject",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    action: dict[str, object] = {
+        "type": "link_click",
+        "payload": {"href": "https://example.com"},
+    }
+    server._run_workflow = AsyncMock()  # type: ignore[attr-defined]
+
+    with caplog.at_level("WARNING", logger="orcheo_backend.app.chatkit.server"):
+        events = [
+            event async for event in server.action(thread, action, widget_item, context)
+        ]
+
+    server._run_workflow.assert_not_awaited()
+    assert events == []
+
+    log_record = next(
+        record
+        for record in caplog.records
+        if "Ignoring widget action" in record.message
+    )
+    assert log_record.widget_action_type == action["type"]
+    assert "submit" in str(log_record.allowed_widget_action_types)
+
+
+@pytest.mark.asyncio
 async def test_action_routes_widget_payload_to_workflow() -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)
