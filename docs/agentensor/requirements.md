@@ -12,7 +12,7 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Prior Artifacts | https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py | Shaojie Jiang | Agentensor trainer example |
+| Prior Artifacts | [agentensor trainer example](https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py) | Shaojie Jiang | Agentensor trainer example |
 | Design Review | docs/agentensor/design.md | Shaojie Jiang | Agent training design |
 | Eng Requirement Doc | docs/agentensor/requirements.md | Shaojie Jiang | Agent training PRD |
 | Experiment Plan | docs/agentensor/plan.md | Shaojie Jiang | Agent training plan |
@@ -48,7 +48,7 @@ Goals: support runtime `RunnableConfig` across API/SDK runs; deliver an Agentens
   - Behavior: run workflow against dataset, collect per-case metrics, aggregate summary, and return evaluation-only outputs.
   - Support streaming/periodic progress updates and error surfacing per case.
 - **P0: AgentensorNode - Training mode**
-  - Behavior: optimize prompts defined in `RunnableConfig` (trainable prompts declared as `TextTensor` entries and referenced by agent nodes via config paths) using gradient-free/optimizer loop inspired by `https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py`.
+  - Behavior: optimize prompts defined in `RunnableConfig` (trainable prompts declared as `TextTensor` entries, referenced by agent nodes via config paths, and resolved via Orcheo's `{{path.to.value}}` interpolation) using gradient-free/optimizer loop inspired by `https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py`.
   - Emit checkpointed optimized configs and corresponding evaluation metrics at configured intervals.
   - Return the best-performing config plus final evaluation summary; allow opt-out for certain nodes/prompts.
 - **P1: Tooling and ergonomics**
@@ -65,11 +65,13 @@ Workflow runtime (FastAPI/WebSocket + LangGraph) accepts `RunnableConfig` and pa
 ### Technical Requirements
 - JSON-serializable `RunnableConfig` schema compatible with LangChain; reject unsafe callbacks or unserializable fields.
 - Trainable prompts must be defined in the config as `TextTensor` objects and referenced by agent nodes via config paths at runtime for evaluation/training.
-- Fork upstream `agentensor` into `packages/agentensor`, wire into Orcheo build/test, and add minimal integration shims in `src/orcheo/` where needed (e.g., config refs, node bindings).
+- Fork upstream `agentensor` into `packages/agentensor`, align with existing `packages/sdk` tooling (uv metadata, Ruff/mypy hooks), and add minimal integration shims in `src/orcheo/` where needed (e.g., config refs, node bindings).
 - Backward compatibility for runs without `RunnableConfig` (default behavior unchanged).
 - Configurable concurrency and timeout controls to protect shared infrastructure during training.
 - Deterministic seeding and dataset versioning for reproducible evaluations.
-- Checkpoint storage in a dedicated DB table keyed by `workflow_id` with versioned config records; references stored in run metadata for later reuse/download.
+- Checkpoint storage in a dedicated DB table keyed by `workflow_id` with versioned config records; references stored in run metadata for later reuse/download with migrations for both SQLite (local) and PostgreSQL (prod).
+- AgentensorNode registered in the existing node registry (`src/orcheo/nodes/registry.py`) as a `TaskNode` subclass, inheriting state handling and `decode_variables()` behavior so `TextTensor` prompts resolve through the existing `_decode_value()` interpolation logic.
+- API additions (trainer/evaluator mode) extend the existing workflow router/WS streaming pattern rather than a new top-level endpoint; authentication/authorization must match current workflow run policies.
 
 ### AI/ML Considerations
 #### Data Requirements
@@ -80,6 +82,11 @@ Initial optimizer mirrors `agentensor` example: prompt tensor optimization with 
 
 #### Model performance requirements
 Target ≥10% improvement over baseline evaluator score on training set and no worse than -2% on holdout. Ensure latency increase per run stays within operational limits.
+
+### Testing Expectations
+- Compatibility testing with existing node types to ensure `RunnableConfig` propagation and prompt interpolation continue to work.
+- Performance tests for concurrent training/evaluation runs with bounded concurrency.
+- Migration tests covering SQLite/PostgreSQL schema upgrades for checkpoint storage.
 
 ## MARKET DEFINITION
 Internal feature; no external TAM or launch exceptions required.

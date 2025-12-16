@@ -17,6 +17,8 @@ We also introduce an AgentensorNode inspired by `https://github.com/ShaojieJiang
 
 Key goals: runtime compatibility with LangChain config schema, reproducible evaluations, controlled training loops with safe resource usage, and artifact persistence (metrics, checkpoints).
 
+Training and evaluation modes execute against the same compiled workflows used for standard runs; the trainer augments the runtime with dataset iteration, evaluator orchestration, and prompt updates without changing the workflow authoring model.
+
 ## Components
 
 - **Workflow Runtime (FastAPI/WebSocket + LangGraph)**
@@ -24,10 +26,10 @@ Key goals: runtime compatibility with LangChain config schema, reproducible eval
   - Maintains per-run metadata and emits status/progress events.
 - **Orcheo Agentensor Package (packages/agentensor)**
   - Forked copy of upstream agentensor providing tensors, optimizers, and judges; pulled in as a first-party dependency.
-  - Exposes integration points consumed by AgentensorNode and, where necessary, shimmed types/definitions in `src/orcheo/`.
+  - Mirrors existing `packages/sdk` tooling (uv metadata, Ruff/mypy) and exposes integration points consumed by AgentensorNode with shimmed types/definitions in `src/orcheo/`.
 - **Config Validator/Serializer (Platform)**
   - Validates JSON-serializable `RunnableConfig`, strips unsafe callbacks, enforces recursion/concurrency limits, and ensures trainable prompts are valid `TextTensor` definitions.
-  - Validates config value references (including prompt references from nodes) and preserves `TextTensor` typing/metadata when dereferencing.
+  - Validates config value references (including prompt references from nodes) and preserves `TextTensor` typing/metadata when dereferencing using existing `decode_variables()` / `_decode_value()` interpolation logic.
   - Persists normalized configs with runs and checkpoints.
 - **AgentensorNode (LangGraph node)**
   - Coordinates dataset iteration, evaluator execution, and optimizer loops; exposes evaluation and training modes.
@@ -41,6 +43,13 @@ Key goals: runtime compatibility with LangChain config schema, reproducible eval
   - Tracing/metrics hooks, rate limits, and timeout/concurrency controls for trainer-heavy workloads.
 
 ## Request Flows
+
+### Orcheo Integration Details
+
+- **Node registration**: AgentensorNode is registered via `src/orcheo/nodes/registry.py` alongside other `TaskNode` subclasses so builders can reference it through the existing node discovery mechanism.
+- **Inheritance**: The node inherits `TaskNode` to reuse state handling and config decoding, including `decode_variables()` and `_decode_value()` for `{{path.to.value}}` interpolation of `TextTensor` prompts.
+- **Variable consistency**: Trainable prompts must be referenced from agent nodes via config paths to ensure the runtime resolves prompt tensors consistently across evaluation and training modes.
+
 
 ### Flow 1: Workflow Run with RunnableConfig
 
@@ -78,18 +87,21 @@ Response:
 ```
 
 ```
-POST /api/workflows/{workflow_id}/trainer
+POST /api/workflows/{workflow_id}/runs
 Body:
-  runnable_config: RunnableConfig
-  dataset_id: string
-  evaluators: EvaluatorRef[]
-  mode: "evaluate" | "train"
-  optimizer: { type: string, epochs: int, checkpoint_interval: int, max_concurrency?: int }
+  input: object
+  runnable_config: RunnableConfig (optional)
+  mode: "execute" | "evaluate" | "train"
+  trainer: {
+    dataset_id: string,
+    evaluators: EvaluatorRef[],
+    optimizer?: { type: string, epochs: int, checkpoint_interval: int, max_concurrency?: int }
+  }
 Response:
-  202 Accepted -> { trainer_run_id, status_url, checkpoint_urls? }
+  202 Accepted -> { run_id, status_url, websocket_url, checkpoint_urls? }
 ```
 
-WebSocket events deliver progress, per-case errors, evaluation summaries, and checkpoint metadata.
+The trainer/evaluator mode reuses the existing workflow router and WebSocket streaming implementation so clients receive progress, per-case errors, evaluation summaries, and checkpoint metadata on the same channel as standard runs. Authentication/authorization mirrors existing workflow run policies.
 
 ## Data Models / Schemas
 
@@ -98,6 +110,7 @@ WebSocket events deliver progress, per-case errors, evaluation summaries, and ch
 | runnable_config | object | LangChain-compatible config: `configurable`, `tags`, `metadata`, `callbacks`, `recursion_limit`, `max_concurrency`, `run_name`, and optional `prompts` mapping `prompt_name -> TextTensor` (agent nodes reference these by config path at runtime) |
 | trainer_request | object | `{ workflow_id, dataset_id, evaluators, mode, runnable_config, optimizer }` |
 | checkpoint | object | `{ id, workflow_id, config_version, runnable_config, metrics, created_at, artifact_url }` |
+| evaluator | object | `{ id, type: "llm" | "deterministic", entrypoint: string, config?: object }`; entrypoints must be importable callables compatible with existing evaluator registry |
 
 Example `RunnableConfig` payload:
 
@@ -113,13 +126,22 @@ Example `RunnableConfig` payload:
     "agent_greeting": {
       "text": "You are a helpful assistant.",
       "type": "TextTensor",
-      "requires_grad": true
+      "requires_grad": true,
+      "metadata": { "locale": "en-US" }
     }
   }
 }
 ```
 
+`TextTensor` entries must include `text` (string), `type="TextTensor"`, optional `requires_grad` (bool), and optional `metadata` (object). Validation rejects non-serializable fields and ensures values resolve through `{{config.prompts.<key>}}` interpolation.
+
 Agent nodes refer to trainable prompts by config path (e.g., `config.prompts.agent_greeting`) in their own definitions; resolution is unidirectional from node -> config, so no prompt binding block is required in the config.
+
+## Storage and Migrations
+
+- **Checkpoint table**: `agentensor_checkpoints(workflow_id, id, config_version, runnable_config, metrics, created_at, artifact_url)` with indexes on `workflow_id` and `config_version`.
+- **Dual backend support**: migrations provided for SQLite (local/dev) and PostgreSQL (staging/prod) using the existing migration toolchain; defaults ensure JSON/text column compatibility per backend.
+- **Run metadata linkage**: run records store checkpoint references so download/reuse works through the existing run metadata surfaces.
 
 ## Security Considerations
 
@@ -137,9 +159,11 @@ Agent nodes refer to trainable prompts by config path (e.g., `config.prompts.age
 
 ## Testing Strategy
 
-- **Unit tests**: config validation/merging, trainer optimizer steps, evaluator aggregation.
-- **Integration tests**: API payload validation, workflow run with `RunnableConfig`, trainer flows in evaluation and training modes with mock datasets.
-- **Manual QA checklist**: run with/without config, long-running training with checkpoints, resume/download checkpoint, evaluator failure surfaces correctly.
+- **Unit tests**: config validation/merging (including `TextTensor` schema), trainer optimizer steps, evaluator aggregation.
+- **Integration tests**: API payload validation, workflow run with `RunnableConfig`, trainer flows in evaluation and training modes with mock datasets, compatibility across existing node types.
+- **Performance tests**: concurrent training/evaluation runs exercising `max_concurrency` and timeout guardrails.
+- **Migration tests**: apply/rollback SQLite and PostgreSQL migrations for checkpoint storage, verify run metadata linkage.
+- **Manual QA checklist**: run with/without config, long-running training with checkpoints, resume/download checkpoint, evaluator failure surfaces correctly, WebSocket streaming matches existing workflow run behavior.
 
 ## Rollout Plan
 
