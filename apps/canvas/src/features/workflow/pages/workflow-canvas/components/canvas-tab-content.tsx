@@ -19,17 +19,16 @@ import type { ValidationError } from "@features/workflow/pages/workflow-canvas/h
 
 type WorkflowFlowProps = React.ComponentProps<typeof WorkflowFlow>;
 
-interface FlowHandlers
-  extends Pick<
-    WorkflowFlowProps,
-    | "onNodesChange"
-    | "onEdgesChange"
-    | "onNodeClick"
-    | "onNodeDoubleClick"
-    | "onEdgeMouseEnter"
-    | "onEdgeMouseLeave"
-    | "onInit"
-  > {
+interface FlowHandlers extends Pick<
+  WorkflowFlowProps,
+  | "onNodesChange"
+  | "onEdgesChange"
+  | "onNodeClick"
+  | "onNodeDoubleClick"
+  | "onEdgeMouseEnter"
+  | "onEdgeMouseLeave"
+  | "onInit"
+> {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   onConnect: (connection: Connection) => void;

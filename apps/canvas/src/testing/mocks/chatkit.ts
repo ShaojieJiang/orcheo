@@ -5,10 +5,17 @@ vi.mock("@openai/chatkit-react", () => ({
   ChatKit: () => null,
   ChatKitProvider: ({ children }: { children?: ReactNode }) => children ?? null,
   useChatKit: () => ({
-    status: "disconnected",
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    sendMessage: vi.fn(),
-    conversations: [],
+    control: {
+      setInstance: vi.fn(),
+      options: {},
+      handlers: {},
+    },
+    focusComposer: vi.fn(),
+    setThreadId: vi.fn(),
+    sendUserMessage: vi.fn(),
+    setComposerValue: vi.fn(),
+    fetchUpdates: vi.fn(),
+    sendCustomAction: vi.fn(),
+    ref: { current: null },
   }),
 }));

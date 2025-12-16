@@ -28,6 +28,21 @@ except Exception:  # pragma: no cover - fallback when dependency missing
     DictRowFactory = None
 
 
+def _ensure_sqlite_connection_is_alive(
+    conn: aiosqlite.Connection,
+) -> aiosqlite.Connection:
+    """Backfill aiosqlite connections with the ``is_alive`` helper LangGraph expects."""
+    if not hasattr(conn, "is_alive"):
+
+        def _is_alive() -> bool:
+            return bool(
+                getattr(conn, "_running", False) and getattr(conn, "_connection", None)
+            )
+
+        conn.is_alive = _is_alive  # type: ignore[attr-defined]
+    return conn
+
+
 @asynccontextmanager
 async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
     """Create a LangGraph checkpointer based on the configured backend."""
@@ -37,7 +52,9 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
         sqlite_path = Path(str(settings.sqlite_path)).expanduser()
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = await aiosqlite.connect(str(sqlite_path))
+        conn = _ensure_sqlite_connection_is_alive(
+            await aiosqlite.connect(str(sqlite_path))
+        )
         try:
             yield AsyncSqliteSaver(conn)
         finally:

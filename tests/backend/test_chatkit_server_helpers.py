@@ -1,10 +1,20 @@
 """Tests for helper functions in the ChatKit service module."""
 
 from __future__ import annotations
-from chatkit.types import AssistantMessageContent, UserMessageTextContent
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from types import SimpleNamespace
+import pytest
+from chatkit.types import (
+    AssistantMessageContent,
+    ThreadMetadata,
+    UserMessageTextContent,
+)
 from langchain_core.messages import AIMessage, HumanMessage
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo_backend.app.chatkit import message_utils as message_utils_module
 from orcheo_backend.app.chatkit.message_utils import (
+    build_action_inputs_payload,
     build_initial_state,
     collect_text_from_assistant_content,
     collect_text_from_user_content,
@@ -178,3 +188,138 @@ def testextract_reply_from_state_with_none_reply_in_results() -> None:
     state = {"results": {"node_a": {"reply": None}, "node_b": "fallback"}}
     result = extract_reply_from_state(state)
     assert result == "fallback"
+
+
+class ModelAction:
+    def model_dump(self) -> dict[str, object]:
+        return {"type": "model", "payload": {"flag": True}}
+
+
+class AttributeAction:
+    type = "attribute"
+    payload = "value"
+    handler = "handler"
+    loadingBehavior = "loading"  # noqa: N802, N815
+
+
+class WidgetWithDump:
+    def model_dump(self, exclude_none: bool = True) -> dict[str, object]:
+        return {"type": "Card", "title": "widget"}
+
+
+@dataclass
+class WidgetItemStub:
+    id: str
+    widget: object
+
+
+def test_dump_action_prefers_model_dump() -> None:
+    result = message_utils_module._dump_action(ModelAction())
+    assert result == {"type": "model", "payload": {"flag": True}}
+
+
+def test_dump_action_handles_mapping() -> None:
+    mapping_action = {"type": "map", "payload": {"value": 1}}
+    result = message_utils_module._dump_action(mapping_action)
+    assert result == mapping_action
+
+
+def test_dump_action_handles_attribute_based_action() -> None:
+    result = message_utils_module._dump_action(AttributeAction())
+    assert result == {
+        "type": "attribute",
+        "payload": "value",
+        "handler": "handler",
+        "loadingBehavior": "loading",
+    }
+
+
+def test_stringify_action_handles_string_payload() -> None:
+    result = message_utils_module._stringify_action(AttributeAction())
+    assert result == "[action:attribute] value"
+
+
+def test_stringify_action_handles_none_payload() -> None:
+    class ZeroPayload:
+        type = "none"
+
+    assert message_utils_module._stringify_action(ZeroPayload()) == "[action:none]"
+
+
+def test_stringify_action_handles_json_dump_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ComplexPayload:
+        type = "complex"
+        payload = {"value": 1}
+
+    def raise_type_error(*args: object, **kwargs: object) -> str:
+        raise TypeError("boom")
+
+    monkeypatch.setattr(
+        message_utils_module.json,
+        "dumps",
+        raise_type_error,
+    )
+    result = message_utils_module._stringify_action(ComplexPayload())
+    assert "[action:complex]" in result
+    assert "1" in result
+
+
+def test_stringify_action_serializes_json_payload() -> None:
+    class DataPayload:
+        type = "data"
+        payload = {"value": 1}
+
+    result = message_utils_module._stringify_action(DataPayload())
+    assert result.startswith("[action:data]")
+    assert '"value": 1' in result
+
+
+def test_dump_widget_handles_model_dump() -> None:
+    widget = WidgetWithDump()
+    result = message_utils_module._dump_widget(widget)
+    assert result == {"type": "Card", "title": "widget"}
+
+
+def test_dump_widget_handles_mapping() -> None:
+    widget = {"type": "Card", "title": "map"}
+    assert message_utils_module._dump_widget(widget) == widget
+
+
+def test_dump_widget_handles_generic_object() -> None:
+    widget = SimpleNamespace(label="test")
+    assert message_utils_module._dump_widget(widget) == {"widget": widget}
+
+
+def test_build_action_inputs_payload_includes_widget_and_metadata() -> None:
+    thread = ThreadMetadata(
+        id="thread",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf"},
+    )
+    history = [{"role": "assistant", "content": "hello"}]
+    widget_item = WidgetItemStub(id="widget-id", widget=WidgetWithDump())
+    result = build_action_inputs_payload(
+        thread, AttributeAction(), history, widget_item
+    )
+    assert result["thread_id"] == "thread"
+    assert result["session_id"] == "thread"
+    assert result["history"] == history
+    assert result["metadata"] == {"workflow_id": "wf"}
+    assert result["action"]["type"] == "attribute"
+    assert result["widget_item_id"] == "widget-id"
+    assert result["widget"] == {"type": "Card", "title": "widget"}
+
+
+def test_dump_action_handles_non_mapping_model_dump() -> None:
+    class SequenceModelAction:
+        def model_dump(self) -> list[str]:
+            return ["not", "a", "mapping"]
+
+        type = "sequence"
+        payload = {"value": 1}
+
+    result = message_utils_module._dump_action(SequenceModelAction())
+    assert result["type"] == "sequence"
+    assert result["payload"] == {"value": 1}

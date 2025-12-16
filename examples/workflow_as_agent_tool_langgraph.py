@@ -34,7 +34,7 @@ def build_graph() -> StateGraph:
     graph = StateGraph(State)
     agent_node = AgentNode(
         name="agent",
-        model_name="openai:gpt-4o-mini",
+        ai_model="openai:gpt-4o-mini",
         workflow_tools=[
             {
                 "name": "tool_workflow",

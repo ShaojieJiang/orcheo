@@ -37,6 +37,14 @@ class AppSettings(BaseModel):
     chatkit_rate_limits: ChatKitRateLimitSettings = Field(
         default_factory=ChatKitRateLimitSettings
     )
+    chatkit_widget_types: set[str] = Field(
+        default_factory=lambda: set(cast(list[str], _DEFAULTS["CHATKIT_WIDGET_TYPES"]))
+    )
+    chatkit_widget_action_types: set[str] = Field(
+        default_factory=lambda: set(
+            cast(list[str], _DEFAULTS["CHATKIT_WIDGET_ACTION_TYPES"])
+        )
+    )
     postgres_dsn: str | None = None
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
@@ -60,6 +68,19 @@ class AppSettings(BaseModel):
         default=cast(int, _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]),
         ge=16,
     )
+
+    @staticmethod
+    def _coerce_widget_set(value: object, default_key: str) -> set[str]:
+        defaults = set(cast(list[str], _DEFAULTS[default_key]))
+        if value is None:
+            return defaults
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",") if part.strip()]
+            return set(parts) or defaults
+        if isinstance(value, set | frozenset | list | tuple):
+            coerced = {str(entry).strip() for entry in value if str(entry).strip()}
+            return coerced or defaults
+        return defaults
 
     @field_validator("checkpoint_backend", mode="before")
     @classmethod
@@ -113,7 +134,7 @@ class AppSettings(BaseModel):
         candidate_obj = (
             value if value is not None else _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]
         )
-        if isinstance(candidate_obj, (int, float)):
+        if isinstance(candidate_obj, int | float):
             return int(candidate_obj)
         try:
             return int(str(candidate_obj))
@@ -134,6 +155,16 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             msg = "ORCHEO_CHATKIT_RETENTION_DAYS must be an integer."
             raise ValueError(msg) from exc
+
+    @field_validator("chatkit_widget_types", mode="before")
+    @classmethod
+    def _coerce_widget_types(cls, value: object) -> set[str]:
+        return cls._coerce_widget_set(value, "CHATKIT_WIDGET_TYPES")
+
+    @field_validator("chatkit_widget_action_types", mode="before")
+    @classmethod
+    def _coerce_widget_action_types(cls, value: object) -> set[str]:
+        return cls._coerce_widget_set(value, "CHATKIT_WIDGET_ACTION_TYPES")
 
     @field_validator("port", mode="before")
     @classmethod
@@ -180,7 +211,7 @@ class AppSettings(BaseModel):
             value if value is not None else _DEFAULTS["TRACING_SAMPLE_RATIO"]
         )
         try:
-            if isinstance(candidate_obj, (int, float, str)):
+            if isinstance(candidate_obj, int | float | str):
                 candidate = float(candidate_obj)
             else:
                 candidate = float(str(candidate_obj))
@@ -214,7 +245,7 @@ class AppSettings(BaseModel):
         )
         if isinstance(candidate_obj, bool):  # pragma: no cover - defensive
             return int(candidate_obj)
-        if isinstance(candidate_obj, (int, float)):
+        if isinstance(candidate_obj, int | float):
             return int(candidate_obj)
         try:
             return int(str(candidate_obj))
@@ -230,7 +261,7 @@ class AppSettings(BaseModel):
         )
         if isinstance(candidate_obj, bool):  # pragma: no cover - defensive
             return int(candidate_obj)
-        if isinstance(candidate_obj, (int, float)):
+        if isinstance(candidate_obj, int | float):
             return int(candidate_obj)
         try:
             return int(str(candidate_obj))

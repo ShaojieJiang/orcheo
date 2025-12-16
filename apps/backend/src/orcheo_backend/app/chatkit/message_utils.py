@@ -1,12 +1,32 @@
 """Helper utilities for working with ChatKit and LangChain message payloads."""
+# ruff: noqa: I001
 
 from __future__ import annotations
+
+import json
+import warnings
 from collections.abc import Mapping
 from typing import Any
-from chatkit.types import (
-    AssistantMessageContent,
-    UserMessageContent,
-)
+
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=".*named widget classes is deprecated.*",
+        category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*named action classes is deprecated.*",
+        category=DeprecationWarning,
+    )
+    from chatkit.types import (
+        Action,
+        AssistantMessageContent,
+        ThreadMetadata,
+        UserMessageContent,
+        WidgetItem,
+        WidgetRoot,
+    )
 from langchain_core.messages import BaseMessage
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 
@@ -96,10 +116,95 @@ def extract_reply_from_state(state: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _action_type(action: Action[str, Any] | Mapping[str, Any] | object) -> str:
+    """Extract the action type from either a Pydantic model or mapping."""
+    if isinstance(action, Mapping):
+        type_value = action.get("type")
+    else:
+        type_value = getattr(action, "type", None)
+    return str(type_value) if type_value is not None else ""
+
+
+def _action_payload(action: Action[str, Any] | Mapping[str, Any] | object) -> Any:
+    """Extract the action payload from either a Pydantic model or mapping."""
+    if isinstance(action, Mapping):
+        return action.get("payload")
+    return getattr(action, "payload", None)
+
+
+def _dump_action(
+    action: Action[str, Any] | Mapping[str, Any] | object,
+) -> dict[str, Any]:
+    """Normalize an action into a plain dict."""
+    if hasattr(action, "model_dump"):
+        dumped = action.model_dump()  # type: ignore[call-arg]
+        if isinstance(dumped, Mapping):
+            return dict(dumped)
+    if isinstance(action, Mapping):
+        return dict(action)
+
+    payload = _action_payload(action)
+    handler = getattr(action, "handler", None)
+    loading_behavior = getattr(action, "loadingBehavior", None)
+    normalized: dict[str, Any] = {"type": _action_type(action), "payload": payload}
+    if handler is not None:
+        normalized["handler"] = handler
+    if loading_behavior is not None:
+        normalized["loadingBehavior"] = loading_behavior
+    return normalized
+
+
+def _stringify_action(action: Action[str, Any] | Mapping[str, Any] | object) -> str:
+    """Build a readable message string describing a widget action."""
+    payload = _action_payload(action)
+    if payload is None:
+        payload_text = ""
+    elif isinstance(payload, str):
+        payload_text = payload
+    else:
+        try:
+            payload_text = json.dumps(payload, default=str)
+        except TypeError:
+            payload_text = str(payload)
+    prefix = f"[action:{_action_type(action)}]"
+    return f"{prefix} {payload_text}".strip()
+
+
+def _dump_widget(widget: WidgetRoot) -> dict[str, Any]:
+    """Convert a WidgetRoot into a JSON-serialisable dict."""
+    if hasattr(widget, "model_dump"):
+        return widget.model_dump(exclude_none=True)  # type: ignore[union-attr]
+    if isinstance(widget, Mapping):
+        return dict(widget)
+    return {"widget": widget}
+
+
+def build_action_inputs_payload(
+    thread: ThreadMetadata,
+    action: Action[str, Any] | Mapping[str, Any] | object,
+    history: list[dict[str, str]],
+    widget_item: WidgetItem | None = None,
+) -> dict[str, Any]:
+    """Construct the workflow input payload for widget actions."""
+    payload: dict[str, Any] = {
+        "message": _stringify_action(action),
+        "history": history,
+        "thread_id": thread.id,
+        "session_id": thread.id,
+        "metadata": dict(thread.metadata),
+    }
+    payload["action"] = _dump_action(action)
+    if widget_item is not None:  # pragma: no branch
+        payload["widget_item_id"] = widget_item.id
+        payload["widget"] = _dump_widget(widget_item.widget)
+    return payload
+
+
 __all__ = [
     "build_initial_state",
     "collect_text_from_assistant_content",
     "collect_text_from_user_content",
     "extract_reply_from_state",
     "stringify_langchain_message",
+    "build_action_inputs_payload",
 ]

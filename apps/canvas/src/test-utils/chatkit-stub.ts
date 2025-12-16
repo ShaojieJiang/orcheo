@@ -6,10 +6,16 @@ export const ChatKitProvider = ({ children }: { children?: ReactNode }) =>
   children ?? null;
 
 export const useChatKit = () => ({
-  status: "disconnected" as const,
-  connect: async () => undefined,
-  disconnect: async () => undefined,
-  sendMessage: async () => undefined,
-  conversations: [],
-  messages: [],
+  control: {
+    setInstance: () => undefined,
+    options: {},
+    handlers: {},
+  },
+  focusComposer: async () => undefined,
+  setThreadId: async () => undefined,
+  sendUserMessage: async () => undefined,
+  setComposerValue: async () => undefined,
+  fetchUpdates: async () => undefined,
+  sendCustomAction: async () => undefined,
+  ref: { current: null },
 });

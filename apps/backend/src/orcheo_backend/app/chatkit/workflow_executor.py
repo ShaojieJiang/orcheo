@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.config import get_settings
@@ -75,12 +76,19 @@ class WorkflowExecutor:
             with credential_resolution(credential_resolver):
                 final_state = await compiled.ainvoke(payload, config=config)
 
+        raw_messages = self._extract_messages(final_state)
+
         if isinstance(final_state, BaseModel):
             state_view: Mapping[str, Any] = final_state.model_dump()
         elif isinstance(final_state, Mapping):
-            state_view = final_state
+            state_view = dict(final_state)
         else:  # pragma: no cover - defensive
             state_view = dict(final_state or {})
+
+        if raw_messages:
+            if not isinstance(state_view, dict):  # pragma: no branch
+                state_view = dict(state_view)
+            state_view["_messages"] = raw_messages
 
         reply = extract_reply_from_state(state_view)
         if reply is None:
@@ -100,6 +108,25 @@ class WorkflowExecutor:
             logger.exception("Failed to mark workflow run succeeded")
 
         return reply, state_view, run
+
+    @staticmethod
+    def _extract_messages(final_state: Any) -> list[BaseMessage]:
+        """Return LangChain messages from the workflow state when available."""
+        candidates = []
+        if isinstance(final_state, Mapping):
+            maybe_messages = final_state.get("messages")
+            if isinstance(maybe_messages, list):
+                candidates = maybe_messages
+        if not candidates and hasattr(final_state, "messages"):
+            maybe_messages = final_state.messages  # type: ignore[attr-defined]
+            if isinstance(maybe_messages, list):  # pragma: no branch
+                candidates = maybe_messages
+
+        return [
+            message
+            for message in candidates
+            if isinstance(message, BaseMessage)  # type: ignore[arg-type]
+        ]
 
 
 __all__ = ["WorkflowExecutor"]
