@@ -1,6 +1,8 @@
 """Tests for ChatKit server helpers that parse widget payloads and route actions."""
 
 from __future__ import annotations
+import builtins
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -92,6 +94,20 @@ def reset_chatkit_metrics() -> None:
     chatkit_telemetry.reset()
 
 
+@pytest.fixture(autouse=True)
+def reset_widget_policy_state() -> Iterator[None]:
+    """Keep widget policy globals consistent between tests."""
+    original_widget_types = set(server_module._WIDGET_TYPES)
+    original_action_types = set(server_module._ALLOWED_WIDGET_ACTION_TYPES)
+    try:
+        yield
+    finally:
+        server_module._WIDGET_TYPES.clear()
+        server_module._WIDGET_TYPES.update(original_widget_types)
+        server_module._ALLOWED_WIDGET_ACTION_TYPES.clear()
+        server_module._ALLOWED_WIDGET_ACTION_TYPES.update(original_action_types)
+
+
 def create_server() -> tuple[server_module.OrcheoChatKitServer, DummyStore]:
     store = DummyStore()
     repository = Mock()
@@ -101,6 +117,32 @@ def create_server() -> tuple[server_module.OrcheoChatKitServer, DummyStore]:
         vault_provider=lambda: None,
     )
     return server, store
+
+
+def test_coerce_config_set_handles_none_and_unknown_type() -> None:
+    default = {"Card", "ListView"}
+
+    assert server_module._coerce_config_set(None, default) == default
+    assert server_module._coerce_config_set(123, default) == default
+
+
+def test_coerce_config_set_parses_strings_and_iterables() -> None:
+    default = {"Card", "ListView"}
+
+    assert server_module._coerce_config_set(" custom , ListView ", default) == {
+        "custom",
+        "ListView",
+    }
+    assert server_module._coerce_config_set(" , ", default) == default
+    assert server_module._coerce_config_set(["Card", "  ", "ListView"], default) == {
+        "Card",
+        "ListView",
+    }
+    assert server_module._coerce_config_set(("Widget", " "), default) == {"Widget"}
+    assert server_module._coerce_config_set(frozenset({"Card", "Custom"}), default) == {
+        "Card",
+        "Custom",
+    }
 
 
 def test_action_type_for_logging_handles_mapping_and_attributes() -> None:
@@ -381,6 +423,41 @@ def test_is_supported_action_type_allows_submit() -> None:
     assert chatkit_telemetry.metrics() == {}
 
 
+@pytest.mark.asyncio
+async def test_action_skips_processing_when_action_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, _store = create_server()
+    thread = ThreadMetadata(
+        id="thread-blocked",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf"},
+    )
+
+    monkeypatch.setattr(server, "_ensure_workflow_metadata", lambda *_: None)
+    monkeypatch.setattr(server, "_require_workflow_id", lambda *_: uuid4())
+    blocked = server_module._ActionValidationResult(
+        allowed=False,
+        notice=None,
+        reason="unsupported_widget_action",
+        action_type="noop",
+    )
+    monkeypatch.setattr(server, "_is_supported_action_type", lambda *_: blocked)
+
+    history = AsyncMock()
+    monkeypatch.setattr(server, "_history", history)
+    run_workflow = AsyncMock()
+    monkeypatch.setattr(server, "_run_workflow", run_workflow)
+
+    events: list[Any] = []
+    async for event in server.action(thread, {"type": "noop"}, None, {}):
+        events.append(event)
+
+    assert events == []
+    history.assert_not_awaited()
+    run_workflow.assert_not_awaited()
+
+
 def test_refresh_widget_policy_respects_configuration() -> None:
     original_widget_types = set(server_module._WIDGET_TYPES)
     original_action_types = set(server_module._ALLOWED_WIDGET_ACTION_TYPES)
@@ -398,6 +475,53 @@ def test_refresh_widget_policy_respects_configuration() -> None:
         reset_settings.set("CHATKIT_WIDGET_TYPES", list(original_widget_types))
         reset_settings.set("CHATKIT_WIDGET_ACTION_TYPES", list(original_action_types))
         server_module._refresh_widget_policy(reset_settings)
+
+
+def test_refresh_widget_policy_respects_mapping_without_get(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MappingWithoutGet(Mapping[str, list[str]]):
+        def __init__(self) -> None:
+            self._data = {
+                "CHATKIT_WIDGET_TYPES": ["MappedCard"],
+                "CHATKIT_WIDGET_ACTION_TYPES": ["mapped"],
+            }
+
+        def __getitem__(self, key: str) -> list[str]:
+            return self._data[key]
+
+        def __iter__(self):
+            return iter(self._data)
+
+        def __len__(self) -> int:
+            return len(self._data)
+
+    mapping = MappingWithoutGet()
+
+    original_hasattr = builtins.hasattr
+
+    def fake_hasattr(obj: object, name: str) -> bool:  # type: ignore[override]
+        if obj is mapping and name == "get":
+            return False
+        return original_hasattr(obj, name)
+
+    monkeypatch.setattr(builtins, "hasattr", fake_hasattr)
+
+    server_module._refresh_widget_policy(mapping)
+
+    assert server_module._WIDGET_TYPES == {"MappedCard"}
+    assert server_module._ALLOWED_WIDGET_ACTION_TYPES == {"mapped"}
+
+
+def test_refresh_widget_policy_respects_attribute_config() -> None:
+    class AttributeConfig:
+        chatkit_widget_types = ["AttributeCard"]
+        chatkit_widget_action_types = ["tap"]
+
+    server_module._refresh_widget_policy(AttributeConfig())
+
+    assert server_module._WIDGET_TYPES == {"AttributeCard"}
+    assert server_module._ALLOWED_WIDGET_ACTION_TYPES == {"tap"}
 
 
 @pytest.mark.asyncio
