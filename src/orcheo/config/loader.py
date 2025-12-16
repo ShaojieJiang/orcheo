@@ -62,6 +62,13 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 ),
             ),
             chatkit_rate_limits=rate_limits,
+            chatkit_widget_types=source.get(
+                "CHATKIT_WIDGET_TYPES", _DEFAULTS["CHATKIT_WIDGET_TYPES"]
+            ),
+            chatkit_widget_action_types=source.get(
+                "CHATKIT_WIDGET_ACTION_TYPES",
+                _DEFAULTS["CHATKIT_WIDGET_ACTION_TYPES"],
+            ),
             tracing_exporter=source.get(
                 "TRACING_EXPORTER", _DEFAULTS["TRACING_EXPORTER"]
             ),
@@ -103,6 +110,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "CHATKIT_MAX_UPLOAD_SIZE_BYTES", settings.chatkit_max_upload_size_bytes
     )
     normalized.set("CHATKIT_RETENTION_DAYS", settings.chatkit_retention_days)
+    normalized.set("CHATKIT_WIDGET_TYPES", sorted(settings.chatkit_widget_types))
+    normalized.set(
+        "CHATKIT_WIDGET_ACTION_TYPES", sorted(settings.chatkit_widget_action_types)
+    )
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
     normalized.set("HOST", settings.host)
     normalized.set("PORT", settings.port)

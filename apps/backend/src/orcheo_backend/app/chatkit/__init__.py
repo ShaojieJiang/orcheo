@@ -6,6 +6,7 @@ from orcheo_backend.app.chatkit.server import (
     OrcheoChatKitServer,
     create_chatkit_server,
 )
+from orcheo_backend.app.chatkit.telemetry import ChatKitTelemetry, chatkit_telemetry
 
 
 __all__ = [
@@ -13,4 +14,6 @@ __all__ = [
     "InMemoryChatKitStore",
     "OrcheoChatKitServer",
     "create_chatkit_server",
+    "ChatKitTelemetry",
+    "chatkit_telemetry",
 ]

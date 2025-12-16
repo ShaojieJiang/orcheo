@@ -2,10 +2,11 @@
 # ruff: noqa: I001
 
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import warnings
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -56,6 +57,7 @@ from orcheo_backend.app.chatkit.messages import (
     resolve_user_item,
 )
 from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -69,8 +71,69 @@ logger = logging.getLogger(__name__)
 
 _WIDGET_ROOT_ADAPTER: TypeAdapter[DynamicWidgetRoot] = TypeAdapter(DynamicWidgetRoot)
 _MAX_WIDGET_PAYLOAD_BYTES = 50_000
-_WIDGET_TYPES = {"Card", "ListView"}
-_ALLOWED_WIDGET_ACTION_TYPES = {"submit"}
+_DEFAULT_WIDGET_TYPES = {"Card", "ListView"}
+_DEFAULT_WIDGET_ACTION_TYPES = {"submit"}
+_WIDGET_TYPES: set[str] = set(_DEFAULT_WIDGET_TYPES)
+_ALLOWED_WIDGET_ACTION_TYPES: set[str] = set(_DEFAULT_WIDGET_ACTION_TYPES)
+
+
+def _coerce_config_set(value: object, default: set[str]) -> set[str]:
+    """Normalize configuration values into a non-empty set of strings."""
+    if value is None:
+        return set(default)
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        return set(parts) or set(default)
+    iterable: Iterable[Any]
+    if isinstance(value, set | frozenset):
+        iterable = value
+    elif isinstance(value, list | tuple):
+        iterable = value
+    else:
+        return set(default)
+    coerced = {str(entry).strip() for entry in iterable if str(entry).strip()}
+    return coerced or set(default)
+
+
+def _refresh_widget_policy(settings: Any | None = None) -> None:
+    """Update allowed widget and action types from configuration."""
+    config = settings or get_settings()
+    widget_types_raw: Any | None
+    action_types_raw: Any | None
+
+    if hasattr(config, "get"):
+        widget_types_raw = config.get("CHATKIT_WIDGET_TYPES")
+        action_types_raw = config.get("CHATKIT_WIDGET_ACTION_TYPES")
+    elif isinstance(config, Mapping):
+        widget_types_raw = (
+            config.get("CHATKIT_WIDGET_TYPES")
+            or config.get("chatkit_widget_types")
+            or None
+        )
+        action_types_raw = (
+            config.get("CHATKIT_WIDGET_ACTION_TYPES")
+            or config.get("chatkit_widget_action_types")
+            or None
+        )
+    else:
+        widget_types_raw = getattr(config, "chatkit_widget_types", None) or getattr(
+            config, "CHATKIT_WIDGET_TYPES", None
+        )
+        action_types_raw = getattr(
+            config, "chatkit_widget_action_types", None
+        ) or getattr(config, "CHATKIT_WIDGET_ACTION_TYPES", None)
+
+    widget_types = _coerce_config_set(widget_types_raw, _DEFAULT_WIDGET_TYPES)
+    allowed_action_types = _coerce_config_set(
+        action_types_raw, _DEFAULT_WIDGET_ACTION_TYPES
+    )
+    _WIDGET_TYPES.clear()
+    _WIDGET_TYPES.update(widget_types)
+    _ALLOWED_WIDGET_ACTION_TYPES.clear()
+    _ALLOWED_WIDGET_ACTION_TYPES.update(allowed_action_types)
+
+
+_refresh_widget_policy()
 
 
 class _WidgetCandidate(NamedTuple):
@@ -94,6 +157,15 @@ class _WidgetHydrationError(Exception):
         self.detail = detail
         self.size_bytes = size_bytes
         super().__init__(reason)
+
+
+class _ActionValidationResult(NamedTuple):
+    """Represents the outcome of validating a widget action."""
+
+    allowed: bool
+    notice: NoticeEvent | None = None
+    reason: str | None = None
+    action_type: str | None = None
 
 
 def _messages_from_state(state_view: Mapping[str, Any]) -> list[Any]:
@@ -322,7 +394,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Delegate to the assistant item helper."""
         return build_assistant_item(self.store, thread, reply, context)
 
-    def _hydrate_widget_items(
+    async def _hydrate_widget_items(
         self,
         thread: ThreadMetadata,
         state_view: Mapping[str, Any],
@@ -340,12 +412,25 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         if not candidates:
             return [], []
 
+        async def _validate_candidate(
+            candidate: _WidgetCandidate,
+        ) -> tuple[_WidgetCandidate, WidgetRoot | None, _WidgetHydrationError | None]:
+            try:
+                widget_root = await asyncio.to_thread(
+                    _validate_widget_root, candidate.payload
+                )
+            except _WidgetHydrationError as error:
+                return candidate, None, error
+            return candidate, widget_root, None
+
+        results = await asyncio.gather(
+            *(_validate_candidate(candidate) for candidate in candidates)
+        )
+
         widget_items: list[WidgetItem] = []
         notices: list[NoticeEvent] = []
-        for candidate in candidates:
-            try:
-                widget_root = _validate_widget_root(candidate.payload)
-            except _WidgetHydrationError as error:
+        for candidate, widget_root, error in results:
+            if error:
                 workflow_id = _workflow_id_from_thread(thread)
                 logger.warning(
                     "Skipping widget payload on thread %s workflow %s: %s",
@@ -360,9 +445,12 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                         "widget_payload_size": error.size_bytes,
                     },
                 )
+                chatkit_telemetry.increment(f"widget.validation_error.{error.reason}")
                 notices.append(_notice_for_widget_error(error))
                 continue
 
+            if widget_root is None:  # pragma: no cover - defensive
+                continue
             widget_items.append(
                 WidgetItem(
                     id=self.store.generate_item_id("message", thread, context),
@@ -372,6 +460,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                     copy_text=candidate.copy_text,
                 )
             )
+            chatkit_telemetry.increment("widget.hydrated")
 
         return widget_items, notices
 
@@ -409,7 +498,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         except WorkflowVersionNotFoundError as exc:
             raise CustomStreamError(str(exc), allow_retry=False) from exc
 
-        widget_items, widget_notices = self._hydrate_widget_items(
+        widget_items, widget_notices = await self._hydrate_widget_items(
             thread, state_view, context
         )
         self._record_run_metadata(thread, run)
@@ -448,13 +537,30 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         self,
         thread: ThreadMetadata,
         action: Action[str, Any] | Mapping[str, Any],
-    ) -> bool:
-        """Return True when the widget action should be dispatched."""
+    ) -> _ActionValidationResult:
+        """Return action validation metadata, including user-facing notices."""
         action_type = _action_type_for_logging(action)
         if action_type in _ALLOWED_WIDGET_ACTION_TYPES:
-            return True
+            return _ActionValidationResult(
+                allowed=True,
+                notice=None,
+                reason=None,
+                action_type=action_type,
+            )
 
         workflow_id = _workflow_id_from_thread(thread)
+        allowed_action_types = sorted(_ALLOWED_WIDGET_ACTION_TYPES)
+        chatkit_telemetry.increment(
+            f"widget_action.unsupported.{action_type or 'unknown'}"
+        )
+        notice = NoticeEvent(
+            level="warning",
+            title="Unsupported widget action",
+            message=(
+                "This widget action is not supported. "
+                f"Allowed action types: {', '.join(allowed_action_types) or 'none'}."
+            ),
+        )
         logger.warning(
             "Ignoring widget action on thread %s workflow %s with unsupported type %s",
             thread.id,
@@ -464,10 +570,16 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                 "thread_id": str(thread.id),
                 "workflow_id": workflow_id,
                 "widget_action_type": action_type,
-                "allowed_widget_action_types": sorted(_ALLOWED_WIDGET_ACTION_TYPES),
+                "allowed_widget_action_types": allowed_action_types,
+                "error_code": "unsupported_widget_action",
             },
         )
-        return False
+        return _ActionValidationResult(
+            allowed=False,
+            notice=notice,
+            reason="unsupported_widget_action",
+            action_type=action_type or None,
+        )
 
     async def action(
         self,
@@ -479,7 +591,8 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Handle widget actions by re-invoking the workflow."""
         self._ensure_workflow_metadata(thread, context)
         workflow_id = self._require_workflow_id(thread)
-        if not self._is_supported_action_type(thread, action):
+        validation = self._is_supported_action_type(thread, action)
+        if not validation.allowed:
             return
         history = await self._history(thread, context)
         inputs = build_action_inputs_payload(thread, action, history, sender)
@@ -499,7 +612,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             self._log_action_failure(thread, action, exc)
             raise
 
-        widget_items, widget_notices = self._hydrate_widget_items(
+        widget_items, widget_notices = await self._hydrate_widget_items(
             thread, state_view, context
         )
         self._record_run_metadata(thread, run)
@@ -542,8 +655,9 @@ def create_chatkit_server(
     store: Store[ChatKitRequestContext] | None = None,
 ) -> OrcheoChatKitServer:
     """Factory returning an Orcheo-configured ChatKit server."""
+    settings = get_settings()
+    _refresh_widget_policy(settings)
     if store is None:
-        settings = get_settings()
         sqlite_path = _resolve_chatkit_sqlite_path(settings)
         store = SqliteChatKitStore(sqlite_path)
     return OrcheoChatKitServer(

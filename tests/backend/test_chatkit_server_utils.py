@@ -20,6 +20,7 @@ from chatkit.types import (
 from dynaconf import Dynaconf
 from orcheo_backend.app.chatkit import server as server_module
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
+from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
@@ -81,6 +82,14 @@ class DummyStore(Store[ChatKitRequestContext]):
 
     async def delete_thread_item(self, *args, **kwargs):
         raise NotImplementedError
+
+
+@pytest.fixture(autouse=True)
+def reset_chatkit_metrics() -> None:
+    """Reset chatkit telemetry between tests."""
+    chatkit_telemetry.reset()
+    yield
+    chatkit_telemetry.reset()
 
 
 def create_server() -> tuple[server_module.OrcheoChatKitServer, DummyStore]:
@@ -226,8 +235,9 @@ def test_notice_for_widget_error_variants() -> None:
     )
 
 
-def test_hydrate_widget_items_returns_widget_and_notices() -> None:
-    server, store = create_server()
+@pytest.mark.asyncio
+async def test_hydrate_widget_items_returns_widget_and_notices() -> None:
+    server, _store = create_server()
     thread = ThreadMetadata(
         id="thread",
         created_at=datetime.now(UTC),
@@ -235,7 +245,7 @@ def test_hydrate_widget_items_returns_widget_and_notices() -> None:
     )
     context: ChatKitRequestContext = {}
     message = {"type": "tool", "content": '{"type": "Card"}'}
-    widget_items, notices = server._hydrate_widget_items(
+    widget_items, notices = await server._hydrate_widget_items(
         thread, {"_messages": [message]}, context
     )
     assert len(widget_items) == 1
@@ -246,26 +256,54 @@ def test_hydrate_widget_items_returns_widget_and_notices() -> None:
         "type": "tool",
         "artifact": {"structured_content": {"foo": "bar"}},
     }
-    widget_items, notices = server._hydrate_widget_items(
+    widget_items, notices = await server._hydrate_widget_items(
         thread, {"_messages": [invalid_message]}, context
     )
     assert widget_items == []
     assert notices
 
 
-def test_hydrate_widget_items_skips_non_tool_messages() -> None:
-    server, store = create_server()
+@pytest.mark.asyncio
+async def test_hydrate_widget_items_skips_non_tool_messages() -> None:
+    server, _store = create_server()
     thread = ThreadMetadata(
         id="thread",
         created_at=datetime.now(UTC),
         metadata={"workflow_id": "workflow"},
     )
     context: ChatKitRequestContext = {}
-    widget_items, notices = server._hydrate_widget_items(
+    widget_items, notices = await server._hydrate_widget_items(
         thread, {"_messages": [{"type": "not_tool"}]}, context
     )
     assert widget_items == []
     assert notices == []
+
+
+@pytest.mark.asyncio
+async def test_hydrate_widget_items_records_metrics_on_error() -> None:
+    server, _store = create_server()
+    thread = ThreadMetadata(
+        id="thread-metrics",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "workflow"},
+    )
+    context: ChatKitRequestContext = {}
+
+    widget_items, notices = await server._hydrate_widget_items(
+        thread,
+        {
+            "_messages": [
+                {"type": "tool", "artifact": {"structured_content": {"foo": "bar"}}}
+            ]
+        },
+        context,
+    )
+
+    assert widget_items == []
+    assert notices
+    assert (
+        chatkit_telemetry.metrics().get("widget.validation_error.invalid_widget") == 1
+    )
 
 
 def test_resolve_chatkit_sqlite_path_uses_dynaconf_and_mappings() -> None:
@@ -309,6 +347,57 @@ def test_is_tool_message_recognises_tool_types() -> None:
 
     assert not server_module._is_tool_message(ToolLike())
     assert not server_module._is_tool_message({"type": "other"})
+
+
+def test_is_supported_action_type_returns_notice_and_metrics() -> None:
+    server, _store = create_server()
+    thread = ThreadMetadata(
+        id="thread-action",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf"},
+    )
+
+    result = server._is_supported_action_type(thread, {"type": "noop"})
+
+    assert not result.allowed
+    assert result.notice is not None
+    assert result.reason == "unsupported_widget_action"
+    metrics = chatkit_telemetry.metrics()
+    assert metrics.get("widget_action.unsupported.noop") == 1
+
+
+def test_is_supported_action_type_allows_submit() -> None:
+    server, _store = create_server()
+    thread = ThreadMetadata(
+        id="thread-allowed",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf"},
+    )
+
+    result = server._is_supported_action_type(thread, {"type": "submit"})
+
+    assert result.allowed
+    assert result.notice is None
+    assert chatkit_telemetry.metrics() == {}
+
+
+def test_refresh_widget_policy_respects_configuration() -> None:
+    original_widget_types = set(server_module._WIDGET_TYPES)
+    original_action_types = set(server_module._ALLOWED_WIDGET_ACTION_TYPES)
+    settings = Dynaconf(settings_files=[], load_dotenv=False)
+    settings.set("CHATKIT_WIDGET_TYPES", ["Custom"])
+    settings.set("CHATKIT_WIDGET_ACTION_TYPES", ["tap"])
+
+    server_module._refresh_widget_policy(settings)
+
+    try:
+        assert server_module._WIDGET_TYPES == {"Custom"}
+        assert server_module._ALLOWED_WIDGET_ACTION_TYPES == {"tap"}
+    finally:
+        reset_settings = Dynaconf(settings_files=[], load_dotenv=False)
+        reset_settings.set("CHATKIT_WIDGET_TYPES", list(original_widget_types))
+        reset_settings.set("CHATKIT_WIDGET_ACTION_TYPES", list(original_action_types))
+        server_module._refresh_widget_policy(reset_settings)
 
 
 @pytest.mark.asyncio
@@ -428,11 +517,11 @@ async def test_action_streams_widgets_and_assistant(
         created_at=datetime.now(UTC),
         widget={"type": "Card"},
     )
-    monkeypatch.setattr(
-        server,
-        "_hydrate_widget_items",
-        lambda *_: ([widget_item], [notice]),
-    )
+
+    async def fake_hydrate(*_: Any):
+        return [widget_item], [notice]
+
+    monkeypatch.setattr(server, "_hydrate_widget_items", fake_hydrate)
     assistant_item = AssistantMessageItem(
         id="assistant",
         thread_id=thread.id,
