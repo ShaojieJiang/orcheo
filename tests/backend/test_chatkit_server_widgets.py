@@ -260,6 +260,64 @@ async def test_widget_hydration_enforces_size_limit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_action_updates_existing_widget_root() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widget_update",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    original_root = TypeAdapter(DynamicWidgetRoot).validate_python(
+        _sample_widget_root()
+    )
+    sender = WidgetItem(
+        id="widget_to_update",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=original_root,
+    )
+    await server.store.add_thread_item(thread.id, sender, context)
+
+    updated_root = {
+        "type": "Card",
+        "children": [{"type": "Text", "value": "Updated choice"}],
+    }
+    tool_message = ToolMessage(
+        content=[{"type": "text", "text": "new widget"}],
+        tool_call_id="call-update",
+        name="widget_tool",
+        artifact={"structured_content": updated_root},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [tool_message]}, None)
+    )
+
+    events = [
+        event
+        async for event in server.action(thread, {"type": "submit"}, sender, context)
+    ]
+
+    widget_done_events = [
+        event
+        for event in events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert not widget_done_events
+    update_events = [event for event in events if event.type == "thread.item.updated"]
+    assert update_events
+
+    stored_item = await server.store.load_item(thread.id, sender.id, context=context)
+    assert isinstance(stored_item, WidgetItem)
+    assert stored_item.widget.children[0].value == "Updated choice"
+
+
+@pytest.mark.asyncio
 async def test_action_logs_failures_with_ids(caplog) -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)

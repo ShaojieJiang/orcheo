@@ -10,6 +10,7 @@ __all__ = [
     "credential_health",
     "credential_templates",
     "credentials",
+    "agentensor",
     "nodes",
     "runs",
     "triggers",

@@ -31,12 +31,14 @@ with warnings.catch_warnings():
         AssistantMessageItem,
         NoticeEvent,
         ThreadItemDoneEvent,
+        ThreadItemUpdatedEvent,
         ThreadMetadata,
         ThreadStreamEvent,
         UserMessageItem,
         WidgetItem,
         WidgetRoot,
     )
+    from chatkit.types import WidgetRootUpdated
     from chatkit.widgets import DynamicWidgetRoot
 from dynaconf import Dynaconf
 from langchain_core.messages import ToolMessage
@@ -618,6 +620,20 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         self._record_run_metadata(thread, run)
         for notice in widget_notices:
             yield notice
+        if sender and widget_items:
+            updated_widget = widget_items.pop(0)
+            updated_item = WidgetItem(
+                id=sender.id,
+                thread_id=sender.thread_id,
+                created_at=sender.created_at,
+                widget=updated_widget.widget,
+                copy_text=updated_widget.copy_text,
+            )
+            await self.store.save_item(thread.id, updated_item, context)
+            yield ThreadItemUpdatedEvent(
+                item_id=sender.id,
+                update=WidgetRootUpdated(widget=updated_widget.widget),
+            )
         for widget_item in widget_items:
             await self.store.add_thread_item(thread.id, widget_item, context)
             yield ThreadItemDoneEvent(item=widget_item)

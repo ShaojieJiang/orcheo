@@ -34,6 +34,7 @@ from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
+    agentensor,
     auth,
     credential_alerts,
     credential_health,
@@ -81,6 +82,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(runs.router)
     protected_router.include_router(triggers.router)
     protected_router.include_router(nodes.router)
+    protected_router.include_router(agentensor.router)
 
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)

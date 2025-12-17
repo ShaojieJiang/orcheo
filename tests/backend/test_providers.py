@@ -98,6 +98,7 @@ def test_create_repository_sqlite_backend_sets_history_store(
     )
     credential_service = object()
     history_store_ref: dict[str, object] = {}
+    checkpoint_store_ref: dict[str, object] = {}
 
     class FakeStore:
         def __init__(self, path: str) -> None:
@@ -109,12 +110,14 @@ def test_create_repository_sqlite_backend_sets_history_store(
             self.credential_service = credential_service
 
     monkeypatch.setattr(providers, "SqliteRunHistoryStore", FakeStore)
+    monkeypatch.setattr(providers, "SqliteAgentensorCheckpointStore", FakeStore)
     monkeypatch.setattr(providers, "SqliteWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
         settings,
         credential_service=credential_service,
         history_store_ref=history_store_ref,
+        checkpoint_store_ref=checkpoint_store_ref,
     )
 
     assert isinstance(repository, FakeRepository)
@@ -122,3 +125,5 @@ def test_create_repository_sqlite_backend_sets_history_store(
     assert repository.credential_service is credential_service
     assert isinstance(history_store_ref["store"], FakeStore)
     assert history_store_ref["store"].path == "/tmp/workflows.sqlite"
+    assert isinstance(checkpoint_store_ref["store"], FakeStore)
+    assert checkpoint_store_ref["store"].path == "/tmp/workflows.sqlite"
