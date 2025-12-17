@@ -32,6 +32,20 @@ RunnableConfigFileOption = Annotated[
     str | None,
     typer.Option("--config-file", help="Path to JSON file with runnable config."),
 ]
+EvaluationOption = Annotated[
+    str | None,
+    typer.Option(
+        "--evaluation",
+        help="JSON payload describing evaluation dataset/evaluators.",
+    ),
+]
+EvaluationFileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--evaluation-file",
+        help="Path to JSON file with evaluation payload.",
+    ),
+]
 ForceOption = Annotated[
     bool,
     typer.Option("--force", help="Skip confirmation prompt."),
@@ -85,6 +99,8 @@ __all__ = [
     "InputsFileOption",
     "RunnableConfigOption",
     "RunnableConfigFileOption",
+    "EvaluationOption",
+    "EvaluationFileOption",
     "ForceOption",
     "FilePathArgument",
     "WorkflowIdOption",

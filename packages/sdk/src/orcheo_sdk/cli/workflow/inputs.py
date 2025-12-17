@@ -114,6 +114,23 @@ def _resolve_runnable_config(
     return None
 
 
+def _resolve_evaluation_payload(
+    evaluation: str | None,
+    evaluation_file: str | None,
+) -> dict[str, Any]:
+    """Resolve an evaluation payload from inline JSON or file."""
+    if not evaluation and not evaluation_file:
+        raise CLIError("Provide --evaluation or --evaluation-file for evaluation runs.")
+    if evaluation and evaluation_file:
+        raise CLIError("Provide either --evaluation or --evaluation-file, not both.")
+    if evaluation:
+        payload = _load_inputs_from_string(evaluation)
+    else:
+        assert evaluation_file is not None
+        payload = _load_inputs_from_path(evaluation_file)
+    return dict(payload)
+
+
 def _cache_notice(state: CLIState, subject: str, stale: bool) -> None:
     """Display cache usage notice in the console."""
     note = "[yellow]Using cached data[/yellow]"
@@ -128,5 +145,6 @@ __all__ = [
     "_validate_local_path",
     "_load_inputs_from_path",
     "_resolve_runnable_config",
+    "_resolve_evaluation_payload",
     "_cache_notice",
 ]

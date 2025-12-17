@@ -13,6 +13,10 @@ from orcheo.vault import (
     InMemoryCredentialVault,
 )
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo_backend.app.agentensor.checkpoint_store import (
+    InMemoryAgentensorCheckpointStore,
+    SqliteAgentensorCheckpointStore,
+)
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
     RunHistoryStore,
@@ -137,6 +141,7 @@ def create_repository(
     settings: Dynaconf,
     credential_service: OAuthCredentialService,
     history_store_ref: dict[str, RunHistoryStore],
+    checkpoint_store_ref: dict[str, object] | None = None,
 ) -> WorkflowRepository:
     """Create the workflow repository using configured backend."""
     backend = cast(
@@ -160,12 +165,16 @@ def create_repository(
             ),
         )
         history_store_ref["store"] = SqliteRunHistoryStore(sqlite_path)
+        if checkpoint_store_ref is not None:
+            checkpoint_store_ref["store"] = SqliteAgentensorCheckpointStore(sqlite_path)
         return SqliteWorkflowRepository(
             sqlite_path,
             credential_service=credential_service,
         )
     if backend == "inmemory":
         history_store_ref["store"] = InMemoryRunHistoryStore()
+        if checkpoint_store_ref is not None:
+            checkpoint_store_ref["store"] = InMemoryAgentensorCheckpointStore()
         return InMemoryWorkflowRepository(credential_service=credential_service)
     msg = "Unsupported repository backend configured."
     raise ValueError(msg)
