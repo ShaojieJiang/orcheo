@@ -166,3 +166,89 @@ async def test_agentensor_training_emits_checkpoints_and_best_config() -> None:
     assert len(payload["checkpoints"]) == 2
     assert "feedback" in payload["prompts"]["candidate"]["text"]
     assert any(event["event"] == "training_checkpoint" for event in progress_events)
+
+
+@pytest.mark.asyncio
+async def test_agentensor_training_requires_trainable_prompts() -> None:
+    class TrainingGraph:
+        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            prompt_obj = state["config"]["prompts"]["candidate"]
+            prompt_text = (
+                prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
+            )
+            return {"results": {"echo": prompt_text}}
+
+    state, runtime_config = _build_state_and_config()
+    node = AgentensorNode(
+        name="agentensor_trainer",
+        mode="train",
+        dataset=EvaluationDataset(
+            cases=[EvaluationCase(inputs={"prompt": "ping"}, metadata={"idx": 0})]
+        ),
+        evaluators=[
+            EvaluatorDefinition(
+                id="echo-pass",
+                entrypoint="tests.agentensor.test_agentensor_node:training_evaluator",
+            )
+        ],
+        compiled_graph=TrainingGraph(),
+        graph_config={},
+        state_config=state["config"],
+        optimizer=OptimizerConfig(epochs=1),
+        workflow_id="wf-training",
+        prompts={
+            "candidate": TrainablePrompt(
+                text="{{config.prompts.seed.text}}",
+                requires_grad=False,
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="requires_grad=True"):
+        await node(state, runtime_config)
+
+
+@pytest.mark.asyncio
+async def test_agentensor_training_adds_best_checkpoint_when_unscheduled() -> None:
+    class TrainingGraph:
+        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            prompt_obj = state["config"]["prompts"]["candidate"]
+            prompt_text = (
+                prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
+            )
+            return {"results": {"echo": prompt_text}}
+
+    state, runtime_config = _build_state_and_config()
+    node = AgentensorNode(
+        name="agentensor_trainer",
+        mode="train",
+        dataset=EvaluationDataset(
+            cases=[EvaluationCase(inputs={"prompt": "ping"}, metadata={"idx": 0})]
+        ),
+        evaluators=[
+            EvaluatorDefinition(
+                id="echo-pass",
+                entrypoint="tests.agentensor.test_agentensor_node:training_evaluator",
+            )
+        ],
+        compiled_graph=TrainingGraph(),
+        graph_config={},
+        state_config=state["config"],
+        optimizer=OptimizerConfig(epochs=3, checkpoint_interval=5),
+        workflow_id="wf-training",
+        prompts={
+            "candidate": TrainablePrompt(
+                text="{{config.prompts.seed.text}}",
+                requires_grad=True,
+            )
+        },
+    )
+
+    result = await node(state, runtime_config)
+
+    payload: dict[str, Any] = result["results"]["agentensor_trainer"]
+    epochs_recorded = {cp["metadata"]["epoch"] for cp in payload["checkpoints"]}
+    assert 1 in epochs_recorded
+    assert 2 in epochs_recorded
+    assert 3 in epochs_recorded
+    assert payload["best_checkpoint"]["metadata"]["epoch"] in {2, 3}

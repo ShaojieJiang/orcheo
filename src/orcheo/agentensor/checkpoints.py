@@ -24,8 +24,8 @@ class AgentensorCheckpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    workflow_id: str
-    config_version: int
+    workflow_id: str = Field(max_length=128, min_length=1)
+    config_version: int = Field(ge=1)
     runnable_config: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)

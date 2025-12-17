@@ -201,6 +201,18 @@ class AgentensorNode(TaskNode):
                 "checkpoints": [],
             }
 
+        trainable_prompts = [
+            name
+            for name, prompt in self.prompts.items()
+            if getattr(prompt, "requires_grad", False)
+        ]
+        if not trainable_prompts:
+            msg = (
+                "AgentensorNode training requires at least one prompt with "
+                "requires_grad=True."
+            )
+            raise ValueError(msg)
+
         compiled_graph = self._require_compiled_graph()
         evaluators = self._resolve_evaluators()
         cases = list(self.dataset.cases)
@@ -257,16 +269,15 @@ class AgentensorNode(TaskNode):
 
             if score >= best_score:
                 best_score = score
-                best_checkpoint = (
-                    checkpoint_obj
-                    if checkpoint_obj is not None
-                    else await self._emit_checkpoint(
+                if checkpoint_obj is None:
+                    checkpoint_obj = await self._emit_checkpoint(
                         summary,
                         capped_config,
                         epoch=epoch,
                         is_best=True,
                     )
-                )
+                    checkpoints.append(checkpoint_obj.model_dump(mode="json"))
+                best_checkpoint = checkpoint_obj
 
             await self._emit_progress(
                 {

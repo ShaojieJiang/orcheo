@@ -150,54 +150,61 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         await self._ensure_initialized()
         async with self._lock:
             async with connect_sqlite(self._database_path) as conn:
-                version = await self._resolve_version(conn, workflow_id, config_version)
-                checkpoint = AgentensorCheckpoint(
-                    workflow_id=workflow_id,
-                    config_version=version,
-                    runnable_config=dict(runnable_config),
-                    metrics=dict(metrics),
-                    metadata=dict(metadata or {}),
-                    artifact_url=artifact_url,
-                    is_best=is_best,
-                )
-                await conn.execute(
-                    """
-                    INSERT INTO agentensor_checkpoints (
-                        id,
-                        workflow_id,
-                        config_version,
-                        runnable_config,
-                        metrics,
-                        metadata,
-                        artifact_url,
-                        is_best,
-                        created_at
+                await conn.execute("BEGIN")
+                try:
+                    version = await self._resolve_version(
+                        conn, workflow_id, config_version
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        checkpoint.id,
-                        checkpoint.workflow_id,
-                        checkpoint.config_version,
-                        json.dumps(checkpoint.runnable_config),
-                        json.dumps(checkpoint.metrics),
-                        json.dumps(checkpoint.metadata),
-                        checkpoint.artifact_url,
-                        1 if checkpoint.is_best else 0,
-                        checkpoint.created_at.isoformat(),
-                    ),
-                )
-                if is_best:
+                    checkpoint = AgentensorCheckpoint(
+                        workflow_id=workflow_id,
+                        config_version=version,
+                        runnable_config=dict(runnable_config),
+                        metrics=dict(metrics),
+                        metadata=dict(metadata or {}),
+                        artifact_url=artifact_url,
+                        is_best=is_best,
+                    )
                     await conn.execute(
                         """
-                        UPDATE agentensor_checkpoints
-                           SET is_best = 0
-                         WHERE workflow_id = ?
-                           AND id != ?
+                        INSERT INTO agentensor_checkpoints (
+                            id,
+                            workflow_id,
+                            config_version,
+                            runnable_config,
+                            metrics,
+                            metadata,
+                            artifact_url,
+                            is_best,
+                            created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (workflow_id, checkpoint.id),
+                        (
+                            checkpoint.id,
+                            checkpoint.workflow_id,
+                            checkpoint.config_version,
+                            json.dumps(checkpoint.runnable_config),
+                            json.dumps(checkpoint.metrics),
+                            json.dumps(checkpoint.metadata),
+                            checkpoint.artifact_url,
+                            1 if checkpoint.is_best else 0,
+                            checkpoint.created_at.isoformat(),
+                        ),
                     )
-                await conn.commit()
+                    if is_best:
+                        await conn.execute(
+                            """
+                            UPDATE agentensor_checkpoints
+                               SET is_best = 0
+                             WHERE workflow_id = ?
+                               AND id != ?
+                            """,
+                            (workflow_id, checkpoint.id),
+                        )
+                    await conn.commit()
+                except Exception:
+                    await conn.rollback()
+                    raise
                 return checkpoint
 
     async def list_checkpoints(
