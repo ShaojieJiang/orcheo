@@ -50,6 +50,7 @@ class SubWorkflowNode(TaskNode):
                 "results": copy.deepcopy(state.get("results", {})),
                 "messages": list(state.get("messages", [])),
                 "structured_response": state.get("structured_response"),
+                "config": state.get("config"),
             }
         )
 

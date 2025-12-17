@@ -13,6 +13,7 @@ def run_workflow_data(
     service_token: str | None,
     inputs: dict[str, Any] | None = None,
     triggered_by: str = "api",
+    runnable_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Trigger workflow execution using the latest version."""
     from orcheo_sdk.client import HttpWorkflowExecutor, OrcheoClient
@@ -35,4 +36,5 @@ def run_workflow_data(
         workflow_version_id=version_id,
         triggered_by=triggered_by,
         inputs=inputs or {},
+        runnable_config=runnable_config,
     )

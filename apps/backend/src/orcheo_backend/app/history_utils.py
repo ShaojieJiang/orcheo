@@ -36,6 +36,11 @@ def history_to_response(
         completed_at=record.completed_at,
         error=record.error,
         inputs=record.inputs,
+        runnable_config=record.runnable_config,
+        tags=record.tags,
+        callbacks=record.callbacks,
+        metadata=record.metadata,
+        run_name=record.run_name,
         steps=steps,
     )
 

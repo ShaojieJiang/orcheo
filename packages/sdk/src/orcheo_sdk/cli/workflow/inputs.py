@@ -87,6 +87,33 @@ def _load_inputs_from_path(path: str) -> Mapping[str, Any]:
     return data
 
 
+def _resolve_runnable_config(
+    config: str | None,
+    config_file: str | None,
+) -> dict[str, Any] | None:
+    """Resolve a runnable config from inline JSON or file."""
+    if not config and not config_file:
+        return None
+    if config and config_file:
+        raise CLIError("Provide either --config or --config-file, not both.")
+    if config:
+        try:
+            payload = json.loads(config)
+        except json.JSONDecodeError as exc:  # pragma: no cover - converted to CLIError
+            raise CLIError(f"Invalid JSON payload: {exc}") from exc
+        if not isinstance(payload, Mapping):
+            msg = "Runnable config payload must be a JSON object."
+            raise CLIError(msg)
+        return dict(payload)
+    if config_file:
+        path_obj = _validate_local_path(config_file, description="config")
+        data = json.loads(path_obj.read_text(encoding="utf-8"))
+        if not isinstance(data, Mapping):
+            raise CLIError("Runnable config payload must be a JSON object.")
+        return dict(data)
+    return None
+
+
 def _cache_notice(state: CLIState, subject: str, stale: bool) -> None:
     """Display cache usage notice in the console."""
     note = "[yellow]Using cached data[/yellow]"
@@ -100,5 +127,6 @@ __all__ = [
     "_load_inputs_from_string",
     "_validate_local_path",
     "_load_inputs_from_path",
+    "_resolve_runnable_config",
     "_cache_notice",
 ]

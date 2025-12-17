@@ -38,6 +38,11 @@ class RunHistoryRecord(BaseModel):
     workflow_id: str
     execution_id: str
     inputs: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    callbacks: list[Any] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    run_name: str | None = None
     status: str = "running"
     started_at: datetime = Field(default_factory=_utcnow)
     completed_at: datetime | None = None
@@ -97,6 +102,11 @@ class RunHistoryStore(Protocol):
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        runnable_config: Mapping[str, Any] | None = None,
+        tags: list[str] | None = None,
+        callbacks: list[Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:

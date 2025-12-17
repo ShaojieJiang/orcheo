@@ -44,13 +44,13 @@ Deliver runtime support for `langchain_core.runnables.RunnableConfig` on workflo
 
 #### Task Checklist
 
-- [ ] Task 1.1: Extend run API/SDK schema to accept `RunnableConfig`, with validation and backward compatibility
+- [x] Task 1.1: Extend run API/SDK schema to accept `RunnableConfig`, with validation and backward compatibility
   - Dependencies: Requirements sign-off
-- [ ] Task 1.2: Propagate merged config into LangGraph runtime and node execution context (including resolving node -> config prompt references for trainable `TextTensor` prompts); enforce safe limits
+- [x] Task 1.2: Propagate merged config into LangGraph runtime and node execution context (including resolving node -> config prompt references for trainable `TextTensor` prompts); enforce safe limits
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Register AgentensorNode in `src/orcheo/nodes/registry.py` as a `TaskNode` subclass and validate `{{path.to.value}}` interpolation for prompts
+- [x] Task 1.3: Register AgentensorNode in `src/orcheo/nodes/registry.py` as a `TaskNode` subclass and validate `{{path.to.value}}` interpolation for prompts
   - Dependencies: Task 1.2
-- [ ] Task 1.4: Persist run metadata (config, tags, callbacks) and emit observability signals
+- [x] Task 1.4: Persist run metadata (config, tags, callbacks) and emit observability signals
   - Dependencies: Task 1.2
 
 ---

@@ -37,6 +37,7 @@ def run_workflow(
     workflow_id: str,
     inputs: dict[str, Any] | None = None,
     triggered_by: str = "mcp",
+    runnable_config: dict[str, Any] | None = None,
     profile: str | None = None,
 ) -> dict[str, Any]:
     """Trigger a workflow execution using the latest version."""
@@ -47,6 +48,7 @@ def run_workflow(
         settings.service_token,
         inputs=inputs,
         triggered_by=triggered_by,
+        runnable_config=runnable_config,
     )
 
 

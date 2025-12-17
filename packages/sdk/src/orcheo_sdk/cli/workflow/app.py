@@ -24,6 +24,14 @@ InputsFileOption = Annotated[
     str | None,
     typer.Option("--inputs-file", help="Path to JSON file with inputs."),
 ]
+RunnableConfigOption = Annotated[
+    str | None,
+    typer.Option("--config", help="JSON LangChain runnable config payload."),
+]
+RunnableConfigFileOption = Annotated[
+    str | None,
+    typer.Option("--config-file", help="Path to JSON file with runnable config."),
+]
 ForceOption = Annotated[
     bool,
     typer.Option("--force", help="Skip confirmation prompt."),
@@ -75,6 +83,8 @@ __all__ = [
     "ActorOption",
     "InputsOption",
     "InputsFileOption",
+    "RunnableConfigOption",
+    "RunnableConfigFileOption",
     "ForceOption",
     "FilePathArgument",
     "WorkflowIdOption",

@@ -194,6 +194,11 @@ class WorkflowRun(TimestampedAuditModel):
     status: WorkflowRunStatus = Field(default=WorkflowRunStatus.PENDING)
     triggered_by: str
     input_payload: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    callbacks: list[Any] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    run_name: str | None = None
     output_payload: dict[str, Any] | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

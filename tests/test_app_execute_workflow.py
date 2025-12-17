@@ -22,6 +22,7 @@ async def test_execute_workflow() -> None:
     graph_config = {"nodes": []}
     inputs = {"input": "test"}
     execution_id = "test-execution"
+    runnable_config = {"tags": ["demo"], "metadata": {"experiment": "m1"}}
 
     steps = [
         {"status": "running", "data": "test"},
@@ -54,7 +55,12 @@ async def test_execute_workflow() -> None:
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
     ):
         await execute_workflow(
-            workflow_id, graph_config, inputs, execution_id, mock_websocket
+            workflow_id,
+            graph_config,
+            inputs,
+            execution_id,
+            mock_websocket,
+            runnable_config,
         )
 
     mock_graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)
@@ -65,6 +71,8 @@ async def test_execute_workflow() -> None:
     assert history.status == "completed"
     assert [step.payload for step in history.steps[:-1]] == steps
     assert history.steps[-1].payload == {"status": "completed"}
+    assert history.tags == ["demo"]
+    assert history.runnable_config["configurable"]["thread_id"] == execution_id
 
     trace_messages = [
         call.args[0]
@@ -125,7 +133,9 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
             mock_websocket,
         )
 
-    assert captured_state is inputs
+    assert isinstance(captured_state, dict)
+    assert captured_state["input"] == "raw"
+    assert captured_state["config"]["configurable"]["thread_id"] == execution_id
 
     history = await history_store.get_history(execution_id)
     assert history.inputs == inputs

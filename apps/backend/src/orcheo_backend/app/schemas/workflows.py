@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
 from orcheo.models.workflow import Workflow
+from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -65,6 +66,7 @@ class WorkflowRunCreateRequest(BaseModel):
     workflow_version_id: UUID
     triggered_by: str
     input_payload: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: RunnableConfigModel | None = None
 
 
 class WorkflowVersionDiffResponse(BaseModel):

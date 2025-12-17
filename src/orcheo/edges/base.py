@@ -17,7 +17,7 @@ class BaseEdge(BaseRunnable):
 
     async def __call__(self, state: State, config: RunnableConfig) -> str | list[Send]:
         """Execute the edge and return the routing decision."""
-        self.decode_variables(state)
+        self.decode_variables(state, config=config)
         result = await self.run(state, config)
         return result
 

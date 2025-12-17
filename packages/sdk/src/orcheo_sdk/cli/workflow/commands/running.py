@@ -9,11 +9,16 @@ from orcheo_sdk.cli.workflow.app import (
     ActorOption,
     InputsFileOption,
     InputsOption,
+    RunnableConfigFileOption,
+    RunnableConfigOption,
     WorkflowIdArgument,
     _state,
     workflow_app,
 )
-from orcheo_sdk.cli.workflow.inputs import _resolve_run_inputs
+from orcheo_sdk.cli.workflow.inputs import (
+    _resolve_run_inputs,
+    _resolve_runnable_config,
+)
 from orcheo_sdk.services import run_workflow_data
 
 
@@ -24,6 +29,8 @@ def run_workflow(
     triggered_by: ActorOption = "cli",
     inputs: InputsOption = None,
     inputs_file: InputsFileOption = None,
+    config: RunnableConfigOption = None,
+    config_file: RunnableConfigFileOption = None,
     stream: bool = typer.Option(
         True,
         "--stream/--no-stream",
@@ -35,6 +42,7 @@ def run_workflow(
     if state.settings.offline:
         raise CLIError("Workflow executions require network connectivity.")
     input_payload = _resolve_run_inputs(inputs, inputs_file)
+    runnable_config = _resolve_runnable_config(config, config_file)
     from orcheo_sdk.cli import workflow as workflow_module
 
     graph_config = (
@@ -49,6 +57,7 @@ def run_workflow(
                 graph_config,
                 input_payload,
                 triggered_by=triggered_by,
+                runnable_config=runnable_config,
             )
         )
         if final_status in {"error", "cancelled", "connection_error", "timeout"}:
@@ -61,6 +70,7 @@ def run_workflow(
         state.settings.service_token,
         inputs=input_payload,
         triggered_by=triggered_by,
+        runnable_config=runnable_config,
     )
     render_json(state.console, result, title="Run created")
 

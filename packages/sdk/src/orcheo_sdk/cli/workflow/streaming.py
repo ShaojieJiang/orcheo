@@ -15,6 +15,7 @@ async def _stream_workflow_run(
     inputs: Mapping[str, Any],
     *,
     triggered_by: str | None = None,
+    runnable_config: Mapping[str, Any] | None = None,
 ) -> str:
     """Stream workflow execution via WebSocket and display node outputs."""
     import json
@@ -36,6 +37,8 @@ async def _stream_workflow_run(
     }
     if triggered_by is not None:
         payload["triggered_by"] = triggered_by
+    if runnable_config is not None:
+        payload["runnable_config"] = runnable_config
 
     state.console.print("[cyan]Starting workflow execution...[/cyan]")
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")

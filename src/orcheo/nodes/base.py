@@ -29,7 +29,11 @@ class BaseRunnable(BaseModel):
     name: str
     """Unique name of the runnable."""
 
-    def _decode_value(self, value: Any, state: State) -> Any:
+    def _decode_value(
+        self,
+        value: Any,
+        state: State,
+    ) -> Any:
         """Recursively decode a value that may contain template strings."""
         if isinstance(value, CredentialReference):
             return self._resolve_credential_reference(value)
@@ -63,6 +67,9 @@ class BaseRunnable(BaseModel):
         for index, part in enumerate(path_parts):
             if isinstance(result, dict) and part in result:
                 result = result.get(part)
+                continue
+            if isinstance(result, BaseModel) and hasattr(result, part):
+                result = getattr(result, part)
                 continue
             fallback = self._fallback_to_results(path_parts, index, state)
             if fallback is not None:
@@ -104,8 +111,15 @@ class BaseRunnable(BaseModel):
             raise CredentialResolverUnavailableError(msg)
         return resolver.resolve(reference)
 
-    def decode_variables(self, state: State) -> None:
+    def decode_variables(
+        self,
+        state: State,
+        *,
+        config: Mapping[str, Any] | None = None,
+    ) -> None:
         """Decode the variables in attributes of the runnable."""
+        if config is not None and isinstance(state, dict):
+            state.setdefault("config", dict(config))
         for key, value in self.__dict__.items():
             self.__dict__[key] = self._decode_value(value, state)
 
@@ -155,7 +169,7 @@ class AINode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
-        self.decode_variables(state)
+        self.decode_variables(state, config=config)
         result = await self.run(state, config)
         return self._serialize_result(result)
 
@@ -170,7 +184,7 @@ class TaskNode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
-        self.decode_variables(state)
+        self.decode_variables(state, config=config)
         result = await self.run(state, config)
         serialized_result = self._serialize_result(result)
         return {"results": {self.name: serialized_result}}

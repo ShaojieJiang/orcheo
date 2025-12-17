@@ -48,6 +48,7 @@ class HttpWorkflowExecutor:
         triggered_by: str,
         inputs: Mapping[str, Any] | None = None,
         headers: Mapping[str, str] | None = None,
+        runnable_config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a workflow run and return the backend payload."""
         url = self.client.workflow_trigger_url(workflow_id)
@@ -57,6 +58,8 @@ class HttpWorkflowExecutor:
             "triggered_by": triggered_by,
             "input_payload": dict(inputs or {}),
         }
+        if runnable_config is not None:
+            payload["runnable_config"] = runnable_config
 
         attempt = 0
         delay = self.backoff_factor

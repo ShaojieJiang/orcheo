@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 from orcheo.config import get_settings
+from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
 _DEFAULT_MAX_PREVIEW_LENGTH = 512
@@ -43,6 +44,7 @@ def workflow_span(
     workflow_id: str,
     execution_id: str,
     inputs: Mapping[str, Any] | None = None,
+    runnable_config: RunnableConfigModel | None = None,
 ) -> Iterator[WorkflowSpanContext]:
     """Create a root span encapsulating a workflow execution."""
     input_keys: Sequence[str] = tuple(sorted(inputs.keys())) if inputs else ()
@@ -53,6 +55,31 @@ def workflow_span(
     if input_keys:
         attributes["orcheo.execution.input_keys"] = list(input_keys)
         attributes["orcheo.execution.input_count"] = len(input_keys)
+    if runnable_config is not None:
+        if runnable_config.tags:
+            attributes["orcheo.execution.tags"] = list(runnable_config.tags)
+            attributes["orcheo.execution.tag_count"] = len(runnable_config.tags)
+        if runnable_config.run_name:
+            attributes["orcheo.execution.run_name"] = runnable_config.run_name
+        if runnable_config.metadata:
+            attributes["orcheo.execution.metadata_keys"] = sorted(
+                runnable_config.metadata.keys()
+            )
+        if runnable_config.callbacks:
+            attributes["orcheo.execution.callbacks.count"] = len(
+                runnable_config.callbacks
+            )
+        if runnable_config.recursion_limit is not None:
+            attributes["orcheo.execution.recursion_limit"] = (
+                runnable_config.recursion_limit
+            )
+        if runnable_config.max_concurrency is not None:
+            attributes["orcheo.execution.max_concurrency"] = (
+                runnable_config.max_concurrency
+            )
+        prompts = runnable_config.prompts
+        if prompts:
+            attributes["orcheo.execution.prompts.count"] = len(prompts)
     started_at = datetime.now(tz=UTC)
     with tracer.start_as_current_span(
         "workflow.execution",
@@ -269,7 +296,7 @@ def _add_text_events(span: Span, event_name: str, value: Any) -> None:
     if isinstance(value, Mapping):
         span.add_event(event_name, {k: _preview_text(v) for k, v in value.items()})
         return
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         for item in value:
             span.add_event(event_name, {"preview": _preview_text(item)})
         return

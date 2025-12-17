@@ -39,6 +39,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         data["inputs"],
                         execution_id,
                         websocket,
+                        runnable_config=data.get("runnable_config"),
                     )
                 )
 
