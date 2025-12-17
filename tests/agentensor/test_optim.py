@@ -128,3 +128,29 @@ def test_optimizer_step_no_grad(mock_tensor_init, mock_optim_init, mock_graph):
         assert mock_agent.invoke.call_count == 0
         assert param1.text == "text1"
         assert param2.text == "text2"
+
+
+@patch("agentensor.optim.init_chat_model")
+@patch("agentensor.tensor.init_chat_model")
+def test_optimizer_collects_agent_modules(
+    mock_tensor_init, mock_optim_init, mock_graph
+):
+    """Optimizer should gather parameters from AgentModule nodes."""
+
+    mock_tensor_init.return_value = MagicMock()
+    mock_optim_init.return_value = MagicMock()
+
+    class MockModule(AgentModule):
+        system_prompt: TextTensor = TextTensor("system", requires_grad=True)
+        trainable: TextTensor = TextTensor("trainable", requires_grad=True)
+
+        @property
+        def agent(self):  # pragma: no cover - not used by this test
+            return MagicMock()
+
+    module = MockModule()
+    mock_graph.add_node("agent", module)
+
+    optimizer = Optimizer(mock_graph)
+
+    assert module.trainable in optimizer.params

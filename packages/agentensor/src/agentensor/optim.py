@@ -26,10 +26,23 @@ class Optimizer:
         self.params: list[TextTensor] = []
         for node in graph.nodes.values():
             runnable = getattr(node, "runnable", None)
-            function = getattr(runnable, "afunc", None)
-            if not isinstance(function, AgentModule):
+            module: AgentModule | None = None
+
+            if isinstance(runnable, AgentModule):
+                module = runnable
+            else:
+                function = getattr(runnable, "afunc", None)
+                if isinstance(function, AgentModule):
+                    module = function
+                else:
+                    bound_self = getattr(function, "__self__", None)
+                    if isinstance(bound_self, AgentModule):
+                        module = bound_self
+
+            if module is None:
                 continue
-            self.params.extend(function.get_params())
+
+            self.params.extend(module.get_params())
         if isinstance(model, str):
             self.model = init_chat_model(model)
         else:  # pragma: no cover
