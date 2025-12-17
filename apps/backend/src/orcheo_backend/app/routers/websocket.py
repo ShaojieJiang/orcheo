@@ -20,6 +20,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         authenticate_websocket,
         execute_workflow,
         execute_workflow_evaluation,
+        execute_workflow_training,
     )
 
     try:
@@ -60,6 +61,21 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         execution_id,
                         websocket,
                         evaluation=data.get("evaluation"),
+                        runnable_config=data.get("runnable_config"),
+                    )
+                )
+                await task
+                break
+            if message_type == "train_workflow":
+                execution_id = data.get("execution_id", str(uuid.uuid4()))
+                task = asyncio.create_task(
+                    execute_workflow_training(
+                        workflow_id,
+                        data["graph_config"],
+                        data.get("inputs", {}),
+                        execution_id,
+                        websocket,
+                        training=data.get("training"),
                         runnable_config=data.get("runnable_config"),
                     )
                 )

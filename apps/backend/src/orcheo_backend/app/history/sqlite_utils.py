@@ -42,6 +42,21 @@ CREATE TABLE IF NOT EXISTS execution_history_steps (
 );
 CREATE INDEX IF NOT EXISTS idx_history_steps_execution
     ON execution_history_steps(execution_id, step_index);
+CREATE TABLE IF NOT EXISTS agentensor_checkpoints (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    config_version INTEGER NOT NULL,
+    runnable_config TEXT NOT NULL,
+    metrics TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    artifact_url TEXT,
+    is_best INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workflow
+    ON agentensor_checkpoints(workflow_id, config_version);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_best
+    ON agentensor_checkpoints(workflow_id, is_best);
 """
 
 INSERT_EXECUTION_SQL = """

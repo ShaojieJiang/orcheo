@@ -76,13 +76,13 @@ Deliver runtime support for `langchain_core.runnables.RunnableConfig` on workflo
 
 #### Task Checklist
 
-- [ ] Task 3.1: Integrate optimizer loop for trainable prompts (referenced by nodes via config paths) and runnable-config updates; emit checkpoints
+- [x] Task 3.1: Integrate optimizer loop for trainable prompts (referenced by nodes via config paths) and runnable-config updates; emit checkpoints
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Persist checkpoints and best-performing configs in a dedicated DB table keyed by `workflow_id` with versioned records; expose download/reuse endpoints and ship SQLite/PostgreSQL migrations
+- [x] Task 3.2: Persist checkpoints and best-performing configs in a dedicated DB table keyed by `workflow_id` with versioned records; expose download/reuse endpoints and ship SQLite/PostgreSQL migrations
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Add safeguards (concurrency limits, timeout caps) and end-to-end tests for training mode (including compatibility with existing nodes)
+- [x] Task 3.3: Add safeguards (concurrency limits, timeout caps) and end-to-end tests for training mode (including compatibility with existing nodes)
   - Dependencies: Task 3.1
-- [ ] Task 3.4: Conduct performance and migration testing (concurrency, rollback/restore) and document operational runbooks
+- [x] Task 3.4: Conduct performance and migration testing (concurrency, rollback/restore) and document operational runbooks
   - Dependencies: Task 3.2
 
 ---

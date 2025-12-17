@@ -75,8 +75,14 @@ def test_create_repository_uses_explicit_settings(
         settings: object,
         credential_service: object,
         history_store_ref: object,
+        checkpoint_store_ref: object,
     ) -> object:
-        captured["args"] = (settings, credential_service, history_store_ref)
+        captured["args"] = (
+            settings,
+            credential_service,
+            history_store_ref,
+            checkpoint_store_ref,
+        )
         return sentinel_repository
 
     monkeypatch.setattr(
@@ -92,6 +98,7 @@ def test_create_repository_uses_explicit_settings(
         sentinel_settings,
         sentinel_service,
         dependencies._history_store_ref,
+        dependencies._checkpoint_store_ref,
     )
     assert dependencies._repository_ref["repository"] is sentinel_repository
 
