@@ -108,6 +108,7 @@ from orcheo_backend.app.workflow_execution import (
     _log_step_debug,
     _should_log_sensitive_debug,
     execute_workflow,
+    execute_workflow_evaluation,
 )
 from orcheo_backend.app.workflow_execution import logger as workflow_logger
 
@@ -123,6 +124,7 @@ __all__ = [
     "create_app",
     "create_checkpointer",
     "execute_workflow",
+    "execute_workflow_evaluation",
     "get_chatkit_server",
     "get_credential_service",
     "get_repository",

@@ -37,5 +37,40 @@ async def test_workflow_websocket_routes_requests() -> None:
         {"input": "test"},
         "test-execution",
         mock_websocket,
+        runnable_config=None,
     )
     mock_websocket.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_workflow_websocket_routes_evaluation_requests() -> None:
+    """Incoming evaluation messages route to execute_workflow_evaluation."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.receive_json.return_value = {
+        "type": "evaluate_workflow",
+        "graph_config": {"nodes": []},
+        "inputs": {"input": "test"},
+        "execution_id": "eval-execution",
+        "evaluation": {"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+    }
+
+    with (
+        patch("orcheo_backend.app.execute_workflow_evaluation") as mock_execute,
+        patch(
+            "orcheo_backend.app._history_store_ref",
+            {"store": InMemoryRunHistoryStore()},
+        ),
+    ):
+        mock_execute.return_value = None
+        await workflow_websocket(mock_websocket, "workflow-abc")
+
+    mock_execute.assert_called_once_with(
+        "workflow-abc",
+        {"nodes": []},
+        {"input": "test"},
+        "eval-execution",
+        mock_websocket,
+        evaluation={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+        runnable_config=None,
+    )

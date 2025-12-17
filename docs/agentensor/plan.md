@@ -61,11 +61,11 @@ Deliver runtime support for `langchain_core.runnables.RunnableConfig` on workflo
 
 #### Task Checklist
 
-- [ ] Task 2.1: Implement AgentensorNode evaluation flow with dataset/evaluator wiring
+- [x] Task 2.1: Implement AgentensorNode evaluation flow with dataset/evaluator wiring
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add API/CLI entry to trigger evaluation runs and stream progress via existing workflow router/WebSocket channel
+- [x] Task 2.2: Add API/CLI entry to trigger evaluation runs and stream progress via existing workflow router/WebSocket channel
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Aggregate metrics, persist results, and document evaluator schema
+- [x] Task 2.3: Aggregate metrics, persist results, and document evaluator schema
   - Dependencies: Task 2.1
 
 ---
