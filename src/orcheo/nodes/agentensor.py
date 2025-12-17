@@ -243,7 +243,12 @@ class AgentensorNode(TaskNode):
         await self.progress_callback(payload)
 
     def _merge_inputs(self, state: State, case: EvaluationCase) -> dict[str, Any]:
-        base_inputs = state.get("inputs") if isinstance(state, Mapping) else None
+        base_inputs: Mapping[str, Any] | None = None
+        if isinstance(state, Mapping):
+            if "inputs" in state and isinstance(state["inputs"], Mapping):
+                base_inputs = state["inputs"]
+            else:
+                base_inputs = state
         merged: dict[str, Any] = {}
         if isinstance(base_inputs, Mapping):
             merged.update(base_inputs)
