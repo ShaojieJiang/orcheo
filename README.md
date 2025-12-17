@@ -124,7 +124,7 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
 | `orcheo workflow show <workflow>` | Print workflow summary, publish status/details, Mermaid graph, and latest runs. |
-| `orcheo workflow run <workflow> [--inputs <json>]` | Trigger a workflow execution and stream status to the console. |
+| `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>]` | Trigger a workflow execution and stream status to the console. |
 | `orcheo workflow upload <file> [--name <name>]` | Upload a workflow from Python or JSON file. |
 | `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
@@ -142,6 +142,8 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
 Published workflows remain accessible until you run `orcheo workflow unpublish <workflow>` or toggle the `--require-login` flag to gate public chats behind OAuth.
+
+Pass workflow inputs inline with `--inputs` or from disk via `--inputs-file`. Use `--config` or `--config-file` to provide LangChain runnable configuration for the execution (each pair is mutually exclusive).
 
 #### Offline Mode
 
