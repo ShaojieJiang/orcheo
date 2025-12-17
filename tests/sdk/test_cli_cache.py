@@ -188,8 +188,8 @@ def test_load_with_cache_online_mode_error_no_cache(tmp_path: Path) -> None:
 
 def test_load_with_cache_offline_mode_without_cache(tmp_path: Path) -> None:
     """Test load_with_cache in offline mode when cache is missing."""
-    from orcheo_sdk.cli.config import CLISettings
     from rich.console import Console
+    from orcheo_sdk.cli.config import CLISettings
 
     cache_dir = tmp_path / "cache"
     cache = CacheManager(directory=cache_dir, ttl=timedelta(hours=1))

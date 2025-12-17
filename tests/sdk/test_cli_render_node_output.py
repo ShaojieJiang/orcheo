@@ -7,8 +7,8 @@ from types import SimpleNamespace
 def test_render_node_output_small_dict() -> None:
     """Test _render_node_output with small dict."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -24,8 +24,8 @@ def test_render_node_output_small_dict() -> None:
 def test_render_node_output_large_dict() -> None:
     """Test _render_node_output with large dict."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -41,8 +41,8 @@ def test_render_node_output_large_dict() -> None:
 def test_render_node_output_dict_complex_values() -> None:
     """Test _render_node_output with dict containing complex values."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -57,8 +57,8 @@ def test_render_node_output_dict_complex_values() -> None:
 def test_render_node_output_short_string() -> None:
     """Test _render_node_output with short string."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -72,8 +72,8 @@ def test_render_node_output_short_string() -> None:
 def test_render_node_output_long_string() -> None:
     """Test _render_node_output with long string."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -88,8 +88,8 @@ def test_render_node_output_long_string() -> None:
 def test_render_node_output_other_type() -> None:
     """Test _render_node_output with other data types."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -104,8 +104,8 @@ def test_render_node_output_other_type() -> None:
 def test_render_node_output_none() -> None:
     """Test _render_node_output with None."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -119,8 +119,8 @@ def test_render_node_output_none() -> None:
 def test_render_node_output_empty_dict() -> None:
     """Test _render_node_output with empty dict."""
     import io
-    from orcheo_sdk.cli.workflow import _render_node_output
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _render_node_output
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)

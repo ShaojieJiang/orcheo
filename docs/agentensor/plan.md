@@ -27,13 +27,13 @@ Deliver runtime support for `langchain_core.runnables.RunnableConfig` on workflo
 
 #### Task Checklist
 
-- [ ] Task 0.1: Vendor/fork `agentensor` into `packages/agentensor` with compatible `pyproject`/uv metadata mirroring `packages/sdk`
+- [x] Task 0.1: Vendor/fork `agentensor` into `packages/agentensor` with compatible `pyproject`/uv metadata mirroring `packages/sdk`
   - Dependencies: Repo access to upstream
-- [ ] Task 0.2: Wire local package into Orcheo build/test pipeline (lint/typecheck/test)
+- [x] Task 0.2: Wire local package into Orcheo build/test pipeline (lint/typecheck/test)
   - Dependencies: Task 0.1
-- [ ] Task 0.3: Add minimal Orcheo integration shims/types in `src/orcheo/` (e.g., config refs, node bindings) to work with the forked package
+- [x] Task 0.3: Add minimal Orcheo integration shims/types in `src/orcheo/` (e.g., config refs, node bindings) to work with the forked package
   - Dependencies: Task 0.1
-- [ ] Task 0.4: Publish/consume uv lockfile updates to ensure downstream tooling uses the fork consistently
+- [x] Task 0.4: Publish/consume uv lockfile updates to ensure downstream tooling uses the fork consistently
   - Dependencies: Task 0.2
 
 ---

@@ -3,10 +3,10 @@
 from __future__ import annotations
 import httpx
 import respx
+from typer.testing import CliRunner
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.main import app
 from orcheo_sdk.services.service_tokens import revoke_service_token_data
-from typer.testing import CliRunner
 
 
 def test_token_rotate_basic(runner: CliRunner, env: dict[str, str]) -> None:

@@ -1,8 +1,8 @@
 """Tests for CLI node commands."""
 
 from __future__ import annotations
-from orcheo_sdk.cli.main import app
 from typer.testing import CliRunner
+from orcheo_sdk.cli.main import app
 
 
 def test_node_list_shows_registered_nodes(
