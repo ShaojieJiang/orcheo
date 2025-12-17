@@ -19,6 +19,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
         triggered_by: str,
         input_payload: dict[str, Any],
         actor: str | None = None,
+        runnable_config: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
@@ -30,6 +31,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
                 triggered_by=triggered_by,
                 input_payload=input_payload,
                 actor=actor,
+                runnable_config=runnable_config,
             )
             return run.model_copy(deep=True)
 

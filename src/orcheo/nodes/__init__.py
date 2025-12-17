@@ -1,5 +1,6 @@
 """Node registry and metadata definitions for Orcheo."""
 
+from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.code import PythonCode
 from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
@@ -44,6 +45,7 @@ __all__ = [
     "NodeRegistry",
     "registry",
     "AgentNode",
+    "AgentensorNode",
     "PythonCode",
     "HttpRequestNode",
     "JsonProcessingNode",

@@ -48,6 +48,11 @@ class RunHistoryResponse(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: dict[str, Any] = Field(default_factory=dict)
+    tags: list[Any] = Field(default_factory=list)
+    callbacks: list[Any] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    run_name: str | None = None
     steps: list[RunHistoryStepResponse] = Field(default_factory=list)
 
 

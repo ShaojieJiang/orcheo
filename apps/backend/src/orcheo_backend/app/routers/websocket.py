@@ -16,7 +16,12 @@ _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sen
 @router.websocket("/ws/workflow/{workflow_id}")
 async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
     """Handle workflow websocket connections by delegating to the executor."""
-    from orcheo_backend.app import authenticate_websocket, execute_workflow
+    from orcheo_backend.app import (
+        authenticate_websocket,
+        execute_workflow,
+        execute_workflow_evaluation,
+        execute_workflow_training,
+    )
 
     try:
         context = await authenticate_websocket(websocket)
@@ -30,7 +35,8 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
         while True:
             data = await websocket.receive_json()
 
-            if data.get("type") == "run_workflow":
+            message_type = data.get("type")
+            if message_type == "run_workflow":
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
                 task = asyncio.create_task(
                     execute_workflow(
@@ -39,9 +45,40 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         data["inputs"],
                         execution_id,
                         websocket,
+                        runnable_config=data.get("runnable_config"),
                     )
                 )
 
+                await task
+                break
+            if message_type == "evaluate_workflow":
+                execution_id = data.get("execution_id", str(uuid.uuid4()))
+                task = asyncio.create_task(
+                    execute_workflow_evaluation(
+                        workflow_id,
+                        data["graph_config"],
+                        data.get("inputs", {}),
+                        execution_id,
+                        websocket,
+                        evaluation=data.get("evaluation"),
+                        runnable_config=data.get("runnable_config"),
+                    )
+                )
+                await task
+                break
+            if message_type == "train_workflow":
+                execution_id = data.get("execution_id", str(uuid.uuid4()))
+                task = asyncio.create_task(
+                    execute_workflow_training(
+                        workflow_id,
+                        data["graph_config"],
+                        data.get("inputs", {}),
+                        execution_id,
+                        websocket,
+                        training=data.get("training"),
+                        runnable_config=data.get("runnable_config"),
+                    )
+                )
                 await task
                 break
 

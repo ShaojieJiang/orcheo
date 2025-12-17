@@ -108,6 +108,7 @@ class WorkflowRepository(Protocol):
         triggered_by: str,
         input_payload: dict[str, Any],
         actor: str | None = None,
+        runnable_config: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         """Create a workflow run for the specified version."""
 

@@ -17,7 +17,7 @@ from .app import (
 )
 from .commands.listing import list_workflows
 from .commands.managing import delete_workflow, download_workflow, upload_workflow
-from .commands.running import run_workflow
+from .commands.running import evaluate_workflow, run_workflow
 from .commands.showing import show_workflow
 from .formatting import _format_workflow_as_json, _format_workflow_as_python
 from .ingest import (
@@ -52,6 +52,7 @@ from .streaming import (
     _prepare_streaming_graph,
     _process_stream_messages,
     _render_node_output,
+    _stream_workflow_evaluation,
     _stream_workflow_run,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "_normalize_workflow_name",
     "_upload_langgraph_script",
     "_stream_workflow_run",
+    "_stream_workflow_evaluation",
     "_process_stream_messages",
     "_handle_status_update",
     "_handle_node_event",
@@ -100,6 +102,7 @@ __all__ = [
     "list_workflows",
     "show_workflow",
     "run_workflow",
+    "evaluate_workflow",
     "delete_workflow",
     "upload_workflow",
     "download_workflow",

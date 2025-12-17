@@ -27,6 +27,11 @@ class InMemoryRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        runnable_config: Mapping[str, Any] | None = None,
+        tags: list[str] | None = None,
+        callbacks: list[Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
@@ -37,10 +42,38 @@ class InMemoryRunHistoryStore:
                 raise RunHistoryError(msg)
 
             effective_trace_started = trace_started_at
+            config_payload = runnable_config
+            if runnable_config and hasattr(runnable_config, "model_dump"):
+                config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+            tag_values = (
+                list(tags or config_payload.get("tags", []))
+                if isinstance(config_payload, Mapping)
+                else list(tags or [])
+            )
+            callback_values = (
+                list(callbacks or config_payload.get("callbacks", []))
+                if isinstance(config_payload, Mapping)
+                else list(callbacks or [])
+            )
+            metadata_values = (
+                dict(metadata or config_payload.get("metadata", {}))
+                if isinstance(config_payload, Mapping)
+                else dict(metadata or {})
+            )
+            run_identifier = run_name or (
+                config_payload.get("run_name")
+                if isinstance(config_payload, Mapping)
+                else None
+            )
             record = RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
                 inputs=dict(inputs or {}),
+                runnable_config=dict(config_payload or {}),
+                tags=tag_values,
+                callbacks=callback_values,
+                metadata=metadata_values,
+                run_name=run_identifier,
                 trace_id=trace_id,
                 trace_started_at=effective_trace_started,
                 trace_last_span_at=effective_trace_started,

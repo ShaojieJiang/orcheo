@@ -22,6 +22,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
         triggered_by: str,
         input_payload: dict[str, Any],
         actor: str | None = None,
+        runnable_config: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         """Create a workflow run tied to a version."""
         async with self._lock:
@@ -36,6 +37,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
                 triggered_by=triggered_by,
                 input_payload=input_payload,
                 actor=actor,
+                runnable_config=runnable_config,
             )
             return run.model_copy(deep=True)
 

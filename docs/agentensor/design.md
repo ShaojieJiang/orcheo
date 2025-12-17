@@ -112,6 +112,8 @@ The trainer/evaluator mode reuses the existing workflow router and WebSocket str
 | checkpoint | object | `{ id, workflow_id, config_version, runnable_config, metrics, created_at, artifact_url }` |
 | evaluator | object | `{ id, type: "llm" | "deterministic", entrypoint: string, config?: object }`; entrypoints must be importable callables compatible with existing evaluator registry |
 
+**Evaluation payload:** `{ dataset: { id?: string, cases: [{ inputs: object, expected_output?: any, metadata?: object }] }, evaluators: [{ id, entrypoint, config?: object }], max_cases?: int }`. Entrypoints resolve to callables/classes that accept `(EvaluationContext)` and return a `value`/`reason` pair; results stream via the existing WebSocket channel as `evaluation_progress` and `evaluation_summary` events.
+
 Example `RunnableConfig` payload:
 
 ```json

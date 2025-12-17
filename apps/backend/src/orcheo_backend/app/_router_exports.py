@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 from orcheo_backend.app.routers import (
+    agentensor as _agentensor_routes,
+)
+from orcheo_backend.app.routers import (
     chatkit as _chatkit_routes,
 )
 from orcheo_backend.app.routers import (
@@ -100,6 +103,8 @@ configure_cron_trigger = _triggers_routes.configure_cron_trigger
 get_cron_trigger_config = _triggers_routes.get_cron_trigger_config
 
 execute_node_endpoint = _nodes_routes.execute_node_endpoint
+list_agentensor_checkpoints = _agentensor_routes.list_agentensor_checkpoints
+get_agentensor_checkpoint = _agentensor_routes.get_agentensor_checkpoint
 
 __all__ = [
     "acknowledge_governance_alert",
@@ -123,6 +128,7 @@ __all__ = [
     "dispatch_manual_runs",
     "execute_node_endpoint",
     "get_cron_trigger_config",
+    "get_agentensor_checkpoint",
     "get_credential_template",
     "get_execution_history",
     "get_webhook_trigger_config",
@@ -140,6 +146,7 @@ __all__ = [
     "list_workflow_runs",
     "list_workflow_versions",
     "list_workflows",
+    "list_agentensor_checkpoints",
     "mark_run_cancelled",
     "mark_run_failed",
     "mark_run_started",

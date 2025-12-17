@@ -47,11 +47,17 @@ async def create_workflow_run(
 ) -> WorkflowRun:
     """Create a workflow execution run."""
     try:
+        config_payload = (
+            request.runnable_config.model_dump(mode="json")
+            if request.runnable_config is not None
+            else None
+        )
         return await repository.create_run(
             workflow_id,
             workflow_version_id=request.workflow_version_id,
             triggered_by=request.triggered_by,
             input_payload=request.input_payload,
+            runnable_config=config_payload,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

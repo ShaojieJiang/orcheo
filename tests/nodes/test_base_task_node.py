@@ -45,6 +45,25 @@ def test_decode_variables_with_results_prefix() -> None:
     assert node.input_var == "test_from_results"
 
 
+def test_decode_variables_reads_config_state() -> None:
+    state = State({"results": {}, "config": {"threshold": 0.75}})
+    node = MockTaskNode(name="test", input_var="{{config.threshold}}")
+
+    node.decode_variables(state)
+
+    assert node.input_var == 0.75
+
+
+def test_decode_variables_injects_config_argument() -> None:
+    state = State({"results": {}})
+    node = MockTaskNode(name="test", input_var="{{config.limit}}")
+
+    node.decode_variables(state, config={"limit": 5})
+
+    assert node.input_var == 5
+    assert state["config"]["limit"] == 5
+
+
 def test_decode_variables_non_dict_traversal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
