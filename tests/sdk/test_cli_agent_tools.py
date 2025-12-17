@@ -1,8 +1,8 @@
 """Agent tool CLI command tests."""
 
 from __future__ import annotations
-from orcheo_sdk.cli.main import app
 from typer.testing import CliRunner
+from orcheo_sdk.cli.main import app
 
 
 def test_agent_tool_list_shows_all_tools(

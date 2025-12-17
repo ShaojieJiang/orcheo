@@ -3,6 +3,7 @@
 from __future__ import annotations
 from io import StringIO
 from unittest.mock import patch
+from rich.console import Console
 from orcheo_sdk.cli.output import (
     format_datetime,
     render_json,
@@ -10,7 +11,6 @@ from orcheo_sdk.cli.output import (
     success,
     warning,
 )
-from rich.console import Console
 
 
 def test_render_table_basic() -> None:

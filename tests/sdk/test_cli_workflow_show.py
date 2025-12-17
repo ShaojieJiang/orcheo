@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import httpx
 import respx
-from orcheo_sdk.cli.main import app
 from typer.testing import CliRunner
+from orcheo_sdk.cli.main import app
 
 
 def test_workflow_show_uses_cache_when_offline(

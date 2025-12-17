@@ -4,9 +4,9 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+from typer.testing import CliRunner
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run
-from typer.testing import CliRunner
 
 
 def test_main_config_error_handling(runner: CliRunner) -> None:

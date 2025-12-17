@@ -31,6 +31,7 @@ examples = [
 
 [project]
 dependencies = [
+  "agentensor>=0.0.4",
   "fastapi>=0.104.0",
   "uvicorn>=0.24.0",
   "pydantic>=2.4.2",
@@ -93,7 +94,7 @@ exclude_lines = [
 [tool.coverage.run]
 branch = true
 command_line = "-m pytest"
-source = ["orcheo", "orcheo_sdk", "orcheo_backend"]
+source = ["agentensor", "orcheo", "orcheo_sdk", "orcheo_backend"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orcheo"]
@@ -144,7 +145,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["orcheo", "orcheo_backend"]
+known-first-party = ["agentensor", "orcheo", "orcheo_backend", "orcheo_sdk"]
 lines-after-imports = 2
 no-lines-before = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
@@ -158,8 +159,9 @@ max-complexity = 10
 convention = "google"
 
 [tool.uv.sources]
+agentensor = {workspace = true}
 orcheo-backend = {workspace = true}
 orcheo-sdk = {workspace = true}
 
 [tool.uv.workspace]
-members = ["apps/backend", "packages/sdk", "."]
+members = ["apps/backend", "packages/agentensor", "packages/sdk", "."]

@@ -4,6 +4,8 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from rich.console import Console
+from typer.testing import CliRunner
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.config import CLISettings
 from orcheo_sdk.cli.errors import APICallError, CLIError
@@ -16,8 +18,6 @@ from orcheo_sdk.cli.workflow.commands.publishing import (
     _update_workflow_cache,
     _visibility_label,
 )
-from rich.console import Console
-from typer.testing import CliRunner
 
 
 def _publish_response(require_login: bool = False) -> dict[str, object]:

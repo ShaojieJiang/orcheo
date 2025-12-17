@@ -18,8 +18,8 @@ def test_mcp_list_edges(mock_env: None) -> None:
 
 def test_mcp_list_edges_with_category(mock_env: None) -> None:
     """Test list_edges MCP tool wrapper with category filter."""
-    from orcheo_sdk.mcp_server import edge_tools
     from orcheo.edges.registry import EdgeMetadata, edge_registry
+    from orcheo_sdk.mcp_server import edge_tools
 
     test_meta = EdgeMetadata(
         name="TestFilterEdge",
@@ -41,9 +41,9 @@ def test_mcp_list_edges_with_category(mock_env: None) -> None:
 
 def test_mcp_show_edge(mock_env: None) -> None:
     """Test show_edge MCP tool wrapper."""
-    from orcheo_sdk.mcp_server import edge_tools
     from pydantic import BaseModel
     from orcheo.edges.registry import EdgeMetadata, edge_registry
+    from orcheo_sdk.mcp_server import edge_tools
 
     class TestEdgeShow(BaseModel):
         """Test edge for show."""
@@ -77,9 +77,9 @@ def test_mcp_tools_list_edges_wrapper(mock_env: None) -> None:
 
 def test_mcp_tools_show_edge_wrapper(mock_env: None) -> None:
     """Test MCP tools.show_edge wrapper."""
-    from orcheo_sdk.mcp_server import tools
     from pydantic import BaseModel
     from orcheo.edges.registry import EdgeMetadata, edge_registry
+    from orcheo_sdk.mcp_server import tools
 
     class TestEdgeTools(BaseModel):
         """Test edge for tools wrapper."""

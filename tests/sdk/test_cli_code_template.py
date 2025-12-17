@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typer.testing import CliRunner
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
-from typer.testing import CliRunner
 
 
 def test_code_template_creates_workflow_file(

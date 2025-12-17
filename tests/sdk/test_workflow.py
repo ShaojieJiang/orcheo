@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 import pytest
+from pydantic import BaseModel
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
     WorkflowNode,
 )
-from pydantic import BaseModel
 
 
 class UppercaseConfig(BaseModel):
