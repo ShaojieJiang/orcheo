@@ -227,7 +227,7 @@ class AgentensorNode(TaskNode):
 
         for epoch in range(1, self.optimizer.epochs + 1):
             runtime_prompts = build_text_tensors(self.prompts)
-            self._refresh_state_prompts(runtime_prompts)
+            self._refresh_state_prompts(self.prompts)
 
             aggregated: dict[str, list[float]] = {
                 definition.id: [] for definition, _ in evaluators

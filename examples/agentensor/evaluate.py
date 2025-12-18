@@ -1,154 +1,142 @@
-"""Tasks."""
+"""Agentensor evaluation example using Orcheo integration."""
 
 from __future__ import annotations
-import json
-from dataclasses import dataclass
-from typing import TypedDict
-from datasets import load_dataset
-from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
+import asyncio
+import uuid
+from typing import Any
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.graph import CompiledGraph
-from langgraph.prebuilt import create_react_agent
-from pydantic import BaseModel
-from pydantic_evals import Case, Dataset
-from pydantic_evals.evaluators import EvaluationReason, Evaluator, EvaluatorContext
-from agentensor.module import AgentModule
-from agentensor.tensor import TextTensor
-from agentensor.train import Trainer
+from orcheo.agentensor.evaluation import (
+    EvaluationCase,
+    EvaluationContext,
+    EvaluationDataset,
+    EvaluatorDefinition,
+)
+from orcheo.agentensor.prompts import TrainablePrompt
+from orcheo.graph.state import State
+from orcheo.nodes.agentensor import AgentensorNode
+from orcheo.nodes.base import TaskNode
+from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
-@dataclass
-class GenerationTimeout(Evaluator[str, bool]):
-    """The generation took too long."""
+NODE_NAME = "prompt_echo"
 
-    threshold: float = 10.0
 
-    async def evaluate(self, ctx: EvaluatorContext[str, bool]) -> EvaluationReason:
-        """Evaluate the time taken to generate the output."""
-        return EvaluationReason(
-            value=ctx.duration <= self.threshold,
-            reason=(
-                f"The generation took {ctx.duration} seconds, which is longer "
-                f"than the threshold of {self.threshold} seconds."
+class PromptEchoNode(TaskNode):
+    """Echo the configured prompt alongside the user input."""
+
+    prompt_text: str
+    input_text: str
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return the combined prompt and input text."""
+        reply = f"{self.prompt_text} {self.input_text}".strip()
+        return {"reply": reply}
+
+
+def must_include_input(context: EvaluationContext) -> dict[str, Any]:
+    """Require the reply to include the expected snippet."""
+    output = context.output if isinstance(context.output, dict) else {}
+    node_output = output.get(NODE_NAME, {})
+    reply = str(node_output.get("reply", ""))
+    expected = str(context.metadata.get("must_include", ""))
+    passed = bool(expected) and expected.lower() in reply.lower()
+    reason = None
+    if not passed:
+        reason = f"Expected '{expected}' to appear in reply."
+    return {"value": passed, "reason": reason}
+
+
+def build_graph() -> StateGraph:
+    """Construct the demo workflow graph."""
+    graph = StateGraph(State)
+    graph.add_node(
+        NODE_NAME,
+        PromptEchoNode(
+            name=NODE_NAME,
+            prompt_text="{{config.prompts.greeter.text}}",
+            input_text="{{inputs.message}}",
+        ),
+    )
+    graph.add_edge(START, NODE_NAME)
+    graph.add_edge(NODE_NAME, END)
+    return graph
+
+
+async def run_evaluation() -> None:
+    """Run the Agentensor evaluation loop locally."""
+    execution_id = f"agentensor-eval-{uuid.uuid4()}"
+    runnable_config = RunnableConfigModel(
+        run_name="agentensor-eval-demo",
+        tags=["agentensor", "evaluation"],
+        metadata={"experiment": "agentensor-eval"},
+        prompts={
+            "greeter": TrainablePrompt(
+                text="You are a helpful assistant.",
+                requires_grad=True,
+                metadata={"locale": "en-US"},
+            )
+        },
+    )
+    runtime_config = runnable_config.to_runnable_config(execution_id)
+    state_config = runnable_config.to_state_config(execution_id)
+
+    dataset = EvaluationDataset(
+        id="demo-eval-dataset",
+        cases=[
+            EvaluationCase(
+                inputs={"message": "Hello there!", "locale": "en-US"},
+                metadata={"must_include": "Hello"},
             ),
+            EvaluationCase(
+                inputs={"message": "Good morning!", "locale": "en-US"},
+                metadata={"must_include": "Good"},
+            ),
+        ],
+    )
+
+    evaluators = [
+        EvaluatorDefinition(
+            id="includes-input",
+            entrypoint="__main__:must_include_input",
         )
+    ]
+
+    compiled_graph = build_graph().compile()
+
+    async def on_progress(payload: dict[str, Any]) -> None:
+        event = payload.get("event", "unknown")
+        print(f"[progress] {event}: {payload.get('payload', {})}")
+
+    node = AgentensorNode(
+        name="agentensor_eval",
+        mode="evaluate",
+        prompts=runnable_config.prompts or {},
+        dataset=dataset,
+        evaluators=evaluators,
+        compiled_graph=compiled_graph,
+        graph_config={},
+        state_config=state_config,
+        progress_callback=on_progress,
+    )
+
+    state: State = {
+        "inputs": {},
+        "messages": [],
+        "results": {},
+        "structured_response": None,
+        "config": state_config,
+    }
+
+    result = await node(state, runtime_config)
+    payload = result["results"][node.name]
+    print("\nSummary:", payload["summary"])
 
 
-@dataclass
-class MultiLabelClassificationAccuracy(Evaluator):
-    """Classification accuracy evaluator."""
-
-    async def evaluate(self, ctx: EvaluatorContext) -> bool:
-        """Evaluate the accuracy of the classification."""
-        try:
-            output = json.loads(ctx.output.text)
-        except json.JSONDecodeError:
-            return False
-        expected = ctx.expected_output
-        return set(output) == set(expected)  # type: ignore[arg-type]
-
-
-class EvaluateState(TypedDict):
-    """State of the graph."""
-
-    output: TextTensor
-
-
-class ClassificationResults(BaseModel, use_attribute_docstrings=True):
-    """Classification result for a data."""
-
-    labels: list[str]
-    """labels for this data point."""
-
-    def __str__(self) -> str:
-        """Return the string representation of the classification results."""
-        return json.dumps(self.labels)
-
-
-class HFMultiClassClassificationTask:
-    """Multi-class classification task from Hugging Face."""
-
-    def __init__(
-        self,
-        task_repo: str,
-        evaluators: list[Evaluator],
-        model: BaseChatModel | str = "gpt-4o-mini",
-    ) -> None:
-        """Initialize the multi-class classification task."""
-        self.task_repo = task_repo
-        self.evaluators = evaluators
-        if isinstance(model, str):
-            self.model = init_chat_model(model)
-        else:
-            self.model = model
-        self.dataset = self._prepare_dataset()
-
-    def _prepare_dataset(self) -> dict[str, Dataset]:
-        """Return the Pydantic Evals dataset."""
-        hf_dataset = load_dataset(self.task_repo, trust_remote_code=True)
-        dataset = {}
-        for split in hf_dataset.keys():
-            cases = []
-            for example in hf_dataset[split]:
-                cases.append(
-                    Case(
-                        inputs=TextTensor(
-                            f"Title: {example['title']}\nContent: {example['content']}",
-                            model=self.model,
-                        ),
-                        expected_output=example["all_labels"],
-                    )
-                )
-            dataset[split] = Dataset(cases=cases, evaluators=self.evaluators)
-        return dataset
-
-
-class AgentNode(AgentModule):
-    """Agent node."""
-
-    @property
-    def agent(self) -> CompiledGraph:
-        """Get agent instance."""
-        return create_react_agent(
-            self.llm,
-            tools=[],
-            prompt=self.system_prompt.text,
-            response_format=ClassificationResults,
-        )
+def main() -> None:
+    """Entrypoint for the evaluation example."""
+    asyncio.run(run_evaluation())
 
 
 if __name__ == "__main__":
-    model = init_chat_model("llama3.2:1b", model_provider="ollama")
-    # model = "gpt-4o-mini"
-
-    task = HFMultiClassClassificationTask(
-        task_repo="knowledgator/events_classification_biotech",
-        evaluators=[GenerationTimeout(), MultiLabelClassificationAccuracy()],
-        model=model,
-    )
-    graph = StateGraph(EvaluateState)
-    graph.add_node(
-        "agent",
-        AgentNode(
-            system_prompt=TextTensor(
-                (
-                    "Classify the following text into one of the following "
-                    "categories: [expanding industry, new initiatives or programs, "
-                    "article publication, other]"
-                ),
-                requires_grad=True,
-                model=model,
-            ),
-            llm=model,
-        ),
-    )
-    graph.add_edge(START, "agent")
-    graph.add_edge("agent", END)
-    compiled_graph = graph.compile()
-    trainer = Trainer(
-        compiled_graph,
-        train_dataset=task.dataset["train"],
-        test_dataset=task.dataset["test"],
-    )
-    trainer.test(limit_cases=10)
+    main()

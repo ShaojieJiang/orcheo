@@ -14,6 +14,7 @@ class TrainablePrompt(BaseModel):
     text: str
     requires_grad: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
     type: Literal["TextTensor"] = "TextTensor"
 
     def to_tensor(
@@ -27,6 +28,7 @@ class TrainablePrompt(BaseModel):
             requires_grad=self.requires_grad,
             metadata=dict(self.metadata),
             model=target_model,
+            model_kwargs=dict(self.model_kwargs),
         )
 
 

@@ -22,6 +22,7 @@ class TextTensor:
         requires_grad: bool = False,
         metadata: dict[str, Any] | None = None,
         model: str | BaseChatModel = "gpt-4o-mini",
+        model_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a TextTensor."""
         self.text = text
@@ -30,7 +31,7 @@ class TextTensor:
         self.metadata = dict(metadata) if metadata is not None else {}
         self.parents: list[TextTensor] = parents or []
         if isinstance(model, str):
-            self.model = init_chat_model(model)
+            self.model = init_chat_model(model, **(model_kwargs or {}))
         else:
             self.model = model
 
