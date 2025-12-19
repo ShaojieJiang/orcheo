@@ -16,7 +16,7 @@ This design adds PostgreSQL support to Orcheo's local hosting persistence layer 
 ## Components
 
 - **Configuration (orcheo.config)**
-  - Adds `postgres` backend options and DSN/pool settings.
+  - Adds `postgres` backend options and DSN/pool settings with `psycopg[binary,pool]`.
   - Validates repository backend and connection configuration.
 
 - **Workflow Repository (repository_postgres)**
@@ -74,7 +74,7 @@ create_repository(settings)
   -> PostgresWorkflowRepository  # new
 ```
 
-Configuration is provided via settings and environment variables (for example, `ORCHEO_POSTGRES_DSN`).
+Configuration is provided via settings and environment variables (for example, `ORCHEO_POSTGRES_DSN`) and consumed by a `psycopg` async pool.
 
 ## Data Models / Schemas
 
@@ -128,8 +128,16 @@ CREATE INDEX idx_metadata_gin ON agentensor_checkpoints USING GIN(metadata);
 
 - Unit tests for connection pooling, schema initialization, and repository CRUD.
 - Integration tests to validate end-to-end workflow execution on PostgreSQL.
-- Compatibility tests to ensure SQLite behavior is unchanged.
-- Optional performance tests for throughput and latency targets.
+- Compatibility tests to ensure SQLite behavior is unchanged (SQLite ↔ PostgreSQL matrix for repository and checkpoints).
+- Migration validation tests that exercise export/import flows with checksum verification and dry-run guards.
+- Performance tests targeting 100+ concurrent requests and p95 query latency under 100 ms using pooled connections.
+
+## Migration Strategy
+
+- **Export/import**: Batch SQLite exports (JSON/CSV) with per-batch checksums, imported via COPY into PostgreSQL tables.
+- **Downtime**: Target <5 minutes of write downtime during cutover; reads may continue from SQLite snapshots during backfill.
+- **Rollback**: Preserve SQLite files; rollback by reverting `ORCHEO_REPOSITORY_BACKEND`/`ORCHEO_CHECKPOINT_BACKEND` to `sqlite` and unsetting `ORCHEO_POSTGRES_DSN`.
+- **Validation**: Row counts and checksums compared post-import; spot-check JSONB columns for type fidelity.
 
 ## Rollout Plan
 
@@ -140,9 +148,8 @@ CREATE INDEX idx_metadata_gin ON agentensor_checkpoints USING GIN(metadata);
 
 ## Open Issues
 
-- Decide on `psycopg` vs `asyncpg` for async access and pool usage.
-- Confirm whether vault migration is required for local hosting.
-- Define SQLite to PostgreSQL data migration strategy and tooling scope.
+ - Confirm whether vault migration is required for local hosting.
+ - Finalize migration tooling UX (CLI surface, telemetry, resumable checkpoint storage).
 
 ---
 

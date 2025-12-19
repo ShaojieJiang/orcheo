@@ -58,7 +58,7 @@ P0:
 P1:
 - Add performance indexes (GIN, composite) for common query patterns.
 - Add advanced features: full-text search, JSONB filtering, keyset pagination.
-- Provide migration tooling from SQLite to PostgreSQL.
+- Provide migration tooling from SQLite to PostgreSQL with validated export/import, checksum verification, and resumable batches sized for 1–10 GB datasets.
 - Update local deployment documentation and examples.
 
 P2/Optional:
@@ -77,9 +77,15 @@ Adopt a parallel implementation strategy: keep SQLite code intact and add Postgr
 
 ### Technical Requirements
 - PostgreSQL 14+.
-- Dependencies: `psycopg[binary,pool]>=3.2.0` (preferred) or `asyncpg`.
+- Dependencies: `psycopg[binary,pool]>=3.2.0` (selected driver for async access and pooling).
 - Required extensions: `uuid-ossp`, `pgcrypto` (if vault), `pg_trgm` (FTS).
 - Connection pooling settings configurable (min/max pool size, timeout, idle).
+- Testing: ≥95% coverage overall and 100% diff coverage with targeted integration tests for each backend combination (SQLite ↔ PostgreSQL) and migration paths.
+
+### Migration Constraints
+- Target datasets up to 10 GB with batch-based export/import and checksum verification.
+- Plan for <5 minutes of writable downtime during cutover, with read-only mode optional during backfill.
+- Provide rollback steps that restore SQLite settings and swap DSNs without requiring database restores.
 
 ## MARKET DEFINITION (for products or large features)
 Not applicable. This is an internal enhancement for local hosting.

@@ -27,6 +27,8 @@ Split persistence into parallel PostgreSQL implementations for local hosting whi
 
 #### Task Checklist
 
+- [ ] Task 1.0: Finalize `psycopg[binary,pool]` driver selection and document DSN requirements
+  - Dependencies: None
 - [ ] Task 1.1: Update config types and validators for `postgres` backend
   - Dependencies: None
 - [ ] Task 1.2: Add PostgreSQL DSN and pool configuration settings
@@ -80,12 +82,18 @@ Split persistence into parallel PostgreSQL implementations for local hosting whi
 
 - [ ] Task 4.1: Decide on vault migration scope
   - Dependencies: Milestone 3
-- [ ] Task 4.2: Implement SQLite to PostgreSQL migration tooling
+- [ ] Task 4.2: Implement SQLite to PostgreSQL migration tooling (export with checksums, batched imports, validation)
   - Dependencies: Milestone 3
-- [ ] Task 4.3: Add deployment automation (compose/manifests)
+- [ ] Task 4.3: Add deployment automation (compose/manifests) plus rollback runbooks
   - Dependencies: Task 4.2
 - [ ] Task 4.4: Update documentation and troubleshooting guides
   - Dependencies: Task 4.3
+
+## Testing Strategy
+
+- Backend switching: regression matrix across SQLite ↔ PostgreSQL for repository and checkpoints with data parity verification.
+- Performance: p95 latency and concurrency targets validated via load tests (100+ concurrent requests) using pooled connections.
+- Migration validation: export/import checksum verification and dry-run modes for SQLite → PostgreSQL transitions.
 
 ---
 

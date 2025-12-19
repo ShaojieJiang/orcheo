@@ -10,8 +10,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | --- | --- | --- | --- |
 | `ORCHEO_CHECKPOINT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by [config/loader.py](../src/orcheo/config/loader.py). |
 | `ORCHEO_SQLITE_PATH` | `~/.orcheo/checkpoints.sqlite` | Filesystem path (absolute or `~`-expanded) | Location of the SQLite checkpoints database when `sqlite` backend is active (see [config/defaults.py](../src/orcheo/config/defaults.py)). |
-| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when `ORCHEO_CHECKPOINT_BACKEND=postgres` (see [config/loader.py](../src/orcheo/config/loader.py)). |
-| `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite` or `inmemory` | Chooses the workflow repository implementation ([config/loader.py](../src/orcheo/config/loader.py)). |
+| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when `ORCHEO_CHECKPOINT_BACKEND=postgres` or `ORCHEO_REPOSITORY_BACKEND=postgres` (see [config/loader.py](../src/orcheo/config/loader.py)). |
+| `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation ([config/loader.py](../src/orcheo/config/loader.py)). |
 | `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file ([config/loader.py](../src/orcheo/config/loader.py)). |
 | `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence ([config/loader.py](../src/orcheo/config/loader.py) and [chatkit/server.py](../apps/backend/src/orcheo_backend/app/chatkit/server.py)). |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments and assets ([config/loader.py](../src/orcheo/config/loader.py)). |

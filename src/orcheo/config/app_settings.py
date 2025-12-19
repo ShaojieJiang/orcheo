@@ -103,8 +103,10 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["REPOSITORY_BACKEND"])
         )
-        if candidate not in {"inmemory", "sqlite"}:
-            msg = "ORCHEO_REPOSITORY_BACKEND must be either 'inmemory' or 'sqlite'."
+        if candidate not in {"inmemory", "sqlite", "postgres"}:
+            msg = (
+                "ORCHEO_REPOSITORY_BACKEND must be 'inmemory', 'sqlite', or 'postgres'."
+            )
             raise ValueError(msg)
         return cast(RepositoryBackend, candidate)
 
@@ -271,7 +273,11 @@ class AppSettings(BaseModel):
 
     @model_validator(mode="after")
     def _validate_postgres_requirements(self) -> AppSettings:
-        if self.checkpoint_backend == "postgres":
+        uses_postgres = {
+            self.checkpoint_backend,
+            self.repository_backend,
+        }
+        if "postgres" in uses_postgres:
             if not self.postgres_dsn:
                 msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
                 raise ValueError(msg)

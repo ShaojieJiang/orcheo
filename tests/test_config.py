@@ -81,6 +81,22 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
         config.get_settings(refresh=True)
 
 
+def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repository backends also require a DSN when Postgres is selected."""
+
+    monkeypatch.setenv("ORCHEO_REPOSITORY_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+
+    assert settings.repository_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
+
+
 def test_normalize_backend_none() -> None:
     """Explicit `None` backend values should fall back to defaults."""
 
