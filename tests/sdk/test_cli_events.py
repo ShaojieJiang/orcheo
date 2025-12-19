@@ -7,8 +7,8 @@ from types import SimpleNamespace
 def test_handle_status_update_error() -> None:
     """Test _handle_status_update with error status."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -23,8 +23,8 @@ def test_handle_status_update_error() -> None:
 def test_handle_status_update_error_no_detail() -> None:
     """Test _handle_status_update with error status but no error detail."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -39,8 +39,8 @@ def test_handle_status_update_error_no_detail() -> None:
 def test_handle_status_update_cancelled() -> None:
     """Test _handle_status_update with cancelled status."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -55,8 +55,8 @@ def test_handle_status_update_cancelled() -> None:
 def test_handle_status_update_cancelled_no_reason() -> None:
     """Test _handle_status_update with cancelled status but no reason."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -71,8 +71,8 @@ def test_handle_status_update_cancelled_no_reason() -> None:
 def test_handle_status_update_completed() -> None:
     """Test _handle_status_update with completed status."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -87,8 +87,8 @@ def test_handle_status_update_completed() -> None:
 def test_handle_status_update_other_status() -> None:
     """Test _handle_status_update with other status."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_status_update
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_status_update
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -103,8 +103,8 @@ def test_handle_status_update_other_status() -> None:
 def test_handle_node_event_on_chain_start() -> None:
     """Test _handle_node_event with on_chain_start event."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -119,8 +119,8 @@ def test_handle_node_event_on_chain_start() -> None:
 def test_handle_node_event_on_chain_end() -> None:
     """Test _handle_node_event with on_chain_end event."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -138,8 +138,8 @@ def test_handle_node_event_on_chain_end() -> None:
 def test_handle_node_event_on_chain_error() -> None:
     """Test _handle_node_event with on_chain_error event."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -158,8 +158,8 @@ def test_handle_node_event_on_chain_error() -> None:
 def test_handle_node_event_on_chain_error_no_payload() -> None:
     """Test _handle_node_event with on_chain_error event but no payload."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -174,8 +174,8 @@ def test_handle_node_event_on_chain_error_no_payload() -> None:
 def test_handle_node_event_other_event() -> None:
     """Test _handle_node_event with other event types."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -190,8 +190,8 @@ def test_handle_node_event_other_event() -> None:
 def test_handle_node_event_no_node() -> None:
     """Test _handle_node_event with no node field."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)
@@ -206,8 +206,8 @@ def test_handle_node_event_no_node() -> None:
 def test_handle_node_event_no_event() -> None:
     """Test _handle_node_event with no event field."""
     import io
-    from orcheo_sdk.cli.workflow import _handle_node_event
     from rich.console import Console
+    from orcheo_sdk.cli.workflow import _handle_node_event
 
     output = io.StringIO()
     console = Console(file=output, force_terminal=False, no_color=True, markup=False)

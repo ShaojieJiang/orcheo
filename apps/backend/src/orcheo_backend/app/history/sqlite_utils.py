@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS execution_history (
     execution_id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
     inputs TEXT NOT NULL,
+    runnable_config TEXT NOT NULL DEFAULT '{}',
+    tags TEXT NOT NULL DEFAULT '[]',
+    callbacks TEXT NOT NULL DEFAULT '[]',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    run_name TEXT,
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
@@ -37,6 +42,21 @@ CREATE TABLE IF NOT EXISTS execution_history_steps (
 );
 CREATE INDEX IF NOT EXISTS idx_history_steps_execution
     ON execution_history_steps(execution_id, step_index);
+CREATE TABLE IF NOT EXISTS agentensor_checkpoints (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    config_version INTEGER NOT NULL,
+    runnable_config TEXT NOT NULL,
+    metrics TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    artifact_url TEXT,
+    is_best INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workflow
+    ON agentensor_checkpoints(workflow_id, config_version);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_best
+    ON agentensor_checkpoints(workflow_id, is_best);
 """
 
 INSERT_EXECUTION_SQL = """
@@ -44,6 +64,11 @@ INSERT INTO execution_history (
     execution_id,
     workflow_id,
     inputs,
+    runnable_config,
+    tags,
+    callbacks,
+    metadata,
+    run_name,
     status,
     started_at,
     completed_at,
@@ -53,7 +78,7 @@ INSERT INTO execution_history (
     trace_completed_at,
     trace_last_span_at
 )
-VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
 """
 
 SELECT_CURRENT_STEP_INDEX_SQL = """
@@ -73,7 +98,8 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, inputs, status, started_at, completed_at, "
+    "SELECT execution_id, workflow_id, inputs, runnable_config, tags, callbacks, "
+    "metadata, run_name, status, started_at, completed_at, "
     "error, trace_id, trace_started_at, trace_completed_at, trace_last_span_at "
     "FROM execution_history WHERE workflow_id = ? ORDER BY started_at DESC"
 )
@@ -106,6 +132,17 @@ _TRACE_COLUMN_ALTERS: dict[str, str] = {
         "ALTER TABLE execution_history ADD COLUMN trace_last_span_at TEXT"
     ),
 }
+_OPTIONAL_COLUMN_ALTERS: dict[str, str] = {
+    "runnable_config": (
+        "ALTER TABLE execution_history ADD COLUMN runnable_config TEXT DEFAULT '{}'"
+    ),
+    "tags": "ALTER TABLE execution_history ADD COLUMN tags TEXT DEFAULT '[]'",
+    "callbacks": (
+        "ALTER TABLE execution_history ADD COLUMN callbacks TEXT DEFAULT '[]'"
+    ),
+    "metadata": ("ALTER TABLE execution_history ADD COLUMN metadata TEXT DEFAULT '{}'"),
+    "run_name": "ALTER TABLE execution_history ADD COLUMN run_name TEXT",
+}
 
 
 @asynccontextmanager
@@ -136,7 +173,8 @@ async def fetch_record_row(
     """Return the raw execution history row if present."""
     cursor = await conn.execute(
         """
-        SELECT execution_id, workflow_id, inputs, status, started_at,
+        SELECT execution_id, workflow_id, inputs, runnable_config, tags, callbacks,
+               metadata, run_name, status, started_at,
                completed_at, error, trace_id, trace_started_at,
                trace_completed_at, trace_last_span_at
           FROM execution_history
@@ -191,6 +229,11 @@ def row_to_record(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
         inputs=json.loads(row["inputs"]),
+        runnable_config=json.loads(row["runnable_config"]),
+        tags=json.loads(row["tags"]),
+        callbacks=json.loads(row["callbacks"]),
+        metadata=json.loads(row["metadata"]),
+        run_name=row["run_name"],
         status=row["status"],
         started_at=datetime.fromisoformat(row["started_at"]),
         completed_at=completed_at,
@@ -208,7 +251,8 @@ async def _ensure_trace_columns(conn: aiosqlite.Connection) -> None:
     cursor = await conn.execute("PRAGMA table_info(execution_history)")
     rows = await cursor.fetchall()
     existing = {row["name"] for row in rows}
-    for column, statement in _TRACE_COLUMN_ALTERS.items():
+    alters = {**_TRACE_COLUMN_ALTERS, **_OPTIONAL_COLUMN_ALTERS}
+    for column, statement in alters.items():
         if column not in existing:
             await conn.execute(statement)
 

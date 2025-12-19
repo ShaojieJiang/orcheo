@@ -3,8 +3,8 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
-from orcheo_sdk import OrcheoClient
 from typer.testing import CliRunner
+from orcheo_sdk import OrcheoClient
 
 
 @pytest.fixture()

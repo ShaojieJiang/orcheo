@@ -15,6 +15,7 @@ async def _stream_workflow_run(
     inputs: Mapping[str, Any],
     *,
     triggered_by: str | None = None,
+    runnable_config: Mapping[str, Any] | None = None,
 ) -> str:
     """Stream workflow execution via WebSocket and display node outputs."""
     import json
@@ -36,8 +37,82 @@ async def _stream_workflow_run(
     }
     if triggered_by is not None:
         payload["triggered_by"] = triggered_by
+    if runnable_config is not None:
+        payload["runnable_config"] = runnable_config
 
     state.console.print("[cyan]Starting workflow execution...[/cyan]")
+    state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
+
+    try:
+        async with websockets.connect(
+            websocket_url, open_timeout=5, close_timeout=5
+        ) as websocket:
+            await websocket.send(json.dumps(payload))
+            process_messages = getattr(
+                workflow_module,
+                "_process_stream_messages",
+                _process_stream_messages,
+            )
+            return await process_messages(state, websocket)
+    except (ConnectionRefusedError, OSError) as exc:
+        state.console.print(
+            "[red]Failed to connect to server.[/red]\n"
+            "[dim]Ensure the backend is running.[/dim]"
+        )
+        state.console.print(f"[dim]Error: {exc}[/dim]")
+        return "connection_error"
+    except getattr(workflow_module, "TimeoutError", TimeoutError):
+        state.console.print(
+            "[red]Timed out while connecting.[/red]\n"
+            "[dim]Retry once the server is reachable.[/dim]"
+        )
+        return "timeout"
+    except ws_exceptions.InvalidStatusCode as exc:  # type: ignore[attr-defined]
+        state.console.print(
+            f"[red]Server rejected connection (HTTP {exc.status_code}).[/red]\n"
+            "[dim]Verify the workflow ID and backend availability.[/dim]"
+        )
+        return f"http_{exc.status_code}"
+    except ws_exceptions.WebSocketException as exc:
+        state.console.print(f"[red]WebSocket error: {exc}[/red]")
+        return "websocket_error"
+
+
+async def _stream_workflow_evaluation(
+    state: CLIState,
+    workflow_id: str,
+    graph_config: dict[str, Any],
+    inputs: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+    *,
+    triggered_by: str | None = None,
+    runnable_config: Mapping[str, Any] | None = None,
+) -> str:
+    """Stream workflow evaluation via WebSocket."""
+    import json
+    import uuid
+    import websockets
+    from websockets import exceptions as ws_exceptions
+    from orcheo_sdk.cli import workflow as workflow_module
+
+    ws_base = state.client.base_url.replace("http://", "ws://").replace(
+        "https://", "wss://"
+    )
+    websocket_url = f"{ws_base}/ws/workflow/{workflow_id}"
+    execution_id = str(uuid.uuid4())
+    payload: dict[str, Any] = {
+        "type": "evaluate_workflow",
+        "graph_config": graph_config,
+        "inputs": dict(inputs),
+        "execution_id": execution_id,
+        "evaluation": evaluation,
+    }
+    if triggered_by is not None:
+        payload["triggered_by"] = triggered_by
+    if runnable_config is not None:
+        payload["runnable_config"] = runnable_config
+
+    state.console.print("[cyan]Starting workflow evaluation...[/cyan]")
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
 
     try:

@@ -53,7 +53,13 @@ async def test_create_workflow_run_success() -> None:
 
     class Repository:
         async def create_run(
-            self, wf_id, workflow_version_id, triggered_by, input_payload
+            self,
+            wf_id,
+            workflow_version_id,
+            triggered_by,
+            input_payload,
+            actor=None,
+            runnable_config=None,
         ):
             return WorkflowRun(
                 id=run_id,
@@ -85,7 +91,13 @@ async def test_create_workflow_run_workflow_not_found() -> None:
 
     class Repository:
         async def create_run(
-            self, wf_id, workflow_version_id, triggered_by, input_payload
+            self,
+            wf_id,
+            workflow_version_id,
+            triggered_by,
+            input_payload,
+            actor=None,
+            runnable_config=None,
         ):
             raise WorkflowNotFoundError("not found")
 
@@ -110,7 +122,13 @@ async def test_create_workflow_run_version_not_found() -> None:
 
     class Repository:
         async def create_run(
-            self, wf_id, workflow_version_id, triggered_by, input_payload
+            self,
+            wf_id,
+            workflow_version_id,
+            triggered_by,
+            input_payload,
+            actor=None,
+            runnable_config=None,
         ):
             raise WorkflowVersionNotFoundError("not found")
 
@@ -135,7 +153,13 @@ async def test_create_workflow_run_credential_health_error() -> None:
 
     class Repository:
         async def create_run(
-            self, wf_id, workflow_version_id, triggered_by, input_payload
+            self,
+            wf_id,
+            workflow_version_id,
+            triggered_by,
+            input_payload,
+            actor=None,
+            runnable_config=None,
         ):
             raise _health_error(wf_id)
 

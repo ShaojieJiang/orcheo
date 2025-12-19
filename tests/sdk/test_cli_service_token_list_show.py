@@ -3,8 +3,8 @@
 from __future__ import annotations
 import httpx
 import respx
-from orcheo_sdk.cli.main import app
 from typer.testing import CliRunner
+from orcheo_sdk.cli.main import app
 
 
 def test_token_list_empty(runner: CliRunner, env: dict[str, str]) -> None:

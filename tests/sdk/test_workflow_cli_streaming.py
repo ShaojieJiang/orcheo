@@ -79,6 +79,7 @@ async def test_stream_workflow_run_succeeds(
         {"nodes": []},
         {"input": "value"},
         triggered_by="cli-actor",
+        runnable_config={"priority": "high"},
     )
     assert result == "completed"
     assert connection.sent, "payload was not sent"
@@ -86,6 +87,7 @@ async def test_stream_workflow_run_succeeds(
     assert payload["type"] == "run_workflow"
     assert payload["inputs"] == {"input": "value"}
     assert payload["triggered_by"] == "cli-actor"
+    assert payload["runnable_config"] == {"priority": "high"}
 
 
 @pytest.mark.asyncio()
@@ -186,6 +188,166 @@ async def test_stream_workflow_run_handles_websocket_exception(
         state,
         "wf-1",
         {"cfg": True},
+        {},
+        triggered_by=None,
+    )
+    assert result == "websocket_error"
+    assert any("WebSocket error" in msg for msg in state.console.messages)
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_succeeds(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state()
+
+    class DummyConnection:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, message: str) -> None:
+            self.sent.append(message)
+
+    connection = DummyConnection()
+
+    async def fake_process(state_arg: CLIState, websocket: Any) -> str:
+        assert state_arg is state
+        assert websocket is connection
+        return "completed"
+
+    def fake_connect(*_: Any, **__: Any) -> DummyConnection:
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+        {"name": "agent"},
+        triggered_by="cli-actor",
+        runnable_config={"priority": "high"},
+    )
+    assert result == "completed"
+    assert connection.sent, "payload was not sent"
+    payload = json.loads(connection.sent[0])
+    assert payload["type"] == "evaluate_workflow"
+    assert payload["evaluation"] == {"name": "agent"}
+    assert payload["runnable_config"] == {"priority": "high"}
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_handles_connection_error(
+    fake_websockets: ModuleType,
+) -> None:
+    state = make_state()
+
+    def fake_connect(*_: Any, **__: Any) -> Any:
+        raise ConnectionRefusedError("no route")
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        {},
+        triggered_by=None,
+    )
+    assert result == "connection_error"
+    assert any("Failed to connect" in msg for msg in state.console.messages)
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_handles_timeout(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state()
+
+    class FakeTimeoutError(Exception):
+        pass
+
+    monkeypatch.setattr(
+        workflow_module, "TimeoutError", FakeTimeoutError, raising=False
+    )
+
+    def fake_connect(*_: Any, **__: Any) -> Any:
+        raise FakeTimeoutError()
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        {},
+        triggered_by=None,
+    )
+    assert result == "timeout"
+    assert any("Timed out" in msg for msg in state.console.messages)
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_handles_invalid_status(
+    fake_websockets: ModuleType,
+) -> None:
+    state = make_state()
+
+    invalid_status = cast(
+        type[Exception],
+        fake_websockets.exceptions.InvalidStatusCode,
+    )
+
+    def fake_connect(*_: Any, **__: Any) -> Any:
+        raise invalid_status(403)
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
+        {},
+        triggered_by=None,
+    )
+    assert result == "http_403"
+    assert any("Server rejected connection" in msg for msg in state.console.messages)
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_handles_websocket_exception(
+    fake_websockets: ModuleType,
+) -> None:
+    state = make_state()
+
+    ws_error = cast(
+        type[Exception],
+        fake_websockets.exceptions.WebSocketException,
+    )
+
+    def fake_connect(*_: Any, **__: Any) -> Any:
+        raise ws_error("crash")
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"cfg": True},
+        {},
         {},
         triggered_by=None,
     )

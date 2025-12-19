@@ -46,6 +46,11 @@ class SqliteRunHistoryStore:
         workflow_id: str,
         execution_id: str,
         inputs: Mapping[str, Any] | None = None,
+        runnable_config: Mapping[str, Any] | None = None,
+        tags: list[str] | None = None,
+        callbacks: list[Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
     ) -> RunHistoryRecord:
@@ -55,6 +60,33 @@ class SqliteRunHistoryStore:
             started_at = _utcnow()
             trace_started = trace_started_at or started_at
             payload = json.dumps(dict(inputs or {}))
+            config_payload_data = runnable_config
+            if runnable_config and hasattr(runnable_config, "model_dump"):
+                config_payload_data = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+            config_payload = json.dumps(dict(config_payload_data or {}))
+            tag_values = (
+                list(tags or config_payload_data.get("tags", []))
+                if isinstance(config_payload_data, Mapping)
+                else list(tags or [])
+            )
+            callback_values = (
+                list(callbacks or config_payload_data.get("callbacks", []))
+                if isinstance(config_payload_data, Mapping)
+                else list(callbacks or [])
+            )
+            metadata_values = (
+                dict(metadata or config_payload_data.get("metadata", {}))
+                if isinstance(config_payload_data, Mapping)
+                else dict(metadata or {})
+            )
+            run_identifier = run_name or (
+                config_payload_data.get("run_name")
+                if isinstance(config_payload_data, Mapping)
+                else None
+            )
+            tags_payload = json.dumps(tag_values)
+            callbacks_payload = json.dumps(callback_values)
+            metadata_payload = json.dumps(metadata_values)
             async with connect_sqlite(self._database_path) as conn:
                 try:
                     await conn.execute(
@@ -63,6 +95,11 @@ class SqliteRunHistoryStore:
                             execution_id,
                             workflow_id,
                             payload,
+                            config_payload,
+                            tags_payload,
+                            callbacks_payload,
+                            metadata_payload,
+                            run_identifier,
                             "running",
                             started_at.isoformat(),
                             trace_id,
@@ -75,17 +112,22 @@ class SqliteRunHistoryStore:
                 except aiosqlite.IntegrityError as exc:  # pragma: no cover - defensive
                     msg = f"History already exists for execution_id={execution_id}"
                     raise RunHistoryError(msg) from exc
-        return RunHistoryRecord(
-            workflow_id=workflow_id,
-            execution_id=execution_id,
-            inputs=json.loads(payload),
-            status="running",
-            started_at=started_at,
-            steps=[],
-            trace_id=trace_id,
-            trace_started_at=trace_started,
-            trace_last_span_at=trace_started,
-        )
+            return RunHistoryRecord(
+                workflow_id=workflow_id,
+                execution_id=execution_id,
+                inputs=json.loads(payload),
+                runnable_config=json.loads(config_payload),
+                tags=json.loads(tags_payload),
+                callbacks=json.loads(callbacks_payload),
+                metadata=json.loads(metadata_payload),
+                run_name=run_identifier,
+                status="running",
+                started_at=started_at,
+                steps=[],
+                trace_id=trace_id,
+                trace_started_at=trace_started,
+                trace_last_span_at=trace_started,
+            )
 
     async def append_step(
         self,

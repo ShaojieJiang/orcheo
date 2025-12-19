@@ -93,10 +93,28 @@ def _derive_child_span_id(execution_id: str, step_index: int, node_key: str) -> 
 
 def _build_root_span(record: RunHistoryRecord, span_id: str) -> TraceSpanResponse:
     status = _status_from_history(record)
-    attributes = {
+    attributes: dict[str, Any] = {
         "orcheo.execution.id": record.execution_id,
         "orcheo.workflow.id": record.workflow_id,
     }
+    if record.tags:
+        attributes["orcheo.execution.tags"] = list(record.tags)
+        attributes["orcheo.execution.tag_count"] = len(record.tags)
+    if record.run_name:
+        attributes["orcheo.execution.run_name"] = record.run_name
+    if record.metadata:
+        attributes["orcheo.execution.metadata_keys"] = sorted(record.metadata.keys())
+    if record.callbacks:
+        attributes["orcheo.execution.callbacks.count"] = len(record.callbacks)
+    recursion_limit = record.runnable_config.get("recursion_limit")
+    if recursion_limit is not None:
+        attributes["orcheo.execution.recursion_limit"] = recursion_limit
+    max_concurrency = record.runnable_config.get("max_concurrency")
+    if max_concurrency is not None:
+        attributes["orcheo.execution.max_concurrency"] = max_concurrency
+    prompts = record.runnable_config.get("prompts")
+    if isinstance(prompts, Mapping):
+        attributes["orcheo.execution.prompts.count"] = len(prompts)
     return TraceSpanResponse(
         span_id=span_id,
         parent_span_id=None,
@@ -209,7 +227,7 @@ def _collect_message_events(
         if key in payload:
             events.extend(_build_text_events("response", payload[key], default_time))
     messages = payload.get("messages")
-    if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes)):
+    if isinstance(messages, Sequence) and not isinstance(messages, str | bytes):
         for message in messages:
             if isinstance(message, Mapping):
                 role = str(message.get("role", "message"))
@@ -240,7 +258,7 @@ def _build_text_events(
                 attributes={key: _preview_text(val) for key, val in value.items()},
             )
         ]
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         return [
             TraceSpanEvent(
                 name=name,

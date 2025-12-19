@@ -5,8 +5,8 @@ UV_CACHE_DIR ?= .cache/uv
 UV_RUN = UV_CACHE_DIR=$(UV_CACHE_DIR) $(UV) run
 
 lint:
-	$(UV_RUN) ruff check src/orcheo packages/sdk/src apps/backend/src
-	$(UV_RUN) mypy src/orcheo packages/sdk/src apps/backend/src --install-types --non-interactive
+	$(UV_RUN) ruff check src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src
+	$(UV_RUN) mypy src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src --install-types --non-interactive
 	$(UV_RUN) ruff format . --check
 
 canvas-lint:

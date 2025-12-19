@@ -39,6 +39,32 @@ async def test_start_run_duplicate_execution_id_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_run_persists_runnable_config() -> None:
+    store = InMemoryRunHistoryStore()
+    runnable_config = {
+        "configurable": {"thread_id": "exec"},
+        "metadata": {"foo": "bar"},
+    }
+
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        inputs={"foo": "bar"},
+        runnable_config=runnable_config,
+        tags=["alpha"],
+        callbacks=[{"name": "cb"}],
+        metadata={"foo": "bar"},
+        run_name="demo",
+    )
+
+    history = await store.get_history("exec")
+    assert history.runnable_config["metadata"] == {"foo": "bar"}
+    assert history.tags == ["alpha"]
+    assert history.callbacks == [{"name": "cb"}]
+    assert history.run_name == "demo"
+
+
+@pytest.mark.asyncio
 async def test_mark_failed_returns_copy_and_persists() -> None:
     store = InMemoryRunHistoryStore()
     await store.start_run(workflow_id="wf", execution_id="exec")

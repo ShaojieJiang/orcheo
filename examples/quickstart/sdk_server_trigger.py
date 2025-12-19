@@ -13,13 +13,13 @@ from __future__ import annotations
 import asyncio
 import json
 import websockets
+from pydantic import BaseModel
+from websockets import exceptions as ws_exceptions
 from orcheo_sdk import (
     OrcheoClient,
     Workflow,
     WorkflowNode,
 )
-from pydantic import BaseModel
-from websockets import exceptions as ws_exceptions
 
 
 class PythonCodeConfig(BaseModel):

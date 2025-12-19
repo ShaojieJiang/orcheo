@@ -1,12 +1,16 @@
 """Shared dependency wiring for the FastAPI application."""
 
 from __future__ import annotations
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 from fastapi import Depends, Query
+from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.models import CredentialAccessContext
 from orcheo.vault import BaseCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo_backend.app.agentensor.checkpoint_store import (
+    InMemoryAgentensorCheckpointStore,
+)
 from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
 from orcheo_backend.app.providers import (
     create_repository,
@@ -18,6 +22,9 @@ from orcheo_backend.app.repository import WorkflowRepository
 
 _repository_ref: dict[str, WorkflowRepository] = {}
 _history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
+_checkpoint_store_ref: dict[str, object] = {
+    "store": InMemoryAgentensorCheckpointStore()
+}
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
 
@@ -69,6 +76,7 @@ def _create_repository(settings: object | None = None) -> WorkflowRepository:
         dynaconf,  # type: ignore[arg-type]
         credential_service,
         _history_store_ref,
+        _checkpoint_store_ref,
     )
     _repository_ref["repository"] = repository
     return repository
@@ -105,6 +113,23 @@ HistoryStoreDep = Annotated[RunHistoryStore, Depends(get_history_store)]
 def set_history_store(store: RunHistoryStore) -> None:
     """Override the history store singleton (primarily for testing)."""
     _history_store_ref["store"] = store
+    if store is None:  # pragma: no cover - defensive
+        _history_store_ref["store"] = InMemoryRunHistoryStore()
+
+
+def get_checkpoint_store() -> AgentensorCheckpointStore:
+    """Return the checkpoint store singleton."""
+    return cast(AgentensorCheckpointStore, _checkpoint_store_ref["store"])
+
+
+CheckpointStoreDep = Annotated[AgentensorCheckpointStore, Depends(get_checkpoint_store)]
+
+
+def set_checkpoint_store(store: AgentensorCheckpointStore | None) -> None:
+    """Override the checkpoint store singleton (primarily for testing)."""
+    _checkpoint_store_ref["store"] = cast(
+        object, store if store is not None else InMemoryAgentensorCheckpointStore()
+    )
 
 
 def get_credential_service() -> OAuthCredentialService | None:
@@ -158,12 +183,15 @@ __all__ = [
     "HistoryStoreDep",
     "RepositoryDep",
     "VaultDep",
+    "CheckpointStoreDep",
     "credential_context_from_workflow",
     "get_credential_service",
+    "get_checkpoint_store",
     "get_history_store",
     "get_repository",
     "get_vault",
     "set_credential_service",
+    "set_checkpoint_store",
     "set_history_store",
     "set_repository",
     "set_vault",

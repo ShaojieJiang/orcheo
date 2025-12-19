@@ -1,8 +1,8 @@
 """Tests for CLI edge commands."""
 
 from __future__ import annotations
-from orcheo_sdk.cli.main import app
 from typer.testing import CliRunner
+from orcheo_sdk.cli.main import app
 
 
 def test_edge_list_shows_registered_edges(

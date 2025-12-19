@@ -85,15 +85,47 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         triggered_by: str,
         input_payload: Mapping[str, Any],
         actor: str | None,
+        runnable_config: Mapping[str, Any] | None = None,
     ) -> WorkflowRun:
         version = await self._get_version_locked(workflow_version_id)
         if version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
 
+        config_payload: dict[str, Any] = {}
+        if runnable_config:
+            if hasattr(runnable_config, "model_dump"):
+                config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+            elif isinstance(runnable_config, Mapping):  # pragma: no branch
+                config_payload = dict(runnable_config)
+        tags = (
+            list(config_payload.get("tags", []))
+            if isinstance(config_payload, dict)
+            else []
+        )
+        callbacks = (
+            list(config_payload.get("callbacks", []))
+            if isinstance(config_payload, dict)
+            else []
+        )
+        metadata = (
+            dict(config_payload.get("metadata", {}))
+            if isinstance(config_payload, Mapping)
+            else {}
+        )
+        run_name = (
+            config_payload.get("run_name")
+            if isinstance(config_payload, Mapping)
+            else None
+        )
         run = WorkflowRun(
             workflow_version_id=workflow_version_id,
             triggered_by=triggered_by,
             input_payload=dict(input_payload),
+            runnable_config=config_payload if isinstance(config_payload, dict) else {},
+            tags=tags,
+            callbacks=callbacks,
+            metadata=metadata,
+            run_name=run_name,
         )
         run.record_event(actor=actor or triggered_by, action="run_created")
 

@@ -62,6 +62,28 @@ async def test_sqlite_store_records_trace_metadata(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sqlite_store_persists_runnable_config(tmp_path: Path) -> None:
+    db_path = tmp_path / "history-config.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        runnable_config={"metadata": {"foo": "bar"}},
+        tags=["alpha"],
+        callbacks=[{"name": "cb"}],
+        metadata={"foo": "bar"},
+        run_name="demo",
+    )
+
+    history = await store.get_history("exec")
+    assert history.runnable_config["metadata"] == {"foo": "bar"}
+    assert history.tags == ["alpha"]
+    assert history.callbacks == [{"name": "cb"}]
+    assert history.metadata == {"foo": "bar"}
+    assert history.run_name == "demo"
+
+
+@pytest.mark.asyncio
 async def test_sqlite_store_duplicate_execution_id_raises(
     tmp_path: Path,
 ) -> None:

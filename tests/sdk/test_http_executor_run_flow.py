@@ -1,11 +1,12 @@
 """Integration-style tests for triggering workflow runs via the HTTP executor."""
 
 from __future__ import annotations
+import json
 import httpx
 from fastapi.testclient import TestClient
-from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
 
 
 def test_http_executor_triggers_run_against_backend() -> None:
@@ -84,3 +85,29 @@ def _dispatch_to_app(api_client: TestClient, request: httpx.Request) -> httpx.Re
         headers=response.headers,
         content=response.content,
     )
+
+
+def test_http_executor_includes_runnable_config() -> None:
+    sdk_client = OrcheoClient(base_url="http://testserver")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["runnable_config"] == {"mode": "fast"}
+        return httpx.Response(201, json={"status": "pending"})
+
+    transport = httpx.MockTransport(handler)
+    executor = HttpWorkflowExecutor(
+        client=sdk_client,
+        auth_token="token-123",
+        transport=transport,
+        max_retries=0,
+    )
+
+    payload = executor.trigger_run(
+        "wf-1",
+        workflow_version_id="ver-1",
+        triggered_by="runner",
+        runnable_config={"mode": "fast"},
+    )
+
+    assert payload["status"] == "pending"
