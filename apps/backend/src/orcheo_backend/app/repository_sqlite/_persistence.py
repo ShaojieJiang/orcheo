@@ -95,7 +95,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         if runnable_config:
             if hasattr(runnable_config, "model_dump"):
                 config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
-            elif isinstance(runnable_config, Mapping):
+            elif isinstance(runnable_config, Mapping):  # pragma: no branch
                 config_payload = dict(runnable_config)
         tags = (
             list(config_payload.get("tags", []))

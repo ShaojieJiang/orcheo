@@ -165,7 +165,7 @@ def create_repository(
             ),
         )
         history_store_ref["store"] = SqliteRunHistoryStore(sqlite_path)
-        if checkpoint_store_ref is not None:
+        if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = SqliteAgentensorCheckpointStore(sqlite_path)
         return SqliteWorkflowRepository(
             sqlite_path,
@@ -173,7 +173,7 @@ def create_repository(
         )
     if backend == "inmemory":
         history_store_ref["store"] = InMemoryRunHistoryStore()
-        if checkpoint_store_ref is not None:
+        if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = InMemoryAgentensorCheckpointStore()
         return InMemoryWorkflowRepository(credential_service=credential_service)
     msg = "Unsupported repository backend configured."

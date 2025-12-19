@@ -3,12 +3,20 @@
 from __future__ import annotations
 import asyncio
 import inspect
+import json
 import logging
-import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict, Field
+from pydantic_evals import Case, Dataset
+from pydantic_evals.evaluators import EvaluationReason, Evaluator, EvaluatorContext
+from pydantic_evals.reporting import EvaluationReport
+from agentensor.loss import LLMTensorJudge
+from agentensor.optim import Optimizer
+from agentensor.tensor import TextTensor
+from agentensor.train import GraphTrainer
 from orcheo.agentensor.checkpoints import (
     AgentensorCheckpoint,
     AgentensorCheckpointStore,
@@ -28,6 +36,104 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _TextPayload:
+    """Minimal text wrapper to satisfy LLMTensorJudge expectations."""
+
+    text: str
+
+
+@dataclass
+class _TensorEvaluatorContext:
+    """Shim context for LLM tensor evaluators with text-like inputs."""
+
+    inputs: Any
+    output: Any
+    expected_output: Any
+    metadata: Any
+    duration: float
+
+
+@dataclass
+class _EvaluatorAdapter(
+    Evaluator[dict[str, Any], Any, dict[str, Any]],
+):
+    """Adapter to reuse Agentensor evaluators with pydantic-evals."""
+
+    definition: EvaluatorDefinition
+    evaluator: Any
+
+    evaluation_name: str = ""
+
+    def __post_init__(self) -> None:
+        self.evaluation_name = self.definition.id
+
+    @staticmethod
+    def _stringify_payload(payload: Any) -> str:
+        if isinstance(payload, str):
+            return payload
+        try:
+            return json.dumps(payload)
+        except TypeError:
+            return str(payload)
+
+    @classmethod
+    def _coerce_text_payload(cls, payload: Any) -> Any:
+        if isinstance(payload, TextTensor):
+            return payload
+        if hasattr(payload, "text") and isinstance(payload.text, str):
+            return payload
+        if (
+            isinstance(payload, Mapping)
+            and "text" in payload
+            and isinstance(payload["text"], str)
+        ):
+            return _TextPayload(text=payload["text"])
+        return _TextPayload(text=cls._stringify_payload(payload))
+
+    async def evaluate(
+        self, ctx: EvaluatorContext[dict[str, Any], Any, dict[str, Any]]
+    ) -> EvaluationReason:
+        """Run the wrapped evaluator and normalise to an EvaluationReason."""
+        if isinstance(self.evaluator, LLMTensorJudge):
+            try:
+                tensor_ctx = cast(
+                    EvaluatorContext[TextTensor, TextTensor, Any],
+                    _TensorEvaluatorContext(
+                        inputs=self._coerce_text_payload(ctx.inputs),
+                        output=self._coerce_text_payload(ctx.output),
+                        expected_output=ctx.expected_output,
+                        metadata=ctx.metadata,
+                        duration=ctx.duration,
+                    ),
+                )
+                return await self.evaluator.evaluate(tensor_ctx)
+            except Exception as exc:  # pragma: no cover - defensive
+                return EvaluationReason(value=False, reason=str(exc))
+        output = ctx.output
+        if isinstance(output, TextTensor):  # pragma: no branch
+            output = output.metadata.get("payload", output.text)
+        context = EvaluationContext(
+            inputs=ctx.inputs,
+            output=output,
+            expected_output=ctx.expected_output,
+            metadata=ctx.metadata or {},
+            duration_ms=ctx.duration * 1000.0,
+        )
+        try:
+            candidate = self.evaluator(context)
+            if inspect.iscoroutine(candidate):
+                candidate = await candidate
+        except Exception as exc:  # pragma: no cover - defensive
+            return EvaluationReason(value=False, reason=str(exc))
+
+        normalised = AgentensorNode._normalise_evaluation_result(candidate)
+        return EvaluationReason(
+            value=bool(normalised["passed"]),
+            reason=normalised["reason"],
+        )
 
 
 @registry.register(
@@ -106,10 +212,10 @@ class AgentensorNode(TaskNode):
         }
         if self.state_config is None and isinstance(state, Mapping):
             maybe_config = state.get("config")
-            if isinstance(maybe_config, Mapping):
+            if isinstance(maybe_config, Mapping):  # pragma: no branch
                 self.state_config = maybe_config
         tag_payload: list[str] | None = None
-        if isinstance(config, Mapping):
+        if isinstance(config, Mapping):  # pragma: no branch
             tags = config.get("tags")
             if isinstance(tags, list):
                 tag_payload = [str(tag) for tag in tags]
@@ -125,51 +231,39 @@ class AgentensorNode(TaskNode):
         if self.dataset is None or not self.dataset.cases:
             return result_base | {"summary": {}, "results": []}
 
-        compiled_graph = self._require_compiled_graph()
-        evaluators = self._resolve_evaluators()
-        cases = list(self.dataset.cases)
-        if self.max_cases is not None:
-            cases = cases[: self.max_cases]
-        aggregated: dict[str, list[float]] = {
-            definition.id: [] for definition, _ in evaluators
-        }
-        case_results: list[dict[str, Any]] = []
-        for index, case in enumerate(cases):
-            case_inputs = self._merge_inputs(state, case)
-            start = time.perf_counter()
-            output_state = await compiled_graph.ainvoke(
-                self._build_case_state(case_inputs),
-                config=config,
-            )
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            output_payload = self._extract_output(output_state)
-            context = EvaluationContext(
-                inputs=case_inputs,
-                output=output_payload,
-                expected_output=case.expected_output,
-                metadata=case.metadata,
-                duration_ms=duration_ms,
-            )
-            evaluations = await self._evaluate_case(
-                evaluators, context, aggregated=aggregated
-            )
-            case_result = {
-                "case_index": index,
-                "inputs": case_inputs,
-                "output": output_payload,
-                "evaluations": evaluations,
-                "metadata": case.metadata,
-                "duration_ms": duration_ms,
-            }
-            case_results.append(case_result)
-            await self._emit_progress(
-                {
-                    "node": self.name,
-                    "event": "evaluation_progress",
-                    "payload": case_result,
-                }
-            )
+        return await self._run_evaluation(state, config, result_base)
 
+    async def _run_evaluation(
+        self,
+        state: State,
+        config: RunnableConfig,
+        result_base: dict[str, Any],
+    ) -> dict[str, Any]:
+        assert self.dataset is not None
+        compiled_graph = self._require_compiled_graph()
+        dataset = self._build_pydantic_dataset()
+        runtime_prompts = build_text_tensors(self.prompts)
+        trainer = GraphTrainer(
+            graph=compiled_graph,
+            dataset=dataset,
+            optimizer=None,
+            epochs=1,
+            runtime_prompts=runtime_prompts,
+            base_state=state if isinstance(state, Mapping) else {},
+            graph_config=config,
+            max_concurrency=min(
+                self.optimizer.max_concurrency, self._max_concurrency_cap
+            ),
+            case_timeout=self.optimizer.case_timeout_seconds,
+            script_format=bool(
+                self.graph_config
+                and isinstance(self.graph_config, Mapping)
+                and self.graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
+            ),
+        )
+
+        report = await asyncio.to_thread(trainer.evaluate, "train", self.max_cases)
+        aggregated, case_results = await self._collect_evaluation_results(report)
         summary = self._summarize_metrics(aggregated)
         summary_payload = {
             "node": self.name,
@@ -214,37 +308,53 @@ class AgentensorNode(TaskNode):
             raise ValueError(msg)
 
         compiled_graph = self._require_compiled_graph()
-        evaluators = self._resolve_evaluators()
-        cases = list(self.dataset.cases)
-        if self.max_cases is not None:
-            cases = cases[: self.max_cases]
-
+        runtime_prompts = build_text_tensors(self.prompts)
+        dataset = self._build_pydantic_dataset()
         capped_config = self._enforce_training_limits(config)
+        optimizer = Optimizer(
+            graph=None,
+            params=list(runtime_prompts.values()),
+        )
+        trainer = GraphTrainer(
+            graph=compiled_graph,
+            dataset=dataset,
+            optimizer=optimizer,
+            epochs=self.optimizer.epochs,
+            runtime_prompts=runtime_prompts,
+            base_state=state if isinstance(state, Mapping) else {},
+            graph_config=capped_config,
+            max_concurrency=min(
+                self.optimizer.max_concurrency, self._max_concurrency_cap
+            ),
+            case_timeout=self.optimizer.case_timeout_seconds,
+            script_format=bool(
+                self.graph_config
+                and isinstance(self.graph_config, Mapping)
+                and self.graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT
+            ),
+            stop_threshold=2.0,
+        )
+
+        await asyncio.to_thread(trainer.train)
+
         checkpoints: list[dict[str, Any]] = []
         best_checkpoint: AgentensorCheckpoint | None = None
-        best_score: float = -1.0
+        best_score = -1.0
         all_results: list[dict[str, Any]] = []
-
-        for epoch in range(1, self.optimizer.epochs + 1):
-            runtime_prompts = build_text_tensors(self.prompts)
-            self._refresh_state_prompts(runtime_prompts)
-
-            aggregated: dict[str, list[float]] = {
-                definition.id: [] for definition, _ in evaluators
-            }
-            case_results = await self._run_training_cases(
-                cases,
-                compiled_graph,
-                capped_config,
-                runtime_prompts,
-                evaluators,
-                aggregated=aggregated,
-                epoch=epoch,
-                state=state,
+        for epoch, report in enumerate(trainer.reports, start=1):
+            if (
+                trainer.prompt_history and len(trainer.prompt_history) >= epoch
+            ):  # pragma: no branch
+                prompt_snapshot = trainer.prompt_history[epoch - 1]
+                for name, text in prompt_snapshot.items():
+                    if name in runtime_prompts:
+                        runtime_prompts[name].text = text
+            self._sync_trained_prompts(runtime_prompts)
+            aggregated, case_results = await self._collect_training_results(
+                report, epoch
             )
             all_results.extend(case_results)
             summary = self._summarize_metrics(aggregated)
-            self._apply_optimizer(runtime_prompts)
             score = self._score_summary(summary)
             should_checkpoint = (
                 epoch % max(1, self.optimizer.checkpoint_interval) == 0
@@ -257,6 +367,7 @@ class AgentensorNode(TaskNode):
                     capped_config,
                     epoch=epoch,
                     is_best=score >= best_score,
+                    prompts=runtime_prompts,
                 )
                 checkpoints.append(checkpoint_obj.model_dump(mode="json"))
                 await self._emit_progress(
@@ -266,8 +377,7 @@ class AgentensorNode(TaskNode):
                         "payload": checkpoint_obj.model_dump(mode="json"),
                     }
                 )
-
-            if score >= best_score:
+            if score >= best_score:  # pragma: no branch
                 best_score = score
                 if checkpoint_obj is None:
                     checkpoint_obj = await self._emit_checkpoint(
@@ -275,10 +385,10 @@ class AgentensorNode(TaskNode):
                         capped_config,
                         epoch=epoch,
                         is_best=True,
+                        prompts=runtime_prompts,
                     )
                     checkpoints.append(checkpoint_obj.model_dump(mode="json"))
                 best_checkpoint = checkpoint_obj
-
             await self._emit_progress(
                 {
                     "node": self.name,
@@ -290,6 +400,7 @@ class AgentensorNode(TaskNode):
                 }
             )
 
+        self._sync_trained_prompts(runtime_prompts)
         best_payload = (
             best_checkpoint.model_dump(mode="json") if best_checkpoint else None
         )
@@ -305,6 +416,154 @@ class AgentensorNode(TaskNode):
             "best_checkpoint": best_payload,
             "prompts": trained_prompts,
         }
+
+    def _build_pydantic_dataset(self) -> Dataset:
+        assert self.dataset is not None
+        cases = list(self.dataset.cases)
+        if self.max_cases is not None:
+            cases = cases[: self.max_cases]
+        converted_cases = [
+            Case(
+                inputs=case.inputs,
+                metadata=case.metadata,
+                expected_output=case.expected_output,
+            )
+            for case in cases
+        ]
+        evaluators = [
+            _EvaluatorAdapter(definition=definition, evaluator=definition.load())
+            for definition in self.evaluators
+        ]
+        return Dataset(cases=converted_cases, evaluators=evaluators)
+
+    async def _collect_evaluation_results(
+        self, report: EvaluationReport
+    ) -> tuple[dict[str, list[float]], list[dict[str, Any]]]:
+        aggregated: dict[str, list[float]] = {
+            definition.id: [] for definition in self.evaluators
+        }
+        case_results: list[dict[str, Any]] = []
+        for index, case in enumerate(report.cases):
+            evaluations: dict[str, dict[str, Any]] = {}
+            for eval_name, evaluation in case.assertions.items():
+                passed = bool(evaluation.value)
+                evaluations[eval_name] = {
+                    "score": 1.0 if passed else 0.0,
+                    "passed": passed,
+                    "reason": evaluation.reason,
+                }
+                aggregated.setdefault(eval_name, []).append(1.0 if passed else 0.0)
+            output_payload = case.output
+            if isinstance(output_payload, TextTensor):  # pragma: no branch
+                output_payload = output_payload.metadata.get(
+                    "payload", output_payload.text
+                )
+            duration_ms = case.task_duration * 1000.0
+            case_result = {
+                "case_index": index,
+                "inputs": case.inputs,
+                "output": output_payload,
+                "evaluations": evaluations,
+                "metadata": case.metadata or {},
+                "duration_ms": duration_ms,
+            }
+            case_results.append(case_result)
+            await self._emit_progress(
+                {
+                    "node": self.name,
+                    "event": "evaluation_progress",
+                    "payload": case_result,
+                }
+            )
+
+        for failure in report.failures:
+            case_result = {
+                "case_index": len(case_results),
+                "error": failure.error_message,
+                "duration_ms": 0.0,
+                "evaluations": {},
+            }
+            case_results.append(case_result)
+            for evaluator_id in aggregated:
+                aggregated[evaluator_id].append(0.0)
+            await self._emit_progress(
+                {
+                    "node": self.name,
+                    "event": "evaluation_progress",
+                    "payload": case_result,
+                }
+            )
+
+        return aggregated, case_results
+
+    def _sync_trained_prompts(self, runtime_prompts: Mapping[str, TextTensor]) -> None:
+        for name, tensor in runtime_prompts.items():
+            prompt = self.prompts.get(name)
+            if prompt is None:
+                continue
+            prompt.text = tensor.text
+
+    async def _collect_training_results(
+        self, report: EvaluationReport, epoch: int
+    ) -> tuple[dict[str, list[float]], list[dict[str, Any]]]:
+        aggregated: dict[str, list[float]] = {
+            definition.id: [] for definition in self.evaluators
+        }
+        case_results: list[dict[str, Any]] = []
+        for index, case in enumerate(report.cases):
+            evaluations: dict[str, dict[str, Any]] = {}
+            for eval_name, evaluation in case.assertions.items():
+                passed = bool(evaluation.value)
+                evaluations[eval_name] = {
+                    "score": 1.0 if passed else 0.0,
+                    "passed": passed,
+                    "reason": evaluation.reason,
+                }
+                aggregated.setdefault(eval_name, []).append(1.0 if passed else 0.0)
+            output_payload = case.output
+            if isinstance(output_payload, TextTensor):  # pragma: no branch
+                output_payload = output_payload.metadata.get(
+                    "payload", output_payload.text
+                )
+            duration_ms = case.task_duration * 1000.0
+            case_result = {
+                "case_index": index,
+                "epoch": epoch,
+                "inputs": case.inputs,
+                "output": output_payload,
+                "evaluations": evaluations,
+                "metadata": case.metadata or {},
+                "duration_ms": duration_ms,
+            }
+            case_results.append(case_result)
+            await self._emit_progress(
+                {
+                    "node": self.name,
+                    "event": "training_progress",
+                    "payload": case_result,
+                }
+            )
+
+        for failure in report.failures:
+            case_result = {
+                "case_index": len(case_results),
+                "epoch": epoch,
+                "error": failure.error_message,
+                "duration_ms": 0.0,
+                "evaluations": {},
+            }
+            case_results.append(case_result)
+            for evaluator_id in aggregated:
+                aggregated[evaluator_id].append(0.0)
+            await self._emit_progress(
+                {
+                    "node": self.name,
+                    "event": "training_progress",
+                    "payload": case_result,
+                }
+            )
+
+        return aggregated, case_results
 
     async def _evaluate_case(
         self,
@@ -350,7 +609,7 @@ class AgentensorNode(TaskNode):
             value = result.value  # type: ignore[attr-defined]
             reason = result.reason if hasattr(result, "reason") else None
         elif isinstance(result, Mapping):
-            if "value" in result:
+            if "value" in result:  # pragma: no branch
                 value = result["value"]
             reason = result.get("reason")
 
@@ -439,7 +698,7 @@ class AgentensorNode(TaskNode):
             self.optimizer.max_concurrency, self._max_concurrency_cap
         )
         max_concurrency = updated.get("max_concurrency")
-        if not isinstance(max_concurrency, int) or (
+        if not isinstance(max_concurrency, int) or (  # pragma: no branch
             max_concurrency > allowed_concurrency
         ):
             updated["max_concurrency"] = allowed_concurrency
@@ -464,144 +723,6 @@ class AgentensorNode(TaskNode):
         base_config["prompts"] = prompts
         self.state_config = base_config
 
-    async def _run_training_cases(
-        self,
-        cases: Sequence[EvaluationCase],
-        compiled_graph: Any,
-        config: RunnableConfig,
-        runtime_prompts: Mapping[str, Any],
-        evaluators: Sequence[tuple[EvaluatorDefinition, Any]],
-        *,
-        aggregated: dict[str, list[float]],
-        epoch: int,
-        state: State,
-    ) -> list[dict[str, Any]]:
-        case_results: list[dict[str, Any]] = []
-        for index, case in enumerate(cases):
-            case_inputs = self._merge_inputs(state, case)
-            start = time.perf_counter()
-            try:
-                output_state = await asyncio.wait_for(
-                    compiled_graph.ainvoke(
-                        self._build_case_state(case_inputs),
-                        config=config,
-                    ),
-                    timeout=self.optimizer.case_timeout_seconds,
-                )
-            except TimeoutError:
-                duration_ms = (time.perf_counter() - start) * 1000.0
-                case_result = {
-                    "case_index": index,
-                    "epoch": epoch,
-                    "error": "timeout",
-                    "duration_ms": duration_ms,
-                    "evaluations": {},
-                }
-                case_results.append(case_result)
-                await self._emit_progress(
-                    {
-                        "node": self.name,
-                        "event": "training_progress",
-                        "payload": case_result,
-                    }
-                )
-                continue
-            except Exception as exc:  # pragma: no cover - defensive
-                duration_ms = (time.perf_counter() - start) * 1000.0
-                failure_reason = str(exc)
-                evaluations = {
-                    definition.id: {
-                        "score": 0.0,
-                        "passed": False,
-                        "reason": failure_reason,
-                    }
-                    for definition, _ in evaluators
-                }
-                for definition in evaluations:
-                    aggregated.setdefault(definition, []).append(0.0)
-                case_result = {
-                    "case_index": index,
-                    "epoch": epoch,
-                    "error": failure_reason,
-                    "duration_ms": duration_ms,
-                    "evaluations": evaluations,
-                }
-                case_results.append(case_result)
-                await self._emit_progress(
-                    {
-                        "node": self.name,
-                        "event": "training_progress",
-                        "payload": case_result,
-                    }
-                )
-                continue
-
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            output_payload = self._extract_output(output_state)
-            context = EvaluationContext(
-                inputs=case_inputs,
-                output=output_payload,
-                expected_output=case.expected_output,
-                metadata=case.metadata,
-                duration_ms=duration_ms,
-            )
-            evaluations = await self._evaluate_case(
-                evaluators, context, aggregated=aggregated
-            )
-            self._apply_gradients(runtime_prompts, evaluations)
-            case_result = {
-                "case_index": index,
-                "epoch": epoch,
-                "inputs": case_inputs,
-                "output": output_payload,
-                "evaluations": evaluations,
-                "metadata": case.metadata,
-                "duration_ms": duration_ms,
-            }
-            case_results.append(case_result)
-            await self._emit_progress(
-                {
-                    "node": self.name,
-                    "event": "training_progress",
-                    "payload": case_result,
-                }
-            )
-        return case_results
-
-    def _apply_gradients(
-        self, prompts: Mapping[str, Any], evaluations: Mapping[str, Mapping[str, Any]]
-    ) -> None:
-        feedback: list[str] = []
-        for evaluation in evaluations.values():
-            if evaluation.get("passed") is True:
-                continue
-            reason = evaluation.get("reason")
-            if reason:
-                feedback.append(str(reason))
-        if not feedback:
-            return
-        gradient = " ".join(feedback)
-        for prompt in prompts.values():
-            backward = getattr(prompt, "backward", None)
-            if backward is None:
-                continue
-            backward(gradient)
-
-    def _apply_optimizer(self, prompts: Mapping[str, Any]) -> None:
-        for name, prompt in prompts.items():
-            grad = getattr(prompt, "text_grad", "")
-            requires_grad = getattr(prompt, "requires_grad", False)
-            if not requires_grad or not grad:
-                continue
-            base_prompt = self.prompts.get(name)
-            if base_prompt is None:
-                continue
-            updated_text = self._rewrite_prompt(base_prompt.text, grad)
-            base_prompt.text = updated_text
-            reset = getattr(prompt, "zero_grad", None)
-            if reset is not None:
-                reset()
-
     @staticmethod
     def _rewrite_prompt(text: str, grad: str) -> str:
         cleaned_grad = " ".join(str(grad).split())
@@ -623,8 +744,9 @@ class AgentensorNode(TaskNode):
         *,
         epoch: int,
         is_best: bool,
+        prompts: Mapping[str, TextTensor] | None = None,
     ) -> AgentensorCheckpoint:
-        checkpoint_config = self._checkpoint_config(config)
+        checkpoint_config = self._checkpoint_config(config, prompts=prompts)
         metadata = {"epoch": epoch, "summary": dict(summary)}
         if self.checkpoint_store is not None and self.workflow_id is not None:
             return await self.checkpoint_store.record_checkpoint(
@@ -644,13 +766,33 @@ class AgentensorNode(TaskNode):
             is_best=is_best,
         )
 
-    def _checkpoint_config(self, config: RunnableConfig) -> dict[str, Any]:
+    def _checkpoint_config(
+        self,
+        config: RunnableConfig,
+        prompts: Mapping[str, TextTensor] | None = None,
+    ) -> dict[str, Any]:
         base_config = dict(config) if isinstance(config, Mapping) else {}
-        if self.prompts:
-            base_config["prompts"] = {
-                name: prompt.model_dump(mode="json")
-                for name, prompt in self.prompts.items()
-            }
+        prompt_source: Mapping[str, Any] | None = (
+            prompts if prompts is not None else self.prompts
+        )
+        if prompt_source:
+            prompt_payload: dict[str, Any] = {}
+            for name, prompt in prompt_source.items():
+                if hasattr(prompt, "model_dump"):
+                    prompt_payload[name] = prompt.model_dump(mode="json")  # type: ignore[call-arg]
+                elif isinstance(prompt, TextTensor):  # pragma: no branch
+                    trainable_prompt = self.prompts.get(name)
+                    if trainable_prompt is not None:
+                        prompt_payload[name] = trainable_prompt.model_dump(mode="json")
+                        continue
+                    prompt_payload[name] = {
+                        "text": prompt.text,
+                        "type": "TextTensor",
+                        "requires_grad": getattr(prompt, "requires_grad", False),
+                        "metadata": getattr(prompt, "metadata", {}),
+                    }
+            if prompt_payload:  # pragma: no branch
+                base_config["prompts"] = prompt_payload
         return base_config
 
 

@@ -11,6 +11,7 @@ from orcheo_sdk.cli.workflow import (
     _strip_main_block,
     _validate_local_path,
 )
+from orcheo_sdk.cli.workflow.inputs import _resolve_runnable_config
 
 
 def test_load_inputs_from_path_blocks_traversal(
@@ -37,6 +38,18 @@ def test_load_inputs_from_path_allows_relative_inside_cwd(
     payload = _load_inputs_from_path("inputs.json")
 
     assert payload == {"value": 1}
+
+
+def test_resolve_runnable_config_returns_none() -> None:
+    assert _resolve_runnable_config(None, None) is None
+
+
+def test_resolve_runnable_config_rejects_non_mapping_file(tmp_path: Path) -> None:
+    payload_file = tmp_path / "config.json"
+    payload_file.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(CLIError, match="Runnable config payload must be a JSON object"):
+        _resolve_runnable_config(None, str(payload_file))
 
 
 def test_validate_local_path_requires_existing_parent(

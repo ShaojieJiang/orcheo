@@ -14,6 +14,7 @@ class TrainablePrompt(BaseModel):
     text: str
     requires_grad: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
     type: Literal["TextTensor"] = "TextTensor"
 
     def to_tensor(
@@ -21,12 +22,13 @@ class TrainablePrompt(BaseModel):
         model: str | BaseChatModel | None = None,
     ) -> TextTensor:
         """Return a concrete ``TextTensor`` for runtime consumption."""
-        target_model = model if model is not None else "gpt-4o-mini"
+        target_model = model if model is not None else "openai:gpt-4o-mini"
         return TextTensor(
             text=self.text,
             requires_grad=self.requires_grad,
             metadata=dict(self.metadata),
             model=target_model,
+            model_kwargs=dict(self.model_kwargs),
         )
 
 
