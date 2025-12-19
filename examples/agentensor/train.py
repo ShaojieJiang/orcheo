@@ -5,13 +5,10 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from pydantic_evals.evaluators.common import LLMJudge
-from pydantic_evals.evaluators.llm_as_a_judge import judge_input_output, judge_output
+from agentensor.loss import LLMTensorJudge
 from orcheo.agentensor.evaluation import (
     EvaluationCase,
-    EvaluationContext,
     EvaluationDataset,
     EvaluatorDefinition,
 )
@@ -19,66 +16,36 @@ from orcheo.agentensor.prompts import TrainablePrompt
 from orcheo.agentensor.training import OptimizerConfig, TrainingRequest
 from orcheo.graph.state import State
 from orcheo.nodes.agentensor import AgentensorNode
-from orcheo.nodes.base import TaskNode
+from orcheo.nodes.ai import AgentNode
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
-NODE_NAME = "prompt_echo"
-
-
-class PromptEchoNode(TaskNode):
-    """Echo the configured prompt alongside the user input."""
-
-    prompt_text: TrainablePrompt | str
-    input_text: str
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the combined prompt and input text."""
-        prompt = self.prompt_text
-        prompt_text = (
-            prompt.text if isinstance(prompt, TrainablePrompt) else str(prompt)
-        )
-        reply = f"{prompt_text} {self.input_text}".strip()
-        return {"reply": reply}
+AGENT_NODE_NAME = "agent"
 
 
 @dataclass
-class ChineseLanguageJudge(LLMJudge):
+class ChineseLanguageJudge(LLMTensorJudge):
     """Judge whether replies are written in Chinese."""
 
     rubric: str = "The output should be in Chinese."
-    include_input: bool = True
-
-    async def evaluate(self, context: EvaluationContext) -> dict[str, Any]:
-        """Score whether the reply matches the Chinese-language rubric."""
-        output = context.output if isinstance(context.output, dict) else {}
-        node_output = output.get(NODE_NAME, {})
-        reply = str(node_output.get("reply", ""))
-        if self.include_input:
-            grading_output = await judge_input_output(
-                context.inputs, reply, self.rubric, self.model, self.model_settings
-            )
-        else:
-            grading_output = await judge_output(
-                reply, self.rubric, self.model, self.model_settings
-            )
-        return {"value": grading_output.pass_, "reason": grading_output.reason}
+    model: str | None = "openai:gpt-4o-mini"
 
 
 def build_graph() -> StateGraph:
     """Construct the demo workflow graph."""
     graph = StateGraph(State)
     graph.add_node(
-        NODE_NAME,
-        PromptEchoNode(
-            name=NODE_NAME,
-            prompt_text="{{config.prompts.greeter}}",
-            input_text="{{inputs.message}}",
+        AGENT_NODE_NAME,
+        AgentNode(
+            name=AGENT_NODE_NAME,
+            ai_model="openai:gpt-4o-mini",
+            model_kwargs={"api_key": "[[openai_api_key]]"},
+            system_prompt="{{config.prompts.greeter}}",
         ),
     )
-    graph.add_edge(START, NODE_NAME)
-    graph.add_edge(NODE_NAME, END)
+    graph.add_edge(START, AGENT_NODE_NAME)
+    graph.add_edge(AGENT_NODE_NAME, END)
     return graph
 
 

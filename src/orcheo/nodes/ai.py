@@ -15,6 +15,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
+from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
 from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode
@@ -99,6 +100,8 @@ class WorkflowTool(BaseModel):
 class AgentNode(AINode):
     """Node for executing an AI agent with tools."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     ai_model: str
     """Identifier of the AI chat model to use."""
     model_settings: dict | None = None
@@ -108,7 +111,7 @@ class AgentNode(AINode):
         description="Additional keyword arguments passed to init_chat_model.",
     )
     """Additional keyword arguments passed to init_chat_model."""
-    system_prompt: str | None = None
+    system_prompt: str | TextTensor | None = None
     """System prompt for the agent."""
     predefined_tools: list[str] = Field(default_factory=list)
     """Tool names predefined by Orcheo."""
@@ -119,6 +122,32 @@ class AgentNode(AINode):
     response_format: dict | type[BaseModel] | None = None
 
     """Response format for the agent."""
+
+    def model_post_init(self, __context: Any) -> None:
+        """Normalize system prompts into TextTensor for optimization."""
+        if isinstance(self.system_prompt, str):
+            if "{{" in self.system_prompt and "}}" in self.system_prompt:
+                return
+            if (
+                isinstance(self.ai_model, str)
+                and ":" not in self.ai_model
+                and "model_provider" not in self.model_kwargs
+            ):
+                return
+            self.system_prompt = TextTensor(
+                self.system_prompt,
+                model=self.ai_model,
+                model_kwargs=dict(self.model_kwargs),
+            )
+
+    def get_params(self) -> list[TextTensor]:
+        """Return trainable parameters for optimizer discovery."""
+        if (
+            isinstance(self.system_prompt, TextTensor)
+            and self.system_prompt.requires_grad
+        ):
+            return [self.system_prompt]
+        return []
 
     async def _prepare_tools(self) -> list[BaseTool]:
         """Prepare the tools for the agent."""
@@ -259,7 +288,7 @@ class AgentNode(AINode):
         agent = create_agent(
             model,
             tools=tools,
-            system_prompt=self.system_prompt,
+            system_prompt=self._system_prompt_text,
             response_format=response_format_strategy,
         )
         # TODO: for models that don't support ProviderStrategy, use ToolStrategy
@@ -269,3 +298,9 @@ class AgentNode(AINode):
         payload: dict[str, Any] = {"messages": messages}
         result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
         return result
+
+    @property
+    def _system_prompt_text(self) -> str | None:
+        if isinstance(self.system_prompt, TextTensor):
+            return self.system_prompt.text
+        return self.system_prompt

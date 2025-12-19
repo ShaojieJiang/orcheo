@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 from typing import Any
+from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
-
-
-CompiledGraph = CompiledStateGraph[Any, Any, Any, Any]
+from langchain_core.runnables import Runnable
 
 
 class TextTensor:
@@ -21,7 +18,7 @@ class TextTensor:
         parents: list[TextTensor] | None = None,
         requires_grad: bool = False,
         metadata: dict[str, Any] | None = None,
-        model: str | BaseChatModel = "gpt-4o-mini",
+        model: str | BaseChatModel = "openai:gpt-4o-mini",
         model_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a TextTensor."""
@@ -84,8 +81,10 @@ class TextTensor:
         return self.text
 
     @property
-    def agent(self) -> CompiledGraph:
+    def agent(self) -> Runnable:
         """Get the agent."""
-        return create_react_agent(
-            self.model, tools=[], prompt="Answer the user's question."
+        return create_agent(
+            self.model,
+            tools=[],
+            system_prompt="Answer the user's question.",
         )

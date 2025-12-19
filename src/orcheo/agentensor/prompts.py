@@ -22,7 +22,7 @@ class TrainablePrompt(BaseModel):
         model: str | BaseChatModel | None = None,
     ) -> TextTensor:
         """Return a concrete ``TextTensor`` for runtime consumption."""
-        target_model = model if model is not None else "gpt-4o-mini"
+        target_model = model if model is not None else "openai:gpt-4o-mini"
         return TextTensor(
             text=self.text,
             requires_grad=self.requires_grad,
