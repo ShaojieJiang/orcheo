@@ -6,7 +6,7 @@ requires = ["setuptools>=67"]
 dependencies = [
   "fastapi>=0.104.0",
   "uvicorn[standard]>=0.24.0",
-  "orcheo>=0.14.0"
+  "orcheo>=0.14.1"
 ]
 description = "Deployment wrapper around the Orcheo FastAPI application"
 name = "orcheo-backend"
