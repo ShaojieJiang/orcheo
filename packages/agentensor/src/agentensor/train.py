@@ -70,10 +70,6 @@ class Trainer:
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-            print(f"Epoch {i + 1}")
-            for param in self.optimizer.params:
-                print(param.text)  # pragma: no cover
-            print()
             performance = report.averages()
             assertions = None if performance is None else performance.assertions
             self.after_epoch(i, report)

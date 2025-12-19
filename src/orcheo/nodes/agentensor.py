@@ -779,6 +779,10 @@ class AgentensorNode(TaskNode):
                 if hasattr(prompt, "model_dump"):
                     prompt_payload[name] = prompt.model_dump(mode="json")  # type: ignore[call-arg]
                 elif isinstance(prompt, TextTensor):
+                    trainable_prompt = self.prompts.get(name)
+                    if trainable_prompt is not None:
+                        prompt_payload[name] = trainable_prompt.model_dump(mode="json")
+                        continue
                     prompt_payload[name] = {
                         "text": prompt.text,
                         "type": "TextTensor",

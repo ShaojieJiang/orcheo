@@ -21,7 +21,8 @@ from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
-AGENT_NODE_NAME = "agent"
+JOKE_NODE_NAME = "joke_writer"
+PROOFREADER_NODE_NAME = "proofreader"
 
 
 @dataclass
@@ -36,16 +37,26 @@ def build_graph() -> StateGraph:
     """Construct the demo workflow graph."""
     graph = StateGraph(State)
     graph.add_node(
-        AGENT_NODE_NAME,
+        JOKE_NODE_NAME,
         AgentNode(
-            name=AGENT_NODE_NAME,
+            name=JOKE_NODE_NAME,
             ai_model="openai:gpt-4o-mini",
             model_kwargs={"api_key": "[[openai_api_key]]"},
-            system_prompt="{{config.prompts.greeter}}",
+            system_prompt="{{config.prompts.joke_writer}}",
         ),
     )
-    graph.add_edge(START, AGENT_NODE_NAME)
-    graph.add_edge(AGENT_NODE_NAME, END)
+    graph.add_node(
+        PROOFREADER_NODE_NAME,
+        AgentNode(
+            name=PROOFREADER_NODE_NAME,
+            ai_model="openai:gpt-4o-mini",
+            model_kwargs={"api_key": "[[openai_api_key]]"},
+            system_prompt="{{config.prompts.proofreader}}",
+        ),
+    )
+    graph.add_edge(START, JOKE_NODE_NAME)
+    graph.add_edge(JOKE_NODE_NAME, PROOFREADER_NODE_NAME)
+    graph.add_edge(PROOFREADER_NODE_NAME, END)
     return graph
 
 
@@ -68,12 +79,21 @@ async def run_training() -> None:
         tags=["agentensor", "training"],
         metadata={"experiment": "agentensor-train"},
         prompts={
-            "greeter": TrainablePrompt(
-                text="You are a helpful assistant.",
+            "joke_writer": TrainablePrompt(
+                text=("You are a witty joke writer. Create a short, original joke."),
                 requires_grad=True,
                 metadata={"locale": "en-US"},
                 model_kwargs={"api_key": "[[openai_api_key]]"},
-            )
+            ),
+            "proofreader": TrainablePrompt(
+                text=(
+                    "You are a meticulous proofreader. Polish the previous joke "
+                    "for grammar and style. Return only the corrected joke."
+                ),
+                requires_grad=True,
+                metadata={"locale": "en-US"},
+                model_kwargs={"api_key": "[[openai_api_key]]"},
+            ),
         },
     )
     runtime_config = runnable_config.to_runnable_config(execution_id)
@@ -83,8 +103,8 @@ async def run_training() -> None:
         dataset=EvaluationDataset(
             id="demo-train-dataset",
             cases=[
-                EvaluationCase(inputs={"message": "Hello there!"}),
-                EvaluationCase(inputs={"message": "Good morning!"}),
+                EvaluationCase(inputs={"message": "Tell me a joke!"}),
+                EvaluationCase(inputs={"message": "Tell me another joke!"}),
             ],
         ),
         evaluators=[
