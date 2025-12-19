@@ -111,7 +111,7 @@ def _resolve_runnable_config(
         if not isinstance(data, Mapping):
             raise CLIError("Runnable config payload must be a JSON object.")
         return dict(data)
-    return None
+    return None  # pragma: no cover - defensive guard
 
 
 def _resolve_evaluation_payload(

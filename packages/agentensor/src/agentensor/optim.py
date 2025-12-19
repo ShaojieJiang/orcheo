@@ -20,7 +20,9 @@ class Optimizer:
         params: list[TextTensor] | None = None,
     ) -> None:
         """Initialize the optimizer."""
-        self.params: list[TextTensor] = list(params) if params is not None else []
+        self.params: list[TextTensor] = (
+            self._coerce_params(params, source="params") if params is not None else []
+        )
         if graph is not None and not params:
             for node in graph.nodes.values():
                 runnable = getattr(node, "runnable", None)
@@ -38,12 +40,22 @@ class Optimizer:
                             module = bound_self
 
                 if module is not None:
-                    self.params.extend(module.get_params())
+                    self.params.extend(
+                        self._coerce_params(
+                            module.get_params(),
+                            source=f"{module.__class__.__name__}.get_params()",
+                        )
+                    )
                     continue
 
                 param_provider = getattr(runnable, "get_params", None)
                 if callable(param_provider):
-                    self.params.extend(param_provider())
+                    self.params.extend(
+                        self._coerce_params(
+                            param_provider(),
+                            source=f"{runnable.__class__.__name__}.get_params()",
+                        )
+                    )
         if isinstance(model, str):
             self.model = init_chat_model(model)
         else:  # pragma: no cover
@@ -75,4 +87,23 @@ class Optimizer:
             self.model,
             tools=[],
             system_prompt="Rewrite the system prompt given the feedback.",
+        )
+
+    @staticmethod
+    def _coerce_params(params: object, *, source: str) -> list[TextTensor]:
+        """Normalize parameters and raise if they are incompatible."""
+        if isinstance(params, TextTensor):
+            return [params]
+        if isinstance(params, list | tuple):
+            if not params:
+                return []
+            invalid = [param for param in params if not isinstance(param, TextTensor)]
+            if invalid:
+                raise TypeError(
+                    f"{source} must contain only TextTensor instances, got "
+                    f"{type(invalid[0]).__name__}."
+                )
+            return list(params)
+        raise TypeError(
+            f"{source} must return a TextTensor or list of TextTensor objects."
         )

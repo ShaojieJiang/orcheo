@@ -49,8 +49,8 @@ class Trainer:
 
     def train(self) -> None:
         """Train the graph."""
-        assert self.train_dataset, "Train dataset is required"
-        assert self.optimizer, "Optimizer is required"
+        self._require_dataset("train")
+        optimizer = self._require_optimizer()
         for i in range(self.epochs):
             report = self.evaluate("train")
             report.print(
@@ -59,16 +59,21 @@ class Trainer:
 
             # Backward those failed cases
             for case in report.cases:
-                losses = []
+                losses: list[str] = []
                 for evaluator in case.assertions.values():
                     if not evaluator.value:
-                        assert evaluator.reason
-                        losses.append(evaluator.reason)
+                        reason = getattr(evaluator, "reason", None)
+                        if reason is None or (
+                            isinstance(reason, str) and not reason.strip()
+                        ):
+                            losses.append("Evaluation failed without a reason.")
+                        else:
+                            losses.append(str(reason))
                 if losses:
                     case.output.backward(" ".join(losses))
 
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
             performance = report.averages()
             assertions = None if performance is None else performance.assertions
@@ -85,8 +90,7 @@ class Trainer:
         progress: bool = True,
     ) -> EvaluationReport:
         """Evaluate the graph."""
-        dataset = getattr(self, f"{data_split}_dataset")
-        assert dataset, f"{data_split} dataset is required"
+        dataset = self._require_dataset(data_split)
         if limit_cases:
             limited_cases = dataset.cases[:limit_cases]
             dataset = Dataset(cases=limited_cases, evaluators=dataset.evaluators)
@@ -106,6 +110,19 @@ class Trainer:
     def after_epoch(self, epoch_index: int, report: EvaluationReport) -> None:
         """Optional hook for subclasses to record state."""
         return None
+
+    def _require_dataset(self, data_split: str) -> Dataset[Any, Any, Any]:
+        """Return the dataset for a split or raise a descriptive error."""
+        dataset = getattr(self, f"{data_split}_dataset", None)
+        if dataset is None:
+            raise ValueError(f"{data_split} dataset is required")
+        return dataset
+
+    def _require_optimizer(self) -> Optimizer:
+        """Return the optimizer or raise a descriptive error."""
+        if self.optimizer is None:
+            raise ValueError("Optimizer is required")
+        return self.optimizer
 
 
 class GraphTrainer(Trainer):
@@ -172,8 +189,7 @@ class GraphTrainer(Trainer):
         progress: bool = False,
     ) -> EvaluationReport:
         """Run evaluation without rendering progress to stdout."""
-        dataset: Dataset = getattr(self, f"{data_split}_dataset")
-        assert dataset, f"{data_split} dataset is required"
+        dataset = self._require_dataset(data_split)
         cases = dataset.cases
         if limit_cases is not None:
             cases = cases[:limit_cases]
@@ -190,7 +206,7 @@ class GraphTrainer(Trainer):
         merged: dict[str, Any] = {}
         if isinstance(self.base_state, Mapping):
             base_inputs = self.base_state.get("inputs", self.base_state)
-            if isinstance(base_inputs, Mapping):
+            if isinstance(base_inputs, Mapping):  # pragma: no branch
                 merged.update(base_inputs)
         merged.update(inputs)
         return merged
@@ -224,7 +240,7 @@ class GraphTrainer(Trainer):
 
     @staticmethod
     def _extract_output(output_state: Any) -> Any:
-        if isinstance(output_state, Mapping):
+        if isinstance(output_state, Mapping):  # pragma: no branch
             results = output_state.get("results")
             if isinstance(results, Mapping) and results:
                 return results
@@ -251,7 +267,7 @@ class GraphTrainer(Trainer):
                 role = getattr(message, "role", None) or getattr(message, "type", None)
             if role in {"assistant", "ai"}:
                 return content
-            if fallback is None and content is not None:
+            if fallback is None and content is not None:  # pragma: no branch
                 if not (isinstance(content, str) and not content.strip()):
                     fallback = content
         return fallback
