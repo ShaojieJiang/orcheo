@@ -87,7 +87,7 @@ def test_backward_with_parent_requires_grad_true(mock_init_chat_model):
     child_tensor = TextTensor("child text", parents=[parent_tensor], requires_grad=True)
 
     # Mock the agent's response for gradient calculation
-    with patch("agentensor.tensor.create_react_agent") as mock_create_agent:
+    with patch("agentensor.tensor.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_result = {"messages": [MagicMock()]}
         mock_result["messages"][-1].content = "parent gradient"
@@ -117,7 +117,7 @@ def test_calc_grad(mock_init_chat_model):
     tensor = TextTensor("test text")
 
     # Mock the agent's response
-    with patch("agentensor.tensor.create_react_agent") as mock_create_agent:
+    with patch("agentensor.tensor.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_result = {"messages": [MagicMock()]}
         mock_result["messages"][-1].content = "improved input"

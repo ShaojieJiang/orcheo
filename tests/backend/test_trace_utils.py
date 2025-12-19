@@ -1,7 +1,7 @@
 """Unit tests for trace utilities."""
 
 from __future__ import annotations
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import blake2b
 from typing import Any
 import pytest
@@ -309,3 +309,41 @@ def test_extract_error_message_falls_back_to_mapping_repr() -> None:
     message = trace_utils._extract_error_message({"error": {"code": "MISSING"}})
 
     assert message == "{'code': 'MISSING'}"
+
+
+def test_build_trace_response_includes_execution_attributes() -> None:
+    """The root span should surface tags, metadata, and runtime hints."""
+
+    start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    end_time = start_time + timedelta(seconds=5)
+    record = RunHistoryRecord(
+        workflow_id="workflow-1",
+        execution_id="exec-1",
+        started_at=start_time,
+        completed_at=end_time,
+        trace_started_at=start_time,
+        trace_completed_at=end_time,
+        status="success",
+        tags=["alpha"],
+        callbacks=["cb"],
+        metadata={"key": "value"},
+        run_name="run-name",
+        runnable_config={
+            "recursion_limit": 7,
+            "max_concurrency": 2,
+            "prompts": {"primary": {"step": "first"}},
+        },
+    )
+
+    response = build_trace_response(record)
+    root_span = response.spans[0]
+    attributes = root_span.attributes
+
+    assert attributes["orcheo.execution.tags"] == ["alpha"]
+    assert attributes["orcheo.execution.tag_count"] == 1
+    assert attributes["orcheo.execution.run_name"] == "run-name"
+    assert attributes["orcheo.execution.metadata_keys"] == ["key"]
+    assert attributes["orcheo.execution.callbacks.count"] == 1
+    assert attributes["orcheo.execution.recursion_limit"] == 7
+    assert attributes["orcheo.execution.max_concurrency"] == 2
+    assert attributes["orcheo.execution.prompts.count"] == 1

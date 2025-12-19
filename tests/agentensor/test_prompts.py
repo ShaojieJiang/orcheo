@@ -11,6 +11,8 @@ from orcheo.agentensor.prompts import (
 )
 from orcheo.graph.state import State
 from orcheo.nodes.base import BaseRunnable
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from tests.runtime.credential_test_helpers import create_vault_with_secret
 
 
 class PromptRunnable(BaseRunnable):
@@ -48,6 +50,35 @@ def test_trainable_prompt_decodes_with_state_values() -> None:
     assert prompt.requires_grad is True
 
 
+def test_trainable_prompt_decodes_model_kwargs_credentials() -> None:
+    """Trainable prompts should resolve credential placeholders in model kwargs."""
+    runnable = PromptRunnable(
+        name="trainer",
+        prompts={
+            "welcome": TrainablePrompt(
+                text="Hello there",
+                model_kwargs={"api_key": "[[telegram_bot]]"},
+            )
+        },
+    )
+    state = cast(
+        State,
+        {
+            "inputs": {},
+            "results": {},
+            "structured_response": {},
+        },
+    )
+    vault = create_vault_with_secret(secret="token")
+    resolver = CredentialResolver(vault)
+
+    with credential_resolution(resolver):
+        runnable.decode_variables(state)
+
+    prompt = runnable.prompts["welcome"]
+    assert prompt.model_kwargs["api_key"] == "token"
+
+
 @patch("agentensor.tensor.init_chat_model")
 def test_build_text_tensors_converts_configs(mock_init_chat_model: MagicMock) -> None:
     """Building runtime tensors should keep prompt metadata and flags."""
@@ -56,6 +87,7 @@ def test_build_text_tensors_converts_configs(mock_init_chat_model: MagicMock) ->
         text="You are a helpful agent.",
         requires_grad=True,
         metadata={"tone": "formal"},
+        model_kwargs={"api_key": "token"},
     )
 
     tensors = build_text_tensors({"system_prompt": prompt}, model="gpt-test")
@@ -65,7 +97,7 @@ def test_build_text_tensors_converts_configs(mock_init_chat_model: MagicMock) ->
     assert tensor.text == "You are a helpful agent."
     assert tensor.requires_grad is True
     assert tensor.metadata == {"tone": "formal"}
-    mock_init_chat_model.assert_called_once_with("gpt-test")
+    mock_init_chat_model.assert_called_once_with("gpt-test", api_key="token")
 
 
 def test_build_text_tensors_handles_empty_mapping() -> None:

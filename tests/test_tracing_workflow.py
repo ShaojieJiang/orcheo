@@ -10,6 +10,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import StatusCode, Tracer
 from orcheo import config
+from orcheo.agentensor.prompts import TrainablePrompt
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.tracing import workflow as workflow_module
 from orcheo.tracing.workflow import record_workflow_step, workflow_span
 
@@ -87,6 +89,38 @@ def test_workflow_span_captures_execution_metadata() -> None:
     assert root.attributes["orcheo.workflow.id"] == "wf"
     assert root.attributes["orcheo.execution.input_keys"] == ("foo",)
     assert trace_id
+
+
+def test_workflow_span_includes_runnable_config_metadata() -> None:
+    tracer, exporter = _build_tracer()
+    prompt = TrainablePrompt(text="hello")
+    runnable_config = RunnableConfigModel(
+        tags=["Tag"],
+        run_name="Run Name",
+        metadata={"foo": "bar"},
+        callbacks=["cb"],
+        recursion_limit=5,
+        max_concurrency=3,
+        prompts={"seed": prompt},
+    )
+
+    with workflow_span(
+        tracer,
+        workflow_id="wf",
+        execution_id="exec",
+        runnable_config=runnable_config,
+    ):
+        pass
+
+    root = exporter.get_finished_spans()[0]
+    assert tuple(root.attributes["orcheo.execution.tags"]) == ("Tag",)
+    assert root.attributes["orcheo.execution.tag_count"] == 1
+    assert root.attributes["orcheo.execution.run_name"] == "Run Name"
+    assert tuple(root.attributes["orcheo.execution.metadata_keys"]) == ("foo",)
+    assert root.attributes["orcheo.execution.callbacks.count"] == 1
+    assert root.attributes["orcheo.execution.recursion_limit"] == 5
+    assert root.attributes["orcheo.execution.max_concurrency"] == 3
+    assert root.attributes["orcheo.execution.prompts.count"] == 1
 
 
 def test_high_token_threshold_uses_settings(monkeypatch: pytest.MonkeyPatch) -> None:

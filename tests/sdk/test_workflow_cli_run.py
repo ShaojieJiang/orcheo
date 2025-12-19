@@ -114,3 +114,64 @@ def test_evaluate_workflow_streams_progress(
         evaluation=evaluate_payload,
         stream=True,
     )
+
+
+def test_evaluate_workflow_offline_error() -> None:
+    state = make_state()
+    state.settings.offline = True
+    payload = '{"dataset": {"cases": [{"inputs": {"value": 1}}]}}'
+
+    with pytest.raises(CLIError) as excinfo:
+        evaluate_workflow(DummyCtx(state), "wf-1", evaluation=payload)
+
+    assert "Workflow evaluations require network connectivity" in str(excinfo.value)
+
+
+def test_evaluate_workflow_requires_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = make_state()
+    payload = '{"dataset": {"cases": [{"inputs": {"value": 1}}]}}'
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._prepare_streaming_graph",
+        lambda *_: None,
+    )
+
+    with pytest.raises(CLIError) as excinfo:
+        evaluate_workflow(DummyCtx(state), "wf-1", evaluation=payload)
+
+    assert "Evaluation requires streaming mode" in str(excinfo.value)
+
+
+def test_evaluate_workflow_raises_on_failed_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = make_state()
+    payload = '{"dataset": {"cases": [{"inputs": {"value": 1}}]}}'
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._prepare_streaming_graph",
+        lambda *_: {"nodes": []},
+    )
+
+    async def fake_stream(
+        state_arg: Any,
+        workflow_id: str,
+        graph_config: dict[str, Any],
+        inputs: Any,
+        evaluation: Any,
+        *,
+        triggered_by: str | None = None,
+        runnable_config: Any | None = None,
+    ) -> str:
+        return "error"
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._stream_workflow_evaluation", fake_stream
+    )
+
+    with pytest.raises(CLIError) as excinfo:
+        evaluate_workflow(
+            DummyCtx(state),
+            "wf-1",
+            evaluation=payload,
+        )
+
+    assert "Workflow evaluation failed" in str(excinfo.value)
