@@ -13,7 +13,6 @@ dependencies = [
   "pydantic-ai>=0.2.4"
 ]
 description = "Agent prompt tensors, modules, and optimizers for Orcheo workflows"
-license = {file = "LICENSE"}
 name = "agentensor"
 readme = "README.md"
 requires-python = ">=3.12"
