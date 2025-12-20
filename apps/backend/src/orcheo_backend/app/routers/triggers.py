@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from orcheo.models.workflow import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
@@ -87,6 +87,10 @@ async def invoke_webhook_trigger(
     workflow_id: UUID,
     request: Request,
     repository: RepositoryDep,
+    preserve_raw_body: bool = Query(
+        default=False,
+        description="Store the raw request body alongside parsed payloads.",
+    ),
 ) -> WorkflowRun:
     """Validate inbound webhook data and enqueue a workflow run."""
     try:
@@ -97,16 +101,25 @@ async def invoke_webhook_trigger(
             detail="Failed to read request body",
         ) from exc
 
-    payload: Any
-    if raw_body:
-        try:
-            payload = json.loads(raw_body.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            payload = raw_body
-    else:
-        payload = {}
-
     headers = {key: value for key, value in request.headers.items()}
+
+    payload: Any
+    if not raw_body:
+        payload = {}
+    else:
+        decoded_body = raw_body.decode("utf-8", errors="replace")
+        parsed_body: Any | None = None
+        try:
+            parsed_body = json.loads(decoded_body)
+        except json.JSONDecodeError:
+            parsed_body = None
+
+        if preserve_raw_body:
+            payload = {"raw": decoded_body}
+            if parsed_body is not None:
+                payload["parsed"] = parsed_body
+        else:
+            payload = parsed_body if parsed_body is not None else raw_body
 
     try:
         client = request.client
