@@ -40,7 +40,7 @@ Key goals: parity with the n8n workflow, safe Slack delivery, accurate read upda
 
 ### Flow 1: Scheduled Digest
 
-1. `CronTriggerNode` fires at 09:00 (timezone configurable).
+1. `CronTriggerNode` fires at 09:00 (Europe/Amsterdam, DST enabled).
 2. `MongoDBAggregateNode` counts unread items: match `read = false`, then `$count`.
 3. `MongoDBFindNode` fetches up to 30 unread items sorted by `isoDate` desc.
 4. `PythonCode` formats Slack links, computes remaining unread count, and outputs `{ news, ids }`.
@@ -55,9 +55,9 @@ Key goals: parity with the n8n workflow, safe Slack delivery, accurate read upda
 
 ## API Contracts
 
-### Slack Event Trigger (new)
+### Slack Events Webhook + Parser
 ```
-POST /triggers/slack/events
+POST /api/workflows/{workflow_id}/triggers/webhook
 Headers:
   X-Slack-Signature: v0=...
   X-Slack-Request-Timestamp: <unix timestamp>
@@ -73,8 +73,7 @@ Body:
   }
 
 Response:
-  200 OK -> { "ok": true }
-  For url_verification: 200 OK -> { "challenge": "..." }
+  202 Accepted -> { run_id: "...", status: "queued" }
 ```
 
 ### Slack Message Delivery
@@ -117,7 +116,7 @@ Response:
 
 - MongoDB queries should use indexes on `read` and `isoDate` to keep aggregate and find fast.
 - Limit the digest to 30 items to bound Slack message length and DB update size.
-- Avoid blocking on Slack delivery when updating read state if strict parity with n8n is required (parallel branches).
+- Ensure read updates run only after Slack delivery succeeds to avoid marking unread items prematurely.
 
 ## Testing Strategy
 
