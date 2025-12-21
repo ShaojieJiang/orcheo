@@ -301,8 +301,10 @@ async def _resolve_stored_runnable_config(
     """Return stored runnable config, loading from repository when needed."""
     if stored_runnable_config is not None or workflow_id is None:
         return stored_runnable_config
+    from aiosqlite import Error as SqliteError
     from orcheo_backend.app.dependencies import get_repository
     from orcheo_backend.app.repository import (
+        RepositoryError,
         WorkflowNotFoundError,
         WorkflowVersionNotFoundError,
     )
@@ -312,6 +314,12 @@ async def _resolve_stored_runnable_config(
         version = await repository.get_latest_version(workflow_id)
     except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
         return None
+    except (RepositoryError, SqliteError):
+        logger.exception(
+            "Failed to load stored runnable config for workflow %s",
+            workflow_id,
+        )
+        return {}
     return version.runnable_config
 
 

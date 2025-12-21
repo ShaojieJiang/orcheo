@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 import pytest
 from fastapi import WebSocketDisconnect
 from orcheo.agentensor.evaluation import (
@@ -19,7 +20,9 @@ from orcheo.agentensor.training import TrainingRequest
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
+from orcheo_backend.app import dependencies as backend_dependencies
 from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.repository import RepositoryError
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -165,6 +168,26 @@ def test_prepare_runnable_config_merges_overrides() -> None:
     assert parsed.recursion_limit == 5
     assert parsed.max_concurrency == 2
     assert state_config["metadata"] == {"team": "ops", "env": "stage"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_handles_repository_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve runnable config falls back to empty config on repository errors."""
+
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise RepositoryError("db unavailable")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result == {}
 
 
 @pytest.mark.asyncio
