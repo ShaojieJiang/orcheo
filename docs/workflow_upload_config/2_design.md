@@ -13,9 +13,11 @@
 
 This feature adds upload-time runnable configuration so workflow authors can set default runtime settings without baking them into scripts. The CLI gains `--config` and `--config-file` options that behave the same as `orcheo workflow run`, including JSON validation and mutual exclusion. Uploads can now carry tags, metadata, concurrency limits, and other `RunnableConfig` fields as part of the workflow version record.
 
-The runnable config is persisted alongside the workflow version in the configured repository backend (SQLite by default; in-memory only for tests/dev). Workflow runs can merge stored config with per-run overrides, ensuring stored values apply unless explicitly overridden.
+The runnable config is persisted alongside the workflow version in the configured repository backend (SQLite by default; in-memory for tests/dev and only retained for the process lifetime). Workflow runs can merge stored config with per-run overrides, ensuring stored values apply unless explicitly overridden.
 
-The design is intentionally narrow: it reuses the same runnable config parsing/validation as workflow runs and only expands upload payloads and storage, avoiding new config schemas or runtime behavior changes beyond merge precedence. The config is stored with workflow versions (the workflow versions table payload), separate from Agentensor checkpoint tables.
+The design is intentionally narrow: it reuses the same runnable config parsing/validation as workflow runs and only expands upload payloads and storage, avoiding new config schemas or runtime behavior changes beyond merge precedence. The config is stored with workflow versions in the workflow_versions.payload JSON column (payload["runnable_config"]), separate from Agentensor checkpoint tables.
+
+Priority mapping: P0 covers upload-time config inputs and persistence. P1 covers runtime merge and documentation (see docs/workflow_upload_config/3_plan.md).
 
 ## Components
 
@@ -29,7 +31,7 @@ The design is intentionally narrow: it reuses the same runnable config parsing/v
   - Extends workflow version creation and ingestion requests to accept a runnable config payload.
   - Validates with `RunnableConfigModel` and returns the stored config in responses and workflow show output.
 - **Repository Storage (apps/backend)**
-  - Persists the runnable config in the workflow versions table (payload JSON) so it is available per version in the configured repository backend (SQLite by default).
+  - Persists the runnable config in the workflow_versions.payload JSON column as payload["runnable_config"] so it is available per version in the configured repository backend (SQLite by default).
 - **Execution Layer (apps/backend)**
   - Merges stored config with run-supplied config; run config wins on conflict.
 
@@ -88,6 +90,10 @@ Response:
 
 The CLI flags are mutually exclusive: `--config` and `--config-file` cannot be provided together. Config payloads must be JSON objects compatible with `RunnableConfigModel`.
 
+Each upload creates a new workflow version with its own runnable_config. If runnable_config is omitted on upload, the new version stores null for runnable_config (no inheritance from prior versions). Existing versions are not mutated. Workflow show uses the latest version by default and surfaces that version's runnable_config.
+
+There is no additional runnable_config size limit beyond existing workflow payload limits enforced by the API server. Oversized payloads are rejected by the same request size handling as other workflow uploads (for example, an HTTP 413 if the server enforces a max body size).
+
 ## Data Models / Schemas
 
 | Field | Type | Description |
@@ -109,10 +115,25 @@ Example payload snippet:
 }
 ```
 
+## Compatibility and Migration
+
+- Existing workflow versions without runnable_config continue to load with runnable_config treated as empty (null) and do not affect runs.
+- If a new column is introduced instead of reusing payload JSON, it should be nullable with a default of null so older rows remain valid.
+- If RunnableConfigModel evolves, stored configs are validated on write and may require re-uploading a new version for schema-breaking changes.
+
+## Error Scenarios
+
+- Malformed JSON or non-object config on upload: 400 with a validation error message (CLI surfaces the server error).
+- Config validation fails against RunnableConfigModel: 400 with field-level errors.
+- Stored config missing on a version: treated as empty during merge (no effect).
+- Stored config fails validation at runtime due to schema changes: fail the run with a clear error and recommend uploading a new version with a compatible config.
+- Repository read/write errors: surface as 5xx with context; run or upload fails fast.
+
 ## Security Considerations
 
 - Validate configs with `RunnableConfigModel` and reject non-object JSON.
-- Document that secrets should not be stored in runnable configs.
+- Do not store secrets (API keys, tokens, passwords, connection strings) in runnable_config. Use environment variables, a secrets manager, or existing runtime secret injection instead.
+- No automatic secret scanning is performed; validation is schema-based only.
 - Ensure stored config is scoped to the workflow version and respects existing auth controls.
 
 ## Performance Considerations
@@ -134,6 +155,11 @@ Example payload snippet:
 3. Phase 3: Release to all users.
 
 Include backward compatibility for older versions without stored runnable config.
+
+## Rollback Plan
+
+- Disable or hide the CLI flags and ignore runnable_config in upload handlers if the feature needs to be rolled back.
+- Stored runnable_config values can remain in the payload without being used; no data rollback is required.
 
 ---
 

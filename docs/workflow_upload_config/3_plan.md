@@ -17,6 +17,8 @@ Add upload-time runnable config support so workflows can ship with initial confi
 - Requirements: docs/workflow_upload_config/1_requirements.md
 - Design: docs/workflow_upload_config/2_design.md
 
+**Priority Mapping:** P0 work is covered in Milestones 1 and 2. P1 work is covered in Milestone 3 (runtime merge, documentation, and regression coverage).
+
 ---
 
 ## Milestones
@@ -44,10 +46,11 @@ Add upload-time runnable config support so workflows can ship with initial confi
 
 - [ ] Task 2.1: Extend workflow version create/ingest schemas to accept `runnable_config` and validate with `RunnableConfigModel`
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Persist runnable config in workflow version payloads in the configured repository backend (SQLite by default; in-memory only for tests/dev)
+- [ ] Task 2.2: Persist runnable config in workflow version payloads in the configured repository backend (SQLite by default; in-memory for tests/dev and only retained for the process lifetime)
   - Dependencies: Task 2.1
 - [ ] Task 2.3: Add migrations if a new column is introduced; otherwise verify payload compatibility across existing records
   - Dependencies: Task 2.2
+  - Notes: If adding a column, make it nullable with a default of null; existing versions without runnable_config must continue to behave as empty.
 
 ---
 
@@ -73,3 +76,10 @@ Add upload-time runnable config support so workflows can ship with initial confi
 | Date | Author | Changes |
 |------|--------|---------|
 | 2025-12-21 | Codex | Initial draft |
+
+---
+
+## Rollback / Contingency
+
+- Disable or hide the CLI flags and ignore runnable_config in upload handlers if needed.
+- Keep stored runnable_config in payloads; no data rollback required.

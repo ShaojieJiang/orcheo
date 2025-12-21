@@ -43,7 +43,7 @@ Goals: provide upload-time config inputs equivalent to run-time inputs; persist 
   - Add `--config` and `--config-file` to `orcheo workflow upload` with the same JSON parsing and mutual-exclusion rules as `workflow run`.
   - Accept config for both JSON workflow uploads and LangGraph script ingestion.
 - **P0: Persisted runnable config**
-  - Store the provided runnable config in the workflow version record within the configured repository backend (SQLite by default; in-memory only for tests/dev).
+  - Store the provided runnable config in the workflow version record within the configured repository backend (SQLite by default). In tests/dev, the in-memory repository stores it only for the lifetime of the process.
   - Include the stored config in workflow version responses and workflow show output.
 - **P1: Runtime merge behavior**
   - When executing a run, merge stored runnable config with per-run config so overrides win while preserving stored values.
@@ -51,7 +51,7 @@ Goals: provide upload-time config inputs equivalent to run-time inputs; persist 
   - Update README and workflow upload documentation to show examples of `--config` and `--config-file`.
 
 ### Designs (if applicable)
-See docs/workflow_upload_config/2_design.md for architecture and API details.
+See docs/workflow_upload_config/2_design.md for architecture and API details, including [API Contracts](2_design.md#api-contracts), [Data Models / Schemas](2_design.md#data-models--schemas), [Error Scenarios](2_design.md#error-scenarios), and [Rollback Plan](2_design.md#rollback-plan).
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview
@@ -59,7 +59,7 @@ The CLI resolves config input and forwards it to the SDK upload flow. The backen
 
 ### Technical Requirements
 - Reuse `RunnableConfigModel` validation and JSON parsing rules for upload-time config.
-- Store config in the workflow version payload within the workflow versions table in the configured repository backend (SQLite by default; in-memory only for tests/dev).
+- Store config in the workflow_versions.payload.runnable_config field in the configured repository backend (SQLite by default). In tests/dev, the in-memory repository stores it only for the lifetime of the process.
 - Maintain backward compatibility for uploads without config and for older version payloads without stored runnable config.
 - Provide deterministic merge precedence: run config overrides stored runnable config on conflicts.
 
