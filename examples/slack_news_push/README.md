@@ -13,11 +13,14 @@ Create the required credentials in the Orcheo vault:
 - `slack_signing_secret` (Slack Events API signing secret)
 - `mdb_connection_string` (MongoDB connection string)
 
-Update the constants in `workflow.py` to match your environment:
+Configure the workflow with environment variables (defaults shown in
+`workflow.py`):
 
-- `CHANNEL_ID`
-- `DATABASE`
-- `COLLECTION`
+- `SLACK_NEWS_CHANNEL_ID`
+- `SLACK_NEWS_DATABASE`
+- `SLACK_NEWS_COLLECTION`
+- `SLACK_NEWS_ITEM_LIMIT`
+- `SLACK_NEWS_SIGNATURE_TOLERANCE_SECONDS`
 
 ## Trigger Configuration
 
@@ -41,4 +44,6 @@ Cron trigger configuration:
 - The Slack signature is verified inside `SlackEventsParserNode` using the raw
   webhook body; ensure Slack sends its events to
   `/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`.
+- Keep `slack_signing_secret` configured to enforce signature verification; only
+  disable it if you fully trust the webhook source.
 - Read updates only occur after Slack reports a successful post.

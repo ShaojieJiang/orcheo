@@ -85,3 +85,20 @@ async def test_mongodb_update_many_uses_filter_and_update(mongo_context) -> None
     )
     assert result["data"]["matched_count"] == 1
     assert result["data"]["modified_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mongodb_update_many_rejects_empty_update(
+    mongo_context,
+) -> None:
+    node = MongoDBUpdateManyNode(
+        name="update_node",
+        database="test_db",
+        collection="rss_feeds",
+        filter={"read": False},
+        update={},
+    )
+
+    state = State(messages=[], inputs={}, results={})
+    with pytest.raises(ValueError, match="update must not be empty"):
+        await node.run(state, RunnableConfig())

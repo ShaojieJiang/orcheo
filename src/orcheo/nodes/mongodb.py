@@ -1,6 +1,8 @@
 """MongoDB node."""
 
-from typing import Any, Literal
+import atexit
+from threading import Lock
+from typing import Any, ClassVar, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field, PrivateAttr
 from pymongo import MongoClient
@@ -29,8 +31,8 @@ from orcheo.nodes.registry import NodeMetadata, registry
 class MongoDBNode(TaskNode):
     """MongoDB node.
 
-    To use this node, you need to set the following environment variables:
-    - MDB_CONNECTION_STRING: Required.
+    To use this node, you need to set the following parameters:
+    - connection_string: Required.
     """
 
     connection_string: str = "[[mdb_connection_string]]"
@@ -96,11 +98,19 @@ class MongoDBNode(TaskNode):
         default_factory=dict,
         description="Additional pymongo options passed to the operation",
     )
+    _client_cache: ClassVar[dict[str, MongoClient]] = {}
+    _client_ref_counts: ClassVar[dict[str, int]] = {}
+    _client_lock: ClassVar[Lock] = Lock()
     _client: MongoClient | None = PrivateAttr(default=None)
     _collection: Collection | None = PrivateAttr(default=None)
+    _client_key: str | None = PrivateAttr(default=None)
 
     def _resolve_filter(self) -> dict[str, Any]:
-        """Resolve a filter document from structured or legacy inputs."""
+        """Resolve a filter document from structured or legacy inputs.
+
+        Prefers the structured ``filter`` field, falls back to ``query`` when
+        provided as a dict, otherwise defaults to an empty filter.
+        """
         if self.filter is not None:
             return dict(self.filter)
         if isinstance(self.query, dict):
@@ -181,12 +191,65 @@ class MongoDBNode(TaskNode):
 
         return [self.query], dict(self.options)
 
+    @classmethod
+    def _get_shared_client(cls, connection_string: str) -> MongoClient:
+        with cls._client_lock:
+            client = cls._client_cache.get(connection_string)
+            if client is None:
+                client = MongoClient(connection_string)
+                cls._client_cache[connection_string] = client
+                cls._client_ref_counts[connection_string] = 0
+            cls._client_ref_counts[connection_string] = (
+                cls._client_ref_counts.get(connection_string, 0) + 1
+            )
+        return client
+
+    @classmethod
+    def _release_shared_client(cls, connection_string: str) -> None:
+        client: MongoClient | None = None
+        with cls._client_lock:
+            ref_count = cls._client_ref_counts.get(connection_string)
+            if ref_count is None:
+                return
+            ref_count -= 1
+            if ref_count <= 0:
+                cls._client_ref_counts.pop(connection_string, None)
+                client = cls._client_cache.pop(connection_string, None)
+            else:
+                cls._client_ref_counts[connection_string] = ref_count
+        if client is not None:
+            client.close()
+
+    @classmethod
+    def _close_all_clients(cls) -> None:
+        with cls._client_lock:
+            clients = list(cls._client_cache.values())
+            cls._client_cache.clear()
+            cls._client_ref_counts.clear()
+        for client in clients:
+            client.close()
+
+    def _release_client(self) -> None:
+        if self._client is None or self._client_key is None:
+            return
+        type(self)._release_shared_client(self._client_key)
+        self._client = None
+        self._collection = None
+        self._client_key = None
+
     def _ensure_collection(self) -> None:
         """Ensure the MongoDB collection is initialised."""
         if self._client is None:
-            self._client = MongoClient(self.connection_string)
-        if self._collection is None:
-            self._collection = self._client[self.database][self.collection]
+            self._client = self._get_shared_client(self.connection_string)
+            self._client_key = self.connection_string
+        elif self._client_key and self._client_key != self.connection_string:
+            self._release_client()
+            self._client = self._get_shared_client(self.connection_string)
+            self._client_key = self.connection_string
+        if self._client is None:
+            msg = "MongoDB client could not be initialized"
+            raise RuntimeError(msg)
+        self._collection = self._client[self.database][self.collection]
 
     def _convert_result_to_dict(self, result: Any) -> dict | list[dict]:
         """Convert MongoDB operation result to dict or list[dict] format."""
@@ -270,8 +333,7 @@ class MongoDBNode(TaskNode):
 
     def __del__(self) -> None:
         """Automatic cleanup when object is garbage collected."""
-        if self._client is not None:
-            self._client.close()
+        self._release_client()
 
 
 @registry.register(
@@ -316,6 +378,21 @@ class MongoDBUpdateManyNode(MongoDBNode):
     filter: dict[str, Any]
     update: dict[str, Any]
 
+    def _resolve_filter(self) -> dict[str, Any]:
+        if self.filter is None:
+            msg = "filter is required for update_many operations"
+            raise ValueError(msg)
+        return dict(self.filter)
+
+    def _resolve_update(self) -> dict[str, Any]:
+        if self.update is None:
+            msg = "update is required for update_many operations"
+            raise ValueError(msg)
+        if not self.update:
+            msg = "update must not be empty for update_many operations"
+            raise ValueError(msg)
+        return dict(self.update)
+
 
 __all__ = [
     "MongoDBAggregateNode",
@@ -323,3 +400,5 @@ __all__ = [
     "MongoDBNode",
     "MongoDBUpdateManyNode",
 ]
+
+atexit.register(MongoDBNode._close_all_clients)

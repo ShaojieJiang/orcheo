@@ -146,10 +146,10 @@ class SlackEventsParserNode(TaskNode):
             if abs(now - timestamp) > tolerance:
                 raise ValueError("Slack request timestamp outside tolerance window")
 
-        base = f"v0:{timestamp}:{raw_body}".encode()
+        signature_base = f"v0:{timestamp}:{raw_body}".encode()
         digest = hmac.new(
             self.signing_secret.encode(),
-            base,
+            signature_base,
             hashlib.sha256,
         ).hexdigest()
         expected = f"v0={digest}"

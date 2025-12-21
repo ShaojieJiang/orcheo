@@ -1,6 +1,8 @@
 """Slack news push workflow example."""
 
 from __future__ import annotations
+import html
+import os
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -15,10 +17,24 @@ from orcheo.nodes.mongodb import (
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 
 
-CHANNEL_ID = "C0946SY4TTM"
-DATABASE = "Orcheo"
-COLLECTION = "rss_feeds"
-ITEM_LIMIT = 30
+def _read_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+CHANNEL_ID = os.getenv("SLACK_NEWS_CHANNEL_ID", "C0946SY4TTM")
+DATABASE = os.getenv("SLACK_NEWS_DATABASE", "Orcheo")
+COLLECTION = os.getenv("SLACK_NEWS_COLLECTION", "rss_feeds")
+ITEM_LIMIT = _read_int_env("SLACK_NEWS_ITEM_LIMIT", 30)
+SIGNATURE_TOLERANCE_SECONDS = _read_int_env(
+    "SLACK_NEWS_SIGNATURE_TOLERANCE_SECONDS",
+    300,
+)
 
 
 class DetectTriggerNode(TaskNode):
@@ -38,16 +54,8 @@ class FormatDigestNode(TaskNode):
     def _decode_title(text: str | None) -> str:
         if not text:
             return "No Title"
-        return (
-            text.replace("&quot;", '"')
-            .replace("&apos;", "'")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
-            .replace("&nbsp;", " ")
-            .replace("<", "[")
-            .replace(">", "]")
-        )
+        decoded = html.unescape(text).replace("\xa0", " ")
+        return decoded.replace("<", "[").replace(">", "]")
 
     @staticmethod
     def _read_items(state: State) -> list[dict[str, Any]]:
@@ -95,7 +103,7 @@ class FormatDigestNode(TaskNode):
         news = f"{body}Unread count: {remaining}"
         return {
             "news": news,
-            "ids": [item.get("_id") for item in items],
+            "ids": [item.get("_id") for item in items if item.get("_id") is not None],
         }
 
 
@@ -109,6 +117,7 @@ def build_graph() -> StateGraph:
         SlackEventsParserNode(
             name="slack_events_parser",
             channel_id=CHANNEL_ID,
+            timestamp_tolerance_seconds=SIGNATURE_TOLERANCE_SECONDS,
         ),
     )
     graph.add_node(
@@ -195,7 +204,11 @@ def build_graph() -> StateGraph:
 
     post_router = IfElse(
         name="post_router",
-        conditions=[Condition(left="{{post_message.is_error}}", operator="is_falsy")],
+        conditions=[
+            Condition(left="{{post_message.is_error}}", operator="is_falsy"),
+            Condition(left="{{format_digest.ids}}", operator="is_truthy"),
+        ],
+        condition_logic="and",
     )
     graph.add_conditional_edges(
         "post_message",
