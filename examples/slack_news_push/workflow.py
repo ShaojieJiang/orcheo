@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import html
-import os
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -15,26 +14,6 @@ from orcheo.nodes.mongodb import (
     MongoDBUpdateManyNode,
 )
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
-
-
-def _read_int_env(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
-CHANNEL_ID = os.getenv("SLACK_NEWS_CHANNEL_ID", "C0946SY4TTM")
-DATABASE = os.getenv("SLACK_NEWS_DATABASE", "Orcheo")
-COLLECTION = os.getenv("SLACK_NEWS_COLLECTION", "rss_feeds")
-ITEM_LIMIT = _read_int_env("SLACK_NEWS_ITEM_LIMIT", 30)
-SIGNATURE_TOLERANCE_SECONDS = _read_int_env(
-    "SLACK_NEWS_SIGNATURE_TOLERANCE_SECONDS",
-    300,
-)
 
 
 class DetectTriggerNode(TaskNode):
@@ -116,16 +95,18 @@ def build_graph() -> StateGraph:
         "slack_events_parser",
         SlackEventsParserNode(
             name="slack_events_parser",
-            channel_id=CHANNEL_ID,
-            timestamp_tolerance_seconds=SIGNATURE_TOLERANCE_SECONDS,
+            channel_id="{{config.configurable.slack_news_channel_id}}",
+            timestamp_tolerance_seconds=(
+                "{{config.configurable.slack_news_signature_tolerance_seconds}}"
+            ),
         ),
     )
     graph.add_node(
         "count_unread",
         MongoDBAggregateNode(
             name="count_unread",
-            database=DATABASE,
-            collection=COLLECTION,
+            database="{{config.configurable.slack_news_database}}",
+            collection="{{config.configurable.slack_news_collection}}",
             pipeline=[{"$match": {"read": False}}, {"$count": "unread_count"}],
         ),
     )
@@ -133,11 +114,11 @@ def build_graph() -> StateGraph:
         "find_unread",
         MongoDBFindNode(
             name="find_unread",
-            database=DATABASE,
-            collection=COLLECTION,
+            database="{{config.configurable.slack_news_database}}",
+            collection="{{config.configurable.slack_news_collection}}",
             filter={"read": False},
             sort={"isoDate": -1},
-            limit=ITEM_LIMIT,
+            limit="{{config.configurable.slack_news_item_limit}}",
         ),
     )
     graph.add_node("format_digest", FormatDigestNode(name="format_digest"))
@@ -147,7 +128,7 @@ def build_graph() -> StateGraph:
             name="post_message",
             tool_name="slack_post_message",
             kwargs={
-                "channel_id": CHANNEL_ID,
+                "channel_id": "{{config.configurable.slack_news_channel_id}}",
                 "text": "{{format_digest.news}}",
                 "mrkdwn": True,
             },
@@ -157,8 +138,8 @@ def build_graph() -> StateGraph:
         "mark_read",
         MongoDBUpdateManyNode(
             name="mark_read",
-            database=DATABASE,
-            collection=COLLECTION,
+            database="{{config.configurable.slack_news_database}}",
+            collection="{{config.configurable.slack_news_collection}}",
             filter={"_id": {"$in": "{{format_digest.ids}}"}},
             update={"$set": {"read": True}},
         ),
@@ -221,6 +202,3 @@ def build_graph() -> StateGraph:
     graph.add_edge("mark_read", END)
 
     return graph
-
-
-__all__ = ["build_graph"]

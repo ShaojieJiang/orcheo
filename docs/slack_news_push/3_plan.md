@@ -61,9 +61,9 @@ Deliver an Orcheo-native workflow that matches the existing n8n Slack news push 
 
 - [x] Task 3.1: Run unit and integration tests for the formatter plus the extended `MongoDBNode` and wrapper nodes.
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Perform manual QA in a staging Slack channel and verify read updates.
+- [x] Task 3.2: Perform manual QA in a staging Slack channel and verify read updates.
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Enable the daily schedule and monitor delivery metrics for one week.
+- [x] Task 3.3: Enable the daily schedule and monitor delivery metrics for one week.
   - Dependencies: Task 3.2
 
 ---
