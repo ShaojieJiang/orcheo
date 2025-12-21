@@ -126,6 +126,50 @@ def my_custom_graph():
     assert request_body["entrypoint"] == "my_custom_graph"
 
 
+def test_workflow_upload_langgraph_script_with_runnable_config(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test LangGraph upload forwards runnable config to ingest."""
+    py_file = tmp_path / "langgraph_workflow.py"
+    py_file.write_text(
+        """
+from langgraph.graph import StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+    return graph
+""",
+        encoding="utf-8",
+    )
+    config_file = tmp_path / "config.json"
+    config_file.write_text('{"tags": ["beta"], "recursion_limit": 5}', encoding="utf-8")
+
+    created_workflow = {"id": "wf-new", "name": "langgraph-workflow"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        ingest_route = router.post(
+            "http://api.test/api/workflows/wf-new/versions/ingest"
+        ).mock(return_value=httpx.Response(201, json=created_version))
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "upload",
+                str(py_file),
+                "--config-file",
+                str(config_file),
+            ],
+            env=env,
+        )
+    assert result.exit_code == 0
+    request_body = json.loads(ingest_route.calls[0].request.content)
+    assert request_body["runnable_config"]["tags"] == ["beta"]
+    assert request_body["runnable_config"]["recursion_limit"] == 5
+
+
 def test_workflow_upload_langgraph_script_create_new_with_name_override(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:

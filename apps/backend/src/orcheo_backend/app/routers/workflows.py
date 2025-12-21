@@ -131,6 +131,15 @@ async def create_workflow_version(
             metadata=request.metadata,
             notes=request.notes,
             created_by=request.created_by,
+            runnable_config=(
+                request.runnable_config.model_dump(
+                    mode="json",
+                    exclude_defaults=True,
+                    exclude_none=True,
+                )
+                if request.runnable_config is not None
+                else None
+            ),
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -165,6 +174,15 @@ async def ingest_workflow_version(
             metadata=request.metadata,
             notes=request.notes,
             created_by=request.created_by,
+            runnable_config=(
+                request.runnable_config.model_dump(
+                    mode="json",
+                    exclude_defaults=True,
+                    exclude_none=True,
+                )
+                if request.runnable_config is not None
+                else None
+            ),
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

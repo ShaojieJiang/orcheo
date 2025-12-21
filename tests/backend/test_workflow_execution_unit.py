@@ -136,10 +136,35 @@ def test_prepare_runnable_config_accepts_model() -> None:
         workflow_execution._prepare_runnable_config("exec-1", model)
     )
 
-    assert parsed is model
+    assert parsed.tags == ["test"]
     assert runtime_config["configurable"]["thread_id"] == "exec-1"
     assert state_config["tags"] == ["test"]
     assert stored_config["tags"] == ["test"]
+
+
+def test_prepare_runnable_config_uses_stored_defaults() -> None:
+    stored = {"tags": ["stored"], "metadata": {"team": "ops"}}
+    parsed, _, state_config, _ = workflow_execution._prepare_runnable_config(
+        "exec-1",
+        None,
+        stored,
+    )
+    assert parsed.tags == ["stored"]
+    assert state_config["metadata"] == {"team": "ops"}
+
+
+def test_prepare_runnable_config_merges_overrides() -> None:
+    stored = {"metadata": {"team": "ops", "env": "prod"}, "recursion_limit": 5}
+    override = {"metadata": {"env": "stage"}, "tags": ["run"], "max_concurrency": 2}
+    parsed, _, state_config, _ = workflow_execution._prepare_runnable_config(
+        "exec-1",
+        override,
+        stored,
+    )
+    assert parsed.tags == ["run"]
+    assert parsed.recursion_limit == 5
+    assert parsed.max_concurrency == 2
+    assert state_config["metadata"] == {"team": "ops", "env": "stage"}
 
 
 @pytest.mark.asyncio

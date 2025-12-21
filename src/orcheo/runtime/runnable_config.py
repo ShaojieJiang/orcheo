@@ -173,7 +173,77 @@ def parse_runnable_config(
     return RunnableConfigModel.model_validate(value)
 
 
+def merge_runnable_configs(
+    stored: Mapping[str, Any] | RunnableConfigModel | None,
+    override: Mapping[str, Any] | RunnableConfigModel | None,
+) -> RunnableConfigModel:
+    """Merge stored and override configs, letting override fields win."""
+    base = parse_runnable_config(stored)
+    if override is None:
+        return base
+    override_model = (
+        override
+        if isinstance(override, RunnableConfigModel)
+        else RunnableConfigModel.model_validate(override)
+    )
+    if not override_model.model_fields_set:
+        return base
+
+    merged = base.model_dump(mode="python")
+    fields_set = override_model.model_fields_set
+
+    if "configurable" in fields_set:
+        _merge_mapping_field(merged, base, override_model, "configurable")
+    if "metadata" in fields_set:
+        _merge_mapping_field(merged, base, override_model, "metadata")
+    if "prompts" in fields_set:
+        _merge_prompts_field(merged, base, override_model)
+
+    for field in (
+        "tags",
+        "callbacks",
+        "run_name",
+        "recursion_limit",
+        "max_concurrency",
+    ):
+        if field in fields_set:
+            value = getattr(override_model, field)
+            merged[field] = list(value) if isinstance(value, list) else value
+
+    return RunnableConfigModel.model_validate(merged)
+
+
+def _merge_mapping_field(
+    merged: dict[str, Any],
+    base: RunnableConfigModel,
+    override: RunnableConfigModel,
+    field_name: str,
+) -> None:
+    override_value = dict(getattr(override, field_name))
+    if override_value:
+        base_value = dict(getattr(base, field_name))
+        merged[field_name] = {**base_value, **override_value}
+    else:
+        merged[field_name] = {}
+
+
+def _merge_prompts_field(
+    merged: dict[str, Any],
+    base: RunnableConfigModel,
+    override: RunnableConfigModel,
+) -> None:
+    override_prompts = override.prompts
+    if override_prompts is None:
+        merged["prompts"] = None
+        return
+    base_prompts = base.prompts or {}
+    merged_prompts = dict(base_prompts)
+    merged_prompts.update(override_prompts)
+    merged["prompts"] = merged_prompts
+
+
 __all__ = [
     "RunnableConfigModel",
+    "merge_runnable_configs",
     "parse_runnable_config",
 ]

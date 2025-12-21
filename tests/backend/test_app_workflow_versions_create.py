@@ -20,9 +20,20 @@ async def test_create_workflow_version_success() -> None:
 
     workflow_id = uuid4()
     version_id = uuid4()
+    captured_config: dict[str, object] | None = None
 
     class Repository:
-        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
+            nonlocal captured_config
+            captured_config = runnable_config
             return WorkflowVersion(
                 id=version_id,
                 workflow_id=wf_id,
@@ -37,6 +48,7 @@ async def test_create_workflow_version_success() -> None:
     request = WorkflowVersionCreateRequest(
         graph={"nodes": []},
         metadata={"test": "data"},
+        runnable_config={"tags": ["v1"]},
         notes="Test version",
         created_by="admin",
     )
@@ -46,6 +58,7 @@ async def test_create_workflow_version_success() -> None:
     assert result.id == version_id
     assert result.workflow_id == workflow_id
     assert result.version == 1
+    assert captured_config == {"tags": ["v1"]}
 
 
 @pytest.mark.asyncio()
@@ -55,7 +68,15 @@ async def test_create_workflow_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
             raise WorkflowNotFoundError("not found")
 
     request = WorkflowVersionCreateRequest(
@@ -75,9 +96,20 @@ async def test_ingest_workflow_version_success() -> None:
 
     workflow_id = uuid4()
     version_id = uuid4()
+    captured_config: dict[str, object] | None = None
 
     class Repository:
-        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
+            nonlocal captured_config
+            captured_config = runnable_config
             return WorkflowVersion(
                 id=version_id,
                 workflow_id=wf_id,
@@ -96,12 +128,14 @@ async def test_ingest_workflow_version_success() -> None:
     request = WorkflowVersionIngestRequest(
         script=script_code,
         entrypoint="graph",
+        runnable_config={"tags": ["ingest"]},
         created_by="admin",
     )
 
     result = await ingest_workflow_version(workflow_id, request, Repository())
 
     assert result.id == version_id
+    assert captured_config == {"tags": ["ingest"]}
 
 
 @pytest.mark.asyncio()
@@ -111,7 +145,15 @@ async def test_ingest_workflow_version_script_error() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
             return WorkflowVersion(
                 id=uuid4(),
                 workflow_id=wf_id,
@@ -141,7 +183,15 @@ async def test_ingest_workflow_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def create_version(self, wf_id, graph, metadata, notes, created_by):
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
             raise WorkflowNotFoundError("not found")
 
     script_code = (

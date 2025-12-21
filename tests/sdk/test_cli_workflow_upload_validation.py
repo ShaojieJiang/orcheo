@@ -65,3 +65,23 @@ def test_workflow_upload_unsupported_file_type(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "Unsupported file type" in str(result.exception)
+
+
+def test_workflow_upload_invalid_runnable_config(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow upload rejects invalid JSON config payloads."""
+    json_file = tmp_path / "workflow.json"
+    json_file.write_text(
+        '{"name": "TestWorkflow", "graph": {"nodes": [], "edges": []}}',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["workflow", "upload", str(json_file), "--config", "{not-json"],
+        env=env,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Invalid JSON payload" in str(result.exception)

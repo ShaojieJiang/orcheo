@@ -46,6 +46,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         execution_id,
                         websocket,
                         runnable_config=data.get("runnable_config"),
+                        stored_runnable_config=data.get("stored_runnable_config"),
                     )
                 )
 
@@ -62,6 +63,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         websocket,
                         evaluation=data.get("evaluation"),
                         runnable_config=data.get("runnable_config"),
+                        stored_runnable_config=data.get("stored_runnable_config"),
                     )
                 )
                 await task
@@ -77,6 +79,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                         websocket,
                         training=data.get("training"),
                         runnable_config=data.get("runnable_config"),
+                        stored_runnable_config=data.get("stored_runnable_config"),
                     )
                 )
                 await task

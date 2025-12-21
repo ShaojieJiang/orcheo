@@ -29,11 +29,11 @@ Add upload-time runnable config support so workflows can ship with initial confi
 
 #### Task Checklist
 
-- [ ] Task 1.1: Add `--config` and `--config-file` options to `orcheo workflow upload` with mutual exclusion and JSON validation
+- [x] Task 1.1: Add `--config` and `--config-file` options to `orcheo workflow upload` with mutual exclusion and JSON validation
   - Dependencies: None
-- [ ] Task 1.2: Reuse `_resolve_runnable_config` and thread parsed config through `upload_workflow_data` and LangGraph ingestion helpers
+- [x] Task 1.2: Reuse `_resolve_runnable_config` and thread parsed config through `upload_workflow_data` and LangGraph ingestion helpers
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Update CLI tests for JSON and script uploads to cover config inputs and invalid JSON cases
+- [x] Task 1.3: Update CLI tests for JSON and script uploads to cover config inputs and invalid JSON cases
   - Dependencies: Task 1.2
 
 ---
@@ -44,11 +44,11 @@ Add upload-time runnable config support so workflows can ship with initial confi
 
 #### Task Checklist
 
-- [ ] Task 2.1: Extend workflow version create/ingest schemas to accept `runnable_config` and validate with `RunnableConfigModel`
+- [x] Task 2.1: Extend workflow version create/ingest schemas to accept `runnable_config` and validate with `RunnableConfigModel`
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Persist runnable config in workflow version payloads in the configured repository backend (SQLite by default; in-memory for tests/dev and only retained for the process lifetime)
+- [x] Task 2.2: Persist runnable config in workflow version payloads in the configured repository backend (SQLite by default; in-memory for tests/dev and only retained for the process lifetime)
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Add migrations if a new column is introduced; otherwise verify payload compatibility across existing records
+- [x] Task 2.3: Add migrations if a new column is introduced; otherwise verify payload compatibility across existing records
   - Dependencies: Task 2.2
   - Notes: If adding a column, make it nullable with a default of null; existing versions without runnable_config must continue to behave as empty.
 
@@ -60,13 +60,13 @@ Add upload-time runnable config support so workflows can ship with initial confi
 
 #### Task Checklist
 
-- [ ] Task 3.1: Merge stored config with per-run config in workflow execution (run config precedence)
+- [x] Task 3.1: Merge stored config with per-run config in workflow execution (run config precedence)
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Expose stored config in workflow version responses and `workflow show` output
+- [x] Task 3.2: Expose stored config in workflow version responses and `workflow show` output
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Update README and workflow upload docs with examples and warnings about secrets
+- [x] Task 3.3: Update README and workflow upload docs with examples and warnings about secrets
   - Dependencies: Task 3.2
-- [ ] Task 3.4: Add regression tests for runs without stored config and with overrides
+- [x] Task 3.4: Add regression tests for runs without stored config and with overrides
   - Dependencies: Task 3.1
 
 ---

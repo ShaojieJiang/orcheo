@@ -16,6 +16,7 @@ async def _stream_workflow_run(
     *,
     triggered_by: str | None = None,
     runnable_config: Mapping[str, Any] | None = None,
+    stored_runnable_config: Mapping[str, Any] | None = None,
 ) -> str:
     """Stream workflow execution via WebSocket and display node outputs."""
     import json
@@ -39,6 +40,8 @@ async def _stream_workflow_run(
         payload["triggered_by"] = triggered_by
     if runnable_config is not None:
         payload["runnable_config"] = runnable_config
+    if stored_runnable_config is not None:
+        payload["stored_runnable_config"] = stored_runnable_config
 
     state.console.print("[cyan]Starting workflow execution...[/cyan]")
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
@@ -87,6 +90,7 @@ async def _stream_workflow_evaluation(
     *,
     triggered_by: str | None = None,
     runnable_config: Mapping[str, Any] | None = None,
+    stored_runnable_config: Mapping[str, Any] | None = None,
 ) -> str:
     """Stream workflow evaluation via WebSocket."""
     import json
@@ -111,6 +115,8 @@ async def _stream_workflow_evaluation(
         payload["triggered_by"] = triggered_by
     if runnable_config is not None:
         payload["runnable_config"] = runnable_config
+    if stored_runnable_config is not None:
+        payload["stored_runnable_config"] = stored_runnable_config
 
     state.console.print("[cyan]Starting workflow evaluation...[/cyan]")
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
@@ -266,12 +272,16 @@ def _render_node_output(state: CLIState, data: Any) -> None:
 def _prepare_streaming_graph(
     state: CLIState,
     workflow_id: str,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any], Mapping[str, Any] | None] | None:
     """Fetch latest workflow graph configuration for streaming."""
     latest_version = get_latest_workflow_version_data(state.client, workflow_id)
     graph_raw = latest_version.get("graph")
     if isinstance(graph_raw, Mapping):
-        return dict(graph_raw)
+        runnable_raw = latest_version.get("runnable_config")
+        runnable_config = (
+            dict(runnable_raw) if isinstance(runnable_raw, Mapping) else None
+        )
+        return dict(graph_raw), runnable_config
     return None
 
 
