@@ -17,6 +17,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `make dev-server` - Start development server with hot reload on port 8000
 - `make doc` - Serve documentation locally on port 8080
 
+### Execution Worker (Celery + Redis)
+- `make redis` - Start Redis via Docker Compose
+- `make worker` - Start Celery worker for background execution
+- `make celery-beat` - Start Celery Beat scheduler for cron triggers
+
+### Docker Compose (Full Stack)
+- `make docker-up` - Start all services (backend, canvas, redis, worker, celery-beat)
+- `make docker-down` - Stop all Docker Compose services
+- `make docker-build` - Build Docker images
+- `make docker-logs` - Follow logs from all services
+
 ### Package Management
 - Uses `uv` for dependency management (see uv.lock)
 - Python 3.12+ required
@@ -47,6 +58,7 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 ### Technology Stack
 - **Backend**: FastAPI + uvicorn
 - **Workflow Engine**: LangGraph + LangChain
+- **Task Queue**: Celery + Redis (for background execution)
 - **Database**: SQLite checkpoints, PostgreSQL support
 - **AI Integration**: OpenAI, various LangChain providers
 - **External Services**: Telegram Bot, Slack, MongoDB, RSS feeds
@@ -56,9 +68,12 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
   - `nodes/` - Node implementations and registry
   - `graph/` - State management and graph builder
   - `main.py` - FastAPI application entry
+- `apps/backend/` - Backend deployment package
+  - `src/orcheo_backend/worker/` - Celery worker and tasks
 - `tests/` - Test files mirroring src structure
 - `examples/` - Usage examples and notebooks
 - `docs/` - Documentation and architecture diagrams
+- `deploy/systemd/` - systemd unit files for production deployment
 
 ## Code Standards
 - Google docstring convention

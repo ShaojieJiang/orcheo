@@ -1,0 +1,274 @@
+"""Celery tasks for asynchronous workflow execution."""
+
+from __future__ import annotations
+import asyncio
+import logging
+from typing import Any
+from uuid import UUID
+from celery import Task
+from orcheo_backend.worker.celery_app import celery_app
+
+
+logger = logging.getLogger(__name__)
+
+WORKER_ACTOR = "worker"
+
+
+def _get_event_loop() -> asyncio.AbstractEventLoop:
+    """Get or create an event loop for running async code in sync context."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
+async def _load_and_validate_run(
+    run_id: str,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Load run from repository and validate its status.
+
+    Args:
+        run_id: UUID string of the run to load
+
+    Returns:
+        Tuple of (run object, error dict if any)
+    """
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+
+    repository = get_repository()
+
+    try:
+        run = await repository.get_run(UUID(run_id))
+    except WorkflowRunNotFoundError:
+        logger.error("Run %s not found", run_id)
+        return None, {"status": "failed", "error": "Run not found"}
+
+    if run.status != "pending":
+        logger.warning(
+            "Run %s is already in status '%s', skipping execution",
+            run_id,
+            run.status,
+        )
+        return None, {
+            "status": "skipped",
+            "reason": f"Run already in status: {run.status}",
+        }
+
+    return run, None
+
+
+async def _mark_run_started(run: Any, run_id: str) -> dict[str, Any] | None:
+    """Mark run as started in the repository.
+
+    Args:
+        run: The workflow run object
+        run_id: UUID string of the run
+
+    Returns:
+        Error dict if marking failed, None on success
+    """
+    from orcheo_backend.app.dependencies import get_repository
+
+    repository = get_repository()
+
+    try:
+        await repository.mark_run_started(run.id, actor=WORKER_ACTOR)
+        logger.info("Run %s marked as started", run_id)
+        return None
+    except ValueError as exc:
+        logger.warning("Failed to start run %s: %s", run_id, exc)
+        return {"status": "skipped", "reason": str(exc)}
+
+
+async def _execute_workflow(run: Any) -> dict[str, Any]:
+    """Execute the workflow for the given run.
+
+    Args:
+        run: The workflow run object
+
+    Returns:
+        Result dict with status and optional error
+    """
+    from langchain_core.runnables import RunnableConfig
+    from orcheo.config import get_settings
+    from orcheo.graph.builder import build_graph
+    from orcheo.models import CredentialAccessContext
+    from orcheo.persistence import create_checkpointer
+    from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+    from orcheo.runtime.runnable_config import merge_runnable_configs
+    from orcheo_backend.app.dependencies import get_repository, get_vault
+    from orcheo_backend.app.workflow_execution import _build_initial_state
+
+    repository = get_repository()
+    run_id = str(run.id)
+
+    try:
+        version = await repository.get_version(run.workflow_version_id)
+        graph_config = version.graph
+        inputs = run.input_payload or {}
+
+        settings = get_settings()
+        vault = get_vault()
+        credential_context = CredentialAccessContext(workflow_id=version.workflow_id)
+        resolver = CredentialResolver(vault, context=credential_context)
+
+        execution_id = str(run.id)
+        stored_config = run.runnable_config or version.runnable_config
+        merged_config = merge_runnable_configs(stored_config, None)
+        runtime_config: RunnableConfig = merged_config.to_runnable_config(execution_id)
+        state_config = merged_config.to_state_config(execution_id)
+
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                graph = build_graph(graph_config)
+                compiled = graph.compile(checkpointer=checkpointer)
+                state = _build_initial_state(graph_config, inputs, state_config)
+                final_state = await compiled.ainvoke(state, config=runtime_config)
+
+        output = _extract_output(final_state)
+        await repository.mark_run_succeeded(
+            run.id,
+            actor=WORKER_ACTOR,
+            output=output,
+        )
+        logger.info("Run %s completed successfully", run_id)
+        return {"status": "succeeded"}
+
+    except Exception as exc:
+        return await _handle_execution_failure(run, exc)
+
+
+def _extract_output(final_state: Any) -> dict[str, Any] | None:
+    """Extract output from final workflow state.
+
+    Args:
+        final_state: The final state from workflow execution
+
+    Returns:
+        Output dict or None
+    """
+    if isinstance(final_state, dict):
+        return {"final_state": final_state}
+    if hasattr(final_state, "model_dump"):
+        return {"final_state": final_state.model_dump()}
+    return None
+
+
+async def _handle_execution_failure(run: Any, exc: Exception) -> dict[str, Any]:
+    """Handle workflow execution failure.
+
+    Args:
+        run: The workflow run object
+        exc: The exception that occurred
+
+    Returns:
+        Error result dict
+    """
+    from orcheo_backend.app.dependencies import get_repository
+
+    repository = get_repository()
+    run_id = str(run.id)
+    error_message = str(exc)
+
+    logger.exception("Run %s failed: %s", run_id, error_message)
+
+    try:
+        await repository.mark_run_failed(
+            run.id,
+            actor=WORKER_ACTOR,
+            error=error_message,
+        )
+    except Exception as mark_exc:
+        logger.exception(
+            "Failed to mark run %s as failed: %s",
+            run_id,
+            mark_exc,
+        )
+
+    return {"status": "failed", "error": error_message}
+
+
+async def _execute_run_async(run_id: str) -> dict[str, Any]:
+    """Execute a workflow run asynchronously.
+
+    Args:
+        run_id: UUID string of the run to execute
+
+    Returns:
+        dict with keys: status (succeeded/failed), error (optional)
+    """
+    run, error = await _load_and_validate_run(run_id)
+    if error:
+        return error
+
+    start_error = await _mark_run_started(run, run_id)
+    if start_error:
+        return start_error
+
+    return await _execute_workflow(run)
+
+
+@celery_app.task(bind=True, max_retries=0)
+def execute_run(self: Task, run_id: str) -> dict[str, Any]:  # noqa: ARG001
+    """Execute a workflow run by ID.
+
+    Args:
+        self: Celery task instance (unused, required by bind=True)
+        run_id: UUID of the run to execute
+
+    Returns:
+        dict with keys: status (succeeded/failed/skipped), error (optional)
+    """
+    logger.info("Executing run %s", run_id)
+    loop = _get_event_loop()
+    return loop.run_until_complete(_execute_run_async(run_id))
+
+
+async def _dispatch_cron_triggers_async() -> list[str]:
+    """Dispatch due cron triggers and enqueue execution tasks.
+
+    Returns:
+        List of enqueued run IDs
+    """
+    from orcheo_backend.app.dependencies import get_repository
+
+    repository = get_repository()
+    runs = await repository.dispatch_due_cron_runs()
+
+    enqueued_run_ids: list[str] = []
+    for run in runs:
+        run_id = str(run.id)
+        execute_run.delay(run_id)
+        enqueued_run_ids.append(run_id)
+        logger.info("Enqueued cron run %s", run_id)
+
+    return enqueued_run_ids
+
+
+@celery_app.task(bind=True)
+def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
+    """Dispatch due cron triggers by calling the cron dispatch endpoint.
+
+    This task is invoked periodically by Celery Beat to trigger scheduled runs.
+
+    Args:
+        self: Celery task instance (unused, required by bind=True)
+
+    Returns:
+        dict with keys: dispatched_runs (list of run IDs)
+    """
+    logger.info("Dispatching cron triggers")
+    loop = _get_event_loop()
+    run_ids = loop.run_until_complete(_dispatch_cron_triggers_async())
+    logger.info("Dispatched %d cron runs", len(run_ids))
+    return {"dispatched_runs": run_ids}
+
+
+__all__ = ["execute_run", "dispatch_cron_triggers"]
