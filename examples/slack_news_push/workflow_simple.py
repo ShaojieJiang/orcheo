@@ -19,10 +19,6 @@ from orcheo.nodes.base import TaskNode
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 
 
-CHANNEL_ID = "CHANNEL_ID"
-TIMESTAMP_TOLERANCE_SECONDS = 10
-
-
 class FormatReplyNode(TaskNode):
     """Build the scripted reply text for an app mention."""
 
@@ -60,8 +56,8 @@ async def build_graph() -> StateGraph:
         SlackEventsParserNode(
             name="slack_events_parser",
             allowed_event_types=["app_mention"],
-            channel_id=CHANNEL_ID,
-            timestamp_tolerance_seconds=TIMESTAMP_TOLERANCE_SECONDS,
+            channel_id="{{config.configurable.channel_id}}",
+            timestamp_tolerance_seconds=10,
         ),
     )
     graph.add_node(
