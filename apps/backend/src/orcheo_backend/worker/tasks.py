@@ -41,6 +41,7 @@ async def _load_and_validate_run(
     """
     from orcheo_backend.app.dependencies import get_repository
     from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo.models.workflow_entities import WorkflowRunStatus
 
     repository = get_repository()
 
@@ -50,7 +51,7 @@ async def _load_and_validate_run(
         logger.error("Run %s not found", run_id)
         return None, {"status": "failed", "error": "Run not found"}
 
-    if run.status != "pending":
+    if run.status != WorkflowRunStatus.PENDING:
         logger.warning(
             "Run %s is already in status '%s', skipping execution",
             run_id,
