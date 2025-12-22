@@ -39,7 +39,7 @@ class TestLoadAndValidateRun:
         from orcheo_backend.app.repository import WorkflowRunNotFoundError
         from orcheo_backend.worker.tasks import _load_and_validate_run
 
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.get_run = AsyncMock(side_effect=WorkflowRunNotFoundError("not found"))
 
         with patch(
@@ -58,7 +58,7 @@ class TestLoadAndValidateRun:
         from orcheo_backend.worker.tasks import _load_and_validate_run
 
         mock_run.status = "running"
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.get_run = AsyncMock(return_value=mock_run)
 
         with patch(
@@ -77,7 +77,7 @@ class TestLoadAndValidateRun:
         from orcheo_backend.worker.tasks import _load_and_validate_run
 
         mock_run.status = "succeeded"
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.get_run = AsyncMock(return_value=mock_run)
 
         with patch(
@@ -94,7 +94,7 @@ class TestLoadAndValidateRun:
         """Test that pending runs return the run object."""
         from orcheo_backend.worker.tasks import _load_and_validate_run
 
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.get_run = AsyncMock(return_value=mock_run)
 
         with patch(
@@ -116,7 +116,7 @@ class TestMarkRunStarted:
         """Test that failure to mark as started returns error."""
         from orcheo_backend.worker.tasks import _mark_run_started
 
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.mark_run_started = AsyncMock(
             side_effect=ValueError("already started")
         )
@@ -135,7 +135,7 @@ class TestMarkRunStarted:
         """Test that successful mark_started returns None."""
         from orcheo_backend.worker.tasks import _mark_run_started
 
-        mock_repo = AsyncMock()
+        mock_repo = MagicMock()
         mock_repo.mark_run_started = AsyncMock(return_value=mock_run)
 
         with patch(
@@ -156,15 +156,17 @@ class TestExecuteRunTask:
         run_id = str(uuid4())
         mock_result: dict[str, Any] = {"status": "succeeded"}
 
-        with patch(
-            "orcheo_backend.worker.tasks._execute_run_async",
-            return_value=mock_result,
-        ):
-            with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
-                mock_loop = MagicMock()
-                mock_loop.run_until_complete = MagicMock(return_value=mock_result)
-                mock_get_loop.return_value = mock_loop
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            # Return the expected value directly, bypassing async execution
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
 
+            # Use new=MagicMock() to avoid AsyncMock creating unawaited coroutines
+            with patch(
+                "orcheo_backend.worker.tasks._execute_run_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
                 result = execute_run(run_id)
 
         assert result == mock_result
@@ -180,12 +182,20 @@ class TestDispatchCronTriggers:
 
         mock_run = MagicMock()
         mock_run.id = uuid4()
+        expected_run_ids = [str(mock_run.id)]
 
         with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
             mock_loop = MagicMock()
-            mock_loop.run_until_complete = MagicMock(return_value=[str(mock_run.id)])
+            # Return the expected value directly, bypassing async execution
+            mock_loop.run_until_complete.return_value = expected_run_ids
             mock_get_loop.return_value = mock_loop
 
-            result = dispatch_cron_triggers()
+            # Use new=MagicMock() to avoid AsyncMock creating unawaited coroutines
+            with patch(
+                "orcheo_backend.worker.tasks._dispatch_cron_triggers_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = dispatch_cron_triggers()
 
         assert "dispatched_runs" in result
+        assert result["dispatched_runs"] == expected_run_ids
