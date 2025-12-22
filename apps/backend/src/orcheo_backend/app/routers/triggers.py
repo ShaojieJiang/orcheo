@@ -23,27 +23,6 @@ from orcheo_backend.app.schemas.runs import CronDispatchRequest
 
 logger = logging.getLogger(__name__)
 
-
-def _enqueue_run(run: WorkflowRun) -> None:
-    """Enqueue a Celery task to execute the workflow run.
-
-    This function is best-effort: if Celery/Redis is unavailable,
-    the run remains pending and can be retried manually.
-    """
-    try:
-        from orcheo_backend.worker.tasks import execute_run
-
-        execute_run.delay(str(run.id))
-        logger.info("Enqueued run %s for execution", run.id)
-    except Exception as exc:
-        logger.warning(
-            "Failed to enqueue run %s for execution: %s. "
-            "Run will remain pending until manually retried.",
-            run.id,
-            exc,
-        )
-
-
 router = APIRouter()
 
 
@@ -159,7 +138,6 @@ async def invoke_webhook_trigger(
             payload=payload,
             source_ip=getattr(client, "host", None),
         )
-        _enqueue_run(run)
         return run
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -217,8 +195,6 @@ async def dispatch_cron_triggers(
     now = request.now if request else None
     try:
         runs = await repository.dispatch_due_cron_runs(now=now)
-        for run in runs:
-            _enqueue_run(run)
         return runs
     except CredentialHealthError as exc:
         raise HTTPException(
@@ -238,8 +214,6 @@ async def dispatch_manual_runs(
     """Dispatch one or more manual workflow runs."""
     try:
         runs = await repository.dispatch_manual_runs(request)
-        for run in runs:
-            _enqueue_run(run)
         return runs
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

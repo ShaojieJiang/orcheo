@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
@@ -21,6 +22,18 @@ def _build_state(raw_body: str, headers: dict[str, str]) -> State:
     return State(
         messages=[], inputs={"body": {"raw": raw_body}, "headers": headers}, results={}
     )
+
+
+def _build_script_state(raw_body: str, headers: dict[str, str]) -> dict[str, Any]:
+    return {"body": {"raw": raw_body}, "headers": headers}
+
+
+def _build_mixed_state(raw_body: str, headers: dict[str, str]) -> dict[str, Any]:
+    return {
+        "inputs": {},
+        "body": {"raw": raw_body},
+        "headers": headers,
+    }
 
 
 @pytest.mark.asyncio
@@ -55,6 +68,61 @@ async def test_slack_events_parser_accepts_valid_event() -> None:
     assert result["channel"] == "C123"
     assert result["user"] == "U123"
     assert result["text"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_slack_events_parser_accepts_script_state_inputs() -> None:
+    secret = "slack-secret"
+    timestamp = int(time.time())
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C123",
+            "user": "U123",
+            "text": "hello",
+        },
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    headers = {
+        "x-slack-signature": _sign_slack(secret, timestamp, raw_body),
+        "x-slack-request-timestamp": str(timestamp),
+    }
+
+    node = SlackEventsParserNode(
+        name="slack_events_parser",
+        signing_secret=secret,
+        channel_id="C123",
+        allowed_event_types=["app_mention"],
+    )
+    result = await node.run(_build_script_state(raw_body, headers), RunnableConfig())
+
+    assert result["should_process"] is True
+    assert result["event_type"] == "app_mention"
+
+
+@pytest.mark.asyncio
+async def test_slack_events_parser_merges_top_level_payload() -> None:
+    secret = "slack-secret"
+    timestamp = int(time.time())
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C123",
+        },
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    headers = {
+        "x-slack-signature": _sign_slack(secret, timestamp, raw_body),
+        "x-slack-request-timestamp": str(timestamp),
+    }
+
+    node = SlackEventsParserNode(name="slack_events_parser", signing_secret=secret)
+    result = await node.run(_build_mixed_state(raw_body, headers), RunnableConfig())
+
+    assert result["should_process"] is True
+    assert result["event_type"] == "app_mention"
 
 
 @pytest.mark.asyncio

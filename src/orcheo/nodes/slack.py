@@ -3,13 +3,16 @@
 import hashlib
 import hmac
 import json
+import os
 import time
+from collections.abc import Mapping
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Literal
 from fastmcp import Client
 from fastmcp.client.transports import NpxStdioTransport
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -65,6 +68,9 @@ class SlackNode(TaskNode):
             "@modelcontextprotocol/server-slack",
             env_vars=env_vars,
         )
+        if getattr(transport, "log_file", None) is None:
+            log_path = os.getenv("ORCHEO_MCP_STDIO_LOG", "/tmp/orcheo-mcp-stdio.log")
+            transport.log_file = Path(log_path)
         async with Client(transport) as client:
             result = await client.call_tool(self.tool_name, self.kwargs)
 
@@ -104,8 +110,27 @@ class SlackEventsParserNode(TaskNode):
     def _normalize_headers(self, headers: dict[str, str]) -> dict[str, str]:
         return {key.lower(): value for key, value in headers.items()}
 
+    def _extract_inputs(self, state: State) -> dict[str, Any]:
+        if isinstance(state, BaseModel):
+            state_dict = state.model_dump()
+            raw_inputs = state_dict.get("inputs")
+            if isinstance(raw_inputs, Mapping):
+                return dict(raw_inputs)
+            return dict(state_dict)
+        if isinstance(state, Mapping):
+            state_dict = dict(state)
+            raw_inputs = state_dict.get("inputs")
+            if isinstance(raw_inputs, Mapping):
+                merged = dict(raw_inputs)
+                for key in ("body", "headers", "query_params", "source_ip"):
+                    if key in state_dict and key not in merged:
+                        merged[key] = state_dict[key]
+                return merged
+            return state_dict
+        return {}
+
     def _extract_raw_body(self, body: Any) -> tuple[str, dict[str, Any]]:
-        if isinstance(body, dict) and "raw" in body:
+        if isinstance(body, Mapping) and "raw" in body:
             raw_body = body.get("raw")
             if isinstance(raw_body, str):
                 return raw_body, self._parse_json(raw_body)
@@ -114,9 +139,9 @@ class SlackEventsParserNode(TaskNode):
             return raw_text, self._parse_json(raw_text)
         if isinstance(body, str):
             return body, self._parse_json(body)
-        if isinstance(body, dict):
+        if isinstance(body, Mapping):
             raw_text = json.dumps(body, separators=(",", ":"), ensure_ascii=True)
-            return raw_text, body
+            return raw_text, dict(body)
         msg = "Slack event payload must be a dict, string, or bytes"
         raise ValueError(msg)
 
@@ -158,7 +183,7 @@ class SlackEventsParserNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the Slack Events API payload and validate signatures."""
-        inputs = state.get("inputs", {})
+        inputs = self._extract_inputs(state)
         headers = inputs.get("headers", {})
         if not isinstance(headers, dict):
             msg = "Slack event headers must be a dictionary"

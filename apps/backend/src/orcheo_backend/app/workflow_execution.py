@@ -267,11 +267,13 @@ def _build_initial_state(
 ) -> Any:
     """Return the starting runtime state for a workflow execution."""
     if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-        if runtime_config is None:
-            return inputs
         if isinstance(inputs, dict):
             state = dict(inputs)
-            state["config"] = runtime_config
+            state.setdefault("inputs", dict(inputs))
+            state.setdefault("results", {})
+            state.setdefault("messages", [])
+            if runtime_config is not None:
+                state["config"] = runtime_config
             return state
         return inputs
     return {

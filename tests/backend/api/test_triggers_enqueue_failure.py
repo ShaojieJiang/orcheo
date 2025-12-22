@@ -16,10 +16,10 @@ backend_app = importlib.import_module("orcheo_backend.app")
 
 
 class TestEnqueueRunFunction:
-    """Direct tests for the _enqueue_run function."""
+    """Direct tests for the _enqueue_run_for_execution function."""
 
     def test_enqueue_run_success_logs_info(self) -> None:
-        """Test that successful enqueue logs an info message (line 36)."""
+        """Test that successful enqueue logs an info message."""
         from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus
 
         run = WorkflowRun(
@@ -36,7 +36,9 @@ class TestEnqueueRunFunction:
         mock_tasks_module = MagicMock()
         mock_tasks_module.execute_run = mock_execute_run
 
-        with patch("orcheo_backend.app.routers.triggers.logger") as mock_logger:
+        with patch(
+            "orcheo_backend.app.repository_sqlite._triggers.logger"
+        ) as mock_logger:
             # Patch the import mechanism to return our mock
             original_import = builtins.__import__
 
@@ -51,13 +53,15 @@ class TestEnqueueRunFunction:
             try:
                 with patch.object(builtins, "__import__", side_effect=mock_import):
                     # Import and call the function
-                    from orcheo_backend.app.routers.triggers import _enqueue_run
+                    from orcheo_backend.app.repository_sqlite._triggers import (
+                        _enqueue_run_for_execution,
+                    )
 
-                    _enqueue_run(run)
+                    _enqueue_run_for_execution(run)
 
                 # Check that delay was called (indicating successful execution)
                 mock_execute_run.delay.assert_called_once_with(str(run.id))
-                # Check that info log was called (line 36)
+                # Check that info log was called
                 mock_logger.info.assert_called_once()
                 call_args = mock_logger.info.call_args[0]
                 assert "Enqueued run" in call_args[0]
@@ -85,7 +89,9 @@ class TestEnqueueRunFunction:
         mock_tasks_module = MagicMock()
         mock_tasks_module.execute_run = mock_execute_run
 
-        with patch("orcheo_backend.app.routers.triggers.logger") as mock_logger:
+        with patch(
+            "orcheo_backend.app.repository_sqlite._triggers.logger"
+        ) as mock_logger:
             original_import = builtins.__import__
 
             def mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -97,9 +103,11 @@ class TestEnqueueRunFunction:
 
             try:
                 with patch.object(builtins, "__import__", side_effect=mock_import):
-                    from orcheo_backend.app.routers.triggers import _enqueue_run
+                    from orcheo_backend.app.repository_sqlite._triggers import (
+                        _enqueue_run_for_execution,
+                    )
 
-                    _enqueue_run(run)
+                    _enqueue_run_for_execution(run)
 
                 # Verify warning was logged
                 mock_logger.warning.assert_called_once()
@@ -111,7 +119,7 @@ class TestEnqueueRunFunction:
 def test_enqueue_run_logs_warning_on_celery_failure(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that _enqueue_run logs a warning when Celery is unavailable."""
+    """Test that _enqueue_run_for_execution logs a warning when Celery is unavailable."""
     workflow_response = api_client.post(
         "/api/workflows",
         json={"name": "Enqueue Test Flow", "actor": "tester"},
