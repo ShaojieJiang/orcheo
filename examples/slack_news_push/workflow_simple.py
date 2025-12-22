@@ -5,9 +5,9 @@ Configure Slack Events API to send requests to:
 so signatures can be verified.
 
 Configurable inputs:
-- slack_channel_id (single channel ID)
+- channel_id (single channel ID)
 - slack_mention_reply (scripted response text)
-- slack_signature_tolerance_seconds (timestamp tolerance in seconds)
+- team_id (Slack workspace ID)
 """
 
 from typing import Any
@@ -69,6 +69,7 @@ async def build_graph() -> StateGraph:
         SlackNode(
             name="post_reply",
             tool_name="slack_post_message",
+            team_id="{{config.configurable.team_id}}",
             kwargs={
                 "channel_id": "{{slack_events_parser.channel}}",
                 "text": "{{format_reply.text}}",

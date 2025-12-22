@@ -6,6 +6,7 @@ import logging
 from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from orcheo.models.workflow import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
@@ -44,6 +45,44 @@ def _enqueue_run(run: WorkflowRun) -> None:
 
 
 router = APIRouter()
+
+
+def _parse_webhook_body(
+    raw_body: bytes, *, preserve_raw_body: bool
+) -> tuple[Any, dict[str, Any] | None]:
+    if not raw_body:
+        return {}, None
+
+    decoded_body = raw_body.decode("utf-8", errors="replace")
+    parsed_body: Any | None = None
+    try:
+        parsed_body = json.loads(decoded_body)
+    except json.JSONDecodeError:
+        parsed_body = None
+
+    if preserve_raw_body:
+        payload: Any = {"raw": decoded_body}
+        if parsed_body is not None:
+            payload["parsed"] = parsed_body
+        return payload, parsed_body if isinstance(parsed_body, dict) else None
+
+    payload = parsed_body if parsed_body is not None else raw_body
+    return payload, parsed_body if isinstance(parsed_body, dict) else None
+
+
+def _maybe_handle_slack_url_verification(
+    parsed_body: dict[str, Any] | None,
+) -> JSONResponse | None:
+    if not parsed_body or parsed_body.get("type") != "url_verification":
+        return None
+
+    challenge = parsed_body.get("challenge")
+    if not isinstance(challenge, str) or not challenge.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Slack challenge value",
+        )
+    return JSONResponse(content={"challenge": challenge})
 
 
 @router.put(
@@ -91,7 +130,7 @@ async def invoke_webhook_trigger(
         default=False,
         description="Store the raw request body alongside parsed payloads.",
     ),
-) -> WorkflowRun:
+) -> WorkflowRun | JSONResponse:
     """Validate inbound webhook data and enqueue a workflow run."""
     try:
         raw_body = await request.body()
@@ -103,23 +142,12 @@ async def invoke_webhook_trigger(
 
     headers = {key: value for key, value in request.headers.items()}
 
-    payload: Any
-    if not raw_body:
-        payload = {}
-    else:
-        decoded_body = raw_body.decode("utf-8", errors="replace")
-        parsed_body: Any | None = None
-        try:
-            parsed_body = json.loads(decoded_body)
-        except json.JSONDecodeError:
-            parsed_body = None
-
-        if preserve_raw_body:
-            payload = {"raw": decoded_body}
-            if parsed_body is not None:
-                payload["parsed"] = parsed_body
-        else:
-            payload = parsed_body if parsed_body is not None else raw_body
+    payload, parsed_body = _parse_webhook_body(
+        raw_body, preserve_raw_body=preserve_raw_body
+    )
+    slack_response = _maybe_handle_slack_url_verification(parsed_body)
+    if slack_response is not None:
+        return slack_response
 
     try:
         client = request.client
