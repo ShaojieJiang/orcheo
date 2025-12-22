@@ -16,7 +16,9 @@ dev = [
   "smokeshow>=0.5.0",
   "respx>=0.21.0",
   "types-requests",
-  "orcheo-sdk"
+  "orcheo-sdk",
+  "celery[redis]>=5.3.0",
+  "redis>=5.0.0"
 ]
 docs = [
   "mkdocs",

@@ -1,0 +1,31 @@
+[Unit]
+Description=Orcheo Celery Worker
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=orcheo
+Group=orcheo
+WorkingDirectory=/opt/orcheo
+Environment=PATH=/opt/orcheo/.venv/bin:/usr/bin:/bin
+Environment=REDIS_URL=redis://localhost:6379/0
+EnvironmentFile=-/etc/orcheo/orcheo.env
+
+ExecStart=/opt/orcheo/.venv/bin/celery \
+    -A orcheo_backend.worker.celery_app \
+    worker \
+    --loglevel=info \
+    --concurrency=4
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Graceful shutdown
+TimeoutStopSec=300
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

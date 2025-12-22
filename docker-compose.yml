@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - backend_venv:/app/.venv
+      - uv_cache:/root/.cache/uv
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    volumes:
+      - .:/app
+      - worker_venv:/app/.venv
+      - uv_cache:/root/.cache/uv
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    volumes:
+      - .:/app
+      - celery_venv:/app/.venv
+      - uv_cache:/root/.cache/uv
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info
+
+  canvas:
+    build:
+      context: .
+      dockerfile: Dockerfile.canvas
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/canvas:/app
+      - canvas_node_modules:/app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  redis_data:
+  uv_cache:
+  canvas_node_modules:
+  backend_venv:
+  worker_venv:
+  celery_venv:
