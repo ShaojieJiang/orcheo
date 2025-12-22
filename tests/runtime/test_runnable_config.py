@@ -3,7 +3,11 @@
 from __future__ import annotations
 import pytest
 from orcheo.agentensor.prompts import TrainablePrompt
-from orcheo.runtime.runnable_config import RunnableConfigModel, parse_runnable_config
+from orcheo.runtime.runnable_config import (
+    RunnableConfigModel,
+    merge_runnable_configs,
+    parse_runnable_config,
+)
 
 
 def test_parse_runnable_config_builds_runtime_payload() -> None:
@@ -118,3 +122,46 @@ def test_validate_prompts_accepts_none() -> None:
 def test_validate_prompts_rejects_non_trainable_prompt_dict() -> None:
     with pytest.raises(ValueError, match="must be a TrainablePrompt"):
         RunnableConfigModel._validate_prompts({"bad": object()})
+
+
+def test_merge_runnable_configs_combines_overrides_and_base_prompts() -> None:
+    base = {
+        "configurable": {"thread_id": "keep", "base": "value"},
+        "metadata": {"team": "ops"},
+        "prompts": {"seed": TrainablePrompt(text="base")},
+        "tags": ["stable"],
+    }
+    override = {
+        "configurable": {"override": "value"},
+        "metadata": {"team": "override"},
+        "prompts": {"extra": TrainablePrompt(text="override")},
+        "tags": ["latest"],
+    }
+
+    merged = merge_runnable_configs(base, override)
+
+    assert merged.configurable["base"] == "value"
+    assert merged.configurable["override"] == "value"
+    assert merged.metadata == {"team": "override"}
+    assert set(merged.prompts.keys()) == {"seed", "extra"}
+    assert merged.prompts["seed"].text == "base"
+    assert merged.prompts["extra"].text == "override"
+    assert merged.tags == ["latest"]
+
+
+def test_merge_runnable_configs_clears_empty_mappings() -> None:
+    base = {"metadata": {"team": "ops"}}
+    override = {"metadata": {}}
+
+    merged = merge_runnable_configs(base, override)
+
+    assert merged.metadata == {}
+
+
+def test_merge_runnable_configs_resets_prompts_when_override_null() -> None:
+    base = {"prompts": {"seed": TrainablePrompt(text="keep")}}
+    override = {"prompts": None}
+
+    merged = merge_runnable_configs(base, override)
+
+    assert merged.prompts is None

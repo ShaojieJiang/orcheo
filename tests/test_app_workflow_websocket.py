@@ -38,6 +38,7 @@ async def test_workflow_websocket_routes_requests() -> None:
         "test-execution",
         mock_websocket,
         runnable_config=None,
+        stored_runnable_config=None,
     )
     mock_websocket.close.assert_called_once()
 
@@ -73,6 +74,7 @@ async def test_workflow_websocket_routes_evaluation_requests() -> None:
         mock_websocket,
         evaluation={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
         runnable_config=None,
+        stored_runnable_config=None,
     )
 
 
@@ -107,4 +109,5 @@ async def test_workflow_websocket_routes_training_requests() -> None:
         mock_websocket,
         training={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
         runnable_config=None,
+        stored_runnable_config=None,
     )

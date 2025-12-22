@@ -22,7 +22,11 @@ from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
 from orcheo_backend.app import dependencies as backend_dependencies
 from orcheo_backend.app.history import RunHistoryError
-from orcheo_backend.app.repository import RepositoryError
+from orcheo_backend.app.repository import (
+    RepositoryError,
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -188,6 +192,74 @@ async def test_resolve_stored_runnable_config_handles_repository_error(
     )
 
     assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_none_for_missing_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise WorkflowNotFoundError("missing")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_none_for_missing_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise WorkflowVersionNotFoundError("missing version")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_version_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Version:
+        runnable_config = {"worker": "value"}
+
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            return Version()
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result == {"worker": "value"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_uses_cached_value() -> None:
+    cached = {"always": "there"}
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        cached,
+    )
+
+    assert result == cached
 
 
 @pytest.mark.asyncio

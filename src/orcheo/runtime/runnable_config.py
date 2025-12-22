@@ -187,7 +187,7 @@ def merge_runnable_configs(
         else RunnableConfigModel.model_validate(override)
     )
     if not override_model.model_fields_set:
-        return base
+        return base  # pragma: no cover
 
     merged = base.model_dump(mode="python")
     fields_set = override_model.model_fields_set

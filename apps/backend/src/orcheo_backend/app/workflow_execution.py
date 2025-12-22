@@ -309,8 +309,8 @@ async def _resolve_stored_runnable_config(
         WorkflowVersionNotFoundError,
     )
 
-    repository = get_repository()
     try:
+        repository = get_repository()
         version = await repository.get_latest_version(workflow_id)
     except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
         return None
