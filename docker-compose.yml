@@ -22,13 +22,14 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      - backend_venv:/app/.venv
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
-    command: uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000 --reload
+    command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000 --reload
 
   worker:
     build:
@@ -36,13 +37,14 @@ services:
       dockerfile: Dockerfile.backend
     volumes:
       - .:/app
+      - worker_venv:/app/.venv
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
-    command: celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+    command: uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
   celery-beat:
     build:
@@ -50,13 +52,14 @@ services:
       dockerfile: Dockerfile.backend
     volumes:
       - .:/app
+      - celery_venv:/app/.venv
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
-    command: celery -A orcheo_backend.worker.celery_app beat --loglevel=info
+    command: uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info
 
   canvas:
     build:
@@ -77,3 +80,6 @@ volumes:
   redis_data:
   uv_cache:
   canvas_node_modules:
+  backend_venv:
+  worker_venv:
+  celery_venv:
