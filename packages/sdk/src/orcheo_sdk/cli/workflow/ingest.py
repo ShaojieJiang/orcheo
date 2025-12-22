@@ -85,6 +85,9 @@ def _upload_langgraph_script(
         "notes": f"Uploaded from {path.name} via CLI",
         "created_by": "cli",
     }
+    runnable_config = workflow_config.get("runnable_config")
+    if runnable_config is not None:
+        ingest_payload["runnable_config"] = runnable_config
 
     try:
         version = state.client.post(

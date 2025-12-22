@@ -159,6 +159,7 @@ class WorkflowVersion(TimestampedAuditModel):
     version: int = Field(gt=0)
     graph: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: dict[str, Any] | None = None
     created_by: str
     notes: str | None = None
 

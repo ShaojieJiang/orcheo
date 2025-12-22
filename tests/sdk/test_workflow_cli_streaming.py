@@ -80,6 +80,7 @@ async def test_stream_workflow_run_succeeds(
         {"input": "value"},
         triggered_by="cli-actor",
         runnable_config={"priority": "high"},
+        stored_runnable_config={"tags": ["stored"]},
     )
     assert result == "completed"
     assert connection.sent, "payload was not sent"
@@ -88,6 +89,7 @@ async def test_stream_workflow_run_succeeds(
     assert payload["inputs"] == {"input": "value"}
     assert payload["triggered_by"] == "cli-actor"
     assert payload["runnable_config"] == {"priority": "high"}
+    assert payload["stored_runnable_config"] == {"tags": ["stored"]}
 
 
 @pytest.mark.asyncio()
@@ -237,6 +239,7 @@ async def test_stream_workflow_evaluation_succeeds(
         {"name": "agent"},
         triggered_by="cli-actor",
         runnable_config={"priority": "high"},
+        stored_runnable_config={"tags": ["stored"]},
     )
     assert result == "completed"
     assert connection.sent, "payload was not sent"
@@ -244,6 +247,7 @@ async def test_stream_workflow_evaluation_succeeds(
     assert payload["type"] == "evaluate_workflow"
     assert payload["evaluation"] == {"name": "agent"}
     assert payload["runnable_config"] == {"priority": "high"}
+    assert payload["stored_runnable_config"] == {"tags": ["stored"]}
 
 
 @pytest.mark.asyncio()

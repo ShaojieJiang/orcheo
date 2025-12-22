@@ -156,6 +156,7 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
             *,
             graph: dict[str, object],
             metadata: dict[str, object],
+            runnable_config: dict[str, object] | None = None,
             notes: str | None,
             created_by: str,
         ):

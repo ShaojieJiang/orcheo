@@ -14,6 +14,7 @@ from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.persistence import create_checkpointer
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.message_utils import (
     build_initial_state,
@@ -70,9 +71,9 @@ class WorkflowExecutor:
             compiled = graph.compile(checkpointer=checkpointer)
             initial_state = build_initial_state(graph_config, inputs)
             payload: Any = initial_state
-            config: RunnableConfig = {
-                "configurable": {"thread_id": str(uuid4())},
-            }
+            execution_id = str(uuid4())
+            merged_config = merge_runnable_configs(version.runnable_config, None)
+            config: RunnableConfig = merged_config.to_runnable_config(execution_id)
             with credential_resolution(credential_resolver):
                 final_state = await compiled.ainvoke(payload, config=config)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
@@ -9,6 +10,7 @@ from orcheo.models.workflow import (
     Workflow,
     WorkflowVersion,
 )
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -38,6 +40,19 @@ from orcheo_backend.app.schemas.workflows import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _serialize_runnable_config(
+    runnable_config: RunnableConfigModel | None,
+) -> dict[str, Any] | None:
+    """Normalize runnable config payloads for storage."""
+    if runnable_config is None:
+        return None
+    return runnable_config.model_dump(
+        mode="json",
+        exclude_defaults=True,
+        exclude_none=True,
+    )
 
 
 @router.get("/workflows", response_model=list[Workflow])
@@ -131,6 +146,7 @@ async def create_workflow_version(
             metadata=request.metadata,
             notes=request.notes,
             created_by=request.created_by,
+            runnable_config=_serialize_runnable_config(request.runnable_config),
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -165,6 +181,7 @@ async def ingest_workflow_version(
             metadata=request.metadata,
             notes=request.notes,
             created_by=request.created_by,
+            runnable_config=_serialize_runnable_config(request.runnable_config),
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

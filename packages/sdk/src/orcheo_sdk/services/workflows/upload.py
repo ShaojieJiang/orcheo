@@ -76,6 +76,7 @@ def upload_workflow_data(
     workflow_id: str | None = None,
     workflow_name: str | None = None,
     entrypoint: str | None = None,
+    runnable_config: dict[str, Any] | None = None,
     console: Any | None = None,
 ) -> dict[str, Any]:
     """Upload workflow definition from a local file."""
@@ -109,6 +110,8 @@ def upload_workflow_data(
     if workflow_config.get("_type") == "langgraph_script":
         if entrypoint:
             workflow_config["entrypoint"] = entrypoint
+        if runnable_config is not None:
+            workflow_config["runnable_config"] = runnable_config
         result = _upload_langgraph_workflow(
             state,  # type: ignore[arg-type]
             workflow_config,
@@ -120,6 +123,8 @@ def upload_workflow_data(
     else:
         if requested_name:
             workflow_config["name"] = requested_name
+        if runnable_config is not None:
+            workflow_config["runnable_config"] = runnable_config
         result = _submit_workflow_configuration(
             client,
             workflow_config,

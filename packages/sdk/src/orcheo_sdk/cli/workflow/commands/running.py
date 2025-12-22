@@ -48,11 +48,12 @@ def run_workflow(
     runnable_config = _resolve_runnable_config(config, config_file)
     from orcheo_sdk.cli import workflow as workflow_module
 
-    graph_config = (
+    graph_payload = (
         workflow_module._prepare_streaming_graph(state, workflow_id) if stream else None
     )
 
-    if graph_config is not None:
+    if graph_payload is not None:
+        graph_config, stored_runnable_config = graph_payload
         final_status = asyncio.run(
             workflow_module._stream_workflow_run(
                 state,
@@ -61,6 +62,7 @@ def run_workflow(
                 input_payload,
                 triggered_by=triggered_by,
                 runnable_config=runnable_config,
+                stored_runnable_config=stored_runnable_config,
             )
         )
         if final_status in {"error", "cancelled", "connection_error", "timeout"}:
@@ -104,13 +106,14 @@ def evaluate_workflow(
     evaluation_payload = _resolve_evaluation_payload(evaluation, evaluation_file)
     from orcheo_sdk.cli import workflow as workflow_module
 
-    graph_config = (
+    graph_payload = (
         workflow_module._prepare_streaming_graph(state, workflow_id) if stream else None
     )
-    if graph_config is None:
+    if graph_payload is None:
         raise CLIError(
             "Evaluation requires streaming mode; unable to load workflow graph."
         )
+    graph_config, stored_runnable_config = graph_payload
 
     final_status = asyncio.run(
         workflow_module._stream_workflow_evaluation(
@@ -121,6 +124,7 @@ def evaluate_workflow(
             evaluation_payload,
             triggered_by=triggered_by,
             runnable_config=runnable_config,
+            stored_runnable_config=stored_runnable_config,
         )
     )
     if final_status in {"error", "cancelled", "connection_error", "timeout"}:
