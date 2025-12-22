@@ -11,13 +11,19 @@ from orcheo_sdk.cli.workflow.app import (
     ForceOption,
     FormatOption,
     OutputPathOption,
+    RunnableConfigFileOption,
+    RunnableConfigOption,
     WorkflowIdArgument,
     WorkflowIdOption,
     WorkflowNameOption,
     _state,
     workflow_app,
 )
-from orcheo_sdk.cli.workflow.inputs import _cache_notice, _validate_local_path
+from orcheo_sdk.cli.workflow.inputs import (
+    _cache_notice,
+    _resolve_runnable_config,
+    _validate_local_path,
+)
 from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
@@ -58,18 +64,22 @@ def upload_workflow(
     workflow_id: WorkflowIdOption = None,
     entrypoint: EntrypointOption = None,
     workflow_name: WorkflowNameOption = None,
+    config: RunnableConfigOption = None,
+    config_file: RunnableConfigFileOption = None,
 ) -> None:
     """Upload a workflow from a Python or JSON file."""
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Uploading workflows requires network connectivity.")
 
+    runnable_config = _resolve_runnable_config(config, config_file)
     result = upload_workflow_data(
         state.client,
         file_path,
         workflow_id=workflow_id,
         workflow_name=workflow_name,
         entrypoint=entrypoint,
+        runnable_config=runnable_config,
         console=state.console,
     )
     identifier = workflow_id or result.get("id") or "workflow"

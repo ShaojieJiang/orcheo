@@ -34,6 +34,7 @@ class WorkflowVersionCreateRequest(BaseModel):
 
     graph: dict[str, Any]
     metadata: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: RunnableConfigModel | None = None
     notes: str | None = None
     created_by: str
 
@@ -44,6 +45,7 @@ class WorkflowVersionIngestRequest(BaseModel):
     script: str
     entrypoint: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: RunnableConfigModel | None = None
     notes: str | None = None
     created_by: str
 

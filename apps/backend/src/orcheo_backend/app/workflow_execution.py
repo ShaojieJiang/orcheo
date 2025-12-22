@@ -17,7 +17,10 @@ from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
-from orcheo.runtime.runnable_config import RunnableConfigModel, parse_runnable_config
+from orcheo.runtime.runnable_config import (
+    RunnableConfigModel,
+    merge_runnable_configs,
+)
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -282,12 +285,42 @@ def _build_initial_state(
 def _prepare_runnable_config(
     execution_id: str,
     candidate: Mapping[str, Any] | RunnableConfigModel | None,
+    stored_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> tuple[RunnableConfigModel, RunnableConfig, dict[str, Any], dict[str, Any]]:
-    parsed_config = parse_runnable_config(candidate)
-    runtime_config = parsed_config.to_runnable_config(execution_id)
-    state_config = parsed_config.to_state_config(execution_id)
-    stored_config = parsed_config.to_json_config(execution_id)
-    return parsed_config, runtime_config, state_config, stored_config
+    merged_config = merge_runnable_configs(stored_config, candidate)
+    runtime_config = merged_config.to_runnable_config(execution_id)
+    state_config = merged_config.to_state_config(execution_id)
+    stored_payload = merged_config.to_json_config(execution_id)
+    return merged_config, runtime_config, state_config, stored_payload
+
+
+async def _resolve_stored_runnable_config(
+    workflow_id: UUID | None,
+    stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None,
+) -> Mapping[str, Any] | RunnableConfigModel | None:
+    """Return stored runnable config, loading from repository when needed."""
+    if stored_runnable_config is not None or workflow_id is None:
+        return stored_runnable_config
+    from aiosqlite import Error as SqliteError
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.repository import (
+        RepositoryError,
+        WorkflowNotFoundError,
+        WorkflowVersionNotFoundError,
+    )
+
+    try:
+        repository = get_repository()
+        version = await repository.get_latest_version(workflow_id)
+    except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
+        return None
+    except (RepositoryError, SqliteError):
+        logger.exception(
+            "Failed to load stored runnable config for workflow %s",
+            workflow_id,
+        )
+        return {}
+    return version.runnable_config
 
 
 async def execute_workflow(
@@ -297,6 +330,7 @@ async def execute_workflow(
     execution_id: str,
     websocket: WebSocket,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
+    stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:
     """Execute a workflow and stream results over the provided websocket."""
     from orcheo_backend.app import build_graph, create_checkpointer
@@ -315,8 +349,16 @@ async def execute_workflow(
     credential_context = credential_context_from_workflow(workflow_uuid)
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
+    stored_runnable_config = await _resolve_stored_runnable_config(
+        workflow_uuid,
+        stored_runnable_config,
+    )
     parsed_config, runtime_config, state_config, stored_config = (
-        _prepare_runnable_config(execution_id, runnable_config)
+        _prepare_runnable_config(
+            execution_id,
+            runnable_config,
+            stored_runnable_config,
+        )
     )
 
     with workflow_span(
@@ -614,6 +656,7 @@ async def execute_workflow_evaluation(
     websocket: WebSocket,
     evaluation: Mapping[str, Any] | EvaluationRequest | None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
+    stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:  # noqa: PLR0915
     """Execute workflow evaluation and stream progress via websocket."""
     logger.info(
@@ -643,8 +686,16 @@ async def execute_workflow_evaluation(
     credential_context = credential_context_from_workflow(workflow_uuid)
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
+    stored_runnable_config = await _resolve_stored_runnable_config(
+        workflow_uuid,
+        stored_runnable_config,
+    )
     parsed_config, runtime_config, state_config, stored_config = (
-        _prepare_runnable_config(execution_id, runnable_config)
+        _prepare_runnable_config(
+            execution_id,
+            runnable_config,
+            stored_runnable_config,
+        )
     )
 
     with workflow_span(
@@ -712,6 +763,7 @@ async def execute_workflow_training(
     websocket: WebSocket,
     training: Mapping[str, Any] | TrainingRequest | None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
+    stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:  # noqa: PLR0915
     """Execute workflow training and stream progress via websocket."""
     logger.info("Starting training %s with execution_id: %s", workflow_id, execution_id)
@@ -740,8 +792,16 @@ async def execute_workflow_training(
     credential_context = credential_context_from_workflow(workflow_uuid)
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
+    stored_runnable_config = await _resolve_stored_runnable_config(
+        workflow_uuid,
+        stored_runnable_config,
+    )
     parsed_config, runtime_config, state_config, stored_config = (
-        _prepare_runnable_config(execution_id, runnable_config)
+        _prepare_runnable_config(
+            execution_id,
+            runnable_config,
+            stored_runnable_config,
+        )
     )
 
     with workflow_span(

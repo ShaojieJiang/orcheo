@@ -76,6 +76,7 @@ class WorkflowRepository(Protocol):
         *,
         graph: dict[str, Any],
         metadata: dict[str, Any],
+        runnable_config: dict[str, Any] | None = None,
         notes: str | None,
         created_by: str,
     ) -> WorkflowVersion:

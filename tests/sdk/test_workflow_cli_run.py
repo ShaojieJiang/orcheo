@@ -26,6 +26,7 @@ def test_run_workflow_raises_on_failed_stream(
         inputs: Any,
         triggered_by: str | None = None,
         runnable_config: Any | None = None,
+        stored_runnable_config: Any | None = None,
     ) -> str:
         assert state_arg is state
         assert workflow_id == "wf-1"
@@ -33,6 +34,7 @@ def test_run_workflow_raises_on_failed_stream(
         assert inputs == {}
         assert triggered_by == "cli"
         assert runnable_config is None
+        assert stored_runnable_config is None
         return "error"
 
     monkeypatch.setattr("orcheo_sdk.cli.workflow._stream_workflow_run", fake_stream)
@@ -60,6 +62,7 @@ def test_run_workflow_allows_successful_stream(
         inputs: Any,
         triggered_by: str | None = None,
         runnable_config: Any | None = None,
+        stored_runnable_config: Any | None = None,
     ) -> str:
         assert state_arg is state
         assert workflow_id == "wf-1"
@@ -67,6 +70,7 @@ def test_run_workflow_allows_successful_stream(
         assert inputs == {}
         assert triggered_by == "cli"
         assert runnable_config is None
+        assert stored_runnable_config is None
         return "completed"
 
     monkeypatch.setattr("orcheo_sdk.cli.workflow._stream_workflow_run", fake_stream)
@@ -93,6 +97,7 @@ def test_evaluate_workflow_streams_progress(
         evaluation: Any,
         triggered_by: str | None = None,
         runnable_config: Any | None = None,
+        stored_runnable_config: Any | None = None,
     ) -> str:
         assert state_arg is state
         assert workflow_id == "wf-2"
@@ -101,6 +106,7 @@ def test_evaluate_workflow_streams_progress(
         assert evaluation == {"dataset": {"cases": [{"inputs": {"a": 1}}]}}
         assert triggered_by == "cli"
         assert runnable_config is None
+        assert stored_runnable_config is None
         return "completed"
 
     monkeypatch.setattr(
@@ -148,7 +154,7 @@ def test_evaluate_workflow_raises_on_failed_stream(
     payload = '{"dataset": {"cases": [{"inputs": {"value": 1}}]}}'
     monkeypatch.setattr(
         "orcheo_sdk.cli.workflow._prepare_streaming_graph",
-        lambda *_: {"nodes": []},
+        lambda *_: ({"nodes": []}, None),
     )
 
     async def fake_stream(
@@ -160,6 +166,7 @@ def test_evaluate_workflow_raises_on_failed_stream(
         *,
         triggered_by: str | None = None,
         runnable_config: Any | None = None,
+        stored_runnable_config: Any | None = None,
     ) -> str:
         return "error"
 

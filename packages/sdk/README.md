@@ -121,7 +121,7 @@ Available on all commands:
 | `orcheo workflow show <id>` | Display workflow details, versions, and runs | - |
 | `orcheo workflow run <id>` | Trigger a workflow execution | `--actor` - Actor name (default: "cli")<br>`--inputs` - JSON inputs payload<br>`--inputs-file` - Path to JSON inputs file |
 | `orcheo workflow delete <id>` | Delete a workflow | `--force` - Skip confirmation prompt |
-| `orcheo workflow upload <file>` | Upload workflow from Python or JSON file | `--id` - Workflow ID (for updates) |
+| `orcheo workflow upload <file>` | Upload workflow from Python or JSON file | `--id` - Workflow ID (for updates)<br>`--config` - JSON runnable config payload<br>`--config-file` - JSON runnable config file |
 | `orcheo workflow download <id>` | Download workflow configuration | `-o, --output` - Output file path<br>`-f, --format` - Format: json or python (default: json) |
 
 **Examples:**
@@ -143,6 +143,9 @@ orcheo workflow upload workflow.py
 # Update existing workflow
 orcheo workflow upload workflow.py --id my-workflow-id
 
+# Upload with runnable config defaults (stored per version)
+orcheo workflow upload workflow.py --config '{"tags": ["support"], "max_concurrency": 4}'
+
 # Download workflow as JSON
 orcheo workflow download my-workflow-id -o workflow.json
 
@@ -152,6 +155,8 @@ orcheo workflow download my-workflow-id -o workflow.py -f python
 # Delete a workflow
 orcheo workflow delete my-workflow-id --force
 ```
+
+Avoid putting secrets in runnable configs; use environment variables or credential vaults instead.
 
 ##### Node Management
 

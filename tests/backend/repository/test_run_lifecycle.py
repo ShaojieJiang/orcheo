@@ -143,3 +143,47 @@ async def test_run_error_paths(repository: WorkflowRepository) -> None:
 
     with pytest.raises(WorkflowRunNotFoundError):
         await repository.mark_run_cancelled(uuid4(), actor="actor", reason=None)
+
+
+@pytest.mark.asyncio()
+async def test_run_merges_version_runnable_config(
+    repository: WorkflowRepository,
+) -> None:
+    """Runs merge stored version config with per-run overrides."""
+    workflow = await repository.create_workflow(
+        name="Runnable Config",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+        runnable_config={
+            "tags": ["stored"],
+            "metadata": {"env": "prod", "team": "ops"},
+        },
+    )
+
+    run_with_override = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={},
+        runnable_config={"tags": ["run"], "metadata": {"env": "stage"}},
+    )
+    assert run_with_override.tags == ["run"]
+    assert run_with_override.metadata == {"env": "stage", "team": "ops"}
+
+    run_with_defaults = await repository.create_run(
+        workflow.id,
+        workflow_version_id=version.id,
+        triggered_by="runner",
+        input_payload={},
+    )
+    assert run_with_defaults.tags == ["stored"]
+    assert run_with_defaults.metadata == {"env": "prod", "team": "ops"}

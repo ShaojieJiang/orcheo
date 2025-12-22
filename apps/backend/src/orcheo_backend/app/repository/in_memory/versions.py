@@ -23,6 +23,7 @@ class WorkflowVersionMixin(InMemoryRepositoryState):
         *,
         graph: dict[str, Any],
         metadata: dict[str, Any],
+        runnable_config: dict[str, Any] | None = None,
         notes: str | None,
         created_by: str,
     ) -> WorkflowVersion:
@@ -39,6 +40,7 @@ class WorkflowVersionMixin(InMemoryRepositoryState):
                 version=next_version_number,
                 graph=json.loads(json.dumps(graph)),
                 metadata=dict(metadata),
+                runnable_config=dict(runnable_config) if runnable_config else None,
                 created_by=created_by,
                 notes=notes,
             )

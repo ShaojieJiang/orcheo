@@ -87,7 +87,11 @@ class DummyGraph:
 async def test_run_inserts_raw_messages_and_records_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    version = Mock(id="version", graph={"format": "standard"})
+    version = Mock(
+        id="version",
+        graph={"format": "standard"},
+        runnable_config=None,
+    )
     repository = AsyncMock()
     repository.get_latest_version.return_value = version
     run_record = Mock(id="run-id")

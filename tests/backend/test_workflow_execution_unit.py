@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 import pytest
 from fastapi import WebSocketDisconnect
 from orcheo.agentensor.evaluation import (
@@ -19,7 +20,13 @@ from orcheo.agentensor.training import TrainingRequest
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app import _workflow_execution_module as workflow_execution
+from orcheo_backend.app import dependencies as backend_dependencies
 from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.repository import (
+    RepositoryError,
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from orcheo_backend.app.workflow_execution import (
     _persist_failure_history,
     _report_history_error,
@@ -136,10 +143,123 @@ def test_prepare_runnable_config_accepts_model() -> None:
         workflow_execution._prepare_runnable_config("exec-1", model)
     )
 
-    assert parsed is model
+    assert parsed.tags == ["test"]
     assert runtime_config["configurable"]["thread_id"] == "exec-1"
     assert state_config["tags"] == ["test"]
     assert stored_config["tags"] == ["test"]
+
+
+def test_prepare_runnable_config_uses_stored_defaults() -> None:
+    stored = {"tags": ["stored"], "metadata": {"team": "ops"}}
+    parsed, _, state_config, _ = workflow_execution._prepare_runnable_config(
+        "exec-1",
+        None,
+        stored,
+    )
+    assert parsed.tags == ["stored"]
+    assert state_config["metadata"] == {"team": "ops"}
+
+
+def test_prepare_runnable_config_merges_overrides() -> None:
+    stored = {"metadata": {"team": "ops", "env": "prod"}, "recursion_limit": 5}
+    override = {"metadata": {"env": "stage"}, "tags": ["run"], "max_concurrency": 2}
+    parsed, _, state_config, _ = workflow_execution._prepare_runnable_config(
+        "exec-1",
+        override,
+        stored,
+    )
+    assert parsed.tags == ["run"]
+    assert parsed.recursion_limit == 5
+    assert parsed.max_concurrency == 2
+    assert state_config["metadata"] == {"team": "ops", "env": "stage"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_handles_repository_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve runnable config falls back to empty config on repository errors."""
+
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise RepositoryError("db unavailable")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_none_for_missing_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise WorkflowNotFoundError("missing")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_none_for_missing_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            raise WorkflowVersionNotFoundError("missing version")
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_returns_version_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Version:
+        runnable_config = {"worker": "value"}
+
+    class Repository:
+        async def get_latest_version(self, workflow_id: UUID) -> Any:
+            return Version()
+
+    monkeypatch.setattr(backend_dependencies, "get_repository", lambda: Repository())
+
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        None,
+    )
+
+    assert result == {"worker": "value"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_stored_runnable_config_uses_cached_value() -> None:
+    cached = {"always": "there"}
+    result = await workflow_execution._resolve_stored_runnable_config(
+        uuid4(),
+        cached,
+    )
+
+    assert result == cached
 
 
 @pytest.mark.asyncio

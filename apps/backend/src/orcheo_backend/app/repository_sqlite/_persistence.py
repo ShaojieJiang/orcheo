@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
@@ -91,12 +92,18 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         if version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
 
-        config_payload: dict[str, Any] = {}
+        config_payload: dict[str, Any] | None = None
         if runnable_config:
             if hasattr(runnable_config, "model_dump"):
                 config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
             elif isinstance(runnable_config, Mapping):  # pragma: no branch
                 config_payload = dict(runnable_config)
+        merged_config = merge_runnable_configs(version.runnable_config, config_payload)
+        config_payload = merged_config.model_dump(
+            mode="json",
+            exclude_defaults=True,
+            exclude_none=True,
+        )
         tags = (
             list(config_payload.get("tags", []))
             if isinstance(config_payload, dict)

@@ -125,7 +125,7 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
 | `orcheo workflow show <workflow>` | Print workflow summary, publish status/details, Mermaid graph, and latest runs. |
 | `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>]` | Trigger a workflow execution and stream status to the console. |
-| `orcheo workflow upload <file> [--name <name>]` | Upload a workflow from Python or JSON file. |
+| `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from Python or JSON file. |
 | `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
 | `orcheo workflow publish <workflow> [--require-login] [--chatkit-public-base-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
@@ -144,6 +144,8 @@ After installation, restart your shell or source your shell configuration file.
 Published workflows remain accessible until you run `orcheo workflow unpublish <workflow>` or toggle the `--require-login` flag to gate public chats behind OAuth.
 
 Pass workflow inputs inline with `--inputs` or from disk via `--inputs-file`. Use `--config` or `--config-file` to provide LangChain runnable configuration for the execution (each pair is mutually exclusive).
+
+Upload-time defaults can be stored on a workflow version with `orcheo workflow upload ... --config` or `--config-file`. Stored config is merged with per-run overrides (run config wins). Avoid putting secrets in runnable config; use environment variables or credential vaults instead.
 
 #### Offline Mode
 
