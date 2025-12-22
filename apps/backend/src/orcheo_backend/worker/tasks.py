@@ -3,13 +3,74 @@
 from __future__ import annotations
 import asyncio
 import logging
+import time
 from typing import Any
 from uuid import UUID
 from celery import Task
+from celery.signals import task_failure, task_postrun, task_prerun
 from orcheo_backend.worker.celery_app import celery_app
 
 
 logger = logging.getLogger(__name__)
+
+# Track task start times for duration calculation
+_task_start_times: dict[str, float] = {}
+
+
+@task_prerun.connect
+def task_prerun_handler(
+    task_id: str | None = None,
+    task: Task | None = None,
+    **kwargs: Any,
+) -> None:
+    """Log when a task starts execution."""
+    if task_id:
+        _task_start_times[task_id] = time.monotonic()
+    task_name = task.name if task else "unknown"
+    logger.info("Task started: %s (id=%s)", task_name, task_id)
+
+
+@task_postrun.connect
+def task_postrun_handler(
+    task_id: str | None = None,
+    task: Task | None = None,
+    retval: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Log when a task completes with duration."""
+    task_name = task.name if task else "unknown"
+    duration_ms = None
+    if task_id and task_id in _task_start_times:
+        duration_ms = (time.monotonic() - _task_start_times.pop(task_id)) * 1000
+        logger.info(
+            "Task completed: %s (id=%s, duration=%.2fms)",
+            task_name,
+            task_id,
+            duration_ms,
+        )
+    else:
+        logger.info("Task completed: %s (id=%s)", task_name, task_id)
+
+
+@task_failure.connect
+def task_failure_handler(
+    task_id: str | None = None,
+    task: Task | None = None,
+    exception: Exception | None = None,
+    **kwargs: Any,
+) -> None:
+    """Log when a task fails."""
+    task_name = task.name if task else "unknown"
+    # Clean up start time if present
+    if task_id:
+        _task_start_times.pop(task_id, None)
+    logger.error(
+        "Task failed: %s (id=%s, error=%s)",
+        task_name,
+        task_id,
+        str(exception) if exception else "unknown",
+    )
+
 
 WORKER_ACTOR = "worker"
 
@@ -39,9 +100,9 @@ async def _load_and_validate_run(
     Returns:
         Tuple of (run object, error dict if any)
     """
+    from orcheo.models.workflow_entities import WorkflowRunStatus
     from orcheo_backend.app.dependencies import get_repository
     from orcheo_backend.app.repository import WorkflowRunNotFoundError
-    from orcheo.models.workflow_entities import WorkflowRunStatus
 
     repository = get_repository()
 
