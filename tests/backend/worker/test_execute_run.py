@@ -1,0 +1,201 @@
+"""Tests for the execute_run Celery task."""
+
+from __future__ import annotations
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+import pytest
+
+
+@pytest.fixture
+def mock_run() -> MagicMock:
+    """Create a mock pending run."""
+    run = MagicMock()
+    run.id = uuid4()
+    run.workflow_version_id = uuid4()
+    run.status = "pending"
+    run.input_payload = {"test": "data"}
+    run.runnable_config = None
+    return run
+
+
+@pytest.fixture
+def mock_version() -> MagicMock:
+    """Create a mock workflow version."""
+    version = MagicMock()
+    version.id = uuid4()
+    version.workflow_id = uuid4()
+    version.graph = {"nodes": [], "edges": []}
+    version.runnable_config = None
+    return version
+
+
+class TestLoadAndValidateRun:
+    """Tests for _load_and_validate_run function."""
+
+    @pytest.mark.asyncio
+    async def test_run_not_found_returns_failed(self) -> None:
+        """Test that missing run returns failed status."""
+        from orcheo_backend.app.repository import WorkflowRunNotFoundError
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(side_effect=WorkflowRunNotFoundError("not found"))
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(uuid4()))
+
+        assert run is None
+        assert error is not None
+        assert error["status"] == "failed"
+        assert "not found" in error["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_non_pending_run_is_skipped(self, mock_run: MagicMock) -> None:
+        """Test that runs not in pending status are skipped."""
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_run.status = "running"
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id))
+
+        assert run is None
+        assert error is not None
+        assert error["status"] == "skipped"
+        assert "running" in error["reason"]
+
+    @pytest.mark.asyncio
+    async def test_already_completed_run_is_skipped(self, mock_run: MagicMock) -> None:
+        """Test that completed runs are skipped."""
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_run.status = "succeeded"
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id))
+
+        assert run is None
+        assert error is not None
+        assert error["status"] == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_pending_run_returns_run_object(self, mock_run: MagicMock) -> None:
+        """Test that pending runs return the run object."""
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id))
+
+        assert run is mock_run
+        assert error is None
+
+
+class TestMarkRunStarted:
+    """Tests for _mark_run_started function."""
+
+    @pytest.mark.asyncio
+    async def test_mark_started_failure_returns_error(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Test that failure to mark as started returns error."""
+        from orcheo_backend.worker.tasks import _mark_run_started
+
+        mock_repo = MagicMock()
+        mock_repo.mark_run_started = AsyncMock(
+            side_effect=ValueError("already started")
+        )
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            result = await _mark_run_started(mock_run, str(mock_run.id))
+
+        assert result is not None
+        assert result["status"] == "skipped"
+        assert "already started" in result["reason"]
+
+    @pytest.mark.asyncio
+    async def test_mark_started_success_returns_none(self, mock_run: MagicMock) -> None:
+        """Test that successful mark_started returns None."""
+        from orcheo_backend.worker.tasks import _mark_run_started
+
+        mock_repo = MagicMock()
+        mock_repo.mark_run_started = AsyncMock(return_value=mock_run)
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            result = await _mark_run_started(mock_run, str(mock_run.id))
+
+        assert result is None
+
+
+class TestExecuteRunTask:
+    """Tests for the execute_run Celery task."""
+
+    def test_task_runs_async_function(self) -> None:
+        """Test that the Celery task correctly calls the async function."""
+        from orcheo_backend.worker.tasks import execute_run
+
+        run_id = str(uuid4())
+        mock_result: dict[str, Any] = {"status": "succeeded"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            # Return the expected value directly, bypassing async execution
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            # Use new=MagicMock() to avoid AsyncMock creating unawaited coroutines
+            with patch(
+                "orcheo_backend.worker.tasks._execute_run_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = execute_run(run_id)
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
+
+
+class TestDispatchCronTriggers:
+    """Tests for the dispatch_cron_triggers Celery task."""
+
+    def test_dispatches_due_runs(self) -> None:
+        """Test that cron dispatch enqueues runs."""
+        from orcheo_backend.worker.tasks import dispatch_cron_triggers
+
+        mock_run = MagicMock()
+        mock_run.id = uuid4()
+        expected_run_ids = [str(mock_run.id)]
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            # Return the expected value directly, bypassing async execution
+            mock_loop.run_until_complete.return_value = expected_run_ids
+            mock_get_loop.return_value = mock_loop
+
+            # Use new=MagicMock() to avoid AsyncMock creating unawaited coroutines
+            with patch(
+                "orcheo_backend.worker.tasks._dispatch_cron_triggers_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = dispatch_cron_triggers()
+
+        assert "dispatched_runs" in result
+        assert result["dispatched_runs"] == expected_run_ids

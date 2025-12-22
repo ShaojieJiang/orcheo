@@ -1,4 +1,5 @@
-.PHONY: dev-server test lint format canvas-lint canvas-format canvas-test
+.PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
+       docker-up docker-down docker-build docker-logs
 
 UV ?= uv
 UV_CACHE_DIR ?= .cache/uv
@@ -31,3 +32,25 @@ doc:
 
 dev-server:
 	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
+
+redis:
+	docker compose up -d redis
+
+worker:
+	$(UV_RUN) celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+
+celery-beat:
+	$(UV_RUN) celery -A orcheo_backend.worker.celery_app beat --loglevel=info
+
+# Docker Compose commands for full-stack development
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-build:
+	docker compose build
+
+docker-logs:
+	docker compose logs -f

@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files first for better caching
+COPY pyproject.toml uv.lock README.md ./
+COPY packages/ packages/
+COPY apps/backend/ apps/backend/
+
+# Install dependencies
+RUN uv sync --frozen
+
+# Copy the rest of the application
+COPY src/ src/
+
+# Set Python path
+ENV PYTHONPATH=/app/src:/app/apps/backend/src
+
+# Default command (can be overridden in docker-compose)
+CMD ["uv", "run", "uvicorn", "orcheo_backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
