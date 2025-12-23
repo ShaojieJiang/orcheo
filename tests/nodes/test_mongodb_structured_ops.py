@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 from unittest.mock import Mock
-
-from bson import ObjectId
 import pytest
+from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
 from pymongo.results import UpdateResult
-
 from orcheo.graph.state import State
 from orcheo.nodes.mongodb import (
     MongoDBAggregateNode,

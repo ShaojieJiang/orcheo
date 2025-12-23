@@ -78,7 +78,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info
+    command: >
+      sh -c 'uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$CELERY_BEAT_SCHEDULE_FILE"'
 
   canvas:
     build:

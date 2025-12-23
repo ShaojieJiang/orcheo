@@ -3,7 +3,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
-
 from bson import ObjectId
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
