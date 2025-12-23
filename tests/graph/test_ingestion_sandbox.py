@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import ast
+import importlib
 import sys
 from types import SimpleNamespace
 import pytest
@@ -82,3 +83,13 @@ def test_create_sandbox_namespace_allows_common_builtins() -> None:
 
     assert safe_builtins["max"](1, 3) == 3
     assert safe_builtins["min"](1, 3) == 1
+
+
+def test_create_sandbox_namespace_allows_html_import() -> None:
+    """Ensure restricted imports allow the html module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("html")
+
+    assert module is importlib.import_module("html")

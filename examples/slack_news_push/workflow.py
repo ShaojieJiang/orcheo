@@ -1,6 +1,17 @@
-"""Slack news push workflow example."""
+"""Slack news digest workflow with mention and cron triggers.
 
-from __future__ import annotations
+Configure Slack Events API to send requests to:
+`/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`
+so signatures can be verified.
+
+Configurable inputs:
+- channel_id (single channel ID)
+- database (MongoDB database)
+- collection (MongoDB collection)
+- item_limit (MongoDB item limit)
+- team_id (Slack workspace ID)
+"""
+
 import html
 from typing import Any
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +25,7 @@ from orcheo.nodes.mongodb import (
     MongoDBUpdateManyNode,
 )
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
+from orcheo.nodes.triggers import CronTriggerNode
 
 
 class DetectTriggerNode(TaskNode):
@@ -30,14 +42,14 @@ class FormatDigestNode(TaskNode):
     """Format unread items into a Slack digest message."""
 
     @staticmethod
-    def _decode_title(text: str | None) -> str:
+    def decode_title(text: str | None) -> str:
         if not text:
             return "No Title"
         decoded = html.unescape(text).replace("\xa0", " ")
         return decoded.replace("<", "[").replace(">", "]")
 
     @staticmethod
-    def _read_items(state: State) -> list[dict[str, Any]]:
+    def read_items(state: State) -> list[dict[str, Any]]:
         results = state.get("results", {})
         if not isinstance(results, dict):
             return []
@@ -50,7 +62,7 @@ class FormatDigestNode(TaskNode):
         return []
 
     @staticmethod
-    def _read_unread_count(state: State) -> int:
+    def read_unread_count(state: State) -> int:
         results = state.get("results", {})
         if not isinstance(results, dict):
             return 0
@@ -65,14 +77,14 @@ class FormatDigestNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return Slack-formatted digest text and item IDs."""
-        items = self._read_items(state)
-        total_unread = self._read_unread_count(state)
+        items = self.read_items(state)
+        total_unread = self.read_unread_count(state)
 
         lines = []
         for item in items:
-            title = self._decode_title(item.get("title"))
+            title = self.decode_title(item.get("title"))
             url = item.get("link", "")
-            lines.append(f"* <{url}|{title}>")
+            lines.append(f"- <{url}|{title}>")
 
         remaining = max(total_unread - len(items), 0)
         body = "\n".join(lines)
@@ -86,27 +98,33 @@ class FormatDigestNode(TaskNode):
         }
 
 
-def build_graph() -> StateGraph:
-    """Build the Slack news push workflow graph."""
+async def build_graph() -> StateGraph:
+    """Build the simplified Slack mention responder workflow."""
     graph = StateGraph(State)
-
     graph.add_node("detect_trigger", DetectTriggerNode(name="detect_trigger"))
+    graph.add_node(
+        "cron_trigger",
+        CronTriggerNode(
+            name="cron_trigger",
+            expression="0 9 * * *",
+            timezone="Europe/Amsterdam",
+        ),
+    )
     graph.add_node(
         "slack_events_parser",
         SlackEventsParserNode(
             name="slack_events_parser",
-            channel_id="{{config.configurable.slack_news_channel_id}}",
-            timestamp_tolerance_seconds=(
-                "{{config.configurable.slack_news_signature_tolerance_seconds}}"
-            ),
+            allowed_event_types=["app_mention"],
+            channel_id="{{config.configurable.channel_id}}",
+            timestamp_tolerance_seconds=300,
         ),
     )
     graph.add_node(
         "count_unread",
         MongoDBAggregateNode(
             name="count_unread",
-            database="{{config.configurable.slack_news_database}}",
-            collection="{{config.configurable.slack_news_collection}}",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
             pipeline=[{"$match": {"read": False}}, {"$count": "unread_count"}],
         ),
     )
@@ -114,21 +132,25 @@ def build_graph() -> StateGraph:
         "find_unread",
         MongoDBFindNode(
             name="find_unread",
-            database="{{config.configurable.slack_news_database}}",
-            collection="{{config.configurable.slack_news_collection}}",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
             filter={"read": False},
             sort={"isoDate": -1},
-            limit="{{config.configurable.slack_news_item_limit}}",
+            limit="{{config.configurable.item_limit}}",
         ),
     )
-    graph.add_node("format_digest", FormatDigestNode(name="format_digest"))
+    graph.add_node(
+        "format_digest",
+        FormatDigestNode(name="format_digest"),
+    )
     graph.add_node(
         "post_message",
         SlackNode(
             name="post_message",
             tool_name="slack_post_message",
+            team_id="{{config.configurable.team_id}}",
             kwargs={
-                "channel_id": "{{config.configurable.slack_news_channel_id}}",
+                "channel_id": "{{config.configurable.channel_id}}",
                 "text": "{{format_digest.news}}",
                 "mrkdwn": True,
             },
@@ -138,15 +160,14 @@ def build_graph() -> StateGraph:
         "mark_read",
         MongoDBUpdateManyNode(
             name="mark_read",
-            database="{{config.configurable.slack_news_database}}",
-            collection="{{config.configurable.slack_news_collection}}",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
             filter={"_id": {"$in": "{{format_digest.ids}}"}},
             update={"$set": {"read": True}},
         ),
     )
 
     graph.set_entry_point("detect_trigger")
-
     trigger_router = IfElse(
         name="trigger_router",
         conditions=[
@@ -158,27 +179,27 @@ def build_graph() -> StateGraph:
         trigger_router,
         {
             "true": "slack_events_parser",
-            "false": "count_unread",
+            "false": "cron_trigger",
         },
     )
+    graph.add_edge("cron_trigger", "count_unread")
 
-    process_router = IfElse(
-        name="process_router",
+    reply_router = IfElse(
+        name="reply_router",
         conditions=[
             Condition(
                 left="{{slack_events_parser.should_process}}", operator="is_truthy"
-            )
+            ),
         ],
     )
     graph.add_conditional_edges(
         "slack_events_parser",
-        process_router,
+        reply_router,
         {
             "true": "count_unread",
             "false": END,
         },
     )
-
     graph.add_edge("count_unread", "find_unread")
     graph.add_edge("find_unread", "format_digest")
     graph.add_edge("format_digest", "post_message")
@@ -200,5 +221,4 @@ def build_graph() -> StateGraph:
         },
     )
     graph.add_edge("mark_read", END)
-
     return graph

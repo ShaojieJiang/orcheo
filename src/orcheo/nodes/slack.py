@@ -12,7 +12,7 @@ from typing import Any, Literal
 from fastmcp import Client
 from fastmcp.client.transports import NpxStdioTransport
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -97,15 +97,30 @@ class SlackEventsParserNode(TaskNode):
         default=None,
         description="Optional channel ID to filter events",
     )
-    timestamp_tolerance_seconds: int = Field(
+    timestamp_tolerance_seconds: int | str = Field(
         default=300,
-        ge=0,
         description="Maximum age for Slack signature timestamps",
     )
     body_key: str = Field(
         default="body",
         description="Key in inputs that contains the webhook payload",
     )
+
+    @field_validator("timestamp_tolerance_seconds", mode="before")
+    @classmethod
+    def _validate_timestamp_tolerance(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "timestamp_tolerance_seconds must be an integer"
+                raise ValueError(msg) from exc
+        if isinstance(value, int) and value < 0:
+            msg = "timestamp_tolerance_seconds must be >= 0"
+            raise ValueError(msg)
+        return value
 
     def _normalize_headers(self, headers: dict[str, str]) -> dict[str, str]:
         return {key.lower(): value for key, value in headers.items()}
@@ -166,9 +181,18 @@ class SlackEventsParserNode(TaskNode):
             raise ValueError("Invalid Slack timestamp header") from exc
 
         tolerance = self.timestamp_tolerance_seconds
-        if tolerance:
+        if isinstance(tolerance, str):
+            try:
+                tolerance_value = int(tolerance)
+            except ValueError as exc:
+                msg = "timestamp_tolerance_seconds must resolve to an integer"
+                raise ValueError(msg) from exc
+        else:
+            tolerance_value = tolerance
+
+        if tolerance_value:
             now = int(time.time())
-            if abs(now - timestamp) > tolerance:
+            if abs(now - timestamp) > tolerance_value:
                 raise ValueError("Slack request timestamp outside tolerance window")
 
         signature_base = f"v0:{timestamp}:{raw_body}".encode()

@@ -3,8 +3,9 @@
 import atexit
 from threading import Lock
 from typing import Any, ClassVar, Literal
+from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field, PrivateAttr
+from pydantic import Field, PrivateAttr, field_validator
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
@@ -91,8 +92,8 @@ class MongoDBNode(TaskNode):
     sort: dict[str, int] | list[tuple[str, int]] | None = Field(
         default=None, description="Sort specification for find operations"
     )
-    limit: int | None = Field(
-        default=None, ge=0, description="Limit for find operations"
+    limit: int | str | None = Field(
+        default=None, description="Limit for find operations"
     )
     options: dict[str, Any] = Field(
         default_factory=dict,
@@ -104,6 +105,24 @@ class MongoDBNode(TaskNode):
     _client: MongoClient | None = PrivateAttr(default=None)
     _collection: Collection | None = PrivateAttr(default=None)
     _client_key: str | None = PrivateAttr(default=None)
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def _validate_limit(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "limit must be an integer"
+                raise ValueError(msg) from exc
+        if isinstance(value, int) and value < 0:
+            msg = "limit must be >= 0"
+            raise ValueError(msg)
+        return value
 
     def _resolve_filter(self) -> dict[str, Any]:
         """Resolve a filter document from structured or legacy inputs.
@@ -171,25 +190,78 @@ class MongoDBNode(TaskNode):
         pipeline_operations = {"aggregate", "aggregate_raw_batches"}
 
         if self.operation in pipeline_operations:
-            pipeline = self._resolve_pipeline()
+            pipeline = self._coerce_object_ids(self._resolve_pipeline())
             return [pipeline], dict(self.options)
 
         if self.operation in update_operations:
-            filter_doc = self._resolve_filter()
-            update_doc = self._resolve_update()
+            filter_doc = self._coerce_object_ids(self._resolve_filter())
+            update_doc = self._coerce_object_ids(self._resolve_update())
             return [filter_doc, update_doc], dict(self.options)
 
         if self.operation in filter_operations:
-            filter_doc = self._resolve_filter()
+            filter_doc = self._coerce_object_ids(self._resolve_filter())
             kwargs = dict(self.options)
             if self.operation in find_operations:
                 if self.sort is not None:
                     kwargs["sort"] = self._normalize_sort(self.sort)
                 if self.limit is not None:
-                    kwargs["limit"] = self.limit
+                    kwargs["limit"] = self._resolve_limit()
             return [filter_doc], kwargs
 
         return [self.query], dict(self.options)
+
+    def _resolve_limit(self) -> int:
+        limit = self.limit
+        if isinstance(limit, str):
+            if "{{" in limit and "}}" in limit:
+                msg = "limit must resolve to an integer before execution"
+                raise ValueError(msg)
+            try:
+                return int(limit)
+            except ValueError as exc:
+                msg = "limit must be an integer"
+                raise ValueError(msg) from exc
+        if limit is None:
+            msg = "limit is not set for find operations"
+            raise ValueError(msg)
+        return limit
+
+    @classmethod
+    def _encode_bson(cls, value: Any) -> Any:
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, dict):
+            return {key: cls._encode_bson(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._encode_bson(item) for item in value]
+        return value
+
+    @classmethod
+    def _coerce_object_id_value(cls, value: Any) -> Any:
+        if isinstance(value, str) and ObjectId.is_valid(value):
+            return ObjectId(value)
+        if isinstance(value, list):
+            return [cls._coerce_object_id_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: cls._coerce_object_id_value(item) for key, item in value.items()
+            }
+        return value
+
+    @classmethod
+    def _coerce_object_ids(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (
+                    cls._coerce_object_id_value(item)
+                    if key == "_id"
+                    else cls._coerce_object_ids(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._coerce_object_ids(item) for item in value]
+        return value
 
     @classmethod
     def _get_shared_client(cls, connection_string: str) -> MongoClient:
@@ -320,7 +392,7 @@ class MongoDBNode(TaskNode):
             case _:
                 converted_result = {"result": str(result)}
 
-        return converted_result
+        return self._encode_bson(converted_result)
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the MongoDB node with persistent session."""

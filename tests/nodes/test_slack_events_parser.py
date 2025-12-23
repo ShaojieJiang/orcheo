@@ -36,6 +36,19 @@ def _build_mixed_state(raw_body: str, headers: dict[str, str]) -> dict[str, Any]
     }
 
 
+def test_slack_events_parser_allows_templated_tolerance() -> None:
+    node = SlackEventsParserNode(
+        name="slack_events_parser",
+        signing_secret="slack-secret",
+        timestamp_tolerance_seconds="{{config.configurable.signature_tolerance_seconds}}",
+    )
+
+    assert (
+        node.timestamp_tolerance_seconds
+        == "{{config.configurable.signature_tolerance_seconds}}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_slack_events_parser_accepts_valid_event() -> None:
     secret = "slack-secret"

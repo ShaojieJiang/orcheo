@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 from unittest.mock import Mock
+
+from bson import ObjectId
 import pytest
 from langchain_core.runnables import RunnableConfig
 from pymongo.results import UpdateResult
+
 from orcheo.graph.state import State
 from orcheo.nodes.mongodb import (
     MongoDBAggregateNode,
@@ -59,6 +62,19 @@ async def test_mongodb_find_uses_sort_and_limit(mongo_context) -> None:
     assert result["data"] == [{"_id": "1"}]
 
 
+def test_mongodb_find_allows_templated_limit() -> None:
+    node = MongoDBFindNode(
+        name="find_node",
+        database="test_db",
+        collection="rss_feeds",
+        filter={"read": False},
+        sort={"isoDate": -1},
+        limit="{{config.configurable.item_limit}}",
+    )
+
+    assert node.limit == "{{config.configurable.item_limit}}"
+
+
 @pytest.mark.asyncio
 async def test_mongodb_update_many_uses_filter_and_update(mongo_context) -> None:
     mock_result = Mock(spec=UpdateResult)
@@ -85,6 +101,35 @@ async def test_mongodb_update_many_uses_filter_and_update(mongo_context) -> None
     )
     assert result["data"]["matched_count"] == 1
     assert result["data"]["modified_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mongodb_update_many_coerces_object_ids(
+    mongo_context,
+) -> None:
+    mock_result = Mock(spec=UpdateResult)
+    mock_result.matched_count = 1
+    mock_result.modified_count = 1
+    mock_result.upserted_id = None
+    mock_result.acknowledged = True
+    mongo_context.collection.update_many.return_value = mock_result
+
+    object_id = ObjectId("507f1f77bcf86cd799439011")
+    node = MongoDBUpdateManyNode(
+        name="update_node",
+        database="test_db",
+        collection="rss_feeds",
+        filter={"_id": {"$in": [str(object_id)]}},
+        update={"$set": {"read": True}},
+    )
+
+    state = State(messages=[], inputs={}, results={})
+    await node.run(state, RunnableConfig())
+
+    mongo_context.collection.update_many.assert_called_once_with(
+        {"_id": {"$in": [object_id]}},
+        {"$set": {"read": True}},
+    )
 
 
 @pytest.mark.asyncio

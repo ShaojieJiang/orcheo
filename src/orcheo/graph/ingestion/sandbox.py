@@ -83,6 +83,7 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "dataclasses",
     "datetime",
     "functools",
+    "html",
     "itertools",
     "math",
     "operator",
