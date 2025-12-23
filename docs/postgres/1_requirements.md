@@ -12,8 +12,8 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Design Doc | `docs/postgres/design.md` | Shaojie Jiang | PostgreSQL Migration Design |
-| Project Plan | `docs/postgres/plan.md` | Shaojie Jiang | PostgreSQL Migration Plan |
+| Design Doc | `docs/postgres/2_design.md` | Shaojie Jiang | PostgreSQL Migration Design |
+| Project Plan | `docs/postgres/3_plan.md` | Shaojie Jiang | PostgreSQL Migration Plan |
 | Config Types | `src/orcheo/config/types.py` | Shaojie Jiang | Config Types |
 | App Settings Validators | `src/orcheo/config/app_settings.py` | Shaojie Jiang | Settings Validators |
 
@@ -65,11 +65,7 @@ P2/Optional:
 - Vault migration to PostgreSQL using pgcrypto.
 
 ### Designs (if applicable)
-Design doc: `docs/postgres/design.md`
-
-### [Optional] Other Teams Impacted
-- DevOps: PostgreSQL deployment, backups, and monitoring.
-- Backend: repository and store implementations, tests, and config updates.
+Design doc: `docs/postgres/2_design.md`
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview

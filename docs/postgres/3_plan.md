@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2025-12-19
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -14,8 +14,8 @@
 Split persistence into parallel PostgreSQL implementations for local hosting while preserving SQLite behavior. This plan sequences the work by subsystem criticality and aligns with configuration updates, testing, and deployment documentation.
 
 **Related Documents:**
-- Requirements: `docs/postgres/requirements.md`
-- Design: `docs/postgres/design.md`
+- Requirements: `docs/postgres/1_requirements.md`
+- Design: `docs/postgres/2_design.md`
 
 ---
 
