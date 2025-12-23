@@ -1,4 +1,4 @@
-"""Simplified Slack mention responder workflow.
+"""Simplified Slack mention responder workflow with a scheduled message.
 
 Configure Slack Events API to send requests to:
 `/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`
@@ -7,6 +7,7 @@ so signatures can be verified.
 Configurable inputs:
 - channel_id (single channel ID)
 - slack_mention_reply (scripted response text)
+- slack_scheduled_message (scheduled message text)
 - team_id (Slack workspace ID)
 """
 
@@ -17,6 +18,7 @@ from orcheo.edges import Condition, IfElse
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
+from orcheo.nodes.triggers import CronTriggerNode
 
 
 class FormatReplyNode(TaskNode):
@@ -48,9 +50,36 @@ class FormatReplyNode(TaskNode):
         return {"text": reply_text}
 
 
+class FormatScheduledMessageNode(TaskNode):
+    """Build the scripted message text for scheduled posts."""
+
+    default_message: str = "Scheduled update from Orcheo."
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return the scheduled message text from config when present."""
+        message_text = self.default_message
+        config_state = state.get("config", {})
+        if isinstance(config_state, dict):
+            configurable = config_state.get("configurable", {})
+            if isinstance(configurable, dict):
+                configured_text = configurable.get("slack_scheduled_message")
+                if isinstance(configured_text, str) and configured_text.strip():
+                    message_text = configured_text.strip()
+
+        return {"text": message_text}
+
+
 async def build_graph() -> StateGraph:
     """Build the simplified Slack mention responder workflow."""
     graph = StateGraph(State)
+    graph.add_node(
+        "cron_trigger",
+        CronTriggerNode(
+            name="cron_trigger",
+            expression="* * * * *",
+            timezone="UTC",
+        ),
+    )
     graph.add_node(
         "slack_events_parser",
         SlackEventsParserNode(
@@ -65,6 +94,10 @@ async def build_graph() -> StateGraph:
         FormatReplyNode(name="format_reply"),
     )
     graph.add_node(
+        "format_scheduled_message",
+        FormatScheduledMessageNode(name="format_scheduled_message"),
+    )
+    graph.add_node(
         "post_reply",
         SlackNode(
             name="post_reply",
@@ -77,9 +110,26 @@ async def build_graph() -> StateGraph:
             },
         ),
     )
+    graph.add_node(
+        "post_scheduled_message",
+        SlackNode(
+            name="post_scheduled_message",
+            tool_name="slack_post_message",
+            team_id="{{config.configurable.team_id}}",
+            kwargs={
+                "channel_id": "{{config.configurable.channel_id}}",
+                "text": "{{format_scheduled_message.text}}",
+                "mrkdwn": True,
+            },
+        ),
+    )
 
     graph.set_entry_point("slack_events_parser")
+    graph.set_entry_point("cron_trigger")
     graph.add_edge("slack_events_parser", "format_reply")
+    graph.add_edge("cron_trigger", "format_scheduled_message")
+    graph.add_edge("format_scheduled_message", "post_scheduled_message")
+    graph.add_edge("post_scheduled_message", END)
 
     reply_router = IfElse(
         name="reply_router",
