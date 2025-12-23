@@ -314,18 +314,14 @@ class TestDispatchCronTriggersAsync:
             return_value=[mock_run1, mock_run2]
         )
 
-        mock_execute_run = MagicMock()
-
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            with patch("orcheo_backend.worker.tasks.execute_run", mock_execute_run):
-                result = await _dispatch_cron_triggers_async()
+            result = await _dispatch_cron_triggers_async()
 
         assert len(result) == 2
         assert str(mock_run1.id) in result
         assert str(mock_run2.id) in result
-        assert mock_execute_run.delay.call_count == 2
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_runs_due(self) -> None:
@@ -343,8 +339,8 @@ class TestDispatchCronTriggersAsync:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_logs_enqueued_runs(self) -> None:
-        """Test that enqueued runs are logged."""
+    async def test_returns_run_ids(self) -> None:
+        """Test that dispatched runs are returned."""
         from orcheo_backend.worker.tasks import _dispatch_cron_triggers_async
 
         mock_run = MagicMock()
@@ -356,11 +352,6 @@ class TestDispatchCronTriggersAsync:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            with patch("orcheo_backend.worker.tasks.execute_run", MagicMock()):
-                with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
-                    await _dispatch_cron_triggers_async()
+            result = await _dispatch_cron_triggers_async()
 
-                    # Check that info was logged for the enqueued run
-                    mock_logger.info.assert_called()
-                    call_args = str(mock_logger.info.call_args)
-                    assert "cron run" in call_args.lower()
+        assert result == [str(mock_run.id)]

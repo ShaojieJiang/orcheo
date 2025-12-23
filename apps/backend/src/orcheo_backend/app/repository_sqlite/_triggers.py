@@ -15,6 +15,28 @@ from orcheo_backend.app.repository_sqlite._base import logger
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
 
 
+def _enqueue_run_for_execution(run: WorkflowRun) -> None:
+    """Enqueue a Celery task to execute the workflow run.
+
+    This function is best-effort: if Celery/Redis is unavailable,
+    the run remains pending and can be retried manually.
+
+    NOTE: This must only be called AFTER the run has been committed to the database.
+    """
+    try:
+        from orcheo_backend.worker.tasks import execute_run
+
+        execute_run.delay(str(run.id))
+        logger.info("Enqueued run %s for execution", run.id)
+    except Exception as exc:
+        logger.warning(
+            "Failed to enqueue run %s for execution: %s. "
+            "Run will remain pending until manually retried.",
+            run.id,
+            exc,
+        )
+
+
 class TriggerRepositoryMixin(SqlitePersistenceMixin):
     """Coordinate trigger configuration and dispatch flows."""
 
@@ -78,7 +100,10 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                 input_payload=dispatch.input_payload,
                 actor=dispatch.actor,
             )
-            return run.model_copy(deep=True)
+            run_copy = run.model_copy(deep=True)
+        # Enqueue AFTER lock is released to ensure commit is fully visible
+        _enqueue_run_for_execution(run_copy)
+        return run_copy
 
     async def configure_cron_trigger(
         self,
@@ -106,6 +131,20 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
             await self._get_workflow_locked(workflow_id)
             return self._trigger_layer.get_cron_config(workflow_id)
 
+    async def delete_cron_trigger(self, workflow_id: UUID) -> None:
+        await self._ensure_initialized()
+        async with self._lock:
+            await self._get_workflow_locked(workflow_id)
+            async with self._connection() as conn:
+                await conn.execute(
+                    """
+                    DELETE FROM cron_triggers
+                     WHERE workflow_id = ?
+                    """,
+                    (str(workflow_id),),
+                )
+            self._trigger_layer.remove_cron_config(workflow_id)
+
     async def dispatch_due_cron_runs(
         self, *, now: datetime | None = None
     ) -> list[WorkflowRun]:
@@ -117,6 +156,8 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         runs: list[WorkflowRun] = []
 
         async with self._lock:
+            # Sync cron triggers each dispatch to reflect updates from other processes.
+            await self._refresh_cron_triggers()
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
             for plan in plans:
                 try:
@@ -147,7 +188,10 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                 )
                 self._trigger_layer.commit_cron_dispatch(plan.workflow_id)
                 runs.append(run.model_copy(deep=True))
-            return runs
+        # Enqueue AFTER lock is released to ensure commits are fully visible
+        for run in runs:
+            _enqueue_run_for_execution(run)
+        return runs
 
     async def dispatch_manual_runs(
         self, request: ManualDispatchRequest
@@ -187,7 +231,10 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     actor=plan.actor,
                 )
                 runs.append(run.model_copy(deep=True))
-            return runs
+        # Enqueue AFTER lock is released to ensure commits are fully visible
+        for run in runs:
+            _enqueue_run_for_execution(run)
+        return runs
 
 
 __all__ = ["TriggerRepositoryMixin"]

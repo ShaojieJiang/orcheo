@@ -6,6 +6,7 @@ from . import (
     managing,  # noqa: F401
     publishing,  # noqa: F401
     running,  # noqa: F401
+    scheduling,  # noqa: F401
     showing,  # noqa: F401
 )
 
@@ -16,4 +17,5 @@ __all__ = [
     "running",
     "publishing",
     "showing",
+    "scheduling",
 ]

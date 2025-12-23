@@ -169,3 +169,48 @@ def test_webhook_trigger_accepts_non_json_body(api_client: TestClient) -> None:
     runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
     run_payload = runs_response.json()[0]["input_payload"]
     assert run_payload["body"] == {"raw": "��"}
+
+
+def test_webhook_trigger_preserves_raw_body_when_requested(
+    api_client: TestClient,
+) -> None:
+    """Webhook invocation can preserve the raw body alongside parsed JSON."""
+
+    workflow_id, _ = create_workflow_with_version(api_client)
+
+    api_client.put(
+        f"/api/workflows/{workflow_id}/triggers/webhook/config",
+        json={"allowed_methods": ["POST"]},
+    )
+
+    trigger_response = api_client.post(
+        f"/api/workflows/{workflow_id}/triggers/webhook",
+        json={"message": "hello"},
+        params={"preserve_raw_body": "true"},
+    )
+    assert trigger_response.status_code == 202
+
+    runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
+    run_payload = runs_response.json()[0]["input_payload"]["body"]
+    assert run_payload["parsed"] == {"message": "hello"}
+    assert isinstance(run_payload["raw"], str)
+    assert "message" in run_payload["raw"]
+
+
+def test_webhook_trigger_slack_url_verification_short_circuits(
+    api_client: TestClient,
+) -> None:
+    """Slack url_verification requests respond with the challenge directly."""
+
+    workflow_id, _ = create_workflow_with_version(api_client)
+
+    response = api_client.post(
+        f"/api/workflows/{workflow_id}/triggers/webhook",
+        json={"type": "url_verification", "challenge": "abc123"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"challenge": "abc123"}
+
+    runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
+    assert runs_response.status_code == 200
+    assert runs_response.json() == []

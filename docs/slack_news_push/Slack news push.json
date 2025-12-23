@@ -1,0 +1,307 @@
+{
+  "name": "Slack news push",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        96
+      ],
+      "id": "298ef6f2-3146-4529-a3ed-7a2f74a59b09",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nconst items = $('Find Unread').all();\nconst unreadCount = $('Count Unread').first().json.unread_count - items.length;\n\nfunction decodeTitle(str) {\n  return str\n    .replace(/&quot;/g, '\"')\n    .replace(/&apos;/g, \"'\")\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&amp;/g, '&')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\</g, '[')\n    .replace(/\\>/g, ']');\n}\n\nconst markdownLines = items\n  .map(item => {\n    const title = decodeTitle(item.json.title) || 'No Title';\n    const url = item.json.link;\n    return `• <${url}|${title}>`;\n  })\n  .join('\\n');\n\nreturn {\n  \"news\": markdownLines + `\\nUnread count: ${unreadCount}`,\n  \"ids\": items.map(item => item.json._id)\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        192
+      ],
+      "id": "1a07931a-83ff-4ab4-bfa8-b63525fde8dc",
+      "name": "Format Text"
+    },
+    {
+      "parameters": {
+        "operation": "findOneAndUpdate",
+        "collection": "rss_feeds",
+        "updateKey": "_id",
+        "fields": "read",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        96
+      ],
+      "id": "14ee6b14-e12a-40e4-a84d-f782ce40bc5b",
+      "name": "Mark as Read",
+      "credentials": {
+        "mongoDb": {
+          "id": "UH8CNOAPhIu6f7yO",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dd908552-8070-426e-b4f9-260a5b8dd667",
+              "name": "read",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c40e1ea3-bfe1-4db2-84e2-2a8ddc4126bd",
+              "name": "_id",
+              "value": "={{ $json._id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        96
+      ],
+      "id": "03aeabe7-63ce-4d4e-b573-301cf20b4170",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "ids",
+        "options": {
+          "destinationFieldName": "_id"
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        896,
+        96
+      ],
+      "id": "70471514-8842-4530-b8f0-7d1f4dc3b2e3",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "collection": "rss_feeds",
+        "options": {
+          "limit": 30,
+          "sort": "{\"isoDate\": -1}"
+        },
+        "query": "{\"read\": false}"
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        192
+      ],
+      "id": "6a3a8230-d6e5-46d0-9813-7aa970b0445e",
+      "name": "Find Unread",
+      "credentials": {
+        "mongoDb": {
+          "id": "UH8CNOAPhIu6f7yO",
+          "name": "MongoDB account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "aggregate",
+        "collection": "rss_feeds",
+        "query": "[\n  { \"$match\": { \"read\": false } },\n  { \"$count\": \"unread_count\" }\n]"
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "id": "92a52d1d-f16a-474b-9531-ffd1f3dac84e",
+      "name": "Count Unread",
+      "credentials": {
+        "mongoDb": {
+          "id": "UH8CNOAPhIu6f7yO",
+          "name": "MongoDB account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "trigger": [
+          "app_mention"
+        ],
+        "channelId": {
+          "__rl": true,
+          "value": "C0946SY4TTM",
+          "mode": "list",
+          "cachedResultName": "ai-news"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ],
+      "id": "a44d6cd8-c817-46b9-b99c-78eef9b882db",
+      "name": "Slack Trigger",
+      "webhookId": "449b5c44-8da3-4406-af4c-9576ea4034d4",
+      "credentials": {
+        "slackApi": {
+          "id": "Gb72dDZz0hNZ9RWF",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0946SY4TTM",
+          "mode": "list",
+          "cachedResultName": "ai-news"
+        },
+        "text": "={{ $json.news }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        288
+      ],
+      "id": "eba5df90-67e3-497b-b2c1-d1742d5be117",
+      "name": "Send a message",
+      "webhookId": "2448231b-819d-44ad-aa99-bff101c2bd13",
+      "credentials": {
+        "slackApi": {
+          "id": "Gb72dDZz0hNZ9RWF",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Count Unread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Text": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Mark as Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Unread": {
+      "main": [
+        [
+          {
+            "node": "Format Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Unread": {
+      "main": [
+        [
+          {
+            "node": "Find Unread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "Count Unread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7fe5bcf8-679a-45a2-b684-39be0aee14ce",
+  "meta": {
+    "instanceId": "bf1e89d5888460f9dc1ea26a97a886dc8cde1e931310890367f75c0d888ed8d8"
+  },
+  "id": "GIFlTwDJN4fXxl1r",
+  "tags": []
+}

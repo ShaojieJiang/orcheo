@@ -72,7 +72,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         tags=None,
         actor="owner",
     )
-    repository._trigger_layer.configure_cron(  # noqa: SLF001
+    await repository.configure_cron_trigger(
         workflow_without_versions.id,
         CronTriggerConfig(expression="0 11 * * *", timezone="UTC"),
     )

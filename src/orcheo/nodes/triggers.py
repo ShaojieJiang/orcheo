@@ -90,7 +90,7 @@ class CronTriggerNode(TriggerNode):
     trigger_type: str = "cron"
     expression: str = Field(default="0 * * * *")
     timezone: str = Field(default="UTC")
-    allow_overlapping: bool = False
+    allow_overlapping: bool = True
     start_at: datetime | None = None
     end_at: datetime | None = None
 

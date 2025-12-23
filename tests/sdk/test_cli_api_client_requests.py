@@ -63,6 +63,24 @@ def test_api_client_post_no_content() -> None:
     assert result is None
 
 
+def test_api_client_put_success() -> None:
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.put("http://test.com/api/test").mock(
+            return_value=httpx.Response(200, json={"updated": True})
+        )
+        result = client.put("/api/test", json_body={"value": 1})
+    assert result == {"updated": True}
+
+
+def test_api_client_put_no_content() -> None:
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.put("http://test.com/api/test").mock(return_value=httpx.Response(204))
+        result = client.put("/api/test", json_body={"value": 1})
+    assert result is None
+
+
 def test_api_client_post_http_error() -> None:
     client = ApiClient(base_url="http://test.com", token="token123")
     with respx.mock:

@@ -103,6 +103,13 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                 raise WorkflowNotFoundError(str(workflow_id))
             return self._trigger_layer.get_cron_config(workflow_id)
 
+    async def delete_cron_trigger(self, workflow_id: UUID) -> None:
+        """Remove cron trigger configuration for the workflow."""
+        async with self._lock:
+            if workflow_id not in self._workflows:
+                raise WorkflowNotFoundError(str(workflow_id))
+            self._trigger_layer.remove_cron_config(workflow_id)
+
     async def dispatch_due_cron_runs(
         self, *, now: datetime | None = None
     ) -> list[WorkflowRun]:

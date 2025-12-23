@@ -5,7 +5,8 @@ import json
 import logging
 from typing import Any
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from orcheo.models.workflow import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
@@ -22,28 +23,45 @@ from orcheo_backend.app.schemas.runs import CronDispatchRequest
 
 logger = logging.getLogger(__name__)
 
-
-def _enqueue_run(run: WorkflowRun) -> None:
-    """Enqueue a Celery task to execute the workflow run.
-
-    This function is best-effort: if Celery/Redis is unavailable,
-    the run remains pending and can be retried manually.
-    """
-    try:
-        from orcheo_backend.worker.tasks import execute_run
-
-        execute_run.delay(str(run.id))
-        logger.info("Enqueued run %s for execution", run.id)
-    except Exception as exc:
-        logger.warning(
-            "Failed to enqueue run %s for execution: %s. "
-            "Run will remain pending until manually retried.",
-            run.id,
-            exc,
-        )
-
-
 router = APIRouter()
+
+
+def _parse_webhook_body(
+    raw_body: bytes, *, preserve_raw_body: bool
+) -> tuple[Any, dict[str, Any] | None]:
+    if not raw_body:
+        return {}, None
+
+    decoded_body = raw_body.decode("utf-8", errors="replace")
+    parsed_body: Any | None = None
+    try:
+        parsed_body = json.loads(decoded_body)
+    except json.JSONDecodeError:
+        parsed_body = None
+
+    if preserve_raw_body:
+        payload: Any = {"raw": decoded_body}
+        if parsed_body is not None:  # pragma: no branch
+            payload["parsed"] = parsed_body
+        return payload, parsed_body if isinstance(parsed_body, dict) else None
+
+    payload = parsed_body if parsed_body is not None else raw_body
+    return payload, parsed_body if isinstance(parsed_body, dict) else None
+
+
+def _maybe_handle_slack_url_verification(
+    parsed_body: dict[str, Any] | None,
+) -> JSONResponse | None:
+    if not parsed_body or parsed_body.get("type") != "url_verification":
+        return None
+
+    challenge = parsed_body.get("challenge")
+    if not isinstance(challenge, str) or not challenge.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Slack challenge value",
+        )
+    return JSONResponse(content={"challenge": challenge})
 
 
 @router.put(
@@ -87,7 +105,11 @@ async def invoke_webhook_trigger(
     workflow_id: UUID,
     request: Request,
     repository: RepositoryDep,
-) -> WorkflowRun:
+    preserve_raw_body: bool = Query(
+        default=False,
+        description="Store the raw request body alongside parsed payloads.",
+    ),
+) -> WorkflowRun | JSONResponse:
     """Validate inbound webhook data and enqueue a workflow run."""
     try:
         raw_body = await request.body()
@@ -97,16 +119,14 @@ async def invoke_webhook_trigger(
             detail="Failed to read request body",
         ) from exc
 
-    payload: Any
-    if raw_body:
-        try:
-            payload = json.loads(raw_body.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            payload = raw_body
-    else:
-        payload = {}
-
     headers = {key: value for key, value in request.headers.items()}
+
+    payload, parsed_body = _parse_webhook_body(
+        raw_body, preserve_raw_body=preserve_raw_body
+    )
+    slack_response = _maybe_handle_slack_url_verification(parsed_body)
+    if slack_response is not None:
+        return slack_response
 
     try:
         client = request.client
@@ -118,7 +138,6 @@ async def invoke_webhook_trigger(
             payload=payload,
             source_ip=getattr(client, "host", None),
         )
-        _enqueue_run(run)
         return run
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -164,6 +183,24 @@ async def get_cron_trigger_config(
         raise_not_found("Workflow not found", exc)
 
 
+@router.delete(
+    "/workflows/{workflow_id}/triggers/cron/config",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def delete_cron_trigger(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> Response:
+    """Remove the cron trigger configuration for the workflow."""
+    try:
+        await repository.delete_cron_trigger(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/triggers/cron/dispatch",
     response_model=list[WorkflowRun],
@@ -176,8 +213,6 @@ async def dispatch_cron_triggers(
     now = request.now if request else None
     try:
         runs = await repository.dispatch_due_cron_runs(now=now)
-        for run in runs:
-            _enqueue_run(run)
         return runs
     except CredentialHealthError as exc:
         raise HTTPException(
@@ -197,8 +232,6 @@ async def dispatch_manual_runs(
     """Dispatch one or more manual workflow runs."""
     try:
         runs = await repository.dispatch_manual_runs(request)
-        for run in runs:
-            _enqueue_run(run)
         return runs
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

@@ -111,7 +111,9 @@ def test_build_initial_state_langgraph_formats() -> None:
     state = workflow_execution._build_initial_state(
         {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, None
     )
-    assert state is inputs
+    assert state["inputs"] == inputs
+    assert state["results"] == {}
+    assert state["messages"] == []
 
     state_with_config = workflow_execution._build_initial_state(
         {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, runtime_config

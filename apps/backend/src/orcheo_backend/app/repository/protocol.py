@@ -182,6 +182,9 @@ class WorkflowRepository(Protocol):
     async def get_cron_trigger_config(self, workflow_id: UUID) -> CronTriggerConfig:
         """Return the cron trigger configuration for a workflow."""
 
+    async def delete_cron_trigger(self, workflow_id: UUID) -> None:
+        """Remove cron trigger configuration for a workflow."""
+
     async def dispatch_due_cron_runs(
         self, *, now: datetime | None = None
     ) -> list[WorkflowRun]:

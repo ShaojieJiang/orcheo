@@ -52,6 +52,26 @@ def test_cron_dispatch_and_overlap_controls() -> None:
     assert next_plans[0].timezone == "UTC"
 
 
+def test_remove_cron_config_cleans_run_index() -> None:
+    """Removing a cron config also drops overlap tracking entries."""
+
+    workflow_id = uuid4()
+    layer = TriggerLayer()
+    layer.configure_cron(
+        workflow_id,
+        CronTriggerConfig(expression="0 0 * * *", timezone="UTC"),
+    )
+
+    run_id = uuid4()
+    layer._cron_run_index[run_id] = workflow_id
+    assert layer.remove_cron_config(workflow_id) is True
+    assert run_id not in layer._cron_run_index
+    assert layer._cron_states.get(workflow_id) is None
+
+    # Removing again returns False without side effects.
+    assert layer.remove_cron_config(workflow_id) is False
+
+
 def test_collect_due_cron_dispatches_skips_unhealthy_workflows() -> None:
     workflow_id = uuid4()
 
