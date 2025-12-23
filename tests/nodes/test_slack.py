@@ -1,6 +1,7 @@
 """Tests for Slack node."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -14,6 +15,12 @@ class MockToolResult:
     content: list[dict[str, Any]]
     is_error: bool
     error: str | None = None
+
+
+class DummyTransport:
+    """Transport stub without an initial log_file attribute."""
+
+    pass
 
 
 @pytest.fixture
@@ -210,3 +217,53 @@ async def test_slack_node_run_empty_kwargs(slack_node):
                 "is_error": False,
                 "error": None,
             }
+
+
+@pytest.mark.asyncio
+async def test_slack_node_sets_log_file_when_missing(slack_node):
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    with patch(
+        "orcheo.nodes.slack.NpxStdioTransport", return_value=transport
+    ) as mock_transport_class:
+        with patch(
+            "orcheo.nodes.slack.Client", return_value=mock_context_manager
+        ) as mock_client_class:
+            _ = await slack_node.run({}, None)
+
+            mock_transport_class.assert_called_once()
+            mock_client_class.assert_called_once_with(transport)
+
+    assert transport.log_file == Path("/tmp/orcheo-mcp-stdio.log")
+
+
+@pytest.mark.asyncio
+async def test_slack_node_respects_stdio_log_env(monkeypatch, slack_node):
+    custom_path = "/tmp/custom-stdio.log"
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", custom_path)
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+            await slack_node.run({}, None)
+
+    assert transport.log_file == Path(custom_path)

@@ -23,12 +23,14 @@ Key goals: parity with the n8n workflow, safe Slack delivery, accurate read upda
   - **CronTriggerNode** for the daily 09:00 run (Europe/Amsterdam, DST enabled).
   - **WebhookTriggerNode** for Slack Events API callbacks.
   - **SlackEventsParserNode (new)** to verify Slack signatures, handle URL verification, and filter `app_mention` events by channel.
+- **Trigger Routing Node**
+  - **DetectTriggerNode (new)** to detect webhook payloads and route between scheduled vs. Slack-initiated paths.
 - **MongoDB Operations (extend existing node + wrappers)**
   - **MongoDBNode (extended)** adds operation-specific inputs (`filter`, `update`, `pipeline`, `sort`, `limit`, `options`) with validation per operation.
   - **MongoDBAggregateNode** wrapper for the unread count pipeline.
   - **MongoDBFindNode** wrapper for unread item fetch with sort/limit.
 - **Formatter Node**
-  - **PythonCode** (or **JavaScriptSandboxNode**) to decode titles, format Slack links, compute remaining count, and return `{ news, ids }`.
+  - **FormatDigestNode (new)** to decode titles, format Slack links, compute remaining count, and return `{ news, ids }`.
 - **Slack Delivery**
   - **SlackNode** using `slack_post_message` with `mrkdwn` enabled.
 - **Read-State Update**
@@ -41,17 +43,19 @@ Key goals: parity with the n8n workflow, safe Slack delivery, accurate read upda
 ### Flow 1: Scheduled Digest
 
 1. `CronTriggerNode` fires at 09:00 (Europe/Amsterdam, DST enabled).
-2. `MongoDBAggregateNode` counts unread items: match `read = false`, then `$count`.
-3. `MongoDBFindNode` fetches up to 30 unread items sorted by `isoDate` desc.
-4. `PythonCode` formats Slack links, computes remaining unread count, and outputs `{ news, ids }`.
-5. `SlackNode` posts `news` to the configured channel.
-6. `MongoDBUpdateManyNode` updates matching `_id` values to `read = true` only after a successful Slack post.
+2. `DetectTriggerNode` identifies the run as scheduled and routes to MongoDB reads.
+3. `MongoDBAggregateNode` counts unread items: match `read = false`, then `$count`.
+4. `MongoDBFindNode` fetches up to 30 unread items sorted by `isoDate` desc.
+5. `FormatDigestNode` formats Slack links, computes remaining unread count, and outputs `{ news, ids }`.
+6. `SlackNode` posts `news` to the configured channel.
+7. `MongoDBUpdateManyNode` updates matching `_id` values to `read = true` only after a successful Slack post.
 
 ### Flow 2: Slack Mention Digest
 
 1. `WebhookTriggerNode` receives the Slack Events API callback.
-2. `SlackEventsParserNode` validates the signature, handles URL verification, and filters for `app_mention` events in the configured channel.
-3. Steps 2-6 from Flow 1 execute identically.
+2. `DetectTriggerNode` identifies the run as webhook-triggered.
+3. `SlackEventsParserNode` validates the signature, handles URL verification, and filters for `app_mention` events in the configured channel.
+4. Steps 3-7 from Flow 1 execute identically.
 
 ## API Contracts
 

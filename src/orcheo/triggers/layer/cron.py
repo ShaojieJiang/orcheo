@@ -24,6 +24,17 @@ class CronTriggerMixin(TriggerLayerState):
         state = self._cron_states.setdefault(workflow_id, CronTriggerState())
         return state.config
 
+    def remove_cron_config(self, workflow_id: UUID) -> bool:
+        """Remove cron configuration state for the workflow if present."""
+        removed = self._cron_states.pop(workflow_id, None) is not None
+        if removed:
+            self._cron_run_index = {
+                run_id: stored_workflow_id
+                for run_id, stored_workflow_id in self._cron_run_index.items()
+                if stored_workflow_id != workflow_id
+            }
+        return removed
+
     def collect_due_cron_dispatches(self, *, now: datetime) -> list[CronDispatchPlan]:
         """Return cron dispatch plans that are due at the provided reference time."""
         if now is None:

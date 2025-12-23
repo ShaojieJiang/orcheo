@@ -88,6 +88,39 @@ async def test_cron_trigger_configuration_and_dispatch(
 
 
 @pytest.mark.asyncio()
+async def test_cron_trigger_deletion_removes_schedule(
+    repository: WorkflowRepository,
+) -> None:
+    """Deleting a cron trigger stops future dispatches."""
+
+    workflow = await repository.create_workflow(
+        name="Cron Cleanup",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+    await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="*/5 * * * *", timezone="UTC"),
+    )
+
+    await repository.delete_cron_trigger(workflow.id)
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    )
+    assert runs == []
+
+
+@pytest.mark.asyncio()
 async def test_cron_trigger_requires_existing_workflow(
     repository: WorkflowRepository,
 ) -> None:
@@ -98,6 +131,16 @@ async def test_cron_trigger_requires_existing_workflow(
 
     with pytest.raises(WorkflowNotFoundError):
         await repository.get_cron_trigger_config(uuid4())
+
+
+@pytest.mark.asyncio()
+async def test_cron_trigger_delete_requires_existing_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Deleting cron triggers raises when the workflow does not exist."""
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.delete_cron_trigger(uuid4())
 
 
 @pytest.mark.asyncio()

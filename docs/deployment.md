@@ -25,7 +25,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 
 _Vault note_: The default `.env.example` now stores credentials in an encrypted SQLite vault at `.orcheo/vault.sqlite`. The backend generates and caches the AES key alongside the database on first start. Switch `ORCHEO_VAULT_BACKEND` to `inmemory` for ephemeral secrets or set `ORCHEO_VAULT_ENCRYPTION_KEY` to supply a managed key.
 
-_Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file.
+_Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file. The in-memory backend does not enqueue webhook/cron/manual triggers for execution, so runs remain `PENDING` unless you drive execution manually.
 
 ## Docker Compose (SQLite, multi-container)
 

@@ -128,6 +128,8 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from Python or JSON file. |
 | `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
+| `orcheo workflow schedule <workflow>` | Activate cron scheduling based on the workflow's cron trigger (no-op if none). |
+| `orcheo workflow unschedule <workflow>` | Remove cron scheduling for the workflow. |
 | `orcheo workflow publish <workflow> [--require-login] [--chatkit-public-base-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
 | `orcheo workflow unpublish <workflow>` | Revoke public access and invalidate existing share links. |
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
+from bson import ObjectId
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
 
@@ -51,6 +52,26 @@ def test_convert_command_cursor_to_list_dict(mongo_context: MongoTestContext) ->
     assert len(result) == 2
     assert result[0] == {"_id": "1", "count": 5}
     assert result[1] == {"_id": "2", "count": 3}
+
+
+def test_convert_cursor_object_id_to_string(
+    mongo_context: MongoTestContext,
+) -> None:
+    """ObjectId values should be encoded to strings."""
+
+    node = mongo_context.build_node(operation="find")
+    object_id = ObjectId("507f1f77bcf86cd799439011")
+    mock_cursor = Mock(spec=Cursor)
+    mock_cursor.__iter__ = Mock(
+        return_value=iter(
+            [
+                {"_id": object_id, "name": "doc1"},
+            ]
+        )
+    )
+
+    result = node._convert_result_to_dict(mock_cursor)
+    assert result == [{"_id": str(object_id), "name": "doc1"}]
 
 
 def test_convert_list_to_list_dict(mongo_context: MongoTestContext) -> None:

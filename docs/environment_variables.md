@@ -30,6 +30,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
+Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
+
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |
@@ -97,6 +99,14 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `NODE_ENV` | `production` | String | Default runtime environment when `ORCHEO_ENV` is unset ([chatkit_runtime.py](../apps/backend/src/orcheo_backend/app/chatkit_runtime.py)). |
 | `LOG_SENSITIVE_DEBUG` | _none_ | Set to `1` to enable; otherwise leave blank | Forces sensitive logging even outside of a recognized dev environment ([chatkit_runtime.py](../apps/backend/src/orcheo_backend/app/chatkit_runtime.py)). |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, etc. | Controls the logger thresholds configured in [logging_config.py](../apps/backend/src/orcheo_backend/app/logging_config.py). |
+
+## Celery worker configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL | Broker URL for Celery task queue ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
+| `CRON_DISPATCH_INTERVAL` | `60` | Float (seconds) | Interval at which Celery Beat dispatches cron triggers ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
+| `CELERY_BEAT_SCHEDULE_FILE` | `celerybeat-schedule` | Filesystem path | Location of the Celery Beat schedule database; use `-s` flag or this env var to override ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
 
 ## CLI configuration
 

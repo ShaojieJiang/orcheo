@@ -25,10 +25,15 @@ from orcheo.nodes.logic import (
     DelayNode,
     SetVariableNode,
 )
-from orcheo.nodes.mongodb import MongoDBNode
+from orcheo.nodes.mongodb import (
+    MongoDBAggregateNode,
+    MongoDBFindNode,
+    MongoDBNode,
+    MongoDBUpdateManyNode,
+)
 from orcheo.nodes.python_sandbox import PythonSandboxNode
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
-from orcheo.nodes.slack import SlackNode
+from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 from orcheo.nodes.storage import PostgresNode, SQLiteNode
 from orcheo.nodes.sub_workflow import SubWorkflowNode
 from orcheo.nodes.telegram import MessageTelegram
@@ -54,9 +59,13 @@ __all__ = [
     "SetVariableNode",
     "DelayNode",
     "MongoDBNode",
+    "MongoDBAggregateNode",
+    "MongoDBFindNode",
+    "MongoDBUpdateManyNode",
     "PostgresNode",
     "SQLiteNode",
     "SlackNode",
+    "SlackEventsParserNode",
     "EmailNode",
     "DiscordWebhookNode",
     "MessageTelegram",

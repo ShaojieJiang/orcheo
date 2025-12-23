@@ -187,3 +187,4 @@ checkpoints.sqlite
 
 # Orcheo
 .orcheo/
+**/workflow_config.json

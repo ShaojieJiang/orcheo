@@ -1,12 +1,24 @@
 """MongoDB node."""
 
-from typing import Any, Literal
+import atexit
+from threading import Lock
+from typing import Any, ClassVar, Literal
+from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr, field_validator
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
+from pymongo.errors import (
+    AutoReconnect,
+    ConfigurationError,
+    ConnectionFailure,
+    NetworkTimeout,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 from pymongo.results import (
     BulkWriteResult,
     DeleteResult,
@@ -29,8 +41,8 @@ from orcheo.nodes.registry import NodeMetadata, registry
 class MongoDBNode(TaskNode):
     """MongoDB node.
 
-    To use this node, you need to set the following environment variables:
-    - MDB_CONNECTION_STRING: Required.
+    To use this node, you need to set the following parameters:
+    - connection_string: Required.
     """
 
     connection_string: str = "[[mdb_connection_string]]"
@@ -75,17 +87,250 @@ class MongoDBNode(TaskNode):
         "options",
         "watch",
     ]
-    query: dict = {}
-    """The query to pass to the operation."""
+    query: dict | list[dict[str, Any]] = Field(default_factory=dict)
+    """Legacy query payload passed directly to the operation."""
+    filter: dict[str, Any] | None = Field(
+        default=None, description="Filter document for query/update operations"
+    )
+    update: dict[str, Any] | None = Field(
+        default=None, description="Update document for update operations"
+    )
+    pipeline: list[dict[str, Any]] | None = Field(
+        default=None, description="Aggregation pipeline for aggregate operations"
+    )
+    sort: dict[str, int] | list[tuple[str, int]] | None = Field(
+        default=None, description="Sort specification for find operations"
+    )
+    limit: int | str | None = Field(
+        default=None, description="Limit for find operations"
+    )
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional pymongo options passed to the operation",
+    )
+    _client_cache: ClassVar[dict[str, MongoClient]] = {}
+    _client_ref_counts: ClassVar[dict[str, int]] = {}
+    _client_lock: ClassVar[Lock] = Lock()
     _client: MongoClient | None = PrivateAttr(default=None)
     _collection: Collection | None = PrivateAttr(default=None)
+    _client_key: str | None = PrivateAttr(default=None)
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def _validate_limit(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "limit must be an integer"
+                raise ValueError(msg) from exc
+        if isinstance(value, int) and value < 0:
+            msg = "limit must be >= 0"
+            raise ValueError(msg)
+        return value
+
+    def _resolve_filter(self) -> dict[str, Any]:
+        """Resolve a filter document from structured or legacy inputs.
+
+        Prefers the structured ``filter`` field, falls back to ``query`` when
+        provided as a dict, otherwise defaults to an empty filter.
+        """
+        if self.filter is not None:
+            return dict(self.filter)
+        if isinstance(self.query, dict):
+            return dict(self.query)
+        return {}
+
+    def _resolve_update(self) -> dict[str, Any]:
+        """Resolve an update/replacement document from inputs."""
+        if self.update is not None:
+            return dict(self.update)
+        if isinstance(self.query, dict):  # pragma: no branch
+            candidate = self.query.get("update")
+            if isinstance(candidate, dict):
+                return dict(candidate)
+        msg = "update is required for update operations"
+        raise ValueError(msg)
+
+    def _resolve_pipeline(self) -> list[dict[str, Any]]:
+        """Resolve an aggregation pipeline from inputs."""
+        if self.pipeline is not None:
+            return list(self.pipeline)
+        if isinstance(self.query, list):
+            return list(self.query)
+        if isinstance(self.query, dict):  # pragma: no branch
+            candidate = self.query.get("pipeline")
+            if isinstance(candidate, list):
+                return list(candidate)
+        msg = "pipeline is required for aggregate operations"
+        raise ValueError(msg)
+
+    def _normalize_sort(
+        self, value: dict[str, int] | list[tuple[str, int]]
+    ) -> list[tuple[str, int]]:
+        """Normalize sort specifications into list-of-tuples."""
+        if isinstance(value, dict):
+            return list(value.items())
+        return list(value)
+
+    def _build_operation_call(self) -> tuple[list[Any], dict[str, Any]]:
+        """Return positional args and kwargs for the configured operation."""
+        filter_operations = {
+            "find",
+            "find_one",
+            "find_raw_batches",
+            "count_documents",
+            "delete_one",
+            "delete_many",
+            "find_one_and_delete",
+        }
+        find_operations = {"find", "find_one", "find_raw_batches"}
+        update_operations = {
+            "update_one",
+            "update_many",
+            "find_one_and_update",
+            "replace_one",
+            "find_one_and_replace",
+        }
+        pipeline_operations = {"aggregate", "aggregate_raw_batches"}
+
+        if self.operation in pipeline_operations:
+            pipeline = self._coerce_object_ids(self._resolve_pipeline())
+            return [pipeline], dict(self.options)
+
+        if self.operation in update_operations:
+            filter_doc = self._coerce_object_ids(self._resolve_filter())
+            update_doc = self._coerce_object_ids(self._resolve_update())
+            return [filter_doc, update_doc], dict(self.options)
+
+        if self.operation in filter_operations:
+            filter_doc = self._coerce_object_ids(self._resolve_filter())
+            kwargs = dict(self.options)
+            if self.operation in find_operations:  # pragma: no branch
+                if self.sort is not None:
+                    kwargs["sort"] = self._normalize_sort(self.sort)
+                if self.limit is not None:
+                    kwargs["limit"] = self._resolve_limit()
+            return [filter_doc], kwargs
+
+        return [self.query], dict(self.options)
+
+    def _resolve_limit(self) -> int:
+        limit = self.limit
+        if isinstance(limit, str):
+            if "{{" in limit and "}}" in limit:
+                msg = "limit must resolve to an integer before execution"
+                raise ValueError(msg)
+            try:
+                return int(limit)
+            except ValueError as exc:
+                msg = "limit must be an integer"
+                raise ValueError(msg) from exc
+        if limit is None:
+            msg = "limit is not set for find operations"
+            raise ValueError(msg)
+        return limit
+
+    @classmethod
+    def _encode_bson(cls, value: Any) -> Any:
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, dict):
+            return {key: cls._encode_bson(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._encode_bson(item) for item in value]
+        return value
+
+    @classmethod
+    def _coerce_object_id_value(cls, value: Any) -> Any:
+        if isinstance(value, str) and ObjectId.is_valid(value):
+            return ObjectId(value)
+        if isinstance(value, list):
+            return [cls._coerce_object_id_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: cls._coerce_object_id_value(item) for key, item in value.items()
+            }
+        return value
+
+    @classmethod
+    def _coerce_object_ids(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (
+                    cls._coerce_object_id_value(item)
+                    if key == "_id"
+                    else cls._coerce_object_ids(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._coerce_object_ids(item) for item in value]
+        return value
+
+    @classmethod
+    def _get_shared_client(cls, connection_string: str) -> MongoClient:
+        with cls._client_lock:
+            client = cls._client_cache.get(connection_string)
+            if client is None:
+                client = MongoClient(connection_string)
+                cls._client_cache[connection_string] = client
+                cls._client_ref_counts[connection_string] = 0
+            cls._client_ref_counts[connection_string] = (
+                cls._client_ref_counts.get(connection_string, 0) + 1
+            )
+        return client
+
+    @classmethod
+    def _release_shared_client(cls, connection_string: str) -> None:
+        client: MongoClient | None = None
+        with cls._client_lock:
+            ref_count = cls._client_ref_counts.get(connection_string)
+            if ref_count is None:
+                return
+            ref_count -= 1
+            if ref_count <= 0:
+                cls._client_ref_counts.pop(connection_string, None)
+                client = cls._client_cache.pop(connection_string, None)
+            else:
+                cls._client_ref_counts[connection_string] = ref_count
+        if client is not None:
+            client.close()
+
+    @classmethod
+    def _close_all_clients(cls) -> None:
+        with cls._client_lock:
+            clients = list(cls._client_cache.values())
+            cls._client_cache.clear()
+            cls._client_ref_counts.clear()
+        for client in clients:
+            client.close()
+
+    def _release_client(self) -> None:
+        if self._client is None or self._client_key is None:
+            return
+        type(self)._release_shared_client(self._client_key)
+        self._client = None
+        self._collection = None
+        self._client_key = None
 
     def _ensure_collection(self) -> None:
         """Ensure the MongoDB collection is initialised."""
         if self._client is None:
-            self._client = MongoClient(self.connection_string)
-        if self._collection is None:
-            self._collection = self._client[self.database][self.collection]
+            self._client = self._get_shared_client(self.connection_string)
+            self._client_key = self.connection_string
+        elif self._client_key and self._client_key != self.connection_string:
+            self._release_client()
+            self._client = self._get_shared_client(self.connection_string)
+            self._client_key = self.connection_string
+        if self._client is None:
+            msg = "MongoDB client could not be initialized"
+            raise RuntimeError(msg)
+        self._collection = self._client[self.database][self.collection]
 
     def _convert_result_to_dict(self, result: Any) -> dict | list[dict]:
         """Convert MongoDB operation result to dict or list[dict] format."""
@@ -156,17 +401,112 @@ class MongoDBNode(TaskNode):
             case _:
                 converted_result = {"result": str(result)}
 
-        return converted_result
+        return self._encode_bson(converted_result)
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the MongoDB node with persistent session."""
-        self._ensure_collection()
-        assert self._collection is not None
-        operation = getattr(self._collection, self.operation)
-        result = operation(self.query)
+        context = (
+            f"operation={self.operation}, "
+            f"database={self.database}, "
+            f"collection={self.collection}"
+        )
+        try:
+            self._ensure_collection()
+            assert self._collection is not None
+            operation = getattr(self._collection, self.operation)
+            args, kwargs = self._build_operation_call()
+            result = operation(*args, **kwargs)
+        except (
+            AutoReconnect,
+            ConnectionFailure,
+            NetworkTimeout,
+            ServerSelectionTimeoutError,
+        ) as exc:
+            msg = f"MongoDB network error during {context}."
+            raise RuntimeError(msg) from exc
+        except OperationFailure as exc:
+            auth_error_codes = {13, 18}
+            if exc.code in auth_error_codes:
+                msg = f"MongoDB authentication/authorization error during {context}."
+            else:
+                msg = f"MongoDB operation error during {context}."
+            raise RuntimeError(msg) from exc
+        except ConfigurationError as exc:
+            msg = f"MongoDB configuration error during {context}."
+            raise RuntimeError(msg) from exc
+        except PyMongoError as exc:
+            msg = f"MongoDB error during {context}."
+            raise RuntimeError(msg) from exc
         return {"data": self._convert_result_to_dict(result)}
 
     def __del__(self) -> None:
         """Automatic cleanup when object is garbage collected."""
-        if self._client is not None:
-            self._client.close()
+        self._release_client()
+
+
+@registry.register(
+    NodeMetadata(
+        name="MongoDBAggregateNode",
+        description="MongoDB aggregate wrapper",
+        category="mongodb",
+    )
+)
+class MongoDBAggregateNode(MongoDBNode):
+    """MongoDB aggregate wrapper with a required pipeline."""
+
+    operation: Literal["aggregate"] = "aggregate"
+    pipeline: list[dict[str, Any]]
+
+
+@registry.register(
+    NodeMetadata(
+        name="MongoDBFindNode",
+        description="MongoDB find wrapper with sort and limit support",
+        category="mongodb",
+    )
+)
+class MongoDBFindNode(MongoDBNode):
+    """MongoDB find wrapper with filter, sort, and limit fields."""
+
+    operation: Literal["find"] = "find"
+    filter: dict[str, Any] = Field(default_factory=dict)
+
+
+@registry.register(
+    NodeMetadata(
+        name="MongoDBUpdateManyNode",
+        description="MongoDB update_many wrapper",
+        category="mongodb",
+    )
+)
+class MongoDBUpdateManyNode(MongoDBNode):
+    """MongoDB update_many wrapper with filter and update documents."""
+
+    operation: Literal["update_many"] = "update_many"
+    filter: dict[str, Any]
+    update: dict[str, Any]
+
+    def _resolve_filter(self) -> dict[str, Any]:
+        if self.filter is None:
+            msg = "filter is required for update_many operations"
+            raise ValueError(msg)
+        return dict(self.filter)
+
+    def _resolve_update(self) -> dict[str, Any]:
+        if self.update is None:
+            msg = "update is required for update_many operations"
+            raise ValueError(msg)
+        if not self.update:
+            msg = "update must not be empty for update_many operations"
+            raise ValueError(msg)
+        return dict(self.update)
+
+
+__all__ = [
+    "MongoDBAggregateNode",
+    "MongoDBFindNode",
+    "MongoDBNode",
+    "MongoDBUpdateManyNode",
+]
+
+atexit.register(MongoDBNode._close_all_clients)

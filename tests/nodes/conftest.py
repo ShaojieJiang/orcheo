@@ -68,6 +68,8 @@ class MongoTestContext:
 def mongo_context() -> Generator[MongoTestContext, None, None]:
     """Provide patched MongoDB components and a node factory."""
 
+    MongoDBNode._client_cache.clear()
+    MongoDBNode._client_ref_counts.clear()
     collection = MagicMock()
     database = MagicMock()
     database.__getitem__.return_value = collection
