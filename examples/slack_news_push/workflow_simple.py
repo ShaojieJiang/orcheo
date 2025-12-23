@@ -21,6 +21,16 @@ from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 from orcheo.nodes.triggers import CronTriggerNode
 
 
+class DetectTriggerNode(TaskNode):
+    """Detect whether the workflow was invoked by a webhook payload."""
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return whether a webhook body is present in inputs."""
+        inputs = state.get("inputs", {})
+        has_webhook = bool(inputs.get("body"))
+        return {"has_webhook": has_webhook}
+
+
 class FormatReplyNode(TaskNode):
     """Build the scripted reply text for an app mention."""
 
@@ -72,6 +82,7 @@ class FormatScheduledMessageNode(TaskNode):
 async def build_graph() -> StateGraph:
     """Build the simplified Slack mention responder workflow."""
     graph = StateGraph(State)
+    graph.add_node("detect_trigger", DetectTriggerNode(name="detect_trigger"))
     graph.add_node(
         "cron_trigger",
         CronTriggerNode(
@@ -124,8 +135,19 @@ async def build_graph() -> StateGraph:
         ),
     )
 
-    graph.set_entry_point("slack_events_parser")
-    graph.set_entry_point("cron_trigger")
+    graph.set_entry_point("detect_trigger")
+    trigger_router = IfElse(
+        name="trigger_router",
+        conditions=[Condition(left="{{detect_trigger.has_webhook}}", operator="is_truthy")],
+    )
+    graph.add_conditional_edges(
+        "detect_trigger",
+        trigger_router,
+        {
+            "true": "slack_events_parser",
+            "false": "cron_trigger",
+        },
+    )
     graph.add_edge("slack_events_parser", "format_reply")
     graph.add_edge("cron_trigger", "format_scheduled_message")
     graph.add_edge("format_scheduled_message", "post_scheduled_message")
