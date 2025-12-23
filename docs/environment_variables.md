@@ -30,6 +30,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
+Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
+
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |
