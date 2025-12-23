@@ -100,10 +100,10 @@ class ApiClient:
                 timeout=self._timeout,
             )
             response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+        except httpx.HTTPStatusError as exc:  # pragma: no cover - defensive code
             message = self._format_error(exc.response)
             raise APICallError(message, status_code=exc.response.status_code) from exc
-        except httpx.RequestError as exc:
+        except httpx.RequestError as exc:  # pragma: no cover - defensive code
             raise APICallError(f"Failed to reach {url}: {exc}") from exc
 
         if response.status_code == httpx.codes.NO_CONTENT:

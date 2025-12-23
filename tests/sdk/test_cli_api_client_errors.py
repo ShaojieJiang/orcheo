@@ -174,6 +174,25 @@ def test_api_client_error_payload_not_mapping() -> None:
     assert '["error", "list"]' in str(exc_info.value)
 
 
+def test_api_client_error_with_invalid_json_returns_response_text() -> None:
+    """Invalid JSON responses fall back to the raw response text."""
+
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(
+                400,
+                content=b"not json",
+                text="not json",
+            )
+        )
+        with pytest.raises(APICallError) as exc_info:
+            client.get("/api/test")
+
+    assert exc_info.value.status_code == 400
+    assert "not json" in str(exc_info.value)
+
+
 def test_api_call_error_with_status_code() -> None:
     error = APICallError("API error", status_code=500)
     assert str(error) == "API error"

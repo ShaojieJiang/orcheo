@@ -58,6 +58,35 @@ def test_cron_trigger_configuration_roundtrip(api_client: TestClient) -> None:
     assert roundtrip.json() == payload
 
 
+def test_cron_trigger_delete_endpoint(api_client: TestClient) -> None:
+    """Deleting a cron trigger removes the configuration."""
+
+    workflow_id, _ = create_workflow_with_version(api_client)
+    api_client.put(
+        f"/api/workflows/{workflow_id}/triggers/cron/config",
+        json={
+            "expression": "0 9 * * *",
+            "timezone": "UTC",
+        },
+    )
+
+    delete_response = api_client.delete(
+        f"/api/workflows/{workflow_id}/triggers/cron/config"
+    )
+    assert delete_response.status_code == 204
+
+
+def test_cron_trigger_delete_missing_workflow(api_client: TestClient) -> None:
+    """Deleting a cron trigger returns 404 when the workflow is unknown."""
+
+    missing_id = uuid4()
+    delete_response = api_client.delete(
+        f"/api/workflows/{missing_id}/triggers/cron/config"
+    )
+    assert delete_response.status_code == 404
+    assert delete_response.json()["detail"] == "Workflow not found"
+
+
 def test_cron_trigger_dispatch_and_overlap(api_client: TestClient) -> None:
     """Cron dispatch endpoint enqueues due runs and enforces overlap guard."""
 

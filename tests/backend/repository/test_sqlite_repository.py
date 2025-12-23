@@ -131,6 +131,86 @@ async def test_sqlite_cron_dispatch_reflects_external_unschedule(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_refresh_cron_triggers_hydrates_missing_state(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Refresh loads cron configs that were added by other processes."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "refresh.sqlite"
+    api_repository = SqliteWorkflowRepository(db_path)
+    worker_repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await api_repository.create_workflow(
+            name="Refresh Cron",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await api_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 0 * * *", timezone="UTC"),
+        )
+
+        assert workflow.id not in worker_repository._trigger_layer._cron_states
+
+        await worker_repository._refresh_cron_triggers()
+        assert workflow.id in worker_repository._trigger_layer._cron_states
+        assert (
+            worker_repository._trigger_layer._cron_states[workflow.id].config.expression
+            == "0 0 * * *"
+        )
+    finally:
+        await worker_repository.reset()
+        await api_repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_refresh_cron_triggers_updates_changed_configs(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Refreshing cron configs updates state when the persisted config changes."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "refresh-change.sqlite"
+    primary_repository = SqliteWorkflowRepository(db_path)
+    api_repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await primary_repository.create_workflow(
+            name="Refresh Change",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await primary_repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        await primary_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 0 * * *", timezone="UTC"),
+        )
+
+        await api_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 0 * * *", timezone="America/Los_Angeles"),
+        )
+
+        await primary_repository._refresh_cron_triggers()
+        updated_state = primary_repository._trigger_layer._cron_states[workflow.id]
+        assert updated_state.config.timezone == "America/Los_Angeles"
+    finally:
+        await primary_repository.reset()
+        await api_repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_handle_webhook_trigger_success(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:

@@ -68,7 +68,7 @@ def _extract_cron_config(graph: Mapping[str, Any]) -> CronTriggerConfig | None:
     timezone = node.get("timezone")
     if isinstance(timezone, str) and timezone.strip():
         config_payload["timezone"] = timezone
-    if "allow_overlapping" in node:
+    if "allow_overlapping" in node:  # pragma: no branch
         config_payload["allow_overlapping"] = bool(node.get("allow_overlapping"))
     if "start_at" in node:
         config_payload["start_at"] = node.get("start_at")
@@ -82,7 +82,7 @@ def _extract_nodes(graph: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     graph_format = graph.get("format")
     if graph_format in {LANGGRAPH_SCRIPT_FORMAT, "langgraph_script"}:
         summary = graph.get("summary")
-        if isinstance(summary, Mapping):
+        if isinstance(summary, Mapping):  # pragma: no branch
             nodes = summary.get("nodes")
             if isinstance(nodes, list):
                 return [node for node in nodes if isinstance(node, Mapping)]

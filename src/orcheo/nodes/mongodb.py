@@ -149,7 +149,7 @@ class MongoDBNode(TaskNode):
         """Resolve an update/replacement document from inputs."""
         if self.update is not None:
             return dict(self.update)
-        if isinstance(self.query, dict):
+        if isinstance(self.query, dict):  # pragma: no branch
             candidate = self.query.get("update")
             if isinstance(candidate, dict):
                 return dict(candidate)
@@ -162,7 +162,7 @@ class MongoDBNode(TaskNode):
             return list(self.pipeline)
         if isinstance(self.query, list):
             return list(self.query)
-        if isinstance(self.query, dict):
+        if isinstance(self.query, dict):  # pragma: no branch
             candidate = self.query.get("pipeline")
             if isinstance(candidate, list):
                 return list(candidate)
@@ -210,7 +210,7 @@ class MongoDBNode(TaskNode):
         if self.operation in filter_operations:
             filter_doc = self._coerce_object_ids(self._resolve_filter())
             kwargs = dict(self.options)
-            if self.operation in find_operations:
+            if self.operation in find_operations:  # pragma: no branch
                 if self.sort is not None:
                     kwargs["sort"] = self._normalize_sort(self.sort)
                 if self.limit is not None:

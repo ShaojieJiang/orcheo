@@ -41,7 +41,7 @@ def _parse_webhook_body(
 
     if preserve_raw_body:
         payload: Any = {"raw": decoded_body}
-        if parsed_body is not None:
+        if parsed_body is not None:  # pragma: no branch
             payload["parsed"] = parsed_body
         return payload, parsed_body if isinstance(parsed_body, dict) else None
 

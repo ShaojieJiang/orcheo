@@ -134,6 +134,16 @@ async def test_cron_trigger_requires_existing_workflow(
 
 
 @pytest.mark.asyncio()
+async def test_cron_trigger_delete_requires_existing_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Deleting cron triggers raises when the workflow does not exist."""
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.delete_cron_trigger(uuid4())
+
+
+@pytest.mark.asyncio()
 async def test_cron_trigger_timezone_alignment(
     repository: WorkflowRepository,
 ) -> None:
