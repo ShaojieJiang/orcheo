@@ -146,6 +146,68 @@ CREATE INDEX idx_metadata_gin ON agentensor_checkpoints USING GIN(metadata);
 3. Phase 3: ChatKit store and performance optimizations.
 4. Phase 4: Optional vault migration, data migration tooling, and docs.
 
+## Docker Compose Deployment
+
+After migration to PostgreSQL, Docker Compose must start the PostgreSQL service alongside the application. The `docker-compose.yml` should include:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orcheo
+      POSTGRES_USER: orcheo
+      POSTGRES_PASSWORD: orcheo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orcheo -d orcheo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    # ... existing config ...
+    environment:
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    # ... existing config ...
+    environment:
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  celery-beat:
+    # ... existing config ...
+    environment:
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata: {}
+```
+
+Key considerations:
+- Use `service_healthy` condition to ensure PostgreSQL is ready before starting dependent services.
+- The `pg_isready` healthcheck validates both connection and database availability.
+- All services requiring persistence (backend, worker, celery-beat) must include PostgreSQL environment variables.
+- Use internal Docker network hostname (`postgres`) for DSN connections between containers.
+
 ## Open Issues
 
  - Confirm whether vault migration is required for local hosting.

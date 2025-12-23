@@ -84,10 +84,12 @@ Split persistence into parallel PostgreSQL implementations for local hosting whi
   - Dependencies: Milestone 3
 - [ ] Task 4.2: Implement SQLite to PostgreSQL migration tooling (export with checksums, batched imports, validation)
   - Dependencies: Milestone 3
-- [ ] Task 4.3: Add deployment automation (compose/manifests) plus rollback runbooks
+- [ ] Task 4.3: Update docker-compose.yml to include PostgreSQL service with healthcheck
   - Dependencies: Task 4.2
-- [ ] Task 4.4: Update documentation and troubleshooting guides
+- [ ] Task 4.4: Add deployment automation (manifests) plus rollback runbooks
   - Dependencies: Task 4.3
+- [ ] Task 4.5: Update documentation and troubleshooting guides
+  - Dependencies: Task 4.4
 
 ## Testing Strategy
 

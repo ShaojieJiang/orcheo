@@ -59,6 +59,7 @@ P1:
 - Add performance indexes (GIN, composite) for common query patterns.
 - Add advanced features: full-text search, JSONB filtering, keyset pagination.
 - Provide migration tooling from SQLite to PostgreSQL with validated export/import, checksum verification, and resumable batches sized for 1–10 GB datasets.
+- Update Docker Compose configuration to include PostgreSQL service with healthcheck and proper service dependencies.
 - Update local deployment documentation and examples.
 
 P2/Optional:
