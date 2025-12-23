@@ -294,7 +294,7 @@ def execute_run(self: Task, run_id: str) -> dict[str, Any]:  # noqa: ARG001
 
 
 async def _dispatch_cron_triggers_async() -> list[str]:
-    """Dispatch due cron triggers and enqueue execution tasks.
+    """Dispatch due cron triggers and return enqueued run IDs.
 
     Returns:
         List of enqueued run IDs
@@ -303,15 +303,7 @@ async def _dispatch_cron_triggers_async() -> list[str]:
 
     repository = get_repository()
     runs = await repository.dispatch_due_cron_runs()
-
-    enqueued_run_ids: list[str] = []
-    for run in runs:
-        run_id = str(run.id)
-        execute_run.delay(run_id)
-        enqueued_run_ids.append(run_id)
-        logger.info("Enqueued cron run %s", run_id)
-
-    return enqueued_run_ids
+    return [str(run.id) for run in runs]
 
 
 @celery_app.task(bind=True)

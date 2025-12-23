@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from orcheo.models.workflow import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
@@ -181,6 +181,24 @@ async def get_cron_trigger_config(
         return await repository.get_cron_trigger_config(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+
+
+@router.delete(
+    "/workflows/{workflow_id}/triggers/cron/config",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def delete_cron_trigger(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> Response:
+    """Remove the cron trigger configuration for the workflow."""
+    try:
+        await repository.delete_cron_trigger(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

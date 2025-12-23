@@ -101,6 +101,7 @@ dispatch_cron_triggers = _triggers_routes.dispatch_cron_triggers
 dispatch_manual_runs = _triggers_routes.dispatch_manual_runs
 configure_cron_trigger = _triggers_routes.configure_cron_trigger
 get_cron_trigger_config = _triggers_routes.get_cron_trigger_config
+delete_cron_trigger = _triggers_routes.delete_cron_trigger
 
 execute_node_endpoint = _nodes_routes.execute_node_endpoint
 list_agentensor_checkpoints = _agentensor_routes.list_agentensor_checkpoints
@@ -126,6 +127,7 @@ __all__ = [
     "diff_workflow_versions",
     "dispatch_cron_triggers",
     "dispatch_manual_runs",
+    "delete_cron_trigger",
     "execute_node_endpoint",
     "get_cron_trigger_config",
     "get_agentensor_checkpoint",

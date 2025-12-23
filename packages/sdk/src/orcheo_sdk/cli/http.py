@@ -84,6 +84,32 @@ class ApiClient:
             return None
         return response.json()
 
+    def put(
+        self,
+        path: str,
+        *,
+        json_body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """Issue a PUT request and return parsed JSON when available."""
+        url = f"{self._base_url}{path}"
+        try:
+            response = httpx.put(
+                url,
+                json=json_body,
+                headers=self._headers(),
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            message = self._format_error(exc.response)
+            raise APICallError(message, status_code=exc.response.status_code) from exc
+        except httpx.RequestError as exc:
+            raise APICallError(f"Failed to reach {url}: {exc}") from exc
+
+        if response.status_code == httpx.codes.NO_CONTENT:
+            return None
+        return response.json()
+
     def delete(
         self,
         path: str,

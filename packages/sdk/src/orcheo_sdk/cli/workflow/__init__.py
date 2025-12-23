@@ -18,6 +18,7 @@ from .app import (
 from .commands.listing import list_workflows
 from .commands.managing import delete_workflow, download_workflow, upload_workflow
 from .commands.running import evaluate_workflow, run_workflow
+from .commands.scheduling import schedule_workflow, unschedule_workflow
 from .commands.showing import show_workflow
 from .formatting import _format_workflow_as_json, _format_workflow_as_python
 from .ingest import (
@@ -106,4 +107,6 @@ __all__ = [
     "delete_workflow",
     "upload_workflow",
     "download_workflow",
+    "schedule_workflow",
+    "unschedule_workflow",
 ]

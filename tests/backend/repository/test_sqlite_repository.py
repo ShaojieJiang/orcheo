@@ -86,6 +86,51 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_cron_dispatch_reflects_external_unschedule(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Cron dispatch refreshes configs when another process unschedules."""
+    db_path = tmp_path_factory.mktemp("repo") / "workflow.sqlite"
+    api_repository = SqliteWorkflowRepository(db_path)
+    worker_repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await api_repository.create_workflow(
+            name="Scheduled",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await api_repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await api_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="* * * * *", timezone="UTC"),
+        )
+
+        first_runs = await worker_repository.dispatch_due_cron_runs(
+            now=datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        )
+        assert len(first_runs) == 1
+
+        await api_repository.delete_cron_trigger(workflow.id)
+
+        follow_up = await worker_repository.dispatch_due_cron_runs(
+            now=datetime(2025, 1, 1, 9, 1, tzinfo=UTC)
+        )
+        assert follow_up == []
+    finally:
+        await worker_repository.reset()
+        await api_repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_handle_webhook_trigger_success(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:

@@ -183,5 +183,32 @@ class SqliteRepositoryBase:
                 if row["triggered_by"] == "cron":
                     self._trigger_layer.register_cron_run(run_id)
 
+    async def _refresh_cron_triggers(self) -> None:
+        """Refresh cron trigger configs to reflect the latest persisted state."""
+        async with self._connection() as conn:
+            cursor = await conn.execute("SELECT workflow_id, config FROM cron_triggers")
+            rows = await cursor.fetchall()
+
+        desired: dict[UUID, CronTriggerConfig] = {}
+        for row in rows:
+            workflow_id = UUID(row["workflow_id"])
+            config = CronTriggerConfig.model_validate_json(row["config"])
+            desired[workflow_id] = config
+
+        current_states = self._trigger_layer._cron_states  # noqa: SLF001
+        current_ids = set(current_states)
+        desired_ids = set(desired)
+
+        for workflow_id in current_ids - desired_ids:
+            self._trigger_layer.remove_cron_config(workflow_id)
+
+        for workflow_id, config in desired.items():
+            state = current_states.get(workflow_id)
+            if state is None:
+                self._trigger_layer.configure_cron(workflow_id, config)
+                continue
+            if state.config.model_dump(mode="json") != config.model_dump(mode="json"):
+                self._trigger_layer.configure_cron(workflow_id, config)
+
 
 __all__ = ["SqliteRepositoryBase", "logger"]

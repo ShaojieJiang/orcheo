@@ -131,6 +131,20 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
             await self._get_workflow_locked(workflow_id)
             return self._trigger_layer.get_cron_config(workflow_id)
 
+    async def delete_cron_trigger(self, workflow_id: UUID) -> None:
+        await self._ensure_initialized()
+        async with self._lock:
+            await self._get_workflow_locked(workflow_id)
+            async with self._connection() as conn:
+                await conn.execute(
+                    """
+                    DELETE FROM cron_triggers
+                     WHERE workflow_id = ?
+                    """,
+                    (str(workflow_id),),
+                )
+            self._trigger_layer.remove_cron_config(workflow_id)
+
     async def dispatch_due_cron_runs(
         self, *, now: datetime | None = None
     ) -> list[WorkflowRun]:
@@ -142,6 +156,8 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         runs: list[WorkflowRun] = []
 
         async with self._lock:
+            # Sync cron triggers each dispatch to reflect updates from other processes.
+            await self._refresh_cron_triggers()
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
             for plan in plans:
                 try:

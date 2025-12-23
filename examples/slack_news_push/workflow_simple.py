@@ -138,7 +138,9 @@ async def build_graph() -> StateGraph:
     graph.set_entry_point("detect_trigger")
     trigger_router = IfElse(
         name="trigger_router",
-        conditions=[Condition(left="{{detect_trigger.has_webhook}}", operator="is_truthy")],
+        conditions=[
+            Condition(left="{{detect_trigger.has_webhook}}", operator="is_truthy")
+        ],
     )
     graph.add_conditional_edges(
         "detect_trigger",

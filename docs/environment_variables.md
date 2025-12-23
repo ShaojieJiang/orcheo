@@ -98,6 +98,14 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `LOG_SENSITIVE_DEBUG` | _none_ | Set to `1` to enable; otherwise leave blank | Forces sensitive logging even outside of a recognized dev environment ([chatkit_runtime.py](../apps/backend/src/orcheo_backend/app/chatkit_runtime.py)). |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, etc. | Controls the logger thresholds configured in [logging_config.py](../apps/backend/src/orcheo_backend/app/logging_config.py). |
 
+## Celery worker configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL | Broker URL for Celery task queue ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
+| `CRON_DISPATCH_INTERVAL` | `60` | Float (seconds) | Interval at which Celery Beat dispatches cron triggers ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
+| `CELERY_BEAT_SCHEDULE_FILE` | `celerybeat-schedule` | Filesystem path | Location of the Celery Beat schedule database; use `-s` flag or this env var to override ([celery_app.py](../apps/backend/src/orcheo_backend/worker/celery_app.py)). |
+
 ## CLI configuration
 
 | Variable | Default | Valid values | Purpose |
