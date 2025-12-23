@@ -10,6 +10,15 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
+from pymongo.errors import (
+    AutoReconnect,
+    ConfigurationError,
+    ConnectionFailure,
+    NetworkTimeout,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 from pymongo.results import (
     BulkWriteResult,
     DeleteResult,
@@ -396,11 +405,38 @@ class MongoDBNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the MongoDB node with persistent session."""
-        self._ensure_collection()
-        assert self._collection is not None
-        operation = getattr(self._collection, self.operation)
-        args, kwargs = self._build_operation_call()
-        result = operation(*args, **kwargs)
+        context = (
+            f"operation={self.operation}, "
+            f"database={self.database}, "
+            f"collection={self.collection}"
+        )
+        try:
+            self._ensure_collection()
+            assert self._collection is not None
+            operation = getattr(self._collection, self.operation)
+            args, kwargs = self._build_operation_call()
+            result = operation(*args, **kwargs)
+        except (
+            AutoReconnect,
+            ConnectionFailure,
+            NetworkTimeout,
+            ServerSelectionTimeoutError,
+        ) as exc:
+            msg = f"MongoDB network error during {context}."
+            raise RuntimeError(msg) from exc
+        except OperationFailure as exc:
+            auth_error_codes = {13, 18}
+            if exc.code in auth_error_codes:
+                msg = f"MongoDB authentication/authorization error during {context}."
+            else:
+                msg = f"MongoDB operation error during {context}."
+            raise RuntimeError(msg) from exc
+        except ConfigurationError as exc:
+            msg = f"MongoDB configuration error during {context}."
+            raise RuntimeError(msg) from exc
+        except PyMongoError as exc:
+            msg = f"MongoDB error during {context}."
+            raise RuntimeError(msg) from exc
         return {"data": self._convert_result_to_dict(result)}
 
     def __del__(self) -> None:
