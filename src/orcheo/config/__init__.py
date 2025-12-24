@@ -9,7 +9,12 @@ from orcheo.config.loader import (
     _normalize_settings,
     get_settings,
 )
-from orcheo.config.types import CheckpointBackend, RepositoryBackend, VaultBackend
+from orcheo.config.types import (
+    ChatKitBackend,
+    CheckpointBackend,
+    RepositoryBackend,
+    VaultBackend,
+)
 from orcheo.config.vault_settings import VaultSettings
 
 
@@ -17,6 +22,7 @@ __all__ = [
     "AppSettings",
     "ChatKitRateLimitSettings",
     "VaultSettings",
+    "ChatKitBackend",
     "CheckpointBackend",
     "RepositoryBackend",
     "VaultBackend",

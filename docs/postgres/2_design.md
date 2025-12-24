@@ -208,10 +208,10 @@ Key considerations:
 - All services requiring persistence (backend, worker, celery-beat) must include PostgreSQL environment variables.
 - Use internal Docker network hostname (`postgres`) for DSN connections between containers.
 
-## Open Issues
+## Decisions & Follow-ups
 
- - Confirm whether vault migration is required for local hosting.
- - Finalize migration tooling UX (CLI surface, telemetry, resumable checkpoint storage).
+- Vault migration is deferred for local hosting; continue using file/KMS vaults.
+- Migration tooling ships as `orcheo.tooling.postgres_migration` with resumable batch imports.
 
 ---
 

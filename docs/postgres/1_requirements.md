@@ -63,7 +63,7 @@ P1:
 - Update local deployment documentation and examples.
 
 P2/Optional:
-- Vault migration to PostgreSQL using pgcrypto.
+- Vault migration to PostgreSQL using pgcrypto (deferred for local hosting).
 
 ### Designs (if applicable)
 Design doc: `docs/postgres/2_design.md`

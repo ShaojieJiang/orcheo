@@ -119,7 +119,7 @@ class TestEnqueueRunFunction:
 def test_enqueue_run_logs_warning_on_celery_failure(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that _enqueue_run_for_execution logs a warning when Celery is unavailable."""
+    """Test that _enqueue_run_for_execution logs warning if Celery unavailable."""
     workflow_response = api_client.post(
         "/api/workflows",
         json={"name": "Enqueue Test Flow", "actor": "tester"},

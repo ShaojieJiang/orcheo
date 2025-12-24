@@ -78,6 +78,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    export ORCHEO_CHECKPOINT_BACKEND=postgres
    export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
    export ORCHEO_REPOSITORY_BACKEND=inmemory
+   export ORCHEO_CHATKIT_BACKEND=postgres
    export ORCHEO_HOST=0.0.0.0
    export ORCHEO_PORT=8000
    export ORCHEO_VAULT_BACKEND=aws_kms
@@ -87,8 +88,12 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    export ORCHEO_VAULT_TOKEN_TTL_SECONDS=900
    ```
 3. **Run database migrations (if any)**
-   - Check in migration scripts under `deploy/migrations` (placeholder today).
-   - Execute them via `psql` or your platform's migration runner.
+   - Use the migration helper to move SQLite data into PostgreSQL when needed:
+     ```bash
+     uv run python -m orcheo.tooling.postgres_migration export --output ./migration
+     uv run python -m orcheo.tooling.postgres_migration import --input ./migration
+     uv run python -m orcheo.tooling.postgres_migration validate --input ./migration
+     ```
 4. **Deploy the application**
    - **Docker image**: Build with `docker build -t orcheo-app .` and push to your registry.
    - **Fly.io example**:
@@ -105,6 +110,16 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
 **Verification**: Run `uv run pytest tests/test_persistence.py` locally with the `ORCHEO_CHECKPOINT_BACKEND=postgres` environment variable set and a reachable Postgres DSN to mirror production behavior.
 
 _Vault note_: Managed environments should prefer KMS-integrated vaults. Configure IAM policies so only the Orcheo runtime can decrypt with the specified key.
+
+## Kubernetes (PostgreSQL)
+
+Reference manifests live under `deploy/kubernetes/` for running Orcheo with a
+PostgreSQL backing service. Update the secret values and image tags before
+applying them.
+
+```bash
+kubectl apply -k deploy/kubernetes
+```
 
 ## Operational Tips
 
