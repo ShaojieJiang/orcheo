@@ -60,6 +60,7 @@ from orcheo_backend.app.chatkit.messages import (
 )
 from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
 from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
+from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -664,6 +665,70 @@ def _resolve_chatkit_sqlite_path(settings: Any) -> Path:
     return Path(str(candidate)).expanduser()
 
 
+def _resolve_chatkit_backend(settings: Any) -> str:
+    """Return the configured ChatKit persistence backend."""
+    candidate: Any | None = None
+
+    if isinstance(settings, Dynaconf):
+        candidate = settings.get("CHATKIT_BACKEND")
+    elif isinstance(settings, Mapping):
+        candidate = settings.get("CHATKIT_BACKEND") or settings.get("chatkit_backend")
+    else:
+        candidate = getattr(settings, "chatkit_backend", None)
+        if candidate is None:
+            candidate = getattr(settings, "CHATKIT_BACKEND", None)
+
+    backend = str(candidate or "sqlite").lower()
+    if backend not in {"sqlite", "postgres"}:
+        msg = "CHATKIT_BACKEND must be either 'sqlite' or 'postgres'."
+        raise ValueError(msg)
+    return backend
+
+
+def _resolve_chatkit_postgres_dsn(settings: Any) -> str:
+    """Return the PostgreSQL DSN for ChatKit persistence."""
+    candidate: Any | None = None
+
+    if isinstance(settings, Dynaconf):
+        candidate = settings.get("POSTGRES_DSN")
+    elif isinstance(settings, Mapping):
+        candidate = settings.get("POSTGRES_DSN") or settings.get("postgres_dsn")
+    else:
+        candidate = getattr(settings, "postgres_dsn", None)
+        if candidate is None:
+            candidate = getattr(settings, "POSTGRES_DSN", None)
+
+    if not candidate:
+        msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+        raise ValueError(msg)
+    return str(candidate)
+
+
+def _resolve_chatkit_pool_settings(settings: Any) -> tuple[int, int, float, float]:
+    """Return pool settings for ChatKit's PostgreSQL store."""
+    defaults = (1, 10, 30.0, 300.0)
+    if isinstance(settings, Dynaconf):
+        return (
+            settings.get("POSTGRES_POOL_MIN_SIZE", defaults[0]),
+            settings.get("POSTGRES_POOL_MAX_SIZE", defaults[1]),
+            settings.get("POSTGRES_POOL_TIMEOUT", defaults[2]),
+            settings.get("POSTGRES_POOL_MAX_IDLE", defaults[3]),
+        )
+    if isinstance(settings, Mapping):
+        return (
+            settings.get("POSTGRES_POOL_MIN_SIZE", defaults[0]),
+            settings.get("POSTGRES_POOL_MAX_SIZE", defaults[1]),
+            settings.get("POSTGRES_POOL_TIMEOUT", defaults[2]),
+            settings.get("POSTGRES_POOL_MAX_IDLE", defaults[3]),
+        )
+    return (
+        getattr(settings, "postgres_pool_min_size", defaults[0]),
+        getattr(settings, "postgres_pool_max_size", defaults[1]),
+        getattr(settings, "postgres_pool_timeout", defaults[2]),
+        getattr(settings, "postgres_pool_max_idle", defaults[3]),
+    )
+
+
 def create_chatkit_server(
     repository: WorkflowRepository,
     vault_provider: Callable[[], BaseCredentialVault],
@@ -674,8 +739,22 @@ def create_chatkit_server(
     settings = get_settings()
     _refresh_widget_policy(settings)
     if store is None:
-        sqlite_path = _resolve_chatkit_sqlite_path(settings)
-        store = SqliteChatKitStore(sqlite_path)
+        backend = _resolve_chatkit_backend(settings)
+        if backend == "postgres":
+            dsn = _resolve_chatkit_postgres_dsn(settings)
+            pool_min_size, pool_max_size, pool_timeout, pool_max_idle = (
+                _resolve_chatkit_pool_settings(settings)
+            )
+            store = PostgresChatKitStore(
+                dsn,
+                pool_min_size=int(pool_min_size),
+                pool_max_size=int(pool_max_size),
+                pool_timeout=float(pool_timeout),
+                pool_max_idle=float(pool_max_idle),
+            )
+        else:
+            sqlite_path = _resolve_chatkit_sqlite_path(settings)
+            store = SqliteChatKitStore(sqlite_path)
     return OrcheoChatKitServer(
         store=store,
         repository=repository,

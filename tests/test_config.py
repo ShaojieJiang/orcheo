@@ -23,6 +23,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.delenv("ORCHEO_CHECKPOINT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_SQLITE_PATH", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
     monkeypatch.delenv("ORCHEO_PORT", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_BACKEND", raising=False)
@@ -38,6 +39,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.checkpoint_backend == "sqlite"
     assert settings.sqlite_path == "~/.orcheo/checkpoints.sqlite"
+    assert settings.chatkit_backend == "sqlite"
     assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
@@ -71,6 +73,17 @@ def test_settings_invalid_repository_backend(
         config.get_settings(refresh=True)
 
 
+def test_settings_invalid_chatkit_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit backend validation enforces supported options."""
+
+    monkeypatch.setenv("ORCHEO_CHATKIT_BACKEND", "unsupported")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
 def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Using Postgres without a DSN should fail fast."""
 
@@ -94,6 +107,22 @@ def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> No
     settings = config.get_settings(refresh=True)
 
     assert settings.repository_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
+
+
+def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ChatKit postgres backend requires a DSN to be configured."""
+
+    monkeypatch.setenv("ORCHEO_CHATKIT_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+
+    assert settings.chatkit_backend == "postgres"
     assert settings.postgres_dsn == "postgresql://example"
 
 

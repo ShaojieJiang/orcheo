@@ -38,3 +38,25 @@ def test_coerce_widget_set_reverts_to_defaults_for_empty_collections() -> None:
 
     assert AppSettings._coerce_widget_set([], "CHATKIT_WIDGET_TYPES") == default
     assert AppSettings._coerce_widget_set((), "CHATKIT_WIDGET_TYPES") == default
+
+
+def test_coerce_postgres_pool_int_defaults_and_valid_values() -> None:
+    """Test _coerce_postgres_pool_int handles various input types."""
+    # None defaults to 1
+    assert AppSettings._coerce_postgres_pool_int(None) == 1
+    # Integer values pass through
+    assert AppSettings._coerce_postgres_pool_int(5) == 5
+    # String integers are converted
+    assert AppSettings._coerce_postgres_pool_int("10") == 10
+
+
+def test_coerce_postgres_pool_float_defaults_and_valid_values() -> None:
+    """Test _coerce_postgres_pool_float handles various input types."""
+    # None defaults to 30.0
+    assert AppSettings._coerce_postgres_pool_float(None) == 30.0
+    # Integer values are converted to float
+    assert AppSettings._coerce_postgres_pool_float(60) == 60.0
+    # Float values pass through
+    assert AppSettings._coerce_postgres_pool_float(45.5) == 45.5
+    # String numbers are converted
+    assert AppSettings._coerce_postgres_pool_float("120.5") == 120.5

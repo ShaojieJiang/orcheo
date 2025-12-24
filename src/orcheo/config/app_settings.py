@@ -5,7 +5,7 @@ from typing import cast
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
-from orcheo.config.types import CheckpointBackend, RepositoryBackend
+from orcheo.config.types import ChatKitBackend, CheckpointBackend, RepositoryBackend
 from orcheo.config.vault_settings import VaultSettings
 
 
@@ -21,6 +21,9 @@ class AppSettings(BaseModel):
     )
     repository_sqlite_path: str = Field(
         default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
+    )
+    chatkit_backend: ChatKitBackend = Field(
+        default=cast(ChatKitBackend, _DEFAULTS["CHATKIT_BACKEND"])
     )
     chatkit_sqlite_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_SQLITE_PATH"])
@@ -46,6 +49,18 @@ class AppSettings(BaseModel):
         )
     )
     postgres_dsn: str | None = None
+    postgres_pool_min_size: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_POOL_MIN_SIZE"]), ge=1
+    )
+    postgres_pool_max_size: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_POOL_MAX_SIZE"]), ge=1
+    )
+    postgres_pool_timeout: float = Field(
+        default=cast(float, _DEFAULTS["POSTGRES_POOL_TIMEOUT"]), gt=0.0
+    )
+    postgres_pool_max_idle: float = Field(
+        default=cast(float, _DEFAULTS["POSTGRES_POOL_MAX_IDLE"]), gt=0.0
+    )
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
@@ -110,6 +125,19 @@ class AppSettings(BaseModel):
             raise ValueError(msg)
         return cast(RepositoryBackend, candidate)
 
+    @field_validator("chatkit_backend", mode="before")
+    @classmethod
+    def _coerce_chatkit_backend(cls, value: object) -> ChatKitBackend:
+        candidate = (
+            cast(str, value).lower()
+            if value is not None
+            else cast(str, _DEFAULTS["CHATKIT_BACKEND"])
+        )
+        if candidate not in {"sqlite", "postgres"}:
+            msg = "ORCHEO_CHATKIT_BACKEND must be either 'sqlite' or 'postgres'."
+            raise ValueError(msg)
+        return cast(ChatKitBackend, candidate)
+
     @field_validator("sqlite_path", "host", mode="before")
     @classmethod
     def _coerce_str(cls, value: object) -> str:
@@ -167,6 +195,32 @@ class AppSettings(BaseModel):
     @classmethod
     def _coerce_widget_action_types(cls, value: object) -> set[str]:
         return cls._coerce_widget_set(value, "CHATKIT_WIDGET_ACTION_TYPES")
+
+    @field_validator("postgres_pool_min_size", "postgres_pool_max_size", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_int(cls, value: object) -> int:
+        if value is None:
+            return 1
+        if isinstance(value, int):
+            return value
+        try:
+            return int(str(value))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            msg = "PostgreSQL pool size must be a positive integer."
+            raise ValueError(msg) from exc
+
+    @field_validator("postgres_pool_timeout", "postgres_pool_max_idle", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_float(cls, value: object) -> float:
+        if value is None:
+            return 30.0
+        if isinstance(value, int | float):
+            return float(value)
+        try:
+            return float(str(value))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            msg = "PostgreSQL pool timeout must be a positive number."
+            raise ValueError(msg) from exc
 
     @field_validator("port", mode="before")
     @classmethod
@@ -276,6 +330,7 @@ class AppSettings(BaseModel):
         uses_postgres = {
             self.checkpoint_backend,
             self.repository_backend,
+            self.chatkit_backend,
         }
         if "postgres" in uses_postgres:
             if not self.postgres_dsn:

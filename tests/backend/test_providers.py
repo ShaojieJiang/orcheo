@@ -164,3 +164,112 @@ def test_create_repository_inmemory_backend_sets_checkpoint(
     assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)
     assert isinstance(repository, FakeRepository)
     assert repository.credential_service is credential_service
+
+
+def test_create_repository_postgres_backend_sets_all_components(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_repository should configure postgres repositories with pool settings."""
+    settings = DummySettings(
+        {
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+            "POSTGRES_POOL_MIN_SIZE": 2,
+            "POSTGRES_POOL_MAX_SIZE": 20,
+            "POSTGRES_POOL_TIMEOUT": 15.0,
+            "POSTGRES_POOL_MAX_IDLE": 500.0,
+        }
+    )
+    credential_service = object()
+    history_store_ref: dict[str, object] = {}
+    checkpoint_store_ref: dict[str, object] = {}
+
+    class FakeHistoryStore:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+            self.pool_min_size = pool_min_size
+            self.pool_max_size = pool_max_size
+            self.pool_timeout = pool_timeout
+            self.pool_max_idle = pool_max_idle
+
+    class FakeCheckpointStore:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+            self.pool_min_size = pool_min_size
+            self.pool_max_size = pool_max_size
+            self.pool_timeout = pool_timeout
+            self.pool_max_idle = pool_max_idle
+
+    class FakeRepository:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            credential_service: object,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+            self.credential_service = credential_service
+            self.pool_min_size = pool_min_size
+            self.pool_max_size = pool_max_size
+            self.pool_timeout = pool_timeout
+            self.pool_max_idle = pool_max_idle
+
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(
+        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
+    )
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
+
+    repository = providers.create_repository(
+        settings,
+        credential_service=credential_service,
+        history_store_ref=history_store_ref,
+        checkpoint_store_ref=checkpoint_store_ref,
+    )
+
+    # Check repository configuration
+    assert isinstance(repository, FakeRepository)
+    assert repository.dsn == "postgresql://test:test@localhost/testdb"
+    assert repository.credential_service is credential_service
+    assert repository.pool_min_size == 2
+    assert repository.pool_max_size == 20
+    assert repository.pool_timeout == 15.0
+    assert repository.pool_max_idle == 500.0
+
+    # Check history store configuration
+    history_store = history_store_ref["store"]
+    assert isinstance(history_store, FakeHistoryStore)
+    assert history_store.dsn == "postgresql://test:test@localhost/testdb"
+    assert history_store.pool_min_size == 2
+    assert history_store.pool_max_size == 20
+    assert history_store.pool_timeout == 15.0
+    assert history_store.pool_max_idle == 500.0
+
+    # Check checkpoint store configuration
+    checkpoint_store = checkpoint_store_ref["store"]
+    assert isinstance(checkpoint_store, FakeCheckpointStore)
+    assert checkpoint_store.dsn == "postgresql://test:test@localhost/testdb"
+    assert checkpoint_store.pool_min_size == 2
+    assert checkpoint_store.pool_max_size == 20
+    assert checkpoint_store.pool_timeout == 15.0
+    assert checkpoint_store.pool_max_idle == 500.0

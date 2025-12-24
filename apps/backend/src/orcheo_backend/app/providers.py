@@ -15,10 +15,12 @@ from orcheo.vault import (
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.agentensor.checkpoint_store import (
     InMemoryAgentensorCheckpointStore,
+    PostgresAgentensorCheckpointStore,
     SqliteAgentensorCheckpointStore,
 )
 from orcheo_backend.app.history import (
     InMemoryRunHistoryStore,
+    PostgresRunHistoryStore,
     RunHistoryStore,
     SqliteRunHistoryStore,
 )
@@ -26,6 +28,7 @@ from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowRepository,
 )
+from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 
 
@@ -176,6 +179,78 @@ def create_repository(
         if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = InMemoryAgentensorCheckpointStore()
         return InMemoryWorkflowRepository(credential_service=credential_service)
+    if backend == "postgres":
+        dsn = cast(
+            str,
+            settings_value(
+                settings,
+                attr_path="postgres_dsn",
+                env_key="POSTGRES_DSN",
+                default=None,
+            ),
+        )
+        if not dsn:  # pragma: no cover - defensive, validated earlier
+            msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+            raise ValueError(msg)
+        pool_min_size = cast(
+            int,
+            settings_value(
+                settings,
+                attr_path="postgres_pool_min_size",
+                env_key="POSTGRES_POOL_MIN_SIZE",
+                default=1,
+            ),
+        )
+        pool_max_size = cast(
+            int,
+            settings_value(
+                settings,
+                attr_path="postgres_pool_max_size",
+                env_key="POSTGRES_POOL_MAX_SIZE",
+                default=10,
+            ),
+        )
+        pool_timeout = cast(
+            float,
+            settings_value(
+                settings,
+                attr_path="postgres_pool_timeout",
+                env_key="POSTGRES_POOL_TIMEOUT",
+                default=30.0,
+            ),
+        )
+        pool_max_idle = cast(
+            float,
+            settings_value(
+                settings,
+                attr_path="postgres_pool_max_idle",
+                env_key="POSTGRES_POOL_MAX_IDLE",
+                default=300.0,
+            ),
+        )
+        history_store_ref["store"] = PostgresRunHistoryStore(
+            dsn,
+            pool_min_size=pool_min_size,
+            pool_max_size=pool_max_size,
+            pool_timeout=pool_timeout,
+            pool_max_idle=pool_max_idle,
+        )
+        if checkpoint_store_ref is not None:  # pragma: no branch
+            checkpoint_store_ref["store"] = PostgresAgentensorCheckpointStore(
+                dsn,
+                pool_min_size=pool_min_size,
+                pool_max_size=pool_max_size,
+                pool_timeout=pool_timeout,
+                pool_max_idle=pool_max_idle,
+            )
+        return PostgresWorkflowRepository(
+            dsn,
+            credential_service=credential_service,
+            pool_min_size=pool_min_size,
+            pool_max_size=pool_max_size,
+            pool_timeout=pool_timeout,
+            pool_max_idle=pool_max_idle,
+        )
     msg = "Unsupported repository backend configured."
     raise ValueError(msg)
 

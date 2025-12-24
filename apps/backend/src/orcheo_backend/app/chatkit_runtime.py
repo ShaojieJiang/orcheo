@@ -11,6 +11,7 @@ from orcheo_backend.app.chatkit import (
     OrcheoChatKitServer,
     create_chatkit_server,
 )
+from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.chatkit_tokens import (
     ChatKitSessionTokenIssuer,
@@ -46,12 +47,12 @@ def chatkit_retention_days() -> int:
     return days if days > 0 else 30
 
 
-def get_chatkit_store() -> SqliteChatKitStore | None:
+def get_chatkit_store() -> SqliteChatKitStore | PostgresChatKitStore | None:
     server = _chatkit_server_ref.get("server")
     if server is None:
         return None
     store = getattr(server, "store", None)
-    if isinstance(store, SqliteChatKitStore):
+    if isinstance(store, SqliteChatKitStore | PostgresChatKitStore):
         return store
     return None
 
