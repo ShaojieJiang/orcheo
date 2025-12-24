@@ -214,8 +214,9 @@ class ThreadItemStoreMixin(BasePostgresStore):
             )
             if after:
                 cursor = await conn.execute(
-                    "SELECT ordinal, id FROM chat_messages WHERE id = %s",
-                    (after,),
+                    "SELECT ordinal, id FROM chat_messages "
+                    "WHERE id = %s AND thread_id = %s",
+                    (after, thread_id),
                 )
                 marker = await cursor.fetchone()
                 if marker is not None:

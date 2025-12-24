@@ -324,3 +324,37 @@ async def test_postgres_store_attachments_and_prune(
     pruned = await store.prune_threads_older_than(datetime(2024, 1, 1, tzinfo=UTC))
     assert pruned == 1
     assert stored_path.exists() is False
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_search_pagination_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify search pagination correctly includes thread_id in the marker query."""
+    responses = [
+        {"row": {"ordinal": 5, "id": "msg_marker"}},  # Response for the marker query
+        {"rows": []},  # Response for the search results
+    ]
+    store = make_store(monkeypatch, responses=responses)
+
+    thread_id = "thr_search"
+    after_id = "msg_marker"
+
+    await store.search_thread_items(
+        thread_id=thread_id, query="test query", after=after_id
+    )
+
+    # Check the queries executed
+    # The first query should be the marker resolution
+    connection = store._pool.connection()
+    assert len(connection.queries) >= 1
+
+    marker_query, marker_params = connection.queries[0]
+
+    # Verify the marker query SQL contains the thread_id check
+    assert "SELECT ordinal, id FROM chat_messages" in marker_query
+    assert "WHERE id = %s AND thread_id = %s" in marker_query
+
+    # Verify the parameters passed include both the after ID and the thread ID
+    assert marker_params[0] == after_id
+    assert marker_params[1] == thread_id

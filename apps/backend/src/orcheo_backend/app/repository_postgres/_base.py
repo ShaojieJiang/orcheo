@@ -112,6 +112,7 @@ class PostgresRepositoryBase:
         self._pool: Any | None = None
         self._lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
+        self._pool_lock = asyncio.Lock()
         self._initialized = False
         self._credential_service = credential_service
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
@@ -145,7 +146,7 @@ class PostgresRepositoryBase:
         if self._pool is not None:
             return self._pool
 
-        async with self._init_lock:
+        async with self._pool_lock:
             if self._pool is not None:
                 return self._pool
 
