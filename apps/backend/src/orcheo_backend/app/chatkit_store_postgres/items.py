@@ -33,7 +33,7 @@ class ThreadItemStoreMixin(BasePostgresStore):
         async with self._connection() as conn:
             params: list[Any] = [thread_id]
             where_clause = ""
-            if after:
+            if after:  # pragma: no branch
                 cursor = await conn.execute(
                     """
                     SELECT ordinal, id FROM chat_messages

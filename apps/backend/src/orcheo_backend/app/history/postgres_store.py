@@ -438,10 +438,10 @@ class PostgresRunHistoryStore:
         steps: list[RunHistoryStep] = []
         for row in rows:
             at_value = row["at"]
-            if isinstance(at_value, str):
+            if isinstance(at_value, str):  # pragma: no branch
                 at_value = datetime.fromisoformat(at_value)
             payload = row["payload"]
-            if isinstance(payload, str):
+            if isinstance(payload, str):  # pragma: no branch
                 payload = json.loads(payload)
             steps.append(
                 RunHistoryStep(

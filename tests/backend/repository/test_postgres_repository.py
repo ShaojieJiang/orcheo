@@ -6,6 +6,7 @@ a real PostgreSQL database connection.
 
 from __future__ import annotations
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -412,6 +413,30 @@ async def test_postgres_repository_webhook_trigger_config(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_get_webhook_trigger_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Getting webhook trigger config returns the configured webhook."""
+    workflow_id = uuid4()
+
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {},  # INSERT webhook_triggers
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    # Configure webhook first
+    await repo.configure_webhook_trigger(
+        workflow_id, WebhookTriggerConfig(allowed_methods={"POST"})
+    )
+
+    # Get the config
+    config = await repo.get_webhook_trigger_config(workflow_id)
+    assert "POST" in config.allowed_methods
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_cron_trigger_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,6 +453,31 @@ async def test_postgres_repository_cron_trigger_config(
         workflow_id, CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
     )
 
+    assert config.expression == "0 9 * * *"
+    assert config.timezone == "UTC"
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_get_cron_trigger_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Getting cron trigger config returns the configured cron."""
+    workflow_id = uuid4()
+
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {},  # INSERT cron_triggers
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    # Configure cron first
+    await repo.configure_cron_trigger(
+        workflow_id, CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    )
+
+    # Get the config
+    config = await repo.get_cron_trigger_config(workflow_id)
     assert config.expression == "0 9 * * *"
     assert config.timezone == "UTC"
 
@@ -512,6 +562,51 @@ async def test_postgres_repository_list_versions(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_list_versions_with_json_string_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listing versions handles JSON string payloads correctly."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    # Some PostgreSQL drivers return JSON as strings
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {
+            "rows": [
+                {"payload": json.dumps(_version_payload(version_id, workflow_id))},
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    versions = await repo.list_versions(workflow_id)
+
+    assert len(versions) == 1
+    assert versions[0].id == version_id
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_get_latest_version_with_json_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Getting latest version handles JSON string payloads correctly."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    # Some PostgreSQL drivers return JSON as strings
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {"row": {"payload": json.dumps(_version_payload(version_id, workflow_id))}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    version = await repo.get_latest_version(workflow_id)
+
+    assert version.id == version_id
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_list_runs_for_workflow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -537,6 +632,32 @@ async def test_postgres_repository_list_runs_for_workflow(
     assert len(runs) == 2
     assert runs[0].id == run_id_1
     assert runs[1].id == run_id_2
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_list_runs_with_json_string_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listing runs handles JSON string payloads correctly."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    run_id = uuid4()
+
+    # Some PostgreSQL drivers return JSON as strings
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {
+            "rows": [
+                {"payload": json.dumps(_run_payload(run_id, version_id))},
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    runs = await repo.list_runs_for_workflow(workflow_id)
+
+    assert len(runs) == 1
+    assert runs[0].id == run_id
 
 
 @pytest.mark.asyncio
@@ -666,6 +787,33 @@ async def test_postgres_repository_reset_clears_all_data(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_get_retry_policy_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Getting retry policy config returns the configured policy."""
+    workflow_id = uuid4()
+
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {},  # INSERT retry_policies
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    # Configure retry policy first
+    await repo.configure_retry_policy(
+        workflow_id,
+        RetryPolicyConfig(max_attempts=3, initial_delay_seconds=1.0, jitter_factor=0.1),
+    )
+
+    # Get the policy
+    config = await repo.get_retry_policy_config(workflow_id)
+    assert config.max_attempts == 3
+    assert config.initial_delay_seconds == 1.0
+    assert config.jitter_factor == 0.1
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_schedule_retry_for_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -788,3 +936,166 @@ async def test_postgres_repository_diff_versions(
     assert diff_result.target_version == 2
     # The diff list should contain changes
     assert len(diff_result.diff) > 0
+
+
+@pytest.mark.asyncio
+async def test_base_repository_dependency_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pg_base, "AsyncConnectionPool", None)
+    monkeypatch.setattr(pg_base, "DictRowFactory", None)
+
+    with pytest.raises(RuntimeError, match="psycopg"):
+        PostgresWorkflowRepository("postgresql://test")
+
+
+@pytest.mark.asyncio
+async def test_base_repository_get_pool_race(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pg_base, "AsyncConnectionPool", object())
+    monkeypatch.setattr(pg_base, "DictRowFactory", object())
+    repo = PostgresWorkflowRepository("postgresql://test")
+    # Simulate pool created by another task
+    repo._pool = "existing"  # type: ignore
+
+    pool = await repo._get_pool()
+    assert pool == "existing"
+
+    # Simulate race
+    repo._pool = None
+
+    class SideEffectLock:
+        async def __aenter__(self):
+            repo._pool = "race_pool"  # type: ignore
+
+        async def __aexit__(self, *args):
+            pass
+
+    repo._pool_lock = SideEffectLock()  # type: ignore
+
+    pool = await repo._get_pool()
+    assert pool == "race_pool"
+
+
+@pytest.mark.asyncio
+async def test_base_repository_ensure_initialized_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = make_repository(monkeypatch, [], initialized=False)
+
+    class SideEffectLock:
+        async def __aenter__(self):
+            repo._initialized = True
+
+        async def __aexit__(self, *args):
+            pass
+
+    repo._init_lock = SideEffectLock()  # type: ignore
+
+    # Should return early
+    await repo._ensure_initialized()
+    assert repo._initialized
+
+
+@pytest.mark.asyncio
+async def test_hydrate_trigger_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    # We provide rows for retry_policies, webhook_triggers, cron_triggers,
+    # and workflow_runs
+    w_id = uuid4()
+    retry_conf = RetryPolicyConfig(max_attempts=5).model_dump(mode="json")
+    webhook_conf = WebhookTriggerConfig(allowed_methods={"GET"}).model_dump(mode="json")
+    cron_conf = CronTriggerConfig(expression="* * * * *", timezone="UTC").model_dump(
+        mode="json"
+    )
+
+    # We need to skip schema exec in _ensure_initialized implicitly by mocking
+    # _connection to consume schema statements
+    # Actually make_repository sets initialized=True. We want False here so
+    # _ensure_initialized runs.
+
+    # Let's manually construct simpler responses since exact schema statement
+    # count varies
+    # We can mock _connection to just yield a conn that handles the queries
+    # we care about
+
+    repo = make_repository(monkeypatch, [], initialized=False)
+
+    # Mock connection to ignore schema statements (execute returns nothing)
+    # Then for hydrate queries return specific data
+
+    class HydrateMockValues:
+        def pop_response(self, query):
+            if "retry_policies" in query:
+                return [{"workflow_id": str(w_id), "config": retry_conf}]
+            if "webhook_triggers" in query:
+                return [{"workflow_id": str(w_id), "config": webhook_conf}]
+            if "cron_triggers" in query:
+                return [{"workflow_id": str(w_id), "config": cron_conf}]
+            if "workflow_runs" in query:
+                return []
+            return []
+
+    hydrator = HydrateMockValues()
+
+    class SmartFakeConnection(FakeConnection):
+        async def execute(self, query, params=None):
+            self.queries.append((query, params))
+            rows = hydrator.pop_response(query)
+            return FakeCursor(rows=rows)
+
+    repo._pool = FakePool(SmartFakeConnection([]))  # type: ignore
+    repo._initialized = False  # Force init
+
+    await repo._ensure_initialized()
+
+    # Check trigger layer state
+    assert w_id in repo._trigger_layer._retry_configs
+    assert repo._trigger_layer._retry_configs[w_id].max_attempts == 5
+    assert w_id in repo._trigger_layer._webhook_states
+    assert w_id in repo._trigger_layer._cron_states
+
+
+@pytest.mark.asyncio
+async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = make_repository(monkeypatch, [], initialized=True)
+    w_id = uuid4()
+    # Initial state: no cron
+    assert w_id not in repo._trigger_layer._cron_states
+
+    # 1. Add cron
+    cron_conf = CronTriggerConfig(expression="* * * * *", timezone="UTC")
+    responses = [
+        {
+            "rows": [
+                {"workflow_id": str(w_id), "config": cron_conf.model_dump(mode="json")}
+            ]
+        }
+    ]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+    assert w_id in repo._trigger_layer._cron_states
+
+    # 2. Update cron
+    cron_conf_2 = CronTriggerConfig(expression="0 0 * * *", timezone="UTC")
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(w_id),
+                    "config": cron_conf_2.model_dump(mode="json"),
+                }
+            ]
+        }
+    ]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+    stored = repo._trigger_layer._cron_states[w_id].config
+    assert stored.expression == "0 0 * * *"
+
+    # 3. Remove cron
+    responses = [{"rows": []}]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+    assert w_id not in repo._trigger_layer._cron_states

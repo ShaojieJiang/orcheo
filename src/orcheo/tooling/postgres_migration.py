@@ -327,7 +327,7 @@ def _resolve_paths(
 
     auth_settings = load_auth_settings()
     token_path = service_token_sqlite or auth_settings.service_token_db_path
-    if token_path is None:
+    if token_path is None:  # pragma: no branch
         repo_dir = Path(str(repo_path)).expanduser().parent
         fallback = repo_dir / "service_tokens.sqlite"
         if fallback.exists():

@@ -87,7 +87,7 @@ def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> N
     """Unsupported repository backends raise a clear error."""
 
     class DummySettings:
-        repository_backend = "postgres"
+        repository_backend = "invalid_backend"
         repository_sqlite_path = "ignored.sqlite"
 
     monkeypatch.setattr(backend_module, "get_settings", lambda: DummySettings())

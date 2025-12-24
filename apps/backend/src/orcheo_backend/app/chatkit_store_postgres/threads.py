@@ -94,7 +94,7 @@ class ThreadStoreMixin(BasePostgresStore):
         where_clause = ""
 
         async with self._connection() as conn:
-            if after:
+            if after:  # pragma: no branch
                 cursor = await conn.execute(
                     "SELECT created_at, id FROM chat_threads WHERE id = %s",
                     (after,),

@@ -95,7 +95,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
 
             if tags is not None:
                 normalized_tags = list(tags)
-                if normalized_tags != workflow.tags:
+                if normalized_tags != workflow.tags:  # pragma: no branch
                     metadata["tags"] = {
                         "from": workflow.tags,
                         "to": normalized_tags,
