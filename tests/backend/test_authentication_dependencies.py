@@ -231,3 +231,49 @@ async def test_require_scopes_dependency_returns_context() -> None:
     result = await dependency(context)
 
     assert result is context
+
+
+def test_get_authenticator_postgres_backend_without_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_authenticator raises ValueError when postgres backend lacks DSN."""
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    from orcheo_backend.app.authentication.dependencies import get_authenticator
+
+    with pytest.raises(ValueError, match="ORCHEO_POSTGRES_DSN must be set"):
+        get_authenticator(refresh=True)
+
+
+def test_get_authenticator_postgres_backend_with_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_authenticator initializes PostgresServiceTokenRepository with DSN."""
+    test_dsn = "postgresql://user:pass@localhost:5432/testdb"
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", test_dsn)
+
+    from unittest.mock import Mock, patch
+
+    mock_repo = Mock()
+    mock_settings = Mock()
+    mock_settings.get.return_value = test_dsn
+
+    with (
+        patch(
+            "orcheo_backend.app.service_token_repository.PostgresServiceTokenRepository",
+            return_value=mock_repo,
+        ) as mock_postgres_repo,
+        patch(
+            "orcheo_backend.app.authentication.dependencies.get_settings",
+            return_value=mock_settings,
+        ),
+    ):
+        from orcheo_backend.app.authentication.dependencies import get_authenticator
+
+        authenticator = get_authenticator(refresh=True)
+
+        # Verify PostgresServiceTokenRepository was called with the DSN
+        mock_postgres_repo.assert_called_once_with(test_dsn)
+        assert authenticator is not None

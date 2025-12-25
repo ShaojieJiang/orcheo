@@ -331,6 +331,7 @@ class AppSettings(BaseModel):
             self.checkpoint_backend,
             self.repository_backend,
             self.chatkit_backend,
+            self.vault.backend,
         }
         if "postgres" in uses_postgres:
             if not self.postgres_dsn:

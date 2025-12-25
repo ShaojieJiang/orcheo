@@ -42,9 +42,13 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
@@ -65,9 +69,13 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
@@ -88,9 +96,13 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr

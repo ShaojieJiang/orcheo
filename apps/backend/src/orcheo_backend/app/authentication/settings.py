@@ -29,6 +29,7 @@ class AuthSettings:
     rate_limit_ip: int
     rate_limit_identity: int
     rate_limit_interval: int
+    service_token_backend: str
     service_token_db_path: str | None
     bootstrap_service_token: str | None = None
     bootstrap_token_scopes: frozenset[str] = field(default_factory=frozenset)
@@ -83,6 +84,9 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     audiences = _parse_str_sequence(settings.get("AUTH_AUDIENCE"))
     issuer = _coerce_optional_str(settings.get("AUTH_ISSUER"))
 
+    service_token_backend = _coerce_mode_backend(
+        settings.get("AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
+    )
     service_token_db_path = _coerce_optional_str(
         settings.get("AUTH_SERVICE_TOKEN_DB_PATH")
     )
@@ -136,6 +140,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         or jwks_url
         or jwks_static
         or service_token_db_path
+        or service_token_backend == "postgres"
         or bootstrap_service_token
     ):
         logger.warning(
@@ -167,6 +172,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         allowed_algorithms=tuple(allowed_algorithms),
         audiences=tuple(audiences),
         issuer=issuer,
+        service_token_backend=service_token_backend,
         service_token_db_path=service_token_db_path,
         bootstrap_service_token=bootstrap_service_token,
         bootstrap_token_scopes=bootstrap_token_scopes,
@@ -226,6 +232,14 @@ def _coerce_mode(value: Any) -> str:
         if lowered in {"disabled", "required", "optional"}:
             return lowered
     return "optional"
+
+
+def _coerce_mode_backend(value: Any) -> str:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"sqlite", "postgres", "inmemory"}:
+            return lowered
+    return "sqlite"
 
 
 def _parse_bool(value: Any, default: bool) -> bool:

@@ -119,6 +119,47 @@ def create_vault(settings: Dynaconf) -> BaseCredentialVault:
         encryption_key = ensure_file_vault_key(path, key)
         cipher = AesGcmCredentialCipher(key=encryption_key)
         return FileCredentialVault(path, cipher=cipher)
+    if backend == "postgres":
+        from orcheo.vault.postgres import PostgresCredentialVault
+
+        dsn = cast(
+            str,
+            settings_value(
+                settings,
+                attr_path="postgres_dsn",
+                env_key="POSTGRES_DSN",
+                default=None,
+            ),
+        )
+        if not dsn:
+            msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+            raise ValueError(msg)
+        pool_min_size = int(
+            settings_value(
+                settings,
+                attr_path="postgres_pool_min_size",
+                env_key="POSTGRES_POOL_MIN_SIZE",
+                default=1,
+            )
+        )
+        pool_max_size = int(
+            settings_value(
+                settings,
+                attr_path="postgres_pool_max_size",
+                env_key="POSTGRES_POOL_MAX_SIZE",
+                default=10,
+            )
+        )
+        if not key:
+            msg = "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using postgres."
+            raise ValueError(msg)
+        cipher = AesGcmCredentialCipher(key=key)
+        return PostgresCredentialVault(
+            dsn,
+            cipher=cipher,
+            pool_min_size=pool_min_size,
+            pool_max_size=pool_max_size,
+        )
     msg = "Vault backend 'aws_kms' is not supported in this environment."
     raise ValueError(msg)
 

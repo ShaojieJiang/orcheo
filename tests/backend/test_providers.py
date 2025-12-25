@@ -273,3 +273,139 @@ def test_create_repository_postgres_backend_sets_all_components(
     assert checkpoint_store.pool_max_size == 20
     assert checkpoint_store.pool_timeout == 15.0
     assert checkpoint_store.pool_max_idle == 500.0
+
+
+def test_create_vault_postgres_backend_with_all_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_vault should configure postgres vault with all pool settings."""
+    settings = DummySettings(
+        {
+            "VAULT_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+            "VAULT_ENCRYPTION_KEY": "test-encryption-key-32-chars!",
+            "POSTGRES_POOL_MIN_SIZE": 3,
+            "POSTGRES_POOL_MAX_SIZE": 15,
+        }
+    )
+
+    captured_args: dict[str, Any] = {}
+
+    class FakeCipher:
+        def __init__(self, *, key: str) -> None:
+            captured_args["cipher_key"] = key
+
+    class FakePostgresVault:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            cipher: object,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+        ) -> None:
+            captured_args["dsn"] = dsn
+            captured_args["cipher"] = cipher
+            captured_args["pool_min_size"] = pool_min_size
+            captured_args["pool_max_size"] = pool_max_size
+
+    monkeypatch.setattr(providers, "AesGcmCredentialCipher", FakeCipher)
+    # Mock the dynamic import
+    import sys
+    from unittest.mock import MagicMock
+
+    mock_module = MagicMock()
+    mock_module.PostgresCredentialVault = FakePostgresVault
+    sys.modules["orcheo.vault.postgres"] = mock_module
+
+    try:
+        vault = providers.create_vault(settings)
+
+        assert isinstance(vault, FakePostgresVault)
+        assert captured_args["dsn"] == "postgresql://test:test@localhost/testdb"
+        assert captured_args["cipher_key"] == "test-encryption-key-32-chars!"
+        assert captured_args["pool_min_size"] == 3
+        assert captured_args["pool_max_size"] == 15
+    finally:
+        # Clean up the mock module
+        if "orcheo.vault.postgres" in sys.modules:
+            del sys.modules["orcheo.vault.postgres"]
+
+
+def test_create_vault_postgres_backend_with_default_pool_sizes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_vault should use default pool sizes when not specified."""
+    settings = DummySettings(
+        {
+            "VAULT_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+            "VAULT_ENCRYPTION_KEY": "test-encryption-key-32-chars!",
+        }
+    )
+
+    captured_args: dict[str, Any] = {}
+
+    class FakeCipher:
+        def __init__(self, *, key: str) -> None:
+            captured_args["cipher_key"] = key
+
+    class FakePostgresVault:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            cipher: object,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+        ) -> None:
+            captured_args["pool_min_size"] = pool_min_size
+            captured_args["pool_max_size"] = pool_max_size
+
+    monkeypatch.setattr(providers, "AesGcmCredentialCipher", FakeCipher)
+    import sys
+    from unittest.mock import MagicMock
+
+    mock_module = MagicMock()
+    mock_module.PostgresCredentialVault = FakePostgresVault
+    sys.modules["orcheo.vault.postgres"] = mock_module
+
+    try:
+        providers.create_vault(settings)
+
+        # Should use defaults of 1 and 10
+        assert captured_args["pool_min_size"] == 1
+        assert captured_args["pool_max_size"] == 10
+    finally:
+        if "orcheo.vault.postgres" in sys.modules:
+            del sys.modules["orcheo.vault.postgres"]
+
+
+def test_create_vault_postgres_backend_without_dsn_raises_error() -> None:
+    """create_vault should raise ValueError when postgres backend lacks DSN."""
+    settings = DummySettings(
+        {
+            "VAULT_BACKEND": "postgres",
+            "VAULT_ENCRYPTION_KEY": "test-encryption-key-32-chars!",
+        }
+    )
+
+    with pytest.raises(
+        ValueError, match="ORCHEO_POSTGRES_DSN must be set when using the postgres"
+    ):
+        providers.create_vault(settings)
+
+
+def test_create_vault_postgres_backend_without_encryption_key_raises_error() -> None:
+    """create_vault raises ValueError when postgres backend lacks encryption key."""
+    settings = DummySettings(
+        {
+            "VAULT_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+        }
+    )
+
+    with pytest.raises(
+        ValueError, match="ORCHEO_VAULT_ENCRYPTION_KEY must be set when using postgres"
+    ):
+        providers.create_vault(settings)

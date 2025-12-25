@@ -1,8 +1,9 @@
 """Shared fixtures for workflow repository backend tests."""
 
 from __future__ import annotations
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from orcheo_backend.app.repository import (
@@ -10,6 +11,15 @@ from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
     WorkflowRepository,
 )
+
+
+@pytest.fixture(autouse=True)
+def mock_celery_enqueue() -> Generator[None, None, None]:
+    """Disable Celery enqueue for all repository tests to avoid Redis hangs."""
+    with patch(
+        "orcheo_backend.app.repository_sqlite._triggers._enqueue_run_for_execution"
+    ):
+        yield
 
 
 @pytest_asyncio.fixture(params=["memory", "sqlite"])
