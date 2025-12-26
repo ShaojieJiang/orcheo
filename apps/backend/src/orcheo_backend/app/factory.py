@@ -86,6 +86,10 @@ def _build_api_router() -> APIRouter:
 
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
+    # Public webhook invocation routes - external services (Slack, GitHub, etc.)
+    # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
+    # validation (HMAC signatures, shared secrets) configured per workflow.
+    router.include_router(triggers.public_webhook_router)
     router.include_router(protected_router)
     return router
 

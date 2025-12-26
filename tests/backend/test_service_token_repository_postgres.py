@@ -646,7 +646,7 @@ async def test_postgres_service_token_repository_connection_error_handling(
 async def test_postgres_service_token_repository_get_pool_race_condition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify that _get_pool handles race conditions correctly."""
+    """Verify that _get_pool handles race conditions correctly (covers line 146)."""
 
     class FakeAsyncConnectionPool:
         def __init__(self, *args: Any, **kwargs: Any):
@@ -660,19 +660,21 @@ async def test_postgres_service_token_repository_get_pool_race_condition(
     repo = PostgresServiceTokenRepository("postgresql://test")
 
     # Simulate race: another coroutine sets _pool while we're waiting for lock
-    class RacyInitLock:
+    class RacyPoolLock:
         async def __aenter__(self) -> None:
-            # Simulate another coroutine creating the pool
+            # Simulate another coroutine creating the pool while we wait for the lock
             if repo._pool is None:
-                repo._pool = FakeAsyncConnectionPool()
-                await repo._pool.open()
+                fake_pool = FakeAsyncConnectionPool()
+                await fake_pool.open()
+                repo._pool = fake_pool
 
         async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
             pass
 
-    repo._init_lock = RacyInitLock()  # type: ignore
+    repo._pool_lock = RacyPoolLock()  # type: ignore
 
     pool = await repo._get_pool()
+    # Should return the existing pool that was set during lock acquisition (line 146)
     assert pool.opened is True
 
 
@@ -680,7 +682,7 @@ async def test_postgres_service_token_repository_get_pool_race_condition(
 async def test_postgres_service_token_repository_ensure_initialized_race(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify that _ensure_initialized handles race conditions correctly."""
+    """Verify that _ensure_initialized handles race conditions (covers line 183)."""
     responses: list[Any] = []
     for _ in range(6):  # Schema DDL statements
         responses.append({})
@@ -688,17 +690,19 @@ async def test_postgres_service_token_repository_ensure_initialized_race(
     repo = make_repository(monkeypatch, responses, initialized=False)
 
     # Simulate race: another coroutine initializes while we're waiting for lock
-    class RacyInitLock:
+    class RacySchemaLock:
         async def __aenter__(self) -> None:
-            # Simulate another coroutine completing initialization
+            # Simulate another coroutine completing initialization while
+            # we wait for the lock
             repo._initialized = True
 
         async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
             pass
 
-    repo._init_lock = RacyInitLock()  # type: ignore
+    repo._schema_lock = RacySchemaLock()  # type: ignore
 
     await repo._ensure_initialized()
+    # Should return early from line 183 without running schema statements
     assert repo._initialized is True
 
 

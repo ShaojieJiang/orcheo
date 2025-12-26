@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Public router for webhook invocation endpoints that external services (Slack, etc.)
+# call directly. These routes are NOT protected by authentication because external
+# services cannot provide Orcheo auth tokens. Security is enforced via webhook-level
+# validation (HMAC signatures, shared secrets, etc.) configured per workflow.
+public_webhook_router = APIRouter()
+
 
 def _parse_webhook_body(
     raw_body: bytes, *, preserve_raw_body: bool
@@ -95,7 +101,7 @@ async def get_webhook_trigger_config(
         raise_not_found("Workflow not found", exc)
 
 
-@router.api_route(
+@public_webhook_router.api_route(
     "/workflows/{workflow_id}/triggers/webhook",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     response_model=WorkflowRun,
@@ -244,4 +250,4 @@ async def dispatch_manual_runs(
         ) from exc
 
 
-__all__ = ["router"]
+__all__ = ["router", "public_webhook_router"]
