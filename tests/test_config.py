@@ -23,6 +23,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.delenv("ORCHEO_CHECKPOINT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_SQLITE_PATH", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
     monkeypatch.delenv("ORCHEO_PORT", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_BACKEND", raising=False)
@@ -38,6 +39,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.checkpoint_backend == "sqlite"
     assert settings.sqlite_path == "~/.orcheo/checkpoints.sqlite"
+    assert settings.chatkit_backend == "sqlite"
     assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
@@ -71,6 +73,17 @@ def test_settings_invalid_repository_backend(
         config.get_settings(refresh=True)
 
 
+def test_settings_invalid_chatkit_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit backend validation enforces supported options."""
+
+    monkeypatch.setenv("ORCHEO_CHATKIT_BACKEND", "unsupported")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
 def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Using Postgres without a DSN should fail fast."""
 
@@ -79,6 +92,38 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError):
         config.get_settings(refresh=True)
+
+
+def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repository backends also require a DSN when Postgres is selected."""
+
+    monkeypatch.setenv("ORCHEO_REPOSITORY_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+
+    assert settings.repository_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
+
+
+def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ChatKit postgres backend requires a DSN to be configured."""
+
+    monkeypatch.setenv("ORCHEO_CHATKIT_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+
+    assert settings.chatkit_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
 
 
 def test_normalize_backend_none() -> None:
@@ -127,6 +172,47 @@ def test_invalid_vault_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError):
         config.get_settings(refresh=True)
+
+
+def test_postgres_vault_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Postgres vaults require a Postgres DSN."""
+
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "enc-key")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
+def test_postgres_vault_requires_encryption_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Postgres vaults require an encryption key."""
+
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
+def test_postgres_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Postgres vaults preserve encryption and ignore file-backed settings."""
+
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "enc-key")
+
+    settings = config.get_settings(refresh=True)
+
+    assert settings.vault_backend == "postgres"
+    assert settings.vault_encryption_key == "enc-key"
+    assert settings.vault_local_path is None
+    assert settings.vault_aws_region is None
+    assert settings.vault_aws_kms_key_id is None
+    assert settings.postgres_dsn == "postgresql://example"
 
 
 def test_file_vault_allows_missing_encryption_key(

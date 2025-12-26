@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=orcheo
+      - POSTGRES_PASSWORD=orcheo
+      - POSTGRES_DB=orcheo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orcheo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     ports:
@@ -26,14 +42,20 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000 --reload
 
@@ -47,14 +69,20 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -68,15 +96,21 @@ services:
       - uv_cache:/root/.cache/uv
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a shared path within the mounted volume so all containers see the same database
-      - ORCHEO_REPOSITORY_SQLITE_PATH=/app/.orcheo/workflows.sqlite
-      - ORCHEO_VAULT_LOCAL_PATH=/app/.orcheo/vault.sqlite
+      - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_REPOSITORY_BACKEND=postgres
+      - ORCHEO_CHECKPOINT_BACKEND=postgres
+      - ORCHEO_CHATKIT_BACKEND=postgres
+      - ORCHEO_VAULT_BACKEND=postgres
+      - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
       - CELERY_BEAT_SCHEDULE_FILE=/app/.orcheo/celerybeat-schedule
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: >
       sh -c 'uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$CELERY_BEAT_SCHEDULE_FILE"'
@@ -97,6 +131,7 @@ services:
     command: npm run dev -- --host 0.0.0.0
 
 volumes:
+  postgres_data:
   redis_data:
   uv_cache:
   canvas_node_modules:

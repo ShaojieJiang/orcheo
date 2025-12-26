@@ -87,6 +87,18 @@ def test_parse_str_sequence() -> None:
     assert len(result) == 3
 
 
+def test_coerce_mode_backend_with_valid_values() -> None:
+    """_coerce_mode_backend returns valid backend strings."""
+    from orcheo_backend.app.authentication import _coerce_mode_backend
+
+    assert _coerce_mode_backend("sqlite") == "sqlite"
+    assert _coerce_mode_backend("postgres") == "postgres"
+    assert _coerce_mode_backend("inmemory") == "inmemory"
+    assert _coerce_mode_backend("POSTGRES") == "postgres"  # case insensitive
+    assert _coerce_mode_backend("invalid") == "sqlite"  # default fallback
+    assert _coerce_mode_backend(123) == "sqlite"  # non-string fallback
+
+
 def test_coerce_optional_str() -> None:
     """_coerce_optional_str handles None and empty strings."""
     from orcheo_backend.app.authentication import _coerce_optional_str

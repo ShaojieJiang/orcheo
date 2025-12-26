@@ -12,6 +12,7 @@ from orcheo.vault.errors import (
 )
 from orcheo.vault.file import FileCredentialVault
 from orcheo.vault.in_memory import InMemoryCredentialVault
+from orcheo.vault.postgres import PostgresCredentialVault
 
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "BaseCredentialVault",
     "InMemoryCredentialVault",
     "FileCredentialVault",
+    "PostgresCredentialVault",
 ]

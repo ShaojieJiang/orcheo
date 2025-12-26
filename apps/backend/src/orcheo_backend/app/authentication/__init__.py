@@ -43,6 +43,7 @@ from .service_tokens import ServiceTokenManager, ServiceTokenRecord
 from .settings import (
     AuthSettings,
     _coerce_mode,
+    _coerce_mode_backend,
     _coerce_optional_str,
     _normalize_jwk_list,
     _parse_float,
@@ -88,6 +89,7 @@ __all__ = [
     "_coerce_from_sequence",
     "_coerce_from_string",
     "_coerce_mode",
+    "_coerce_mode_backend",
     "_coerce_optional_str",
     "_coerce_str_items",
     "_extract_bearer_token",

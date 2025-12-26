@@ -29,9 +29,10 @@ class VaultSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["VAULT_BACKEND"])
         )
-        if candidate not in {"inmemory", "file", "aws_kms"}:
+        if candidate not in {"inmemory", "file", "aws_kms", "postgres"}:
             msg = (
-                "ORCHEO_VAULT_BACKEND must be one of 'inmemory', 'file', or 'aws_kms'."
+                "ORCHEO_VAULT_BACKEND must be one of 'inmemory', 'file', 'aws_kms', "
+                "or 'postgres'."
             )
             raise ValueError(msg)
         return cast(VaultBackend, candidate)
@@ -87,6 +88,16 @@ class VaultSettings(BaseModel):
                 )
                 raise ValueError(msg)
             self.local_path = None
+        elif self.backend == "postgres":
+            if not self.encryption_key:
+                msg = (
+                    "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using the postgres "
+                    "vault backend."
+                )
+                raise ValueError(msg)
+            self.local_path = None
+            self.aws_region = None
+            self.aws_kms_key_id = None
         else:  # inmemory
             self.encryption_key = None
             self.local_path = None

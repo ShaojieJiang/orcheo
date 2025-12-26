@@ -33,6 +33,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             repository_sqlite_path=source.get(
                 "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
             ),
+            chatkit_backend=source.get("CHATKIT_BACKEND", _DEFAULTS["CHATKIT_BACKEND"]),
             chatkit_sqlite_path=source.get(
                 "CHATKIT_SQLITE_PATH", _DEFAULTS["CHATKIT_SQLITE_PATH"]
             ),
@@ -104,6 +105,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("SQLITE_PATH", settings.sqlite_path)
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
+    normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
     normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
     normalized.set(

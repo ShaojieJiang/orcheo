@@ -8,11 +8,13 @@ from orcheo_backend.app.history.models import (
     RunHistoryStep,
     RunHistoryStore,
 )
+from orcheo_backend.app.history.postgres_store import PostgresRunHistoryStore
 from orcheo_backend.app.history.sqlite_store import SqliteRunHistoryStore
 
 
 __all__ = [
     "InMemoryRunHistoryStore",
+    "PostgresRunHistoryStore",
     "RunHistoryError",
     "RunHistoryNotFoundError",
     "RunHistoryRecord",
