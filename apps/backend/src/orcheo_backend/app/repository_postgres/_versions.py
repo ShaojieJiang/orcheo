@@ -32,14 +32,16 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
             async with self._connection() as conn:
                 cursor = await conn.execute(
                     """
-                    SELECT COALESCE(MAX(version), 0)
+                    SELECT COALESCE(MAX(version), 0) AS max_version
                       FROM workflow_versions
                      WHERE workflow_id = %s
                     """,
                     (str(workflow_id),),
                 )
                 row = await cursor.fetchone()
-                max_version = int(row[0]) if row and row[0] is not None else 0
+                max_version = 0
+                if row and row["max_version"] is not None:
+                    max_version = int(row["max_version"])
                 next_version_number = max_version + 1
 
                 version = WorkflowVersion(

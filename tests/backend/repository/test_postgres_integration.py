@@ -210,7 +210,7 @@ async def test_postgres_workflow_full_lifecycle(
         {},
         # create_version: get workflow, select max, insert version
         {"row": {"payload": _workflow_payload(workflow_id)}},
-        {"row": {"coalesce": 0}},
+        {"row": {"max_version": 0}},
         {},
     ]
     repo = make_repository(monkeypatch, responses)
@@ -438,15 +438,15 @@ async def test_postgres_version_incrementing(
     responses: list[Any] = [
         # First version: get workflow, get max (0), insert
         {"row": {"payload": _workflow_payload(workflow_id)}},
-        {"row": {"coalesce": 0}},
+        {"row": {"max_version": 0}},
         {},
         # Second version: get workflow, get max (1), insert
         {"row": {"payload": _workflow_payload(workflow_id)}},
-        {"row": {"coalesce": 1}},
+        {"row": {"max_version": 1}},
         {},
         # Third version: get workflow, get max (2), insert
         {"row": {"payload": _workflow_payload(workflow_id)}},
-        {"row": {"coalesce": 2}},
+        {"row": {"max_version": 2}},
         {},
     ]
     repo = make_repository(monkeypatch, responses)

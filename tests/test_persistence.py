@@ -114,12 +114,16 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     if persistence.DictRowFactory is None:
         monkeypatch.setattr("orcheo.persistence.DictRowFactory", MagicMock())
 
-    saver_mock = MagicMock(side_effect=lambda conn: ("pg_saver", conn))
-    monkeypatch.setattr("orcheo.persistence.AsyncPostgresSaver", saver_mock)
+    fake_saver = MagicMock()
+    fake_saver.setup = AsyncMock()
+    saver_class = MagicMock(return_value=fake_saver)
+    monkeypatch.setattr("orcheo.persistence.AsyncPostgresSaver", saver_class)
 
     async with create_checkpointer(settings) as checkpointer:
-        assert checkpointer == ("pg_saver", "pg_connection")
+        assert checkpointer is fake_saver
 
+    saver_class.assert_called_once_with("pg_connection")
+    fake_saver.setup.assert_awaited_once()
     fake_pool.connection.assert_called_once()
     fake_conn_cm.__aenter__.assert_awaited_once()
     fake_pool.open.assert_awaited_once()
