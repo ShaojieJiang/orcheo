@@ -49,6 +49,8 @@ services:
       - ORCHEO_VAULT_BACKEND=postgres
       - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
+      - ORCHEO_AUTH_ENABLED=true
+      - ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
@@ -76,6 +78,8 @@ services:
       - ORCHEO_VAULT_BACKEND=postgres
       - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
+      - ORCHEO_AUTH_ENABLED=true
+      - ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
@@ -103,6 +107,8 @@ services:
       - ORCHEO_VAULT_BACKEND=postgres
       - ORCHEO_VAULT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       - ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
+      - ORCHEO_AUTH_ENABLED=true
+      - ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       # Use system Python from base image instead of downloading
       - UV_PYTHON_PREFERENCE=system
       - ORCHEO_MCP_STDIO_LOG=/dev/stderr
