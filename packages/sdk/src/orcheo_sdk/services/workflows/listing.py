@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
+from orcheo_sdk.cli.errors import APICallError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.services.workflows.publish import enrich_workflow_publish_metadata
 
@@ -25,9 +26,11 @@ def list_workflows_data(
                 cron_url = f"/api/workflows/{workflow_id}/triggers/cron/config"
                 client.get(cron_url)
                 enriched_item["is_scheduled"] = True
-            except Exception:
-                # If 404 or any error, workflow is not scheduled
-                enriched_item["is_scheduled"] = False
+            except APICallError as exc:
+                if exc.status_code == 404:
+                    enriched_item["is_scheduled"] = False
+                else:
+                    raise
         else:
             enriched_item["is_scheduled"] = False
         enriched.append(enriched_item)
