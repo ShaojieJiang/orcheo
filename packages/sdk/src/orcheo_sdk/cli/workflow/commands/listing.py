@@ -37,6 +37,7 @@ def list_workflows(
                 item.get("name"),
                 "Public" if item.get("is_public") else "Private",
                 "yes" if item.get("require_login") else "no",
+                "yes" if item.get("is_scheduled") else "no",
                 published_display,
                 item.get("share_url") or "-",
             ]
@@ -49,6 +50,7 @@ def list_workflows(
             "Name",
             "Visibility",
             "Require login",
+            "Scheduled",
             "Published at",
             "Share URL",
         ],

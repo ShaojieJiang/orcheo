@@ -15,6 +15,7 @@ from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found, raise_webhook_error
 from orcheo_backend.app.repository import (
+    CronTriggerNotFoundError,
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
@@ -187,6 +188,8 @@ async def get_cron_trigger_config(
         return await repository.get_cron_trigger_config(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    except CronTriggerNotFoundError as exc:
+        raise_not_found("Cron trigger not found", exc)
 
 
 @router.delete(

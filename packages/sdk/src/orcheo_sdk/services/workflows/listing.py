@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
+from orcheo_sdk.cli.errors import APICallError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.services.workflows.publish import enrich_workflow_publish_metadata
 
@@ -15,7 +16,25 @@ def list_workflows_data(
     if archived:
         url += "?include_archived=true"
     payload = client.get(url)
-    return [enrich_workflow_publish_metadata(client, item) for item in payload]
+    enriched = []
+    for item in payload:
+        enriched_item = enrich_workflow_publish_metadata(client, item)
+        # Check if workflow has cron trigger configured
+        workflow_id = enriched_item.get("id")
+        if workflow_id:
+            try:
+                cron_url = f"/api/workflows/{workflow_id}/triggers/cron/config"
+                client.get(cron_url)
+                enriched_item["is_scheduled"] = True
+            except APICallError as exc:
+                if exc.status_code == 404:
+                    enriched_item["is_scheduled"] = False
+                else:
+                    raise  # pragma: no cover - defensive
+        else:
+            enriched_item["is_scheduled"] = False
+        enriched.append(enriched_item)
+    return enriched
 
 
 def show_workflow_data(

@@ -30,8 +30,11 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     yield from reset_auth_state(monkeypatch)
 
 
-def test_requests_allowed_when_auth_disabled() -> None:
+def test_requests_allowed_when_auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Requests succeed when no authentication configuration is provided."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     client = _client()
     response = client.get("/api/workflows")

@@ -1,14 +1,21 @@
 """Tests for execution history REST endpoints exposed by the FastAPI app."""
 
 import asyncio
+import pytest
 from fastapi.testclient import TestClient
 from orcheo_backend.app import create_app
+from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
-def test_execution_history_endpoints_return_steps() -> None:
+def test_execution_history_endpoints_return_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Execution history endpoints expose stored replay data."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     history_store = InMemoryRunHistoryStore()
@@ -47,8 +54,13 @@ def test_execution_history_endpoints_return_steps() -> None:
     assert replay["steps"][0]["payload"] == {"node": "second"}
 
 
-def test_execution_history_not_found_returns_404() -> None:
+def test_execution_history_not_found_returns_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Missing history records return a 404 response."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     history_store = InMemoryRunHistoryStore()
@@ -60,8 +72,13 @@ def test_execution_history_not_found_returns_404() -> None:
     assert response.json()["detail"] == "Execution history not found"
 
 
-def test_replay_execution_not_found_returns_404() -> None:
+def test_replay_execution_not_found_returns_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Replay API mirrors 404 behaviour for unknown executions."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     history_store = InMemoryRunHistoryStore()

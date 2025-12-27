@@ -201,7 +201,7 @@ def test_edge_cases_and_missing_state() -> None:
     assert isinstance(webhook_config, WebhookTriggerConfig)
 
     cron_config = layer.get_cron_config(non_existent_workflow)
-    assert isinstance(cron_config, CronTriggerConfig)
+    assert cron_config is None
 
     retry_config = layer.get_retry_policy_config(non_existent_workflow)
     assert isinstance(retry_config, RetryPolicyConfig)

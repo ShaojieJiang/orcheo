@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo_backend.app.repository.errors import (
+    CronTriggerNotFoundError,
     RepositoryError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -33,6 +34,7 @@ __all__ = [
     "WorkflowRepository",
     "InMemoryWorkflowRepository",
     "SqliteWorkflowRepository",
+    "CronTriggerNotFoundError",
     "RepositoryError",
     "VersionDiff",
     "Workflow",

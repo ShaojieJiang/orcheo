@@ -3,13 +3,20 @@
 from __future__ import annotations
 import json
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from orcheo_backend.app import create_app
+from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
 
 
-def test_http_executor_triggers_run_against_backend() -> None:
+def test_http_executor_triggers_run_against_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
+
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)
 

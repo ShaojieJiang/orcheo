@@ -19,6 +19,9 @@ def test_workflow_lifecycle(mock_env: None) -> None:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=workflows_list)
         )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
         router.get("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(200, json=workflow)
         )

@@ -28,6 +28,9 @@ def test_mcp_list_workflows(mock_env: None) -> None:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
         )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
         result = main_module.list_workflows.fn()
 
     assert result[0]["share_url"] == "http://api.test/chat/wf-1"

@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import create_app, ingest_workflow_version
+from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -15,8 +16,13 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas.workflows import WorkflowVersionIngestRequest
 
 
-def test_ingest_workflow_version_endpoint_creates_version() -> None:
+def test_ingest_workflow_version_endpoint_creates_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """LangGraph scripts can be submitted to create workflow versions."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     workflow = asyncio.run(
@@ -61,8 +67,13 @@ def test_ingest_workflow_version_endpoint_creates_version() -> None:
     assert "summary" in version["graph"]
 
 
-def test_ingest_workflow_version_invalid_script_returns_400() -> None:
+def test_ingest_workflow_version_invalid_script_returns_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Invalid LangGraph scripts return a 400 error."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     workflow = asyncio.run(
@@ -89,8 +100,13 @@ def test_ingest_workflow_version_invalid_script_returns_400() -> None:
     assert "detail" in response.json()
 
 
-def test_ingest_workflow_version_missing_workflow_returns_404() -> None:
+def test_ingest_workflow_version_missing_workflow_returns_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ingesting a script for a non-existent workflow returns 404."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)
