@@ -33,11 +33,12 @@ def test_cron_trigger_configuration_roundtrip(api_client: TestClient) -> None:
 
     workflow_id, _ = create_workflow_with_version(api_client)
 
+    # A new workflow has no cron trigger configured
     default_response = api_client.get(
         f"/api/workflows/{workflow_id}/triggers/cron/config"
     )
-    assert default_response.status_code == 200
-    assert default_response.json()["expression"] == "0 * * * *"
+    assert default_response.status_code == 404
+    assert default_response.json()["detail"] == "Cron trigger not found"
 
     update_response = api_client.put(
         f"/api/workflows/{workflow_id}/triggers/cron/config",

@@ -10,7 +10,10 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
-from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+from orcheo_backend.app.repository import (
+    CronTriggerNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from orcheo_backend.app.repository_sqlite._base import logger
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
 
@@ -129,7 +132,12 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
-            return self._trigger_layer.get_cron_config(workflow_id)
+            config = self._trigger_layer.get_cron_config(workflow_id)
+            if config is None:
+                raise CronTriggerNotFoundError(  # pragma: no cover - defensive
+                    f"No cron trigger configured for workflow {workflow_id}"
+                )
+            return config
 
     async def delete_cron_trigger(self, workflow_id: UUID) -> None:
         await self._ensure_initialized()

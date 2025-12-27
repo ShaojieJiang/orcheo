@@ -12,6 +12,7 @@ from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.repository.errors import (
+    CronTriggerNotFoundError,
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
@@ -101,7 +102,12 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
-            return self._trigger_layer.get_cron_config(workflow_id)
+            config = self._trigger_layer.get_cron_config(workflow_id)
+            if config is None:
+                raise CronTriggerNotFoundError(
+                    f"No cron trigger configured for workflow {workflow_id}"
+                )
+            return config
 
     async def delete_cron_trigger(self, workflow_id: UUID) -> None:
         """Remove cron trigger configuration for the workflow."""

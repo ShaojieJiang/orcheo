@@ -19,9 +19,11 @@ class CronTriggerMixin(TriggerLayerState):
         state.update_config(config)
         return state.config
 
-    def get_cron_config(self, workflow_id: UUID) -> CronTriggerConfig:
-        """Return the stored cron configuration, creating defaults if needed."""
-        state = self._cron_states.setdefault(workflow_id, CronTriggerState())
+    def get_cron_config(self, workflow_id: UUID) -> CronTriggerConfig | None:
+        """Return the stored cron configuration or None if not configured."""
+        state = self._cron_states.get(workflow_id)
+        if state is None:
+            return None
         return state.config
 
     def remove_cron_config(self, workflow_id: UUID) -> bool:

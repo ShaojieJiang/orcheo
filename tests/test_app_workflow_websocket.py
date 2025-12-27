@@ -1,17 +1,27 @@
 """Tests for the workflow websocket entrypoint."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi import WebSocket
 from orcheo_backend.app import workflow_websocket
+from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 
 
 @pytest.mark.asyncio
-async def test_workflow_websocket_routes_requests() -> None:
+async def test_workflow_websocket_routes_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Incoming messages trigger execute_workflow with the provided payloads."""
 
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
+
     mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.headers = {}
+    mock_websocket.query_params = {}
+    mock_websocket.client = Mock(host="127.0.0.1")
+    mock_websocket.state = Mock()
     mock_websocket.receive_json.return_value = {
         "type": "run_workflow",
         "graph_config": {"nodes": []},
@@ -44,10 +54,19 @@ async def test_workflow_websocket_routes_requests() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workflow_websocket_routes_evaluation_requests() -> None:
+async def test_workflow_websocket_routes_evaluation_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Incoming evaluation messages route to execute_workflow_evaluation."""
 
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
+
     mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.headers = {}
+    mock_websocket.query_params = {}
+    mock_websocket.client = Mock(host="127.0.0.1")
+    mock_websocket.state = Mock()
     mock_websocket.receive_json.return_value = {
         "type": "evaluate_workflow",
         "graph_config": {"nodes": []},
@@ -79,10 +98,19 @@ async def test_workflow_websocket_routes_evaluation_requests() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workflow_websocket_routes_training_requests() -> None:
+async def test_workflow_websocket_routes_training_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Incoming training messages route to execute_workflow_training."""
 
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
+
     mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.headers = {}
+    mock_websocket.query_params = {}
+    mock_websocket.client = Mock(host="127.0.0.1")
+    mock_websocket.state = Mock()
     mock_websocket.receive_json.return_value = {
         "type": "train_workflow",
         "graph_config": {"nodes": []},

@@ -17,6 +17,9 @@ def test_main_config_error_handling(runner: CliRunner) -> None:
         router.get("http://localhost:8000/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
         )
+        router.get(
+            "http://localhost:8000/api/workflows/wf-1/triggers/cron/config"
+        ).mock(return_value=httpx.Response(404))
         result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
     assert result.exit_code == 0
     assert "Demo" in result.stdout

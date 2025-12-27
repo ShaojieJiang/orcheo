@@ -15,7 +15,23 @@ def list_workflows_data(
     if archived:
         url += "?include_archived=true"
     payload = client.get(url)
-    return [enrich_workflow_publish_metadata(client, item) for item in payload]
+    enriched = []
+    for item in payload:
+        enriched_item = enrich_workflow_publish_metadata(client, item)
+        # Check if workflow has cron trigger configured
+        workflow_id = enriched_item.get("id")
+        if workflow_id:
+            try:
+                cron_url = f"/api/workflows/{workflow_id}/triggers/cron/config"
+                client.get(cron_url)
+                enriched_item["is_scheduled"] = True
+            except Exception:
+                # If 404 or any error, workflow is not scheduled
+                enriched_item["is_scheduled"] = False
+        else:
+            enriched_item["is_scheduled"] = False
+        enriched.append(enriched_item)
+    return enriched
 
 
 def show_workflow_data(

@@ -146,10 +146,19 @@ def test_authorization_policy_context_property() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_request_context_calls_authenticate_when_no_state() -> None:
+async def test_get_request_context_calls_authenticate_when_no_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """get_request_context authenticates when no context in state."""
     from starlette.requests import Request
-    from orcheo_backend.app.authentication import get_request_context
+    from orcheo_backend.app.authentication import (
+        get_request_context,
+        reset_authentication_state,
+    )
+
+    # Disable authentication for this test
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     scope = {
         "type": "http",
@@ -189,10 +198,19 @@ def test_get_authorization_policy_dependency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_authenticate_request_without_client_info() -> None:
+async def test_authenticate_request_without_client_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """authenticate_request handles requests without client information."""
     from starlette.requests import Request
-    from orcheo_backend.app.authentication import authenticate_request
+    from orcheo_backend.app.authentication import (
+        authenticate_request,
+        reset_authentication_state,
+    )
+
+    # Disable authentication for this test
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     scope = {
         "type": "http",

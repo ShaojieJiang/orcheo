@@ -33,6 +33,14 @@ def test_required_mode_without_credentials_warns(
     """Enforcing authentication without credentials warns operators."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+    # Ensure no credentials are set
+    monkeypatch.delenv("ORCHEO_AUTH_JWT_SECRET", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_JWKS_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_JWKS_STATIC", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("ORCHEO_REPOSITORY_SQLITE_PATH", raising=False)
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
     caplog.set_level(logging.WARNING)
 
     load_auth_settings(refresh=True)

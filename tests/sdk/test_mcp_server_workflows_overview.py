@@ -25,10 +25,16 @@ def test_list_workflows_with_profile(mock_env: None) -> None:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
         )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
         result = tools.list_workflows(archived=False, profile=None)
 
     expected = payload.copy()
-    expected[0] = expected[0] | {"share_url": "http://api.test/chat/wf-1"}
+    expected[0] = expected[0] | {
+        "share_url": "http://api.test/chat/wf-1",
+        "is_scheduled": False,
+    }
     assert result == expected
 
 
@@ -51,10 +57,13 @@ def test_list_workflows_success(mock_env: None) -> None:
         router.get("http://api.test/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
         )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
         result = tools.list_workflows()
 
     expected = payload.copy()
-    expected[0] = expected[0] | {"share_url": None}
+    expected[0] = expected[0] | {"share_url": None, "is_scheduled": False}
     assert result == expected
 
 
@@ -84,6 +93,12 @@ def test_list_workflows_with_archived(mock_env: None) -> None:
     with respx.mock() as router:
         router.get("http://api.test/api/workflows?include_archived=true").mock(
             return_value=httpx.Response(200, json=payload)
+        )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
+        router.get("http://api.test/api/workflows/wf-2/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
         )
         result = tools.list_workflows(archived=True)
 

@@ -171,8 +171,13 @@ async def test_authenticate_websocket_invalid_scheme() -> None:
 
 
 @pytest.mark.asyncio
-async def test_authenticate_websocket_anonymous_when_disabled() -> None:
+async def test_authenticate_websocket_anonymous_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """WebSocket authentication allows anonymous when disabled."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
 
     websocket = Mock(spec=WebSocket)
     websocket.headers = {}
