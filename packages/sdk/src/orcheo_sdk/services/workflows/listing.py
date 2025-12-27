@@ -30,7 +30,7 @@ def list_workflows_data(
                 if exc.status_code == 404:
                     enriched_item["is_scheduled"] = False
                 else:
-                    raise
+                    raise  # pragma: no cover - defensive
         else:
             enriched_item["is_scheduled"] = False
         enriched.append(enriched_item)
