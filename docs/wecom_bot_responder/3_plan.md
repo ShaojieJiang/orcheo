@@ -44,13 +44,13 @@ Deliver a minimal WeCom bot responder workflow that validates callbacks, decrypt
 
 #### Task Checklist
 
-- [ ] Task 2.1: Add unit tests for signature validation and direct-message filtering.
+- [x] Task 2.1: Add unit tests for signature validation and direct-message filtering.
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add integration test for message delivery (mocked WeCom API).
+- [x] Task 2.2: Add integration test for message delivery (mocked WeCom API).
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Add optional allowlist of user IDs.
+- [x] Task 2.3: Add optional allowlist of user IDs.
   - Dependencies: Task 2.1
-- [ ] Task 2.4: Add structured logging for validation failures and message delivery status.
+- [x] Task 2.4: Add structured logging for validation failures and message delivery status.
   - Dependencies: Task 2.1
 
 ---
@@ -61,9 +61,9 @@ Deliver a minimal WeCom bot responder workflow that validates callbacks, decrypt
 
 #### Task Checklist
 
-- [ ] Task 3.1: Perform manual QA in a staging WeCom app.
+- [x] Task 3.1: Perform manual QA in a staging WeCom app.
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Enable the workflow in production and monitor delivery metrics.
+- [x] Task 3.2: Enable the workflow in production and monitor delivery metrics.
   - Dependencies: Task 3.1
 
 ---

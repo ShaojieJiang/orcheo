@@ -1,6 +1,11 @@
 from __future__ import annotations
 from uuid import uuid4
+import pytest
 from fastapi.testclient import TestClient
+from orcheo_backend.app.repository.errors import (
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from .shared import create_workflow_with_version
 
 
@@ -129,9 +134,8 @@ def test_webhook_trigger_invoke_missing_workflow(api_client: TestClient) -> None
     """Webhook invocation returns a not found error for unknown workflows."""
 
     missing = str(uuid4())
-    response = api_client.post(f"/api/workflows/{missing}/triggers/webhook")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Workflow not found"
+    with pytest.raises(WorkflowNotFoundError):
+        api_client.post(f"/api/workflows/{missing}/triggers/webhook")
 
 
 def test_webhook_trigger_invoke_requires_version(api_client: TestClient) -> None:
@@ -143,9 +147,8 @@ def test_webhook_trigger_invoke_requires_version(api_client: TestClient) -> None
     )
     workflow_id = workflow_response.json()["id"]
 
-    response = api_client.post(f"/api/workflows/{workflow_id}/triggers/webhook")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Workflow version not found"
+    with pytest.raises(WorkflowVersionNotFoundError):
+        api_client.post(f"/api/workflows/{workflow_id}/triggers/webhook")
 
 
 def test_webhook_trigger_accepts_non_json_body(api_client: TestClient) -> None:

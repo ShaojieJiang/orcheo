@@ -1,8 +1,11 @@
 from __future__ import annotations
 import json
+from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.models import WorkflowVersion
 from orcheo_backend.app.routers import triggers
 
 
@@ -65,3 +68,290 @@ def test_parse_webhook_body_preserves_non_mapping_parsed_payload() -> None:
     assert payload["raw"] == raw_body.decode("utf-8")
     assert payload["parsed"] == ["value", 123]
     assert parsed_body is None
+
+
+def test_build_webhook_state_langgraph_dict_adds_defaults() -> None:
+    """LangGraph inputs include defaults and runtime config."""
+
+    state = triggers._build_webhook_state(
+        {"format": LANGGRAPH_SCRIPT_FORMAT},
+        {"hello": "world"},
+        {"exec": "run"},
+    )
+
+    assert state["hello"] == "world"
+    assert state["inputs"]["hello"] == "world"
+    assert state["results"] == {}
+    assert state["messages"] == []
+    assert state["config"] == {"exec": "run"}
+
+
+def test_build_webhook_state_langgraph_dict_sets_config_when_present() -> None:
+    """LangGraph inputs attach runtime config when provided."""
+
+    state = triggers._build_webhook_state(
+        {"format": LANGGRAPH_SCRIPT_FORMAT},
+        {"key": "value"},
+        {"session": "runtime"},
+    )
+
+    assert state["config"] == {"session": "runtime"}
+
+
+def test_build_webhook_state_langgraph_dict_without_runtime_config() -> None:
+    """LangGraph inputs skip config when runtime config is missing."""
+
+    state = triggers._build_webhook_state(
+        {"format": LANGGRAPH_SCRIPT_FORMAT},
+        {"key": "value"},
+        None,
+    )
+
+    assert "config" not in state
+    assert state["inputs"] == {"key": "value"}
+
+
+def test_build_webhook_state_langgraph_non_mapping_passthrough() -> None:
+    """LangGraph non-mapping inputs are passed through."""
+
+    state = triggers._build_webhook_state(
+        {"format": LANGGRAPH_SCRIPT_FORMAT}, ["value"], None
+    )
+
+    assert state == ["value"]
+
+
+def test_build_webhook_state_default_shape() -> None:
+    """Non-LangGraph workflows use default state shape."""
+
+    state = triggers._build_webhook_state({}, {"key": "value"}, None)
+
+    assert state["inputs"] == {"key": "value"}
+    assert state["results"] == {}
+    assert state["messages"] == []
+    assert state["config"] == {}
+
+
+def test_extract_immediate_response_returns_content() -> None:
+    """Immediate responses are extracted from results."""
+
+    immediate, should_process = triggers._extract_immediate_response(
+        {
+            "results": {
+                "node": {
+                    "immediate_response": {"content": "ok"},
+                    "should_process": True,
+                }
+            }
+        }
+    )
+
+    assert immediate == {"content": "ok"}
+    assert should_process is True
+
+
+def test_extract_immediate_response_handles_missing() -> None:
+    """Missing immediate responses return a default tuple."""
+
+    immediate, should_process = triggers._extract_immediate_response({"results": {}})
+
+    assert immediate is None
+    assert should_process is False
+
+
+def test_extract_immediate_response_skips_invalid_entries() -> None:
+    """Non-matching result entries are ignored."""
+
+    immediate, should_process = triggers._extract_immediate_response(
+        {
+            "results": {
+                "node": "not-a-dict",
+                "other": {"immediate_response": {}},
+            }
+        }
+    )
+
+    assert immediate is None
+    assert should_process is False
+
+
+class _DummyCheckpointer:
+    async def __aenter__(self) -> object:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _DummyCompiled:
+    def __init__(self, final_state: dict[str, object]) -> None:
+        self._final_state = final_state
+        self.seen_state: object | None = None
+        self.seen_config: object | None = None
+
+    async def ainvoke(self, state: object, config: object) -> dict[str, object]:
+        self.seen_state = state
+        self.seen_config = config
+        return self._final_state
+
+
+class _DummyGraph:
+    def __init__(self, compiled: _DummyCompiled) -> None:
+        self._compiled = compiled
+
+    def compile(self, checkpointer: object | None = None) -> _DummyCompiled:
+        return self._compiled
+
+
+class _DummyMergedConfig:
+    def to_runnable_config(self, execution_id: str) -> dict[str, str]:
+        return {"execution_id": execution_id}
+
+    def to_state_config(self, execution_id: str) -> dict[str, str]:
+        return {"execution_id": execution_id}
+
+
+@pytest.mark.asyncio()
+async def test_try_immediate_response_returns_json_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Immediate responses can return JSON payloads."""
+
+    final_state = {
+        "results": {
+            "node": {
+                "immediate_response": {
+                    "content": {"ok": True},
+                    "content_type": "application/json",
+                    "status_code": 201,
+                },
+                "should_process": False,
+            }
+        }
+    }
+    compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    monkeypatch.setattr(
+        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
+    )
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "hi"}, vault=object()
+    )
+
+    assert isinstance(response, JSONResponse)
+    assert json.loads(response.body) == {"ok": True}
+    assert response.status_code == 201
+    assert should_queue is False
+    assert isinstance(compiled.seen_state, dict)
+    assert compiled.seen_state["inputs"] == {"message": "hi"}
+
+
+@pytest.mark.asyncio()
+async def test_try_immediate_response_returns_plain_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Immediate responses can return plain-text payloads."""
+
+    final_state = {
+        "results": {
+            "node": {
+                "immediate_response": {"content": "pong"},
+                "should_process": True,
+            }
+        }
+    }
+    compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    monkeypatch.setattr(
+        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
+    )
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "ping"}, vault=object()
+    )
+
+    assert isinstance(response, PlainTextResponse)
+    assert response.body == b"pong"
+    assert should_queue is True
+
+
+@pytest.mark.asyncio()
+async def test_try_immediate_response_returns_none_when_no_immediate_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no immediate response is found, async processing is queued."""
+
+    final_state = {"results": {"node": {"status": "ok"}}}
+    compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    monkeypatch.setattr(
+        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
+    )
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "hi"}, vault=object()
+    )
+
+    assert response is None
+    assert should_queue is True
+
+
+@pytest.mark.asyncio()
+async def test_try_immediate_response_returns_none_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Errors in the immediate response path fall back to async processing."""
+
+    def _raise_error(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(triggers, "build_graph", _raise_error)
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "hi"}, vault=object()
+    )
+
+    assert response is None
+    assert should_queue is True

@@ -9,6 +9,7 @@ This module provides nodes for integrating with WeCom (企业微信) APIs:
 import base64
 import hashlib
 import hmac
+import logging
 import struct
 import time
 from typing import Any
@@ -20,6 +21,9 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+logger = logging.getLogger(__name__)
 
 
 @registry.register(
@@ -48,6 +52,10 @@ class WeComEventsParserNode(TaskNode):
         default=300,
         description="Maximum age for WeCom signature timestamps",
     )
+    allowlist_user_ids: list[str] | None = Field(
+        default=None,
+        description="Optional allowlist of WeCom user IDs",
+    )
 
     def verify_signature(
         self,
@@ -61,6 +69,13 @@ class WeComEventsParserNode(TaskNode):
         items = sorted([token, timestamp, nonce, echostr_or_encrypt])
         sha1 = hashlib.sha1("".join(items).encode()).hexdigest()
         if not hmac.compare_digest(sha1, signature):
+            logger.warning(
+                "WeCom signature verification failed",
+                extra={
+                    "event": "wecom_signature_validation",
+                    "status": "failed",
+                },
+            )
             msg = "WeCom signature verification failed"
             raise ValueError(msg)
 
@@ -124,6 +139,12 @@ class WeComEventsParserNode(TaskNode):
             return False
         return bool(content.strip())
 
+    def is_allowlisted_user(self, user_id: str) -> bool:
+        """Return whether the user is allowed to send messages."""
+        if not self.allowlist_user_ids:
+            return True
+        return user_id in self.allowlist_user_ids
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the WeCom callback payload and validate signatures."""
         is_sync_check = self.is_immediate_response_check(config)
@@ -163,6 +184,13 @@ class WeComEventsParserNode(TaskNode):
         encrypt = xml_data.get("Encrypt", "")
 
         if not encrypt:
+            logger.warning(
+                "WeCom payload missing Encrypt element",
+                extra={
+                    "event": "wecom_payload_validation",
+                    "status": "failed",
+                },
+            )
             return self.add_immediate_response(
                 {
                     "is_verification": False,
@@ -180,11 +208,41 @@ class WeComEventsParserNode(TaskNode):
             now = int(time.time())
             try:
                 ts = int(timestamp)
-                if abs(now - ts) > self.timestamp_tolerance_seconds:
-                    msg = "WeCom request timestamp outside tolerance window"
-                    raise ValueError(msg)
             except ValueError:
-                pass
+                logger.warning(
+                    "WeCom request timestamp invalid",
+                    extra={
+                        "event": "wecom_timestamp_validation",
+                        "status": "failed",
+                        "timestamp": timestamp,
+                    },
+                )
+                return self.add_immediate_response(
+                    {
+                        "is_verification": False,
+                        "event_type": None,
+                        "should_process": False,
+                    },
+                    is_sync_check,
+                )
+            if abs(now - ts) > self.timestamp_tolerance_seconds:
+                logger.warning(
+                    "WeCom request timestamp outside tolerance window",
+                    extra={
+                        "event": "wecom_timestamp_validation",
+                        "status": "failed",
+                        "timestamp": timestamp,
+                        "tolerance_seconds": self.timestamp_tolerance_seconds,
+                    },
+                )
+                return self.add_immediate_response(
+                    {
+                        "is_verification": False,
+                        "event_type": None,
+                        "should_process": False,
+                    },
+                    is_sync_check,
+                )
 
         # Decrypt message
         decrypted_xml = self.decrypt_message(encrypt, self.encoding_aes_key)
@@ -193,9 +251,18 @@ class WeComEventsParserNode(TaskNode):
         msg_type = msg_data.get("MsgType", "").strip().lower()
         chat_id = msg_data.get("ChatId", "")
         content = msg_data.get("Content", "")
+        user_id = msg_data.get("FromUserName", "")
 
         # Ignore group chat messages; only respond to direct messages.
         if chat_id:
+            logger.info(
+                "WeCom group message ignored",
+                extra={
+                    "event": "wecom_message_filter",
+                    "status": "ignored",
+                    "chat_id": chat_id,
+                },
+            )
             return self.add_immediate_response(
                 {
                     "is_verification": False,
@@ -208,6 +275,16 @@ class WeComEventsParserNode(TaskNode):
 
         # Direct message detection (no ChatId).
         is_direct_message = self.is_direct_message(msg_type, chat_id, content)
+        is_allowlisted = self.is_allowlisted_user(user_id)
+        if is_direct_message and not is_allowlisted:
+            logger.warning(
+                "WeCom user rejected by allowlist",
+                extra={
+                    "event": "wecom_allowlist_validation",
+                    "status": "failed",
+                    "user_id": user_id,
+                },
+            )
 
         # Sync check: return immediate_response to ack WeCom quickly.
         # Async run: no immediate_response, workflow continues to send_message.
@@ -216,10 +293,10 @@ class WeComEventsParserNode(TaskNode):
                 "is_verification": False,
                 "event_type": msg_type,
                 "chat_id": chat_id,
-                "user": msg_data.get("FromUserName", ""),
+                "user": user_id,
                 "content": content,
-                "target_user": msg_data.get("FromUserName", ""),
-                "should_process": is_direct_message,
+                "target_user": user_id,
+                "should_process": is_direct_message and is_allowlisted,
             },
             is_sync_check,
         )
@@ -292,6 +369,14 @@ class WeComSendMessageNode(TaskNode):
         access_token = token_result.get("access_token")
 
         if not access_token:
+            logger.warning(
+                "WeCom message delivery failed: missing access token",
+                extra={
+                    "event": "wecom_message_delivery",
+                    "status": "failed",
+                    "reason": "missing_access_token",
+                },
+            )
             return {"is_error": True, "error": "No access token available"}
 
         target_user = self.to_user
@@ -301,6 +386,14 @@ class WeComSendMessageNode(TaskNode):
                 target_user = parser_result.get("target_user")
         target_chat = self.chat_id
         if not target_user and not target_chat:
+            logger.warning(
+                "WeCom message delivery failed: missing recipient",
+                extra={
+                    "event": "wecom_message_delivery",
+                    "status": "failed",
+                    "reason": "missing_recipient",
+                },
+            )
             return {
                 "is_error": True,
                 "error": "No WeCom chat_id or to_user provided",
@@ -343,12 +436,33 @@ class WeComSendMessageNode(TaskNode):
 
         errcode = data.get("errcode", 0)
         if errcode != 0:
+            logger.warning(
+                "WeCom message delivery failed",
+                extra={
+                    "event": "wecom_message_delivery",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": data.get("errmsg", "Unknown error"),
+                    "target_user": target_user,
+                    "target_chat": target_chat,
+                },
+            )
             return {
                 "is_error": True,
                 "errcode": errcode,
                 "errmsg": data.get("errmsg", "Unknown error"),
             }
 
+        logger.info(
+            "WeCom message delivered",
+            extra={
+                "event": "wecom_message_delivery",
+                "status": "success",
+                "errcode": 0,
+                "target_user": target_user,
+                "target_chat": target_chat,
+            },
+        )
         return {
             "is_error": False,
             "errcode": 0,

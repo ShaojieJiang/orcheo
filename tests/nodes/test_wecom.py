@@ -157,6 +157,21 @@ class TestWeComEventsParserNode:
         result = node.parse_xml(xml_str)
         assert result == {"ToUserName": "user1", "Content": "Hello"}
 
+    def test_extract_inputs_falls_back_to_state_dict(self) -> None:
+        """Test extract_inputs returns full state when inputs is not a dict."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        state = {"inputs": "not-a-dict", "body": {"raw": "<xml></xml>"}}
+
+        result = node.extract_inputs(state)
+
+        assert result["inputs"] == "not-a-dict"
+        assert result["body"] == {"raw": "<xml></xml>"}
+
     def test_is_direct_message_true(self) -> None:
         """Test direct message detection returns True for valid DM."""
         node = WeComEventsParserNode(
@@ -283,6 +298,184 @@ class TestWeComEventsParserNode:
         assert result["should_process"] is True
 
     @pytest.mark.asyncio
+    async def test_encrypted_message_parsing_body_string_skips_tolerance(self) -> None:
+        """Test parsing when body is a string and timestamp tolerance disabled."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>user789</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Hello String</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            timestamp_tolerance_seconds=0,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body=body_xml,
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["event_type"] == "text"
+        assert result["content"] == "Hello String"
+        assert result["should_process"] is True
+
+    @pytest.mark.asyncio
+    async def test_encrypted_message_parsing_body_object(self) -> None:
+        """Test parsing when body is not a dict or string."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>user123</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Hello Object</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        class BodyWrapper:
+            def __str__(self) -> str:
+                return body_xml
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            timestamp_tolerance_seconds=0,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body=BodyWrapper(),
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["event_type"] == "text"
+        assert result["content"] == "Hello Object"
+        assert result["should_process"] is True
+
+    @pytest.mark.asyncio
+    async def test_allowlist_rejects_user(self) -> None:
+        """Test allowlist blocks non-allowed users."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>user456</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Hello World</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            allowlist_user_ids=["allowed_user"],
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["should_process"] is False
+        assert result["user"] == "user456"
+
+    @pytest.mark.asyncio
+    async def test_allowlist_allows_user(self) -> None:
+        """Test allowlist allows configured users."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>allowed_user</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Hello World</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            allowlist_user_ids=["allowed_user"],
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["should_process"] is True
+        assert result["user"] == "allowed_user"
+
+    @pytest.mark.asyncio
     async def test_group_message_ignored(self) -> None:
         """Test that group messages are ignored."""
         encoding_aes_key, raw_key = _create_aes_key()
@@ -384,6 +577,79 @@ class TestWeComEventsParserNode:
         # Should not raise - valid timestamp
         result = await node.run(state, RunnableConfig())
         assert result["event_type"] == "text"
+
+    @pytest.mark.asyncio
+    async def test_timestamp_invalid_rejected(self) -> None:
+        """Test invalid timestamps are rejected."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = "invalid"
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = "<xml><MsgType>text</MsgType><Content>Hi</Content></xml>"
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            timestamp_tolerance_seconds=300,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["should_process"] is False
+        assert result["event_type"] is None
+
+    @pytest.mark.asyncio
+    async def test_timestamp_outside_tolerance_rejected(self) -> None:
+        """Test old timestamps are rejected when outside tolerance."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()) - 1000)
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = "<xml><MsgType>text</MsgType><Content>Hi</Content></xml>"
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+            timestamp_tolerance_seconds=1,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["should_process"] is False
+        assert result["event_type"] is None
+        assert result["immediate_response"] is None
 
     @pytest.mark.asyncio
     async def test_immediate_response_check(self) -> None:

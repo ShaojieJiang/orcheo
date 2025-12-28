@@ -124,6 +124,16 @@ def _extract_immediate_response(
     return None, False
 
 
+def _should_try_immediate_response(
+    query_params: Mapping[str, Any],
+) -> bool:
+    """Return whether to attempt an immediate-response workflow execution."""
+    if not query_params:
+        return False
+    wecom_keys = {"msg_signature", "timestamp", "nonce"}
+    return bool(wecom_keys.intersection(query_params.keys()))
+
+
 async def _try_immediate_response(
     version: WorkflowVersion,
     inputs: dict[str, Any],
@@ -284,15 +294,18 @@ async def invoke_webhook_trigger(
     }
 
     # Check for immediate response (e.g., WeCom URL verification)
-    try:
-        version = await repository.get_latest_version(workflow_id)
-        immediate_response, should_queue = await _try_immediate_response(
-            version, webhook_inputs, vault
-        )
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
-    except WorkflowVersionNotFoundError as exc:
-        raise_not_found("Workflow version not found", exc)
+    immediate_response: PlainTextResponse | JSONResponse | None = None
+    should_queue = True
+    if _should_try_immediate_response(query_params):
+        try:
+            version = await repository.get_latest_version(workflow_id)
+            immediate_response, should_queue = await _try_immediate_response(
+                version, webhook_inputs, vault
+            )
+        except WorkflowNotFoundError as exc:
+            raise_not_found("Workflow not found", exc)
+        except WorkflowVersionNotFoundError as exc:
+            raise_not_found("Workflow version not found", exc)
 
     # Queue async run if workflow indicates processing is needed
     run: WorkflowRun | None = None
