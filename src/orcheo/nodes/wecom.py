@@ -1,19 +1,9 @@
-"""WeCom news digest workflow with mention and cron triggers.
+"""WeCom integration nodes for Orcheo.
 
-Configure WeCom to send callback requests to:
-`/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`
-so signatures can be verified.
-
-Configurable inputs (workflow_config.json):
-- corp_id (WeCom corp ID)
-- chat_id (WeCom chat/group ID for message delivery)
-- agent_id (WeCom app agent ID)
-- message_template (scripted message content)
-
-Orcheo vault secrets required:
-- wecom_corp_secret: WeCom app secret for access token
-- wecom_token: Callback token for signature validation
-- wecom_encoding_aes_key: AES key for callback decryption
+This module provides nodes for integrating with WeCom (企业微信) APIs:
+- WeComEventsParserNode: Validates signatures and parses callback payloads
+- WeComAccessTokenNode: Fetches WeCom access tokens
+- WeComSendMessageNode: Sends messages to WeCom chats
 """
 
 import base64
@@ -26,24 +16,19 @@ from xml.etree import ElementTree
 import httpx
 from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END, StateGraph
 from pydantic import Field
-from orcheo.edges import Condition, IfElse
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.triggers import CronTriggerNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
-class DetectTriggerNode(TaskNode):
-    """Detect whether the workflow was invoked by a webhook payload."""
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return whether a webhook body is present in inputs."""
-        inputs = state.get("inputs", {})
-        has_webhook = bool(inputs.get("body"))
-        return {"has_webhook": has_webhook}
-
-
+@registry.register(
+    NodeMetadata(
+        name="WeComEventsParserNode",
+        description="Validate WeCom signatures and parse callback payloads",
+        category="wecom",
+    )
+)
 class WeComEventsParserNode(TaskNode):
     """Validate WeCom signatures and parse callback payloads.
 
@@ -51,7 +36,7 @@ class WeComEventsParserNode(TaskNode):
     - URL verification (GET with echostr)
     - Message decryption for encrypted callbacks
     - Signature validation using Token
-    - Filtering for app mentions in specified chat
+    - Filtering for direct messages only
     """
 
     token: str = "[[wecom_token]]"
@@ -59,16 +44,12 @@ class WeComEventsParserNode(TaskNode):
     encoding_aes_key: str = "[[wecom_encoding_aes_key]]"
     """WeCom AES key for payload decryption (from Orcheo vault)."""
     corp_id: str = Field(description="WeCom corp ID for decryption validation")
-    chat_id: str | None = Field(
-        default=None,
-        description="Optional chat ID to filter events",
-    )
     timestamp_tolerance_seconds: int = Field(
         default=300,
         description="Maximum age for WeCom signature timestamps",
     )
 
-    def _verify_signature(
+    def verify_signature(
         self,
         token: str,
         timestamp: str,
@@ -83,7 +64,7 @@ class WeComEventsParserNode(TaskNode):
             msg = "WeCom signature verification failed"
             raise ValueError(msg)
 
-    def _decrypt_message(self, encrypt: str, encoding_aes_key: str) -> str:
+    def decrypt_message(self, encrypt: str, encoding_aes_key: str) -> str:
         """Decrypt WeCom encrypted message."""
         aes_key = base64.b64decode(encoding_aes_key + "=")
         cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
@@ -98,25 +79,55 @@ class WeComEventsParserNode(TaskNode):
         msg = content[20 : 20 + msg_len].decode("utf-8")
         return msg
 
-    def _parse_xml(self, xml_str: str) -> dict[str, str]:
+    def parse_xml(self, xml_str: str) -> dict[str, str]:
         """Parse WeCom XML payload."""
         root = ElementTree.fromstring(xml_str)
         return {child.tag: (child.text or "") for child in root}
 
-    def _extract_inputs(self, state: State) -> dict[str, Any]:
+    def extract_inputs(self, state: State) -> dict[str, Any]:
         """Extract inputs from state."""
-        if hasattr(state, "model_dump"):
-            state_dict = state.model_dump()
-        else:
-            state_dict = dict(state)
+        state_dict = dict(state)
         raw_inputs = state_dict.get("inputs")
         if isinstance(raw_inputs, dict):
             return dict(raw_inputs)
         return state_dict
 
+    def is_immediate_response_check(self, config: RunnableConfig) -> bool:
+        """Check if this is a synchronous immediate-response check execution."""
+        configurable = config.get("configurable", {})
+        thread_id = configurable.get("thread_id", "")
+        return thread_id == "immediate-response-check"
+
+    def success_response(self) -> dict[str, Any]:
+        """Return a success immediate_response dict."""
+        return {
+            "content": "success",
+            "content_type": "text/plain",
+            "status_code": 200,
+        }
+
+    def add_immediate_response(
+        self, result: dict[str, Any], is_sync_check: bool
+    ) -> dict[str, Any]:
+        """Add immediate_response to result if this is a sync check."""
+        if is_sync_check:
+            result["immediate_response"] = self.success_response()
+        else:
+            result.setdefault("immediate_response", None)
+        return result
+
+    def is_direct_message(self, msg_type: str, chat_id: str, content: str) -> bool:
+        """Return whether the message is a direct message to the app."""
+        if chat_id:
+            return False
+        if msg_type != "text":
+            return False
+        return bool(content.strip())
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the WeCom callback payload and validate signatures."""
-        inputs = self._extract_inputs(state)
+        is_sync_check = self.is_immediate_response_check(config)
+        inputs = self.extract_inputs(state)
         query_params = inputs.get("query_params", {})
 
         msg_signature = query_params.get("msg_signature", "")
@@ -125,13 +136,18 @@ class WeComEventsParserNode(TaskNode):
         echostr = query_params.get("echostr")
 
         # URL verification request (GET with echostr)
+        # Always return immediate_response for verification
         if echostr:
-            self._verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
-            decrypted_echostr = self._decrypt_message(echostr, self.encoding_aes_key)
+            self.verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
+            decrypted_echostr = self.decrypt_message(echostr, self.encoding_aes_key)
             return {
                 "is_verification": True,
-                "challenge": decrypted_echostr,
                 "should_process": False,
+                "immediate_response": {
+                    "content": decrypted_echostr,
+                    "content_type": "text/plain",
+                    "status_code": 200,
+                },
             }
 
         # Parse encrypted message body
@@ -143,18 +159,21 @@ class WeComEventsParserNode(TaskNode):
         else:
             body_str = str(body)
 
-        xml_data = self._parse_xml(body_str)
+        xml_data = self.parse_xml(body_str)
         encrypt = xml_data.get("Encrypt", "")
 
         if not encrypt:
-            return {
-                "is_verification": False,
-                "event_type": None,
-                "should_process": False,
-            }
+            return self.add_immediate_response(
+                {
+                    "is_verification": False,
+                    "event_type": None,
+                    "should_process": False,
+                },
+                is_sync_check,
+            )
 
         # Verify signature
-        self._verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
+        self.verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
 
         # Check timestamp tolerance
         if self.timestamp_tolerance_seconds:
@@ -168,36 +187,51 @@ class WeComEventsParserNode(TaskNode):
                 pass
 
         # Decrypt message
-        decrypted_xml = self._decrypt_message(encrypt, self.encoding_aes_key)
-        msg_data = self._parse_xml(decrypted_xml)
+        decrypted_xml = self.decrypt_message(encrypt, self.encoding_aes_key)
+        msg_data = self.parse_xml(decrypted_xml)
 
-        msg_type = msg_data.get("MsgType", "")
+        msg_type = msg_data.get("MsgType", "").strip().lower()
         chat_id = msg_data.get("ChatId", "")
         content = msg_data.get("Content", "")
 
-        # Filter by chat ID if specified
-        if self.chat_id and chat_id != self.chat_id:
-            return {
+        # Ignore group chat messages; only respond to direct messages.
+        if chat_id:
+            return self.add_immediate_response(
+                {
+                    "is_verification": False,
+                    "event_type": msg_type,
+                    "chat_id": chat_id,
+                    "should_process": False,
+                },
+                is_sync_check,
+            )
+
+        # Direct message detection (no ChatId).
+        is_direct_message = self.is_direct_message(msg_type, chat_id, content)
+
+        # Sync check: return immediate_response to ack WeCom quickly.
+        # Async run: no immediate_response, workflow continues to send_message.
+        return self.add_immediate_response(
+            {
                 "is_verification": False,
                 "event_type": msg_type,
                 "chat_id": chat_id,
-                "should_process": False,
-            }
-
-        # Check if this is an app mention (simplified check)
-        # WeCom mentions are typically in the Content field
-        is_mention = msg_type == "text"
-
-        return {
-            "is_verification": False,
-            "event_type": msg_type,
-            "chat_id": chat_id,
-            "user": msg_data.get("FromUserName", ""),
-            "content": content,
-            "should_process": is_mention,
-        }
+                "user": msg_data.get("FromUserName", ""),
+                "content": content,
+                "target_user": msg_data.get("FromUserName", ""),
+                "should_process": is_direct_message,
+            },
+            is_sync_check,
+        )
 
 
+@registry.register(
+    NodeMetadata(
+        name="WeComAccessTokenNode",
+        description="Fetch and cache WeCom access token",
+        category="wecom",
+    )
+)
 class WeComAccessTokenNode(TaskNode):
     """Fetch and cache WeCom access token."""
 
@@ -210,10 +244,13 @@ class WeComAccessTokenNode(TaskNode):
         url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
         params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
+        finally:
+            await client.aclose()
 
         if data.get("errcode", 0) != 0:
             msg = f"WeCom token error: {data.get('errmsg', 'Unknown error')}"
@@ -225,11 +262,25 @@ class WeComAccessTokenNode(TaskNode):
         }
 
 
+@registry.register(
+    NodeMetadata(
+        name="WeComSendMessageNode",
+        description="Send messages to WeCom chat",
+        category="wecom",
+    )
+)
 class WeComSendMessageNode(TaskNode):
     """Send messages to WeCom chat."""
 
     agent_id: int | str = Field(description="WeCom app agent ID")
-    chat_id: str = Field(description="WeCom chat ID for message delivery")
+    chat_id: str | None = Field(
+        default=None,
+        description="WeCom chat ID for group message delivery",
+    )
+    to_user: str | None = Field(
+        default=None,
+        description="WeCom user ID for direct message delivery",
+    )
     message: str = Field(description="Message content to send")
     msg_type: str = Field(default="text", description="Message type (text or markdown)")
 
@@ -243,7 +294,23 @@ class WeComSendMessageNode(TaskNode):
         if not access_token:
             return {"is_error": True, "error": "No access token available"}
 
-        url = "https://qyapi.weixin.qq.com/cgi-bin/appchat/send"
+        target_user = self.to_user
+        if not target_user and isinstance(results, dict):
+            parser_result = results.get("wecom_events_parser")
+            if isinstance(parser_result, dict):
+                target_user = parser_result.get("target_user")
+        target_chat = self.chat_id
+        if not target_user and not target_chat:
+            return {
+                "is_error": True,
+                "error": "No WeCom chat_id or to_user provided",
+            }
+
+        url = (
+            "https://qyapi.weixin.qq.com/cgi-bin/message/send"
+            if target_user
+            else "https://qyapi.weixin.qq.com/cgi-bin/appchat/send"
+        )
         params = {"access_token": access_token}
 
         # Convert agent_id to int if string
@@ -252,21 +319,27 @@ class WeComSendMessageNode(TaskNode):
             agent_id = int(agent_id)
 
         payload: dict[str, Any] = {
-            "chatid": self.chat_id,
             "msgtype": self.msg_type,
             "agentid": agent_id,
             "safe": 0,
         }
+        if target_user:
+            payload["touser"] = target_user
+        else:
+            payload["chatid"] = target_chat
 
         if self.msg_type == "markdown":
             payload["markdown"] = {"content": self.message}
         else:
             payload["text"] = {"content": self.message}
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
             response = await client.post(url, params=params, json=payload)
             response.raise_for_status()
             data = response.json()
+        finally:
+            await client.aclose()
 
         errcode = data.get("errcode", 0)
         if errcode != 0:
@@ -283,90 +356,8 @@ class WeComSendMessageNode(TaskNode):
         }
 
 
-async def build_graph() -> StateGraph:
-    """Build the WeCom mention responder and scheduled message workflow."""
-    graph = StateGraph(State)
-
-    graph.add_node("detect_trigger", DetectTriggerNode(name="detect_trigger"))
-
-    graph.add_node(
-        "cron_trigger",
-        CronTriggerNode(
-            name="cron_trigger",
-            expression="* * * * *",  # Once per minute for Milestone 1
-            timezone="Europe/Amsterdam",
-        ),
-    )
-
-    graph.add_node(
-        "wecom_events_parser",
-        WeComEventsParserNode(
-            name="wecom_events_parser",
-            corp_id="{{config.configurable.corp_id}}",
-            chat_id="{{config.configurable.chat_id}}",
-        ),
-    )
-
-    graph.add_node(
-        "get_access_token",
-        WeComAccessTokenNode(
-            name="get_access_token",
-            corp_id="{{config.configurable.corp_id}}",
-        ),
-    )
-
-    graph.add_node(
-        "send_message",
-        WeComSendMessageNode(
-            name="send_message",
-            agent_id="{{config.configurable.agent_id}}",
-            chat_id="{{config.configurable.chat_id}}",
-            message="{{config.configurable.message_template}}",
-        ),
-    )
-
-    # Entry point
-    graph.set_entry_point("detect_trigger")
-
-    # Route based on trigger type
-    trigger_router = IfElse(
-        name="trigger_router",
-        conditions=[
-            Condition(left="{{detect_trigger.has_webhook}}", operator="is_truthy")
-        ],
-    )
-    graph.add_conditional_edges(
-        "detect_trigger",
-        trigger_router,
-        {
-            "true": "wecom_events_parser",
-            "false": "cron_trigger",
-        },
-    )
-
-    # Cron trigger leads to access token fetch
-    graph.add_edge("cron_trigger", "get_access_token")
-
-    # WeCom events parser routes based on whether to process
-    reply_router = IfElse(
-        name="reply_router",
-        conditions=[
-            Condition(
-                left="{{wecom_events_parser.should_process}}", operator="is_truthy"
-            ),
-        ],
-    )
-    graph.add_conditional_edges(
-        "wecom_events_parser",
-        reply_router,
-        {
-            "true": "get_access_token",
-            "false": END,
-        },
-    )
-
-    # Access token leads to send message
-    graph.add_edge("get_access_token", "send_message")
-    graph.add_edge("send_message", END)
-
-    return graph
+__all__ = [
+    "WeComAccessTokenNode",
+    "WeComEventsParserNode",
+    "WeComSendMessageNode",
+]

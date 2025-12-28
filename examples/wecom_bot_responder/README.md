@@ -1,9 +1,9 @@
-# WeCom News Push Workflow
+# WeCom Bot Responder Workflow
 
-This workflow sends scripted messages to a WeCom group chat via two trigger mechanisms:
+This workflow replies to direct messages sent to a WeCom app with a fixed response.
 
-1. **Scheduled trigger**: Sends messages on a cron schedule (once per minute by default)
-2. **App mention trigger**: Responds when the WeCom app is mentioned in a group chat
+WeCom callbacks trigger the workflow, which validates the signature, decrypts the
+payload, and sends a reply to the user who initiated the message.
 
 ## Configuration
 
@@ -15,9 +15,10 @@ Edit `workflow_config.json` to set:
 {
   "configurable": {
     "corp_id": "YOUR_WECOM_CORP_ID",
-    "chat_id": "YOUR_WECOM_CHAT_ID",
     "agent_id": 1000002,
-    "message_template": "Your scripted message content here"
+    "reply_message": "Thanks! Your message was received.",
+    "msg_type": "text",
+    "allowlist_user_ids": []
   }
 }
 ```
@@ -25,9 +26,10 @@ Edit `workflow_config.json` to set:
 | Field | Description |
 |-------|-------------|
 | `corp_id` | WeCom corporation ID |
-| `chat_id` | WeCom group chat ID where messages will be sent |
 | `agent_id` | WeCom app agent ID (integer) |
-| `message_template` | The scripted message content to send |
+| `reply_message` | Fixed response content to send back to the user |
+| `msg_type` | `text` or `markdown` reply type |
+| `allowlist_user_ids` | Optional list of user IDs allowed to receive replies |
 
 ### Orcheo Vault Secrets
 
@@ -47,27 +49,19 @@ Configure these secrets in the Orcheo vault (referenced via `[[key]]` syntax):
    https://your-domain/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true
    ```
 3. Set the callback Token and EncodingAESKey, then save them in Orcheo vault
-4. Add the app to the target group chat
-5. Enable trusted IPs if required
+4. Enable trusted IPs if required
 
 ## Trigger Behavior
 
-### Scheduled Messages
+### Direct Messages
 
-The cron trigger is configured to run once per minute (`* * * * *`). To change the schedule, modify the `expression` parameter in the `CronTriggerNode` in `workflow.py`.
-
-Examples:
-- `0 9 * * *` - Daily at 09:00
-- `*/5 * * * *` - Every 5 minutes
-- `0 */2 * * *` - Every 2 hours
-
-### App Mention Messages
-
-When the WeCom app is mentioned in the configured group chat:
+When a user sends a direct message to the WeCom app:
 
 1. WeCom sends a callback to the webhook endpoint
 2. The workflow validates the signature and decrypts the payload
-3. If the message is from the configured chat, it sends the scripted reply
+3. The workflow sends the fixed reply to the user
+
+Group chat messages are ignored.
 
 ## Message Types
 
@@ -83,4 +77,4 @@ To test the workflow locally:
 1. Set up a reverse proxy (e.g., Cloudflare Tunnel) to expose your local server
 2. Configure the WeCom callback URL to point to the tunnel
 3. Start the Orcheo server with `make dev-server`
-4. Mention the app in the WeCom group chat or wait for the scheduled trigger
+4. Send a direct message to the app and confirm the reply

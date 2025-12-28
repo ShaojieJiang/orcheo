@@ -43,6 +43,11 @@ from orcheo.nodes.triggers import (
     ManualTriggerNode,
     WebhookTriggerNode,
 )
+from orcheo.nodes.wecom import (
+    WeComAccessTokenNode,
+    WeComEventsParserNode,
+    WeComSendMessageNode,
+)
 
 
 __all__ = [
@@ -84,4 +89,7 @@ __all__ = [
     "VectorStoreUpsertNode",
     "InMemoryVectorStore",
     "PineconeVectorStore",
+    "WeComAccessTokenNode",
+    "WeComEventsParserNode",
+    "WeComSendMessageNode",
 ]
