@@ -27,13 +27,13 @@ Deliver an Orcheo-native workflow that matches the Slack digest behavior for WeC
 
 #### Task Checklist
 
-- [ ] Task 1.1: Define the scripted reply payload and group-target configuration (chat ID, message template).
+- [x] Task 1.1: Define the scripted reply payload and group-target configuration (chat ID, message template).
   - Dependencies: None
-- [ ] Task 1.2: Wire the app-mention trigger to a scripted reply sender for WeCom.
+- [x] Task 1.2: Wire the app-mention trigger to a scripted reply sender for WeCom.
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Configure a once-per-minute schedule to send scripted messages to the specified group.
+- [x] Task 1.3: Configure a once-per-minute schedule to send scripted messages to the specified group.
   - Dependencies: Task 1.1
-- [ ] Task 1.4: Document how to set the scripted content and target group for both flows.
+- [x] Task 1.4: Document how to set the scripted content and target group for both flows.
   - Dependencies: Task 1.2
 
 ---
