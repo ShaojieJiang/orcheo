@@ -569,6 +569,110 @@ class WeComSendMessageNode(TaskNode):
         }
 
 
+@registry.register(
+    NodeMetadata(
+        name="WeComGroupPushNode",
+        description="Send messages to WeCom group via webhook",
+        category="wecom",
+    )
+)
+class WeComGroupPushNode(TaskNode):
+    """Send messages to a WeCom group via webhook."""
+
+    webhook_key: str | None = Field(
+        default="[[wecom_group_webhook_key]]",
+        description="WeCom group webhook key (from Orcheo vault)",
+    )
+    webhook_url: str | None = Field(
+        default=None,
+        description="Optional full webhook URL override",
+    )
+    msg_type: str = Field(
+        default="text",
+        description="Message type (text or markdown)",
+    )
+    content: str = Field(description="Message content to send")
+    timeout: float | None = Field(
+        default=10.0,
+        description="Timeout in seconds for the webhook request",
+    )
+
+    def build_webhook_url(self) -> str | None:
+        """Return the webhook URL from key or explicit URL."""
+        if self.webhook_url:
+            return self.webhook_url
+        if self.webhook_key:
+            return (
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="
+                f"{self.webhook_key}"
+            )
+        return None
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Send the webhook payload to WeCom."""
+        url = self.build_webhook_url()
+        if not url:
+            logger.warning(
+                "WeCom group webhook missing URL/key",
+                extra={
+                    "event": "wecom_group_webhook",
+                    "status": "failed",
+                    "reason": "missing_webhook",
+                },
+            )
+            return {
+                "is_error": True,
+                "error": "No webhook URL or key provided",
+            }
+
+        payload: dict[str, Any] = {"msgtype": self.msg_type}
+        if self.msg_type == "markdown":
+            payload["markdown"] = {"content": self.content}
+        else:
+            payload["text"] = {"content": self.content}
+
+        client = httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            await client.aclose()
+
+        errcode = data.get("errcode", 0)
+        if errcode != 0:
+            logger.warning(
+                "WeCom group webhook delivery failed",
+                extra={
+                    "event": "wecom_group_webhook",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": data.get("errmsg", "Unknown error"),
+                },
+            )
+            return {
+                "is_error": True,
+                "errcode": errcode,
+                "errmsg": data.get("errmsg", "Unknown error"),
+                "status_code": response.status_code,
+            }
+
+        logger.info(
+            "WeCom group webhook delivered",
+            extra={
+                "event": "wecom_group_webhook",
+                "status": "success",
+                "errcode": 0,
+            },
+        )
+        return {
+            "is_error": False,
+            "errcode": 0,
+            "errmsg": data.get("errmsg", "ok"),
+            "status_code": response.status_code,
+        }
+
+
 def get_access_token_from_state(results: dict[str, Any]) -> str | None:
     """Extract access token from workflow state results.
 
@@ -877,5 +981,6 @@ __all__ = [
     "WeComCustomerServiceSendNode",
     "WeComCustomerServiceSyncNode",
     "WeComEventsParserNode",
+    "WeComGroupPushNode",
     "WeComSendMessageNode",
 ]

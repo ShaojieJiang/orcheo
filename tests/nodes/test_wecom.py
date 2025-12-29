@@ -16,6 +16,7 @@ from orcheo.nodes.wecom import (
     WeComCustomerServiceSendNode,
     WeComCustomerServiceSyncNode,
     WeComEventsParserNode,
+    WeComGroupPushNode,
     WeComSendMessageNode,
     get_access_token_from_state,
 )
@@ -858,6 +859,7 @@ class TestWeComSendMessageNode:
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_response)
         mock_client.aclose = AsyncMock()
+        mock_client.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
             result = await node.run(state, RunnableConfig())
@@ -893,6 +895,7 @@ class TestWeComSendMessageNode:
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.aclose = AsyncMock()
         mock_client.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
@@ -1038,6 +1041,79 @@ class TestWeComSendMessageNode:
         assert result["is_error"] is True
         assert result["errcode"] == 60011
         assert result["errmsg"] == "no privilege to access"
+
+
+class TestWeComGroupPushNode:
+    """Tests for WeComGroupPushNode."""
+
+    @pytest.mark.asyncio
+    async def test_group_push_success_text(self) -> None:
+        """Test successful webhook delivery using key-based URL."""
+        node = WeComGroupPushNode(
+            name="group_push",
+            webhook_key="key123",
+            content="Daily digest",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"errcode": 0, "errmsg": "ok"}
+        mock_response.raise_for_status = MagicMock()
+        mock_response.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args
+        assert "webhook/send?key=key123" in call_kwargs[0][0]
+        assert call_kwargs[1]["json"]["text"]["content"] == "Daily digest"
+
+    @pytest.mark.asyncio
+    async def test_group_push_markdown_error(self) -> None:
+        """Test webhook delivery error response handling."""
+        node = WeComGroupPushNode(
+            name="group_push",
+            webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc",
+            msg_type="markdown",
+            content="*Digest*",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"errcode": 93000, "errmsg": "invalid"}
+        mock_response.raise_for_status = MagicMock()
+        mock_response.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert result["errcode"] == 93000
+
+    @pytest.mark.asyncio
+    async def test_group_push_missing_webhook(self) -> None:
+        """Test missing webhook configuration results in error."""
+        node = WeComGroupPushNode(
+            name="group_push",
+            webhook_key=None,
+            webhook_url=None,
+            content="Digest",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
 
 
 # Customer Service Event Detection tests
