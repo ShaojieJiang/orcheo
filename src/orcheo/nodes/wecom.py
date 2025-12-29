@@ -642,13 +642,6 @@ class WeComCustomerServiceSyncNode(TaskNode):
         open_kf_id = self.open_kf_id or parser_result.get("open_kf_id", "")
         kf_token = self.kf_token or parser_result.get("kf_token", "")
 
-        token_display = kf_token[:20] + "..." if len(kf_token) > 20 else kf_token
-        logger.info(
-            "WeCom CS sync starting: open_kf_id=%s, kf_token=%s",
-            open_kf_id or "(none)",
-            token_display or "(none)",
-        )
-
         if not open_kf_id:
             logger.warning(
                 "WeCom CS sync failed: missing open_kf_id",
@@ -714,20 +707,6 @@ class WeComCustomerServiceSyncNode(TaskNode):
                 if content:
                     break
 
-        logger.info(
-            "WeCom CS sync completed: %d messages, external_user=%s, content=%s",
-            len(msg_list),
-            external_user_id or "(none)",
-            content[:50] if content else "(none)",
-            extra={
-                "event": "wecom_cs_sync",
-                "status": "success",
-                "open_kf_id": open_kf_id,
-                "message_count": len(msg_list),
-                "has_more": has_more,
-            },
-        )
-
         return {
             "is_error": False,
             "open_kf_id": open_kf_id,
@@ -778,7 +757,7 @@ class WeComCustomerServiceSendNode(TaskNode):
     ) -> dict[str, Any]:
         """Send a customer service message."""
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg"
-        params: dict[str, str] = {"access_token": access_token, "debug": "1"}
+        params: dict[str, str] = {"access_token": access_token}
 
         client = httpx.AsyncClient(timeout=10.0)
         try:
