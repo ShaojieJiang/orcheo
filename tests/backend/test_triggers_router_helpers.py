@@ -400,3 +400,26 @@ async def test_try_immediate_response_returns_none_on_error(
 
     assert response is None
     assert should_queue is True
+
+
+def test_build_json_immediate_response_invalid_json_string() -> None:
+    """Invalid JSON strings return a raw Response with application/json media type."""
+    from fastapi import Response
+
+    result = triggers._build_json_immediate_response("not valid json", 200)
+
+    assert isinstance(result, Response)
+    assert not isinstance(result, JSONResponse)
+    assert result.body == b"not valid json"
+    assert result.media_type == "application/json"
+    assert result.status_code == 200
+
+
+def test_build_json_immediate_response_non_string_non_dict_content() -> None:
+    """Non-string, non-dict content falls back to JSONResponse."""
+
+    result = triggers._build_json_immediate_response(12345, 201)
+
+    assert isinstance(result, JSONResponse)
+    assert json.loads(result.body) == 12345
+    assert result.status_code == 201

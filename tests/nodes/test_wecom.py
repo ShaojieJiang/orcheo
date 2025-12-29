@@ -699,6 +699,58 @@ class TestWeComEventsParserNode:
         assert result["immediate_response"] is None
 
     @pytest.mark.asyncio
+    async def test_encrypted_message_sync_check_sets_immediate_response(
+        self,
+    ) -> None:
+        """Test sync check with valid message short-circuits with success."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>user321</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Sync check</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        config = RunnableConfig(
+            configurable={"thread_id": "immediate-response-check-xyz"},
+        )
+        result = await node.run(state, config)
+
+        assert result["should_process"] is True
+        assert result["content"] == "Sync check"
+        assert result["immediate_response"] == {
+            "content": "success",
+            "content_type": "text/plain",
+            "status_code": 200,
+        }
+
+    @pytest.mark.asyncio
     async def test_immediate_response_check(self) -> None:
         """Test immediate response check mode."""
         node = WeComEventsParserNode(
@@ -1113,6 +1165,24 @@ class TestWeComEventsParserCustomerService:
         )
         msg_data = {"MsgType": "text", "Content": "Hello"}
         assert node.is_customer_service_event(msg_data) is False
+
+    def test_handle_customer_service_event_sync_check_sets_immediate_response(
+        self,
+    ) -> None:
+        """Test sync check short-circuits Customer Service events."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        msg_data = {"OpenKfId": "wkABC123", "Token": "sync_token"}
+
+        result = node.handle_customer_service_event(msg_data, is_sync_check=True)
+
+        assert result["is_customer_service"] is True
+        assert result["should_process"] is True
+        assert result["immediate_response"] == node.success_response()
 
     @pytest.mark.asyncio
     async def test_customer_service_event_parsing(self) -> None:
