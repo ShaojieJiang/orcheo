@@ -17,6 +17,7 @@ from orcheo.nodes.wecom import (
     WeComCustomerServiceSyncNode,
     WeComEventsParserNode,
     WeComSendMessageNode,
+    get_access_token_from_state,
 )
 
 
@@ -1139,29 +1140,22 @@ class TestWeComCustomerServiceSyncNode:
         """Test successful message sync."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
-            corp_id="corp123",
-            corp_secret="secret456",
         )
 
         state = State(
             messages=[],
             inputs={},
             results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
                 "wecom_events_parser": {
                     "open_kf_id": "wkABC123",
                     "kf_token": "sync_token",
-                }
+                },
             },
         )
-
-        # Mock responses for token and sync_msg
-        token_response = MagicMock()
-        token_response.json.return_value = {
-            "errcode": 0,
-            "access_token": "test_token",
-            "expires_in": 7200,
-        }
-        token_response.raise_for_status = MagicMock()
 
         sync_response = MagicMock()
         sync_response.json.return_value = {
@@ -1180,7 +1174,6 @@ class TestWeComCustomerServiceSyncNode:
         sync_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=token_response)
         mock_client.post = AsyncMock(return_value=sync_response)
         mock_client.aclose = AsyncMock()
 
@@ -1195,15 +1188,36 @@ class TestWeComCustomerServiceSyncNode:
         assert result["next_cursor"] == "cursor123"
 
     @pytest.mark.asyncio
+    async def test_sync_messages_no_access_token(self) -> None:
+        """Test sync fails without access token."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert "access token" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_sync_messages_no_open_kf_id(self) -> None:
         """Test sync fails without open_kf_id."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
-            corp_id="corp123",
-            corp_secret="secret456",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         result = await node.run(state, RunnableConfig())
 
@@ -1215,20 +1229,19 @@ class TestWeComCustomerServiceSyncNode:
         """Test sync with no messages from external users."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
-            corp_id="corp123",
-            corp_secret="secret456",
             open_kf_id="wkABC123",
         )
 
-        state = State(messages=[], inputs={}, results={})
-
-        token_response = MagicMock()
-        token_response.json.return_value = {
-            "errcode": 0,
-            "access_token": "test_token",
-            "expires_in": 7200,
-        }
-        token_response.raise_for_status = MagicMock()
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         sync_response = MagicMock()
         sync_response.json.return_value = {
@@ -1246,7 +1259,6 @@ class TestWeComCustomerServiceSyncNode:
         sync_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=token_response)
         mock_client.post = AsyncMock(return_value=sync_response)
         mock_client.aclose = AsyncMock()
 
@@ -1259,24 +1271,132 @@ class TestWeComCustomerServiceSyncNode:
         assert result["should_process"] is False
 
     @pytest.mark.asyncio
+    async def test_sync_messages_with_cursor(self) -> None:
+        """Test sync with cursor parameter for pagination."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            open_kf_id="wkABC123",
+            cursor="previous_cursor_value",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
+
+        sync_response = MagicMock()
+        sync_response.json.return_value = {
+            "errcode": 0,
+            "msg_list": [
+                {
+                    "msgtype": "text",
+                    "origin": 3,
+                    "external_userid": "wmXYZ789",
+                    "text": {"content": "Paginated message"},
+                }
+            ],
+            "next_cursor": "next_cursor_value",
+            "has_more": 0,
+        }
+        sync_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        # Verify cursor was included in the request payload
+        call_kwargs = mock_client.post.call_args
+        assert call_kwargs[1]["json"]["cursor"] == "previous_cursor_value"
+
+    @pytest.mark.asyncio
+    async def test_sync_messages_skips_empty_content(self) -> None:
+        """Test sync skips messages with empty content and finds next valid one.
+
+        This test exercises the branch where the loop continues when content is
+        empty (line 714->708 branch coverage).
+        """
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            open_kf_id="wkABC123",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
+
+        sync_response = MagicMock()
+        sync_response.json.return_value = {
+            "errcode": 0,
+            "msg_list": [
+                # First message (oldest) - has content, will be reached after skipping
+                {
+                    "msgtype": "text",
+                    "origin": 3,
+                    "external_userid": "wmOldest",
+                    "text": {"content": "Oldest message with content"},
+                },
+                # Second message (newest) - empty content, processed first due to
+                # reverse, should be skipped (this triggers 714->708 branch)
+                {
+                    "msgtype": "text",
+                    "origin": 3,
+                    "external_userid": "wmEmpty",
+                    "text": {"content": ""},
+                },
+            ],
+            "next_cursor": "",
+            "has_more": 0,
+        }
+        sync_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        # Should skip empty message and get the oldest with content
+        assert result["external_user_id"] == "wmOldest"
+        assert result["content"] == "Oldest message with content"
+        assert result["should_process"] is True
+
+    @pytest.mark.asyncio
     async def test_sync_messages_api_error(self) -> None:
         """Test handling of API error response."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
-            corp_id="corp123",
-            corp_secret="secret456",
             open_kf_id="wkABC123",
         )
 
-        state = State(messages=[], inputs={}, results={})
-
-        token_response = MagicMock()
-        token_response.json.return_value = {
-            "errcode": 0,
-            "access_token": "test_token",
-            "expires_in": 7200,
-        }
-        token_response.raise_for_status = MagicMock()
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         sync_response = MagicMock()
         sync_response.json.return_value = {
@@ -1286,7 +1406,6 @@ class TestWeComCustomerServiceSyncNode:
         sync_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=token_response)
         mock_client.post = AsyncMock(return_value=sync_response)
         mock_client.aclose = AsyncMock()
 
@@ -1308,8 +1427,6 @@ class TestWeComCustomerServiceSendNode:
         """Test successful message send."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            corp_id="corp123",
-            corp_secret="secret456",
             message="Hello, welcome!",
         )
 
@@ -1317,20 +1434,16 @@ class TestWeComCustomerServiceSendNode:
             messages=[],
             inputs={},
             results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
                 "wecom_cs_sync": {
                     "open_kf_id": "wkABC123",
                     "external_user_id": "wmXYZ789",
-                }
+                },
             },
         )
-
-        token_response = MagicMock()
-        token_response.json.return_value = {
-            "errcode": 0,
-            "access_token": "test_token",
-            "expires_in": 7200,
-        }
-        token_response.raise_for_status = MagicMock()
 
         send_response = MagicMock()
         send_response.json.return_value = {
@@ -1341,7 +1454,6 @@ class TestWeComCustomerServiceSendNode:
         send_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=token_response)
         mock_client.post = AsyncMock(return_value=send_response)
         mock_client.aclose = AsyncMock()
 
@@ -1360,16 +1472,38 @@ class TestWeComCustomerServiceSendNode:
         assert call_kwargs[1]["json"]["text"]["content"] == "Hello, welcome!"
 
     @pytest.mark.asyncio
-    async def test_send_message_no_open_kf_id(self) -> None:
-        """Test send fails without open_kf_id."""
+    async def test_send_message_no_access_token(self) -> None:
+        """Test send fails without access token."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            corp_id="corp123",
-            corp_secret="secret456",
             message="Hello!",
         )
 
         state = State(messages=[], inputs={}, results={})
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert "access token" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_send_message_no_open_kf_id(self) -> None:
+        """Test send fails without open_kf_id."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            message="Hello!",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         result = await node.run(state, RunnableConfig())
 
@@ -1381,13 +1515,20 @@ class TestWeComCustomerServiceSendNode:
         """Test send fails without external_user_id."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            corp_id="corp123",
-            corp_secret="secret456",
             open_kf_id="wkABC123",
             message="Hello!",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         result = await node.run(state, RunnableConfig())
 
@@ -1399,22 +1540,21 @@ class TestWeComCustomerServiceSendNode:
         """Test handling of API error response."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            corp_id="corp123",
-            corp_secret="secret456",
             open_kf_id="wkABC123",
             external_user_id="wmXYZ789",
             message="Hello!",
         )
 
-        state = State(messages=[], inputs={}, results={})
-
-        token_response = MagicMock()
-        token_response.json.return_value = {
-            "errcode": 0,
-            "access_token": "test_token",
-            "expires_in": 7200,
-        }
-        token_response.raise_for_status = MagicMock()
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
 
         send_response = MagicMock()
         send_response.json.return_value = {
@@ -1424,7 +1564,6 @@ class TestWeComCustomerServiceSendNode:
         send_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=token_response)
         mock_client.post = AsyncMock(return_value=send_response)
         mock_client.aclose = AsyncMock()
 
@@ -1434,3 +1573,79 @@ class TestWeComCustomerServiceSendNode:
         assert result["is_error"] is True
         assert result["errcode"] == 95017
         assert result["errmsg"] == "invalid external_userid"
+
+    @pytest.mark.asyncio
+    async def test_send_non_text_message_falls_back_to_text(self) -> None:
+        """Test that non-text message types fall back to text format."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            message="Hello from non-text!",
+            msg_type="markdown",  # Non-text type
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+                "wecom_cs_sync": {
+                    "open_kf_id": "wkABC123",
+                    "external_user_id": "wmXYZ789",
+                },
+            },
+        )
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "msgid": "msg123",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        # Even though msg_type is markdown, it should still use text format
+        call_kwargs = mock_client.post.call_args
+        assert call_kwargs[1]["json"]["text"]["content"] == "Hello from non-text!"
+
+
+# get_access_token_from_state tests
+
+
+class TestGetAccessTokenFromState:
+    """Tests for get_access_token_from_state helper function."""
+
+    def test_returns_token_from_get_access_token(self) -> None:
+        """Test extracting token from get_access_token key."""
+        results = {"get_access_token": {"access_token": "token123"}}
+        assert get_access_token_from_state(results) == "token123"
+
+    def test_returns_token_from_get_cs_access_token(self) -> None:
+        """Test extracting token from get_cs_access_token key."""
+        results = {"get_cs_access_token": {"access_token": "cs_token456"}}
+        assert get_access_token_from_state(results) == "cs_token456"
+
+    def test_returns_none_when_no_token(self) -> None:
+        """Test returns None when no token in results."""
+        results = {"some_other_key": {"data": "value"}}
+        assert get_access_token_from_state(results) is None
+
+    def test_returns_none_when_token_result_not_dict(self) -> None:
+        """Test returns None when token result is not a dict."""
+        results = {"get_access_token": "not_a_dict"}
+        assert get_access_token_from_state(results) is None
+
+    def test_returns_none_when_token_is_empty(self) -> None:
+        """Test returns None when access_token is empty string."""
+        results = {"get_access_token": {"access_token": ""}}
+        assert get_access_token_from_state(results) is None

@@ -279,6 +279,80 @@ class WeComEventsParserNode(TaskNode):
             is_sync_check,
         )
 
+    def handle_customer_service_event(
+        self, msg_data: dict[str, str], is_sync_check: bool
+    ) -> dict[str, Any]:
+        """Handle Customer Service (微信客服) event from external WeChat users."""
+        open_kf_id = msg_data.get("OpenKfId", "")
+        kf_token = msg_data.get("Token", "")
+        logger.info(
+            "WeCom Customer Service event received",
+            extra={
+                "event": "wecom_customer_service",
+                "status": "received",
+                "open_kf_id": open_kf_id,
+            },
+        )
+        return self.add_immediate_response(
+            {
+                "is_verification": False,
+                "is_customer_service": True,
+                "event_type": "kf_msg_or_event",
+                "open_kf_id": open_kf_id,
+                "kf_token": kf_token,
+                "should_process": bool(open_kf_id and kf_token),
+            },
+            is_sync_check,
+        )
+
+    def handle_url_verification(
+        self, timestamp: str, nonce: str, echostr: str, msg_signature: str
+    ) -> dict[str, Any]:
+        """Handle URL verification request (GET with echostr)."""
+        self.verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
+        decrypted_echostr = self.decrypt_message(
+            echostr, self.encoding_aes_key, self.corp_id
+        )
+        return {
+            "is_verification": True,
+            "should_process": False,
+            "immediate_response": {
+                "content": decrypted_echostr,
+                "content_type": "text/plain",
+                "status_code": 200,
+            },
+        }
+
+    def extract_body_string(self, inputs: dict[str, Any]) -> str:
+        """Extract body string from inputs."""
+        body = inputs.get("body", {})
+        if isinstance(body, dict) and "raw" in body:
+            return body["raw"]
+        if isinstance(body, str):
+            return body
+        return str(body)
+
+    def make_invalid_payload_response(self, is_sync_check: bool) -> dict[str, Any]:
+        """Return a response for invalid/missing payload."""
+        return self.add_immediate_response(
+            {
+                "is_verification": False,
+                "event_type": None,
+                "should_process": False,
+            },
+            is_sync_check,
+        )
+
+    def decrypt_and_parse_message(
+        self, encrypt: str, timestamp: str, nonce: str, msg_signature: str
+    ) -> dict[str, str]:
+        """Verify signature, validate timestamp, decrypt and parse message."""
+        self.verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
+        decrypted_xml = self.decrypt_message(
+            encrypt, self.encoding_aes_key, self.corp_id
+        )
+        return self.parse_xml(decrypted_xml)
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the WeCom callback payload and validate signatures."""
         is_sync_check = self.is_immediate_response_check(config)
@@ -291,31 +365,13 @@ class WeComEventsParserNode(TaskNode):
         echostr = query_params.get("echostr")
 
         # URL verification request (GET with echostr)
-        # Always return immediate_response for verification
         if echostr:
-            self.verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
-            decrypted_echostr = self.decrypt_message(
-                echostr, self.encoding_aes_key, self.corp_id
+            return self.handle_url_verification(
+                timestamp, nonce, echostr, msg_signature
             )
-            return {
-                "is_verification": True,
-                "should_process": False,
-                "immediate_response": {
-                    "content": decrypted_echostr,
-                    "content_type": "text/plain",
-                    "status_code": 200,
-                },
-            }
 
         # Parse encrypted message body
-        body = inputs.get("body", {})
-        if isinstance(body, dict) and "raw" in body:
-            body_str = body["raw"]
-        elif isinstance(body, str):
-            body_str = body
-        else:
-            body_str = str(body)
-
+        body_str = self.extract_body_string(inputs)
         xml_data = self.parse_xml(body_str)
         encrypt = xml_data.get("Encrypt", "")
 
@@ -327,62 +383,21 @@ class WeComEventsParserNode(TaskNode):
                     "status": "failed",
                 },
             )
-            return self.add_immediate_response(
-                {
-                    "is_verification": False,
-                    "event_type": None,
-                    "should_process": False,
-                },
-                is_sync_check,
-            )
+            return self.make_invalid_payload_response(is_sync_check)
 
-        # Verify signature
-        self.verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
-
-        # Check timestamp tolerance
+        # Check timestamp tolerance before decryption
         if not self.validate_timestamp(timestamp):
-            return self.add_immediate_response(
-                {
-                    "is_verification": False,
-                    "event_type": None,
-                    "should_process": False,
-                },
-                is_sync_check,
-            )
+            return self.make_invalid_payload_response(is_sync_check)
 
-        # Decrypt message
-        decrypted_xml = self.decrypt_message(
-            encrypt, self.encoding_aes_key, self.corp_id
+        # Decrypt and parse message
+        msg_data = self.decrypt_and_parse_message(
+            encrypt, timestamp, nonce, msg_signature
         )
-        msg_data = self.parse_xml(decrypted_xml)
 
-        # Check for Customer Service (微信客服) event from external WeChat users.
-        # These events only signal that new messages are available; actual
-        # messages must be fetched via the sync_msg API.
+        # Route to appropriate handler based on message type
         if self.is_customer_service_event(msg_data):
-            open_kf_id = msg_data.get("OpenKfId", "")
-            kf_token = msg_data.get("Token", "")
-            logger.info(
-                "WeCom Customer Service event received",
-                extra={
-                    "event": "wecom_customer_service",
-                    "status": "received",
-                    "open_kf_id": open_kf_id,
-                },
-            )
-            return self.add_immediate_response(
-                {
-                    "is_verification": False,
-                    "is_customer_service": True,
-                    "event_type": "kf_msg_or_event",
-                    "open_kf_id": open_kf_id,
-                    "kf_token": kf_token,
-                    "should_process": bool(open_kf_id and kf_token),
-                },
-                is_sync_check,
-            )
+            return self.handle_customer_service_event(msg_data, is_sync_check)
 
-        # Handle internal WeCom user message
         return self.handle_internal_message(msg_data, is_sync_check)
 
 
@@ -554,6 +569,20 @@ class WeComSendMessageNode(TaskNode):
         }
 
 
+def get_access_token_from_state(results: dict[str, Any]) -> str | None:
+    """Extract access token from workflow state results.
+
+    Looks for access_token in common node result keys.
+    """
+    for key in ("get_access_token", "get_cs_access_token"):
+        token_result = results.get(key, {})
+        if isinstance(token_result, dict):
+            token = token_result.get("access_token")
+            if token:
+                return token
+    return None
+
+
 @registry.register(
     NodeMetadata(
         name="WeComCustomerServiceSyncNode",
@@ -570,11 +599,11 @@ class WeComCustomerServiceSyncNode(TaskNode):
 
     The sync_msg API returns all new messages since the last cursor.
     Only the first text message from external users is processed.
+
+    Requires an access token from a preceding WeComAccessTokenNode
+    (named 'get_access_token' or 'get_cs_access_token' in the workflow).
     """
 
-    corp_id: str = Field(description="WeCom corp ID")
-    corp_secret: str = "[[wecom_corp_secret]]"
-    """WeCom Customer Service app secret (from Orcheo vault)."""
     open_kf_id: str | None = Field(
         default=None,
         description="Customer Service account ID (from parser result)",
@@ -592,30 +621,23 @@ class WeComCustomerServiceSyncNode(TaskNode):
         description="Maximum number of messages to fetch (1-1000)",
     )
 
-    async def get_access_token(self) -> str:
-        """Fetch Customer Service access token."""
-        url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
-        params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
-
-        client = httpx.AsyncClient(timeout=10.0)
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-        finally:
-            await client.aclose()
-
-        if data.get("errcode", 0) != 0:
-            msg = f"WeCom CS token error: {data.get('errmsg', 'Unknown error')}"
-            raise ValueError(msg)
-
-        return data.get("access_token", "")
-
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Sync messages from Customer Service."""
-        # Get open_kf_id and token from parser result if not provided
         results = state.get("results", {})
         parser_result = results.get("wecom_events_parser", {})
+
+        # Get access token from state (requires preceding WeComAccessTokenNode)
+        access_token = get_access_token_from_state(results)
+        if not access_token:
+            logger.warning(
+                "WeCom CS sync failed: missing access token",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "failed",
+                    "reason": "missing_access_token",
+                },
+            )
+            return {"is_error": True, "error": "No access token available"}
 
         open_kf_id = self.open_kf_id or parser_result.get("open_kf_id", "")
         kf_token = self.kf_token or parser_result.get("kf_token", "")
@@ -637,9 +659,6 @@ class WeComCustomerServiceSyncNode(TaskNode):
                 },
             )
             return {"is_error": True, "error": "No open_kf_id provided"}
-
-        # Get access token
-        access_token = await self.get_access_token()
 
         # Sync messages
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg"
@@ -734,11 +753,11 @@ class WeComCustomerServiceSendNode(TaskNode):
     This node sends messages to external WeChat users through Customer
     Service. It should be used after WeComCustomerServiceSyncNode has
     fetched the external user ID.
+
+    Requires an access token from a preceding WeComAccessTokenNode
+    (named 'get_access_token' or 'get_cs_access_token' in the workflow).
     """
 
-    corp_id: str = Field(description="WeCom corp ID")
-    corp_secret: str = "[[wecom_corp_secret]]"
-    """WeCom Customer Service app secret (from Orcheo vault)."""
     open_kf_id: str | None = Field(
         default=None,
         description="Customer Service account ID",
@@ -750,25 +769,6 @@ class WeComCustomerServiceSendNode(TaskNode):
     message: str = Field(description="Message content to send")
     msg_type: str = Field(default="text", description="Message type (text only)")
 
-    async def get_access_token(self) -> str:
-        """Fetch Customer Service access token."""
-        url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
-        params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
-
-        client = httpx.AsyncClient(timeout=10.0)
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-        finally:
-            await client.aclose()
-
-        if data.get("errcode", 0) != 0:
-            msg = f"WeCom CS token error: {data.get('errmsg', 'Unknown error')}"
-            raise ValueError(msg)
-
-        return data.get("access_token", "")
-
     async def send_message(
         self,
         access_token: str,
@@ -778,7 +778,7 @@ class WeComCustomerServiceSendNode(TaskNode):
     ) -> dict[str, Any]:
         """Send a customer service message."""
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg"
-        params = {"access_token": access_token, "debug": 1}
+        params: dict[str, str] = {"access_token": access_token, "debug": "1"}
 
         client = httpx.AsyncClient(timeout=10.0)
         try:
@@ -828,10 +828,22 @@ class WeComCustomerServiceSendNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message via Customer Service."""
-        # Get IDs from sync node result if not provided
         results = state.get("results", {})
         sync_result = results.get("wecom_cs_sync", {})
         parser_result = results.get("wecom_events_parser", {})
+
+        # Get access token from state (requires preceding WeComAccessTokenNode)
+        access_token = get_access_token_from_state(results)
+        if not access_token:
+            logger.warning(
+                "WeCom CS send failed: missing access token",
+                extra={
+                    "event": "wecom_cs_send",
+                    "status": "failed",
+                    "reason": "missing_access_token",
+                },
+            )
+            return {"is_error": True, "error": "No access token available"}
 
         open_kf_id = (
             self.open_kf_id
@@ -863,9 +875,6 @@ class WeComCustomerServiceSendNode(TaskNode):
                 },
             )
             return {"is_error": True, "error": "No external_user_id provided"}
-
-        # Get access token
-        access_token = await self.get_access_token()
 
         payload: dict[str, Any] = {
             "touser": external_user_id,

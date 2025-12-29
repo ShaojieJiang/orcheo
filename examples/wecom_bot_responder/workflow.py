@@ -63,11 +63,22 @@ async def build_graph() -> StateGraph:
     )
 
     # --- External WeChat user path (Customer Service) ---
+    # CS nodes require an access token from a preceding WeComAccessTokenNode.
+    # We use "get_cs_access_token" to distinguish from the internal user path,
+    # but the CS nodes will find tokens from either "get_access_token" or
+    # "get_cs_access_token" node results.
+    graph.add_node(
+        "get_cs_access_token",
+        WeComAccessTokenNode(
+            name="get_cs_access_token",
+            corp_id="{{config.configurable.corp_id}}",
+        ),
+    )
+
     graph.add_node(
         "wecom_cs_sync",
         WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 
@@ -75,7 +86,6 @@ async def build_graph() -> StateGraph:
         "wecom_cs_send",
         WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            corp_id="{{config.configurable.corp_id}}",
             message="{{config.configurable.reply_message}}",
         ),
     )
@@ -127,7 +137,7 @@ async def build_graph() -> StateGraph:
         "route_by_type",
         message_type_router,
         {
-            "true": "wecom_cs_sync",  # External WeChat user: sync CS messages
+            "true": "get_cs_access_token",  # External WeChat user: get token first
             "false": "get_access_token",  # Internal WeCom user: get token
         },
     )
@@ -137,6 +147,8 @@ async def build_graph() -> StateGraph:
     graph.add_edge("send_message", END)
 
     # --- External user (CS) path ---
+    graph.add_edge("get_cs_access_token", "wecom_cs_sync")
+
     # After syncing, check if we have a message to respond to
     cs_sync_router = IfElse(
         name="cs_sync_router",
