@@ -68,6 +68,25 @@ Deliver a minimal WeCom bot responder workflow that validates callbacks, decrypt
 
 ---
 
+### Milestone 4: Scheduled WeCom Group News Push
+
+**Description:** Push the latest 20 news items to a WeCom group every day at 09:00 Amsterdam time using the Message Push webhook (similar to `examples/slack_news_push/workflow.py`, without unread filtering or marking items as read).
+
+#### Task Checklist
+
+- [x] Task 4.1: Define `WeComGroupPushNode` inputs (webhook key/url, message type, content) and vault secrets.
+  - Dependencies: Milestone 2
+- [x] Task 4.2: Add `CronTriggerNode` at `0 9 * * *` with timezone `Europe/Amsterdam`.
+  - Dependencies: Task 4.1
+- [x] Task 4.3: Fetch the latest 20 news items via `MongoDBFindNode` (sorted by `isoDate` desc, limit 20).
+  - Dependencies: Task 4.2
+- [x] Task 4.4: Format the digest payload for WeCom (`text` or `markdown`) without unread filtering.
+  - Dependencies: Task 4.3
+- [x] Task 4.5: Post the digest to the Message Push webhook and validate response handling/logging.
+  - Dependencies: Task 4.4
+
+---
+
 ## Revision History
 
 | Date | Author | Changes |
