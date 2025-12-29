@@ -22,6 +22,7 @@ from orcheo_backend.app import (
     validate_workflow_credentials,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError
+from orcheo_backend.app.routers import triggers as triggers_router
 from orcheo_backend.app.schemas.credentials import CredentialValidationRequest
 
 
@@ -175,12 +176,26 @@ async def test_validate_workflow_credentials_requires_service() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_invoke_webhook_trigger_wraps_health_error() -> None:
+async def test_invoke_webhook_trigger_wraps_health_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def get_latest_version(self, workflow_id):
+            return object()
+
         async def handle_webhook_trigger(self, *args, **kwargs):
             raise _health_error(workflow_id)
+
+    async def _fake_immediate_response(*_args, **_kwargs) -> tuple[None, bool]:
+        return None, True
+
+    monkeypatch.setattr(
+        triggers_router,
+        "_try_immediate_response",
+        _fake_immediate_response,
+    )
 
     scope = {
         "type": "http",
@@ -197,7 +212,12 @@ async def test_invoke_webhook_trigger_wraps_health_error() -> None:
     request = Request(scope, receive)
 
     with pytest.raises(HTTPException) as exc_info:
-        await invoke_webhook_trigger(workflow_id, request, repository=Repository())
+        await invoke_webhook_trigger(
+            workflow_id,
+            request,
+            repository=Repository(),
+            vault=object(),
+        )
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
