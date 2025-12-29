@@ -590,11 +590,16 @@ class WeComAIBotEventsParserNode(TaskNode):
         }
 
     def make_invalid_payload_response(self) -> dict[str, Any]:
-        """Return a response for invalid/missing payload."""
+        """Return a response for invalid/missing payload.
+
+        Returns a success immediate_response to acknowledge the request to WeCom.
+        This prevents WeCom from retrying the request while ensuring no workflow
+        processing occurs for invalid payloads.
+        """
         return {
             "is_verification": False,
             "should_process": False,
-            "immediate_response": None,
+            "immediate_response": self.success_response(),
         }
 
     def parse_message(

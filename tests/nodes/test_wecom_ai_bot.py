@@ -252,7 +252,7 @@ class TestWeComAIBotEventsParserNode:
 
     @pytest.mark.asyncio
     async def test_missing_encrypt_returns_invalid(self) -> None:
-        """Test missing encrypt field returns invalid payload response."""
+        """Test missing encrypt field returns invalid payload response with ack."""
         node = WeComAIBotEventsParserNode(
             name="wecom_ai_bot_parser",
             token="token",
@@ -273,7 +273,12 @@ class TestWeComAIBotEventsParserNode:
 
         assert result["is_verification"] is False
         assert result["should_process"] is False
-        assert result["immediate_response"] is None
+        # Invalid payloads return a success response to ack WeCom and prevent retries
+        assert result["immediate_response"] == {
+            "content": "success",
+            "content_type": "text/plain",
+            "status_code": 200,
+        }
 
 
 class TestWeComAIBotPassiveReplyNode:
