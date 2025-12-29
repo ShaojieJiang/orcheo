@@ -259,6 +259,51 @@ async def test_try_immediate_response_returns_json_response(
 
 
 @pytest.mark.asyncio()
+async def test_try_immediate_response_returns_json_string_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Immediate responses accept JSON-encoded strings."""
+
+    final_state = {
+        "results": {
+            "node": {
+                "immediate_response": {
+                    "content": json.dumps({"ok": True}),
+                    "content_type": "application/json",
+                    "status_code": 200,
+                },
+                "should_process": False,
+            }
+        }
+    }
+    compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    monkeypatch.setattr(
+        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
+    )
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "hi"}, vault=object()
+    )
+
+    assert isinstance(response, JSONResponse)
+    assert json.loads(response.body) == {"ok": True}
+    assert response.status_code == 200
+    assert should_queue is False
+
+
+@pytest.mark.asyncio()
 async def test_try_immediate_response_returns_plain_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

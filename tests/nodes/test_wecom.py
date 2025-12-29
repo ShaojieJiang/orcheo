@@ -1157,7 +1157,13 @@ class TestWeComEventsParserCustomerService:
 
     @pytest.mark.asyncio
     async def test_customer_service_event_parsing(self) -> None:
-        """Test parsing Customer Service event callback."""
+        """Test parsing Customer Service event callback.
+
+        Valid CS events (with open_kf_id and kf_token) set should_process=True
+        and immediate_response=None to allow the workflow to continue to CS
+        sync and send nodes. The send node will set immediate_response after
+        sending, preventing a duplicate async run.
+        """
         encoding_aes_key, raw_key = _create_aes_key()
         token = "test_token"
         timestamp = str(int(time.time()))
@@ -1202,7 +1208,9 @@ class TestWeComEventsParserCustomerService:
         assert result["event_type"] == "kf_msg_or_event"
         assert result["open_kf_id"] == "wkABC123"
         assert result["kf_token"] == "sync_token_abc"
+        # Valid CS events continue to send node; immediate_response=None
         assert result["should_process"] is True
+        assert result["immediate_response"] is None
 
 
 # WeComCustomerServiceSyncNode tests
