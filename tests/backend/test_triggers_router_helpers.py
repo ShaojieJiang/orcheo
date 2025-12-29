@@ -259,6 +259,51 @@ async def test_try_immediate_response_returns_json_response(
 
 
 @pytest.mark.asyncio()
+async def test_try_immediate_response_returns_json_string_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Immediate responses accept JSON-encoded strings."""
+
+    final_state = {
+        "results": {
+            "node": {
+                "immediate_response": {
+                    "content": json.dumps({"ok": True}),
+                    "content_type": "application/json",
+                    "status_code": 200,
+                },
+                "should_process": False,
+            }
+        }
+    }
+    compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    monkeypatch.setattr(
+        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
+    )
+    monkeypatch.setattr(triggers, "get_settings", lambda: object())
+
+    version = WorkflowVersion(
+        workflow_id=uuid4(),
+        version=1,
+        graph={"format": LANGGRAPH_SCRIPT_FORMAT},
+        created_by="tester",
+    )
+
+    response, should_queue = await triggers._try_immediate_response(
+        version, {"message": "hi"}, vault=object()
+    )
+
+    assert isinstance(response, JSONResponse)
+    assert json.loads(response.body) == {"ok": True}
+    assert response.status_code == 200
+    assert should_queue is False
+
+
+@pytest.mark.asyncio()
 async def test_try_immediate_response_returns_plain_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -355,3 +400,26 @@ async def test_try_immediate_response_returns_none_on_error(
 
     assert response is None
     assert should_queue is True
+
+
+def test_build_json_immediate_response_invalid_json_string() -> None:
+    """Invalid JSON strings return a raw Response with application/json media type."""
+    from fastapi import Response
+
+    result = triggers._build_json_immediate_response("not valid json", 200)
+
+    assert isinstance(result, Response)
+    assert not isinstance(result, JSONResponse)
+    assert result.body == b"not valid json"
+    assert result.media_type == "application/json"
+    assert result.status_code == 200
+
+
+def test_build_json_immediate_response_non_string_non_dict_content() -> None:
+    """Non-string, non-dict content falls back to JSONResponse."""
+
+    result = triggers._build_json_immediate_response(12345, 201)
+
+    assert isinstance(result, JSONResponse)
+    assert json.loads(result.body) == 12345
+    assert result.status_code == 201

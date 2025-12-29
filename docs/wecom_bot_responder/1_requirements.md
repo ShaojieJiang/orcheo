@@ -14,6 +14,11 @@
 |-----------|------|-------|------|
 | WeCom App Setup | https://open.work.weixin.qq.com/wwopen/manual/detail?t=selfBuildApp | WeCom | Official Docs |
 | WeCom Message Push | https://developer.work.weixin.qq.com/document/path/99110 | WeCom | Message Push Configuration |
+| WeCom AI Bot API Overview | https://developer.work.weixin.qq.com/document/path/101039 | WeCom | AI Bot API Setup |
+| WeCom AI Bot Message Push | https://developer.work.weixin.qq.com/document/path/100719 | WeCom | AI Bot Message Formats |
+| WeCom AI Bot Passive Reply | https://developer.work.weixin.qq.com/document/path/101031 | WeCom | AI Bot Reply Payloads |
+| WeCom AI Bot Active Reply | https://developer.work.weixin.qq.com/document/path/101138 | WeCom | AI Bot response_url Reply |
+| WeCom AI Bot Verify/Encrypt | https://developer.work.weixin.qq.com/document/path/101033 | WeCom | AI Bot URL Verification |
 | Requirements | [1_requirements.md](1_requirements.md) | Shaojie Jiang | WeCom Bot Responder Requirements |
 | Design | [2_design.md](2_design.md) | Shaojie Jiang | WeCom Bot Responder Design |
 | Plan | [3_plan.md](3_plan.md) | Shaojie Jiang | WeCom Bot Responder Plan |
@@ -21,6 +26,8 @@
 ## PROBLEM DEFINITION
 ### Objectives
 Deliver a WeCom bot that responds to direct messages with a fixed message and sends a scheduled group news digest. The flow must validate WeCom callbacks, decrypt payloads, and reply to the sender reliably. The news push must post the latest 20 items to a WeCom group every day at 09:00 Amsterdam time.
+
+Add WeCom AI bot support: verify callback URLs, decrypt AI bot callback payloads, and reply to new user messages (passive or active reply).
 
 ### Target users
 WeCom users who message the app directly and operators who manage the WeCom app and webhook configuration.
@@ -49,12 +56,16 @@ The previous "news push" workflow is not feasible. Instead, we need a minimal, r
 - Send a fixed response message back to the direct-message sender using WeCom app credentials.
 - Return immediate responses for WeCom verification and synchronous checks.
 - Respect WeCom platform constraints: HTTPS callback URL, trusted IP allowlist, and access token refresh via corp ID/secret.
+- Support WeCom AI bot URL verification and encrypted callbacks (JSON payloads with `encrypt`).
+- Support WeCom AI bot message handling for supported message types (text, image, mixed, voice, file, quote) and return replies.
+- Support AI bot active replies via `response_url` (single-use URL, 1-hour validity).
 
 **P1 (nice to have)**
 - Configurable message type (`text` or `markdown`).
 - Optional allowlist of user IDs.
 - Scheduled WeCom group news push using Message Push webhook (text or markdown digest).
 - Digest includes the latest 20 news items and does not track unread state.
+- Passive AI bot replies (encrypted immediate response) for welcome text or direct replies.
 
 ### Designs (if applicable)
 See [2_design.md](2_design.md) for the Orcheo workflow design.
@@ -70,6 +81,8 @@ The Orcheo workflow receives WeCom webhook requests, validates/decrypts the payl
 - WeCom callback verification and decryption using `msg_signature`, `timestamp`, `nonce`, plus `Token` and `EncodingAESKey` configured in the WeCom app.
 - Access token retrieval and caching using corp ID + corp secret; refresh before message send.
 - Secrets sourced from Orcheo vault: `WECOM_CORP_ID`, `WECOM_CORP_SECRET`, `WECOM_TOKEN`, `WECOM_ENCODING_AES_KEY`, `WECOM_AGENT_ID`.
+- AI bot callback verification and decryption using `msg_signature`, `timestamp`, `nonce`, plus AI bot `Token` and `EncodingAESKey` (ReceiveId is empty for internal AI bots).
+- AI bot replies must support encrypted passive reply payloads and active reply POSTs to `response_url`.
 - WeCom Message Push webhook key stored in Orcheo vault; keep the webhook URL private and rotate if exposed.
 - Message Push supports `text`, `markdown`, `markdown_v2`, `news`, `file`, `image`, `voice`, `template_card` message types; ensure payloads follow WeCom limits (text 2048 bytes, markdown 4096 bytes).
 - Message Push rate limit: no more than 20 messages per minute per webhook.

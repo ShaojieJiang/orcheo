@@ -5,7 +5,7 @@ import json
 import logging
 from collections.abc import Mapping
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from langchain_core.runnables import RunnableConfig
@@ -138,7 +138,7 @@ async def _try_immediate_response(
     version: WorkflowVersion,
     inputs: dict[str, Any],
     vault: VaultDep,
-) -> tuple[PlainTextResponse | JSONResponse | None, bool]:
+) -> tuple[PlainTextResponse | JSONResponse | Response | None, bool]:
     """Execute workflow and check for immediate_response.
 
     Some workflows (e.g., WeCom) need to return an immediate HTTP response.
@@ -156,7 +156,7 @@ async def _try_immediate_response(
     credential_context = CredentialAccessContext(workflow_id=version.workflow_id)
     resolver = CredentialResolver(vault, context=credential_context)
 
-    execution_id = "immediate-response-check"
+    execution_id = f"immediate-response-check-{uuid4()}"
     stored_config = version.runnable_config
     merged_config = merge_runnable_configs(stored_config, None)
     runtime_config: RunnableConfig = merged_config.to_runnable_config(execution_id)
@@ -186,10 +186,29 @@ async def _try_immediate_response(
     status_code = immediate.get("status_code", 200)
 
     if content_type == "application/json":
-        return JSONResponse(content=content, status_code=status_code), should_process
-
-    response = PlainTextResponse(content=str(content), status_code=status_code)
+        response = _build_json_immediate_response(content, status_code)
+    else:
+        response = PlainTextResponse(content=str(content), status_code=status_code)
     return response, should_process
+
+
+def _build_json_immediate_response(
+    content: Any, status_code: int
+) -> JSONResponse | Response:
+    """Return a JSON response from raw content or a JSON-encoded string."""
+    if isinstance(content, dict | list):
+        return JSONResponse(content=content, status_code=status_code)
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return Response(
+                content=content,
+                media_type="application/json",
+                status_code=status_code,
+            )
+        return JSONResponse(content=parsed, status_code=status_code)
+    return JSONResponse(content=content, status_code=status_code)
 
 
 @router.put(
@@ -266,7 +285,7 @@ async def invoke_webhook_trigger(
         default=False,
         description="Store the raw request body alongside parsed payloads.",
     ),
-) -> WorkflowRun | JSONResponse | PlainTextResponse:
+) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
     """Validate inbound webhook data and enqueue a workflow run."""
     try:
         raw_body = await request.body()
@@ -294,7 +313,7 @@ async def invoke_webhook_trigger(
     }
 
     # Check for immediate response (e.g., WeCom URL verification)
-    immediate_response: PlainTextResponse | JSONResponse | None = None
+    immediate_response: PlainTextResponse | JSONResponse | Response | None = None
     should_queue = True
     if _should_try_immediate_response(query_params):
         try:

@@ -11,7 +11,9 @@ This module provides nodes for integrating with WeCom (企业微信) APIs:
 import base64
 import hashlib
 import hmac
+import json
 import logging
+import os
 import struct
 import time
 from typing import Any
@@ -26,6 +28,134 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 logger = logging.getLogger(__name__)
+
+# WeCom encryption constants
+AES_BLOCK_SIZE = 32
+PKCS7_PAD_MIN = 1
+PKCS7_PAD_MAX = 32
+RANDOM_PREFIX_LEN = 16
+MSG_LEN_BYTES = 4
+MIN_DECRYPTED_LEN = RANDOM_PREFIX_LEN + MSG_LEN_BYTES
+
+
+def verify_wecom_signature(
+    token: str,
+    timestamp: str,
+    nonce: str,
+    encrypted_msg: str,
+    signature: str,
+    log_prefix: str = "WeCom",
+) -> None:
+    """Verify WeCom message signature.
+
+    Args:
+        token: WeCom callback token.
+        timestamp: Request timestamp.
+        nonce: Request nonce.
+        encrypted_msg: Encrypted message or echostr.
+        signature: Expected signature.
+        log_prefix: Prefix for log messages (e.g., "WeCom", "WeCom AI bot").
+
+    Raises:
+        ValueError: If signature verification fails.
+    """
+    items = sorted([token, timestamp, nonce, encrypted_msg])
+    sha1 = hashlib.sha1("".join(items).encode()).hexdigest()
+    if not hmac.compare_digest(sha1, signature):
+        logger.warning(
+            "%s signature verification failed",
+            log_prefix,
+            extra={
+                "event": f"{log_prefix.lower().replace(' ', '_')}_signature_validation",
+                "status": "failed",
+            },
+        )
+        msg = f"{log_prefix} signature verification failed"
+        raise ValueError(msg)
+
+
+def decrypt_wecom_message(
+    encrypt: str,
+    encoding_aes_key: str,
+    expected_receive_id: str | None = None,
+    log_prefix: str = "WeCom",
+) -> str:
+    """Decrypt WeCom encrypted message.
+
+    Args:
+        encrypt: Base64-encoded encrypted message.
+        encoding_aes_key: WeCom AES key (43 chars, will be padded).
+        expected_receive_id: Optional receive_id/corp_id to validate.
+        log_prefix: Prefix for log messages (e.g., "WeCom", "WeCom AI bot").
+
+    Returns:
+        Decrypted message string.
+
+    Raises:
+        ValueError: If decryption or validation fails.
+    """
+    aes_key = base64.b64decode(encoding_aes_key + "=")
+    cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
+    decrypted = cipher.decrypt(base64.b64decode(encrypt))
+
+    # Remove PKCS7 padding
+    pad_len = decrypted[-1]
+    if pad_len < PKCS7_PAD_MIN or pad_len > PKCS7_PAD_MAX:
+        msg = f"{log_prefix} payload padding invalid"
+        raise ValueError(msg)
+    content = decrypted[:-pad_len]
+
+    # Parse format: random(16) + msg_len(4) + msg + receive_id
+    if len(content) < MIN_DECRYPTED_LEN:
+        msg = f"{log_prefix} payload too short"
+        raise ValueError(msg)
+    msg_len = struct.unpack(">I", content[RANDOM_PREFIX_LEN:MIN_DECRYPTED_LEN])[0]
+    msg_end = MIN_DECRYPTED_LEN + msg_len
+    if msg_end > len(content):
+        msg = f"{log_prefix} payload length mismatch"
+        raise ValueError(msg)
+    msg = content[MIN_DECRYPTED_LEN:msg_end].decode("utf-8")
+    receive_id = content[msg_end:].decode("utf-8")
+    if expected_receive_id and receive_id != expected_receive_id:
+        event_name = f"{log_prefix.lower().replace(' ', '_')}_receive_id_validation"
+        logger.warning(
+            "%s receive_id validation failed",
+            log_prefix,
+            extra={
+                "event": event_name,
+                "status": "failed",
+                "receive_id": receive_id,
+                "expected_receive_id": expected_receive_id,
+            },
+        )
+        msg = f"{log_prefix} receive_id validation failed"
+        raise ValueError(msg)
+    return msg
+
+
+def encrypt_wecom_message(message: str, encoding_aes_key: str, receive_id: str) -> str:
+    """Encrypt a reply payload using WeCom format.
+
+    Args:
+        message: Message content to encrypt.
+        encoding_aes_key: WeCom AES key (43 chars, will be padded).
+        receive_id: Receive ID to append to payload.
+
+    Returns:
+        Base64-encoded encrypted message.
+    """
+    aes_key = base64.b64decode(encoding_aes_key + "=")
+    random_bytes = os.urandom(RANDOM_PREFIX_LEN)
+    msg_bytes = message.encode("utf-8")
+    msg_len = struct.pack(">I", len(msg_bytes))
+    payload = random_bytes + msg_len + msg_bytes + receive_id.encode("utf-8")
+
+    pad_len = AES_BLOCK_SIZE - (len(payload) % AES_BLOCK_SIZE)
+    payload += bytes([pad_len] * pad_len)
+
+    cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
+    encrypted = cipher.encrypt(payload)
+    return base64.b64encode(encrypted).decode()
 
 
 @registry.register(
@@ -59,71 +189,6 @@ class WeComEventsParserNode(TaskNode):
         description="Optional allowlist of WeCom user IDs",
     )
 
-    def verify_signature(
-        self,
-        token: str,
-        timestamp: str,
-        nonce: str,
-        echostr_or_encrypt: str,
-        signature: str,
-    ) -> None:
-        """Verify WeCom message signature."""
-        items = sorted([token, timestamp, nonce, echostr_or_encrypt])
-        sha1 = hashlib.sha1("".join(items).encode()).hexdigest()
-        if not hmac.compare_digest(sha1, signature):
-            logger.warning(
-                "WeCom signature verification failed",
-                extra={
-                    "event": "wecom_signature_validation",
-                    "status": "failed",
-                },
-            )
-            msg = "WeCom signature verification failed"
-            raise ValueError(msg)
-
-    def decrypt_message(
-        self,
-        encrypt: str,
-        encoding_aes_key: str,
-        expected_receive_id: str | None = None,
-    ) -> str:
-        """Decrypt WeCom encrypted message."""
-        aes_key = base64.b64decode(encoding_aes_key + "=")
-        cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
-        decrypted = cipher.decrypt(base64.b64decode(encrypt))
-
-        # Remove PKCS7 padding
-        pad_len = decrypted[-1]
-        if pad_len < 1 or pad_len > 32:
-            msg = "WeCom payload padding invalid"
-            raise ValueError(msg)
-        content = decrypted[:-pad_len]
-
-        # Parse format: random(16) + msg_len(4) + msg + receive_id
-        if len(content) < 20:
-            msg = "WeCom payload too short"
-            raise ValueError(msg)
-        msg_len = struct.unpack(">I", content[16:20])[0]
-        msg_end = 20 + msg_len
-        if msg_end > len(content):
-            msg = "WeCom payload length mismatch"
-            raise ValueError(msg)
-        msg = content[20:msg_end].decode("utf-8")
-        receive_id = content[msg_end:].decode("utf-8")
-        if expected_receive_id and receive_id != expected_receive_id:
-            logger.warning(
-                "WeCom receive_id validation failed",
-                extra={
-                    "event": "wecom_receive_id_validation",
-                    "status": "failed",
-                    "receive_id": receive_id,
-                    "expected_receive_id": expected_receive_id,
-                },
-            )
-            msg = "WeCom receive_id validation failed"
-            raise ValueError(msg)
-        return msg
-
     def parse_xml(self, xml_str: str) -> dict[str, str]:
         """Parse WeCom XML payload."""
         root = ElementTree.fromstring(xml_str)
@@ -141,7 +206,7 @@ class WeComEventsParserNode(TaskNode):
         """Check if this is a synchronous immediate-response check execution."""
         configurable = config.get("configurable", {})
         thread_id = configurable.get("thread_id", "")
-        return thread_id == "immediate-response-check"
+        return thread_id.startswith("immediate-response-check")
 
     def success_response(self) -> dict[str, Any]:
         """Return a success immediate_response dict."""
@@ -263,28 +328,37 @@ class WeComEventsParserNode(TaskNode):
                 },
             )
 
-        # Sync check: return immediate_response to ack WeCom quickly.
-        # Async run: no immediate_response, workflow continues to send_message.
-        return self.add_immediate_response(
-            {
-                "is_verification": False,
-                "is_customer_service": False,
-                "event_type": msg_type,
-                "chat_id": chat_id,
-                "user": user_id,
-                "content": content,
-                "target_user": user_id,
-                "should_process": is_direct_message and is_allowlisted,
-            },
-            is_sync_check,
-        )
+        should_continue = is_direct_message and is_allowlisted
+
+        # For sync checks, return immediate success to avoid WeCom retries.
+        result: dict[str, Any] = {
+            "is_verification": False,
+            "is_customer_service": False,
+            "event_type": msg_type,
+            "chat_id": chat_id,
+            "user": user_id,
+            "content": content,
+            "target_user": user_id,
+            "should_process": should_continue,
+        }
+        if is_sync_check:
+            result["immediate_response"] = self.success_response()
+        else:
+            result["immediate_response"] = None
+        return result
 
     def handle_customer_service_event(
         self, msg_data: dict[str, str], is_sync_check: bool
     ) -> dict[str, Any]:
-        """Handle Customer Service (微信客服) event from external WeChat users."""
+        """Handle Customer Service (微信客服) event from external WeChat users.
+
+        For CS events, don't set immediate_response in the parser. This allows
+        the workflow to continue to CS sync and send during the sync check.
+        The send node will set immediate_response after sending.
+        """
         open_kf_id = msg_data.get("OpenKfId", "")
         kf_token = msg_data.get("Token", "")
+        should_continue = bool(open_kf_id and kf_token)
         logger.info(
             "WeCom Customer Service event received",
             extra={
@@ -293,25 +367,29 @@ class WeComEventsParserNode(TaskNode):
                 "open_kf_id": open_kf_id,
             },
         )
-        return self.add_immediate_response(
-            {
-                "is_verification": False,
-                "is_customer_service": True,
-                "event_type": "kf_msg_or_event",
-                "open_kf_id": open_kf_id,
-                "kf_token": kf_token,
-                "should_process": bool(open_kf_id and kf_token),
-            },
-            is_sync_check,
-        )
+        result: dict[str, Any] = {
+            "is_verification": False,
+            "is_customer_service": True,
+            "event_type": "kf_msg_or_event",
+            "open_kf_id": open_kf_id,
+            "kf_token": kf_token,
+            "should_process": should_continue,
+        }
+        if is_sync_check:
+            result["immediate_response"] = self.success_response()
+        else:
+            result["immediate_response"] = None
+        return result
 
     def handle_url_verification(
         self, timestamp: str, nonce: str, echostr: str, msg_signature: str
     ) -> dict[str, Any]:
         """Handle URL verification request (GET with echostr)."""
-        self.verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
-        decrypted_echostr = self.decrypt_message(
-            echostr, self.encoding_aes_key, self.corp_id
+        verify_wecom_signature(
+            self.token, timestamp, nonce, echostr, msg_signature, log_prefix="WeCom"
+        )
+        decrypted_echostr = decrypt_wecom_message(
+            echostr, self.encoding_aes_key, self.corp_id, log_prefix="WeCom"
         )
         return {
             "is_verification": True,
@@ -347,9 +425,11 @@ class WeComEventsParserNode(TaskNode):
         self, encrypt: str, timestamp: str, nonce: str, msg_signature: str
     ) -> dict[str, str]:
         """Verify signature, validate timestamp, decrypt and parse message."""
-        self.verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
-        decrypted_xml = self.decrypt_message(
-            encrypt, self.encoding_aes_key, self.corp_id
+        verify_wecom_signature(
+            self.token, timestamp, nonce, encrypt, msg_signature, log_prefix="WeCom"
+        )
+        decrypted_xml = decrypt_wecom_message(
+            encrypt, self.encoding_aes_key, self.corp_id, log_prefix="WeCom"
         )
         return self.parse_xml(decrypted_xml)
 
@@ -399,6 +479,538 @@ class WeComEventsParserNode(TaskNode):
             return self.handle_customer_service_event(msg_data, is_sync_check)
 
         return self.handle_internal_message(msg_data, is_sync_check)
+
+
+@registry.register(
+    NodeMetadata(
+        name="WeComAIBotEventsParserNode",
+        description="Validate WeCom AI bot signatures and parse callbacks",
+        category="wecom",
+    )
+)
+class WeComAIBotEventsParserNode(TaskNode):
+    """Validate WeCom AI bot signatures and parse callback payloads."""
+
+    token: str = "[[wecom_aibot_token]]"
+    """WeCom AI bot callback token (from Orcheo vault)."""
+    encoding_aes_key: str = "[[wecom_aibot_encoding_aes_key]]"
+    """WeCom AI bot AES key for payload decryption (from Orcheo vault)."""
+    receive_id: str | None = Field(
+        default=None,
+        description="Optional receive_id for AI bot decryption validation",
+    )
+    timestamp_tolerance_seconds: int = Field(
+        default=300,
+        description="Maximum age for WeCom signature timestamps",
+    )
+
+    def extract_inputs(self, state: State) -> dict[str, Any]:
+        """Extract inputs from state."""
+        state_dict = dict(state)
+        raw_inputs = state_dict.get("inputs")
+        if isinstance(raw_inputs, dict):
+            return dict(raw_inputs)
+        return state_dict
+
+    def extract_body_dict(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Extract JSON body as a dict."""
+        body = inputs.get("body", {})
+        if isinstance(body, dict) and "raw" in body:
+            body = body.get("raw")
+        if isinstance(body, str):
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+        if isinstance(body, dict):
+            return body
+        return {}
+
+    def validate_timestamp(self, timestamp: str) -> bool:
+        """Validate that the timestamp is within the tolerance window."""
+        if not self.timestamp_tolerance_seconds:
+            return True
+        try:
+            ts = int(timestamp)
+        except ValueError:
+            logger.warning(
+                "WeCom AI bot request timestamp invalid",
+                extra={
+                    "event": "wecom_aibot_timestamp_validation",
+                    "status": "failed",
+                    "timestamp": timestamp,
+                },
+            )
+            return False
+        now = int(time.time())
+        if abs(now - ts) > self.timestamp_tolerance_seconds:
+            logger.warning(
+                "WeCom AI bot request timestamp outside tolerance window",
+                extra={
+                    "event": "wecom_aibot_timestamp_validation",
+                    "status": "failed",
+                    "timestamp": timestamp,
+                    "tolerance_seconds": self.timestamp_tolerance_seconds,
+                },
+            )
+            return False
+        return True
+
+    def is_immediate_response_check(self, config: RunnableConfig) -> bool:
+        """Check if this is a synchronous immediate-response check execution."""
+        configurable = config.get("configurable", {})
+        thread_id = configurable.get("thread_id", "")
+        return thread_id.startswith("immediate-response-check")
+
+    def success_response(self) -> dict[str, Any]:
+        """Return a success immediate_response dict."""
+        return {
+            "content": "success",
+            "content_type": "text/plain",
+            "status_code": 200,
+        }
+
+    def handle_url_verification(
+        self, timestamp: str, nonce: str, echostr: str, msg_signature: str
+    ) -> dict[str, Any]:
+        """Handle AI bot URL verification request."""
+        verify_wecom_signature(
+            self.token,
+            timestamp,
+            nonce,
+            echostr,
+            msg_signature,
+            log_prefix="WeCom AI bot",
+        )
+        decrypted_echostr = decrypt_wecom_message(
+            echostr, self.encoding_aes_key, self.receive_id, log_prefix="WeCom AI bot"
+        )
+        return {
+            "is_verification": True,
+            "should_process": False,
+            "immediate_response": {
+                "content": decrypted_echostr,
+                "content_type": "text/plain",
+                "status_code": 200,
+            },
+        }
+
+    def make_invalid_payload_response(self) -> dict[str, Any]:
+        """Return a response for invalid/missing payload.
+
+        Returns a success immediate_response to acknowledge the request to WeCom.
+        This prevents WeCom from retrying the request while ensuring no workflow
+        processing occurs for invalid payloads.
+        """
+        return {
+            "is_verification": False,
+            "should_process": False,
+            "immediate_response": self.success_response(),
+        }
+
+    def parse_message(
+        self, msg_data: dict[str, Any], is_sync_check: bool, use_passive_reply: bool
+    ) -> dict[str, Any]:
+        """Extract AI bot message fields.
+
+        Args:
+            msg_data: Decrypted message payload from WeCom.
+            is_sync_check: True if this is an immediate-response-check execution.
+            use_passive_reply: True if workflow uses passive reply mode.
+
+        Behavior:
+            - Passive reply mode: Don't set immediate_response. Let workflow continue
+              to passive_reply node which will encrypt and return the actual reply.
+            - Active reply mode + sync check: Set immediate_response to ack WeCom
+              quickly, and should_process=True to queue async run.
+            - Active reply mode + async run: No immediate_response, workflow
+              continues to active_reply node to POST to response_url.
+        """
+        msg_type = str(msg_data.get("msgtype", "")).lower()
+        chat_type = str(msg_data.get("chattype", ""))
+        response_url = str(msg_data.get("response_url", ""))
+        from_data = msg_data.get("from", {})
+        user_id = ""
+        if isinstance(from_data, dict):
+            user_id = str(from_data.get("userid", ""))
+        text_content = ""
+        text_data = msg_data.get("text", {})
+        if isinstance(text_data, dict):
+            text_content = str(text_data.get("content", ""))
+
+        # For passive reply: don't set immediate_response here, let passive_reply
+        # node handle it. For active reply + sync check: ack quickly and queue async.
+        if use_passive_reply:
+            immediate_response = None
+            should_process = True  # Let workflow continue to passive_reply node
+        elif is_sync_check:
+            immediate_response = self.success_response()
+            should_process = True  # Queue async run for active_reply
+        else:
+            immediate_response = None
+            should_process = True
+
+        return {
+            "is_verification": False,
+            "should_process": should_process,
+            "immediate_response": immediate_response,
+            "msg_type": msg_type,
+            "chat_type": chat_type,
+            "response_url": response_url,
+            "user": user_id,
+            "content": text_content,
+            "message": msg_data,
+        }
+
+    def get_use_passive_reply(self, state: State) -> bool:
+        """Check if workflow is configured for passive reply mode."""
+        state_config = state.get("config", {})
+        if isinstance(state_config, dict):
+            configurable = state_config.get("configurable", {})
+            if isinstance(configurable, dict):
+                return bool(configurable.get("use_passive_reply", False))
+        return False
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Parse the WeCom AI bot callback payload and validate signatures."""
+        is_sync_check = self.is_immediate_response_check(config)
+        use_passive_reply = self.get_use_passive_reply(state)
+        inputs = self.extract_inputs(state)
+        query_params = inputs.get("query_params", {})
+
+        msg_signature = query_params.get("msg_signature", "")
+        timestamp = query_params.get("timestamp", "")
+        nonce = query_params.get("nonce", "")
+        echostr = query_params.get("echostr")
+
+        if echostr:
+            return self.handle_url_verification(
+                timestamp, nonce, echostr, msg_signature
+            )
+
+        body = self.extract_body_dict(inputs)
+        encrypt = body.get("encrypt", "")
+        if not encrypt:
+            logger.warning(
+                "WeCom AI bot payload missing encrypt field",
+                extra={
+                    "event": "wecom_aibot_payload_validation",
+                    "status": "failed",
+                },
+            )
+            return self.make_invalid_payload_response()
+
+        if not self.validate_timestamp(timestamp):
+            return self.make_invalid_payload_response()
+
+        verify_wecom_signature(
+            self.token,
+            timestamp,
+            nonce,
+            encrypt,
+            msg_signature,
+            log_prefix="WeCom AI bot",
+        )
+        decrypted_json = decrypt_wecom_message(
+            encrypt, self.encoding_aes_key, self.receive_id, log_prefix="WeCom AI bot"
+        )
+        try:
+            msg_data = json.loads(decrypted_json)
+        except json.JSONDecodeError:
+            logger.warning(
+                "WeCom AI bot payload JSON decode failed",
+                extra={
+                    "event": "wecom_aibot_payload_validation",
+                    "status": "failed",
+                },
+            )
+            return self.make_invalid_payload_response()
+        if not isinstance(msg_data, dict):
+            return self.make_invalid_payload_response()
+
+        return self.parse_message(msg_data, is_sync_check, use_passive_reply)
+
+
+@registry.register(
+    NodeMetadata(
+        name="WeComAIBotPassiveReplyNode",
+        description="Encrypt and return passive AI bot replies",
+        category="wecom",
+    )
+)
+class WeComAIBotPassiveReplyNode(TaskNode):
+    """Encrypt and return passive AI bot replies."""
+
+    token: str = "[[wecom_aibot_token]]"
+    """WeCom AI bot callback token (from Orcheo vault)."""
+    encoding_aes_key: str = "[[wecom_aibot_encoding_aes_key]]"
+    """WeCom AI bot AES key for payload encryption (from Orcheo vault)."""
+    receive_id: str | None = Field(
+        default=None,
+        description="Optional receive_id for encryption",
+    )
+    msg_type: str = Field(default="markdown", description="Reply message type")
+    content: str | None = Field(default=None, description="Reply content")
+    template_card: dict[str, Any] | None = Field(
+        default=None,
+        description="Template card payload for template_card replies",
+    )
+    nonce: str | None = Field(
+        default=None,
+        description="Optional nonce override for signature",
+    )
+    timestamp: int | None = Field(
+        default=None,
+        description="Optional timestamp override for signature",
+    )
+
+    def build_payload(self) -> dict[str, Any] | None:
+        """Build the reply payload for the AI bot."""
+        reply_msg_type = self.msg_type
+        if reply_msg_type == "template_card":
+            if not self.template_card:
+                return None
+            return {"msgtype": "template_card", "template_card": self.template_card}
+        if not self.content:
+            return None
+        if reply_msg_type == "markdown":
+            return {"msgtype": "markdown", "markdown": {"content": self.content}}
+        return {"msgtype": "text", "text": {"content": self.content}}
+
+    def sign_message(self, timestamp: str, nonce: str, encrypt: str) -> str:
+        """Sign an encrypted AI bot message."""
+        items = sorted([self.token, timestamp, nonce, encrypt])
+        return hashlib.sha1("".join(items).encode()).hexdigest()
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return an encrypted passive reply response."""
+        payload = self.build_payload()
+        if not payload:
+            logger.warning(
+                "WeCom AI bot reply payload invalid",
+                extra={
+                    "event": "wecom_aibot_passive_reply",
+                    "status": "failed",
+                },
+            )
+            return {
+                "is_error": True,
+                "error": "Invalid reply payload",
+                "immediate_response": None,
+            }
+
+        timestamp = self.timestamp or int(time.time())
+        nonce = self.nonce or base64.b64encode(os.urandom(8)).decode().rstrip("=")
+        payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+        encrypt = encrypt_wecom_message(
+            payload_json, self.encoding_aes_key, self.receive_id or ""
+        )
+        signature = self.sign_message(str(timestamp), nonce, encrypt)
+        response_body = {
+            "encrypt": encrypt,
+            "msgsignature": signature,
+            "timestamp": timestamp,
+            "nonce": nonce,
+        }
+
+        return {
+            "is_error": False,
+            "encrypt": encrypt,
+            "msgsignature": signature,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "immediate_response": {
+                "content": json.dumps(response_body, ensure_ascii=True),
+                "content_type": "application/json",
+                "status_code": 200,
+            },
+        }
+
+
+@registry.register(
+    NodeMetadata(
+        name="WeComAIBotResponseNode",
+        description="Send active replies to WeCom AI bot response_url",
+        category="wecom",
+    )
+)
+class WeComAIBotResponseNode(TaskNode):
+    """Send active replies to WeCom AI bot response_url."""
+
+    response_url: str | None = Field(
+        default=None,
+        description="AI bot response_url for active replies",
+    )
+    msg_type: str = Field(
+        default="markdown",
+        description="Reply message type (markdown, text, template_card)",
+    )
+    content: str | None = Field(default=None, description="Reply content")
+    template_card: dict[str, Any] | None = Field(
+        default=None,
+        description="Template card payload for template_card replies",
+    )
+    timeout: float | None = Field(
+        default=10.0,
+        description="Timeout in seconds for the response_url request",
+    )
+
+    def get_response_url(self, parser_result: dict[str, Any]) -> str | None:
+        """Extract response_url from node config or parser result.
+
+        Checks self.response_url first, then falls back to parser_result keys.
+        """
+        if self.response_url:
+            return self.response_url
+        return parser_result.get("response_url") or parser_result.get(
+            "aibot_response_url"
+        )
+
+    def build_payload(self) -> dict[str, Any] | None:
+        """Build the reply payload."""
+        if self.msg_type == "template_card":
+            if not self.template_card:
+                return None
+            return {"msgtype": "template_card", "template_card": self.template_card}
+        if not self.content:
+            return None
+        if self.msg_type == "markdown":
+            return {"msgtype": "markdown", "markdown": {"content": self.content}}
+        if self.msg_type == "text":
+            return {"msgtype": "text", "text": {"content": self.content}}
+        return None
+
+    async def _send_request(
+        self, response_url: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Send HTTP request and handle errors.
+
+        Returns a result dict with is_error and response data or error info.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(response_url, json=payload)
+                response.raise_for_status()
+                try:
+                    data = response.json()
+                except ValueError:
+                    logger.warning(
+                        "WeCom AI bot response_url returned invalid JSON",
+                        extra={
+                            "event": "wecom_aibot_active_reply",
+                            "status": "failed",
+                        },
+                    )
+                    return {
+                        "is_error": True,
+                        "error": "Invalid JSON response",
+                        "status_code": response.status_code,
+                    }
+        except httpx.TimeoutException:
+            logger.warning(
+                "WeCom AI bot response_url request timed out",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                    "reason": "timeout",
+                },
+            )
+            return {"is_error": True, "error": "Request timed out"}
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "WeCom AI bot response_url HTTP error",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                    "status_code": exc.response.status_code,
+                },
+            )
+            return {
+                "is_error": True,
+                "error": f"HTTP error: {exc.response.status_code}",
+                "status_code": exc.response.status_code,
+            }
+        except httpx.RequestError as exc:
+            logger.warning(
+                "WeCom AI bot response_url request failed",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                    "error": str(exc),
+                },
+            )
+            return {"is_error": True, "error": f"Request failed: {exc}"}
+
+        return {"is_error": False, "data": data}
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Send a reply to the AI bot response_url."""
+        results = state.get("results", {})
+        parser_result = results.get("wecom_ai_bot_events_parser", {})
+        if not isinstance(parser_result, dict):
+            parser_result = {}
+
+        response_url = self.get_response_url(parser_result)
+        if not response_url:
+            logger.warning(
+                "WeCom AI bot response_url missing",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                    "reason": "missing_response_url",
+                },
+            )
+            return {"is_error": True, "error": "No response_url available"}
+
+        payload = self.build_payload()
+        if not payload:
+            logger.warning(
+                "WeCom AI bot reply payload invalid",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                },
+            )
+            return {"is_error": True, "error": "Invalid reply payload"}
+
+        result = await self._send_request(response_url, payload)
+        if result["is_error"]:
+            return result
+
+        data = result["data"]
+        errcode = data.get("errcode", 0)
+        if errcode != 0:
+            logger.warning(
+                "WeCom AI bot response_url delivery failed",
+                extra={
+                    "event": "wecom_aibot_active_reply",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": data.get("errmsg", "Unknown error"),
+                },
+            )
+            return {
+                "is_error": True,
+                "errcode": errcode,
+                "errmsg": data.get("errmsg", "Unknown error"),
+            }
+
+        logger.info(
+            "WeCom AI bot response_url delivered",
+            extra={
+                "event": "wecom_aibot_active_reply",
+                "status": "success",
+                "errcode": 0,
+            },
+        )
+        return {
+            "is_error": False,
+            "errcode": 0,
+            "errmsg": data.get("errmsg", "ok"),
+        }
 
 
 @registry.register(
@@ -566,6 +1178,14 @@ class WeComSendMessageNode(TaskNode):
             "is_error": False,
             "errcode": 0,
             "errmsg": "ok",
+            # Set immediate_response to ack WeCom after sending.
+            # Set should_process=False to prevent queuing a duplicate async run.
+            "immediate_response": {
+                "content": "success",
+                "content_type": "text/plain",
+                "status_code": 200,
+            },
+            "should_process": False,
         }
 
 
@@ -907,6 +1527,14 @@ class WeComCustomerServiceSendNode(TaskNode):
             "errcode": 0,
             "errmsg": "ok",
             "msgid": data.get("msgid"),
+            # Set immediate_response to ack WeCom after sending.
+            # Set should_process=False to prevent queuing a duplicate async run.
+            "immediate_response": {
+                "content": "success",
+                "content_type": "text/plain",
+                "status_code": 200,
+            },
+            "should_process": False,
         }
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -977,6 +1605,9 @@ class WeComCustomerServiceSendNode(TaskNode):
 
 
 __all__ = [
+    "WeComAIBotEventsParserNode",
+    "WeComAIBotPassiveReplyNode",
+    "WeComAIBotResponseNode",
     "WeComAccessTokenNode",
     "WeComCustomerServiceSendNode",
     "WeComCustomerServiceSyncNode",

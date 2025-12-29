@@ -19,7 +19,7 @@ def test_webhook_trigger_configuration_roundtrip(api_client: TestClient) -> None
     )
     assert default_response.status_code == 200
     default_payload = default_response.json()
-    assert set(default_payload["allowed_methods"]) == {"POST"}
+    assert set(default_payload["allowed_methods"]) == {"GET", "POST"}
 
     update_response = api_client.put(
         f"/api/workflows/{workflow_id}/triggers/webhook/config",

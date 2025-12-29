@@ -18,7 +18,9 @@ from orcheo.nodes.wecom import (
     WeComEventsParserNode,
     WeComGroupPushNode,
     WeComSendMessageNode,
+    decrypt_wecom_message,
     get_access_token_from_state,
+    verify_wecom_signature,
 )
 
 
@@ -127,14 +129,8 @@ class TestWeComEventsParserNode:
         data = "encrypted_data"
         signature = _sign_wecom(token, timestamp, nonce, data)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token=token,
-            encoding_aes_key="dummy",
-            corp_id="corp123",
-        )
         # Should not raise
-        node.verify_signature(token, timestamp, nonce, data, signature)
+        verify_wecom_signature(token, timestamp, nonce, data, signature)
 
     def test_verify_signature_failure(self) -> None:
         """Test signature verification failure."""
@@ -144,14 +140,8 @@ class TestWeComEventsParserNode:
         data = "encrypted_data"
         bad_signature = "bad_signature"
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token=token,
-            encoding_aes_key="dummy",
-            corp_id="corp123",
-        )
         with pytest.raises(ValueError, match="WeCom signature verification failed"):
-            node.verify_signature(token, timestamp, nonce, data, bad_signature)
+            verify_wecom_signature(token, timestamp, nonce, data, bad_signature)
 
     def test_decrypt_message(self) -> None:
         """Test message decryption."""
@@ -160,13 +150,7 @@ class TestWeComEventsParserNode:
         original_message = "<xml><Content>Hello</Content></xml>"
         encrypted = _encrypt_message(original_message, raw_key, corp_id)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id=corp_id,
-        )
-        decrypted = node.decrypt_message(encrypted, encoding_aes_key, corp_id)
+        decrypted = decrypt_wecom_message(encrypted, encoding_aes_key, corp_id)
         assert decrypted == original_message
 
     def test_decrypt_message_rejects_mismatched_receive_id(self) -> None:
@@ -176,62 +160,37 @@ class TestWeComEventsParserNode:
         original_message = "<xml><Content>Hello</Content></xml>"
         encrypted = _encrypt_message(original_message, raw_key, corp_id)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="wrong_corp",
-        )
-
         with pytest.raises(ValueError, match="WeCom receive_id validation failed"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "wrong_corp")
 
     def test_decrypt_message_rejects_invalid_padding(self) -> None:
         """Test message decryption rejects invalid padding values."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         invalid_padding = b"X" * 31 + b"\x00"
         encrypted = _encrypt_raw_unpadded(invalid_padding, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload padding invalid"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_decrypt_message_rejects_too_short_payload(self) -> None:
         """Test message decryption rejects payloads shorter than 20 bytes."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         short_content = b"A" * 19
         encrypted = _encrypt_raw_content(short_content, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload too short"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_decrypt_message_rejects_length_mismatch(self) -> None:
         """Test message decryption rejects mismatched message lengths."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         random_prefix = b"0123456789abcdef"
         msg_len = struct.pack(">I", 10)
         content = random_prefix + msg_len + b"" + b"abc"
         encrypted = _encrypt_raw_content(content, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload length mismatch"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_parse_xml(self) -> None:
         """Test XML parsing."""
@@ -740,6 +699,58 @@ class TestWeComEventsParserNode:
         assert result["immediate_response"] is None
 
     @pytest.mark.asyncio
+    async def test_encrypted_message_sync_check_sets_immediate_response(
+        self,
+    ) -> None:
+        """Test sync check with valid message short-circuits with success."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>app123</ToUserName>"
+            "<FromUserName>user321</FromUserName>"
+            "<MsgType>text</MsgType>"
+            "<Content>Sync check</Content>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        config = RunnableConfig(
+            configurable={"thread_id": "immediate-response-check-xyz"},
+        )
+        result = await node.run(state, config)
+
+        assert result["should_process"] is True
+        assert result["content"] == "Sync check"
+        assert result["immediate_response"] == {
+            "content": "success",
+            "content_type": "text/plain",
+            "status_code": 200,
+        }
+
+    @pytest.mark.asyncio
     async def test_immediate_response_check(self) -> None:
         """Test immediate response check mode."""
         node = WeComEventsParserNode(
@@ -1155,9 +1166,33 @@ class TestWeComEventsParserCustomerService:
         msg_data = {"MsgType": "text", "Content": "Hello"}
         assert node.is_customer_service_event(msg_data) is False
 
+    def test_handle_customer_service_event_sync_check_sets_immediate_response(
+        self,
+    ) -> None:
+        """Test sync check short-circuits Customer Service events."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        msg_data = {"OpenKfId": "wkABC123", "Token": "sync_token"}
+
+        result = node.handle_customer_service_event(msg_data, is_sync_check=True)
+
+        assert result["is_customer_service"] is True
+        assert result["should_process"] is True
+        assert result["immediate_response"] == node.success_response()
+
     @pytest.mark.asyncio
     async def test_customer_service_event_parsing(self) -> None:
-        """Test parsing Customer Service event callback."""
+        """Test parsing Customer Service event callback.
+
+        Valid CS events (with open_kf_id and kf_token) set should_process=True
+        and immediate_response=None to allow the workflow to continue to CS
+        sync and send nodes. The send node will set immediate_response after
+        sending, preventing a duplicate async run.
+        """
         encoding_aes_key, raw_key = _create_aes_key()
         token = "test_token"
         timestamp = str(int(time.time()))
@@ -1202,7 +1237,9 @@ class TestWeComEventsParserCustomerService:
         assert result["event_type"] == "kf_msg_or_event"
         assert result["open_kf_id"] == "wkABC123"
         assert result["kf_token"] == "sync_token_abc"
+        # Valid CS events continue to send node; immediate_response=None
         assert result["should_process"] is True
+        assert result["immediate_response"] is None
 
 
 # WeComCustomerServiceSyncNode tests

@@ -87,6 +87,25 @@ Deliver a minimal WeCom bot responder workflow that validates callbacks, decrypt
 
 ---
 
+### Milestone 5: WeCom AI Bot Workflow and Nodes
+
+**Description:** Add AI bot callback verification and message reply support, plus an example workflow.
+
+#### Task Checklist
+
+- [x] Task 5.1: Define `WeComAIBotEventsParserNode` to handle AI bot URL verification, JSON decrypt, and message extraction (response_url, msgtype, user, chat type).
+  - Dependencies: Milestone 2
+- [x] Task 5.2: Implement `WeComAIBotPassiveReplyNode` to encrypt and return immediate-response payloads for passive replies.
+  - Dependencies: Task 5.1
+- [x] Task 5.3: Implement `WeComAIBotResponseNode` to send active replies to `response_url` (markdown/template_card).
+  - Dependencies: Task 5.1
+- [x] Task 5.4: Add an example workflow at `examples/wecom_ai_bot/workflow.py` showcasing AI bot receive + response nodes.
+  - Dependencies: Task 5.3
+- [x] Task 5.5: Add tests for AI bot verification, decrypt/encrypt, and response payload handling.
+  - Dependencies: Task 5.3
+
+---
+
 ## Revision History
 
 | Date | Author | Changes |
