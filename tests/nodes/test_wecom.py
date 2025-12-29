@@ -18,7 +18,9 @@ from orcheo.nodes.wecom import (
     WeComEventsParserNode,
     WeComGroupPushNode,
     WeComSendMessageNode,
+    decrypt_wecom_message,
     get_access_token_from_state,
+    verify_wecom_signature,
 )
 
 
@@ -127,14 +129,8 @@ class TestWeComEventsParserNode:
         data = "encrypted_data"
         signature = _sign_wecom(token, timestamp, nonce, data)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token=token,
-            encoding_aes_key="dummy",
-            corp_id="corp123",
-        )
         # Should not raise
-        node.verify_signature(token, timestamp, nonce, data, signature)
+        verify_wecom_signature(token, timestamp, nonce, data, signature)
 
     def test_verify_signature_failure(self) -> None:
         """Test signature verification failure."""
@@ -144,14 +140,8 @@ class TestWeComEventsParserNode:
         data = "encrypted_data"
         bad_signature = "bad_signature"
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token=token,
-            encoding_aes_key="dummy",
-            corp_id="corp123",
-        )
         with pytest.raises(ValueError, match="WeCom signature verification failed"):
-            node.verify_signature(token, timestamp, nonce, data, bad_signature)
+            verify_wecom_signature(token, timestamp, nonce, data, bad_signature)
 
     def test_decrypt_message(self) -> None:
         """Test message decryption."""
@@ -160,13 +150,7 @@ class TestWeComEventsParserNode:
         original_message = "<xml><Content>Hello</Content></xml>"
         encrypted = _encrypt_message(original_message, raw_key, corp_id)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id=corp_id,
-        )
-        decrypted = node.decrypt_message(encrypted, encoding_aes_key, corp_id)
+        decrypted = decrypt_wecom_message(encrypted, encoding_aes_key, corp_id)
         assert decrypted == original_message
 
     def test_decrypt_message_rejects_mismatched_receive_id(self) -> None:
@@ -176,62 +160,37 @@ class TestWeComEventsParserNode:
         original_message = "<xml><Content>Hello</Content></xml>"
         encrypted = _encrypt_message(original_message, raw_key, corp_id)
 
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="wrong_corp",
-        )
-
         with pytest.raises(ValueError, match="WeCom receive_id validation failed"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "wrong_corp")
 
     def test_decrypt_message_rejects_invalid_padding(self) -> None:
         """Test message decryption rejects invalid padding values."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         invalid_padding = b"X" * 31 + b"\x00"
         encrypted = _encrypt_raw_unpadded(invalid_padding, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload padding invalid"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_decrypt_message_rejects_too_short_payload(self) -> None:
         """Test message decryption rejects payloads shorter than 20 bytes."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         short_content = b"A" * 19
         encrypted = _encrypt_raw_content(short_content, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload too short"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_decrypt_message_rejects_length_mismatch(self) -> None:
         """Test message decryption rejects mismatched message lengths."""
         encoding_aes_key, raw_key = _create_aes_key()
-        node = WeComEventsParserNode(
-            name="wecom_parser",
-            token="token",
-            encoding_aes_key=encoding_aes_key,
-            corp_id="corp123",
-        )
         random_prefix = b"0123456789abcdef"
         msg_len = struct.pack(">I", 10)
         content = random_prefix + msg_len + b"" + b"abc"
         encrypted = _encrypt_raw_content(content, raw_key)
 
         with pytest.raises(ValueError, match="WeCom payload length mismatch"):
-            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+            decrypt_wecom_message(encrypted, encoding_aes_key, "corp123")
 
     def test_parse_xml(self) -> None:
         """Test XML parsing."""
