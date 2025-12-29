@@ -13,6 +13,8 @@ from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.wecom import (
     WeComAccessTokenNode,
+    WeComCustomerServiceSendNode,
+    WeComCustomerServiceSyncNode,
     WeComEventsParserNode,
     WeComSendMessageNode,
 )
@@ -55,6 +57,26 @@ def _encrypt_message(message: str, aes_key: bytes, corp_id: str) -> str:
     pad_len = block_size - (len(content) % block_size)
     content += bytes([pad_len] * pad_len)
 
+    cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
+    encrypted = cipher.encrypt(content)
+    return base64.b64encode(encrypted).decode()
+
+
+def _encrypt_raw_content(content: bytes, aes_key: bytes) -> str:
+    """Encrypt raw content using AES-CBC with WeCom padding rules."""
+    block_size = 32
+    pad_len = block_size - (len(content) % block_size)
+    padded = content + bytes([pad_len] * pad_len)
+    cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
+    encrypted = cipher.encrypt(padded)
+    return base64.b64encode(encrypted).decode()
+
+
+def _encrypt_raw_unpadded(content: bytes, aes_key: bytes) -> str:
+    """Encrypt raw content using AES-CBC without padding."""
+    if len(content) % 16 != 0:
+        msg = "Content length must be a multiple of 16 bytes"
+        raise ValueError(msg)
     cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
     encrypted = cipher.encrypt(content)
     return base64.b64encode(encrypted).decode()
@@ -142,8 +164,72 @@ class TestWeComEventsParserNode:
             encoding_aes_key=encoding_aes_key,
             corp_id=corp_id,
         )
-        decrypted = node.decrypt_message(encrypted, encoding_aes_key)
+        decrypted = node.decrypt_message(encrypted, encoding_aes_key, corp_id)
         assert decrypted == original_message
+
+    def test_decrypt_message_rejects_mismatched_receive_id(self) -> None:
+        """Test message decryption rejects mismatched receive_id."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        corp_id = "corp123"
+        original_message = "<xml><Content>Hello</Content></xml>"
+        encrypted = _encrypt_message(original_message, raw_key, corp_id)
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key=encoding_aes_key,
+            corp_id="wrong_corp",
+        )
+
+        with pytest.raises(ValueError, match="WeCom receive_id validation failed"):
+            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+
+    def test_decrypt_message_rejects_invalid_padding(self) -> None:
+        """Test message decryption rejects invalid padding values."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key=encoding_aes_key,
+            corp_id="corp123",
+        )
+        invalid_padding = b"X" * 31 + b"\x00"
+        encrypted = _encrypt_raw_unpadded(invalid_padding, raw_key)
+
+        with pytest.raises(ValueError, match="WeCom payload padding invalid"):
+            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+
+    def test_decrypt_message_rejects_too_short_payload(self) -> None:
+        """Test message decryption rejects payloads shorter than 20 bytes."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key=encoding_aes_key,
+            corp_id="corp123",
+        )
+        short_content = b"A" * 19
+        encrypted = _encrypt_raw_content(short_content, raw_key)
+
+        with pytest.raises(ValueError, match="WeCom payload too short"):
+            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
+
+    def test_decrypt_message_rejects_length_mismatch(self) -> None:
+        """Test message decryption rejects mismatched message lengths."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key=encoding_aes_key,
+            corp_id="corp123",
+        )
+        random_prefix = b"0123456789abcdef"
+        msg_len = struct.pack(">I", 10)
+        content = random_prefix + msg_len + b"" + b"abc"
+        encrypted = _encrypt_raw_content(content, raw_key)
+
+        with pytest.raises(ValueError, match="WeCom payload length mismatch"):
+            node.decrypt_message(encrypted, encoding_aes_key, node.corp_id)
 
     def test_parse_xml(self) -> None:
         """Test XML parsing."""
@@ -951,3 +1037,400 @@ class TestWeComSendMessageNode:
         assert result["is_error"] is True
         assert result["errcode"] == 60011
         assert result["errmsg"] == "no privilege to access"
+
+
+# Customer Service Event Detection tests
+
+
+class TestWeComEventsParserCustomerService:
+    """Tests for WeComEventsParserNode Customer Service event detection."""
+
+    def test_is_customer_service_event_true(self) -> None:
+        """Test detection of kf_msg_or_event."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        msg_data = {"MsgType": "event", "Event": "kf_msg_or_event"}
+        assert node.is_customer_service_event(msg_data) is True
+
+    def test_is_customer_service_event_false_wrong_event(self) -> None:
+        """Test non-CS events return False."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        msg_data = {"MsgType": "event", "Event": "subscribe"}
+        assert node.is_customer_service_event(msg_data) is False
+
+    def test_is_customer_service_event_false_not_event(self) -> None:
+        """Test non-event message types return False."""
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        msg_data = {"MsgType": "text", "Content": "Hello"}
+        assert node.is_customer_service_event(msg_data) is False
+
+    @pytest.mark.asyncio
+    async def test_customer_service_event_parsing(self) -> None:
+        """Test parsing Customer Service event callback."""
+        encoding_aes_key, raw_key = _create_aes_key()
+        token = "test_token"
+        timestamp = str(int(time.time()))
+        nonce = "nonce123"
+        corp_id = "corp123"
+
+        # Customer Service event XML
+        inner_xml = (
+            "<xml>"
+            "<ToUserName>corp123</ToUserName>"
+            "<CreateTime>1234567890</CreateTime>"
+            "<MsgType>event</MsgType>"
+            "<Event>kf_msg_or_event</Event>"
+            "<Token>sync_token_abc</Token>"
+            "<OpenKfId>wkABC123</OpenKfId>"
+            "</xml>"
+        )
+        encrypted = _encrypt_message(inner_xml, raw_key, corp_id)
+        signature = _sign_wecom(token, timestamp, nonce, encrypted)
+        body_xml = f"<xml><Encrypt>{encrypted}</Encrypt></xml>"
+
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token=token,
+            encoding_aes_key=encoding_aes_key,
+            corp_id=corp_id,
+        )
+
+        state = _build_state(
+            query_params={
+                "msg_signature": signature,
+                "timestamp": timestamp,
+                "nonce": nonce,
+            },
+            body={"raw": body_xml},
+        )
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_verification"] is False
+        assert result["is_customer_service"] is True
+        assert result["event_type"] == "kf_msg_or_event"
+        assert result["open_kf_id"] == "wkABC123"
+        assert result["kf_token"] == "sync_token_abc"
+        assert result["should_process"] is True
+
+
+# WeComCustomerServiceSyncNode tests
+
+
+class TestWeComCustomerServiceSyncNode:
+    """Tests for WeComCustomerServiceSyncNode."""
+
+    @pytest.mark.asyncio
+    async def test_sync_messages_success(self) -> None:
+        """Test successful message sync."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            corp_id="corp123",
+            corp_secret="secret456",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "wecom_events_parser": {
+                    "open_kf_id": "wkABC123",
+                    "kf_token": "sync_token",
+                }
+            },
+        )
+
+        # Mock responses for token and sync_msg
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "errcode": 0,
+            "access_token": "test_token",
+            "expires_in": 7200,
+        }
+        token_response.raise_for_status = MagicMock()
+
+        sync_response = MagicMock()
+        sync_response.json.return_value = {
+            "errcode": 0,
+            "msg_list": [
+                {
+                    "msgtype": "text",
+                    "origin": 3,  # External WeChat user
+                    "external_userid": "wmXYZ789",
+                    "text": {"content": "Hello from WeChat"},
+                }
+            ],
+            "next_cursor": "cursor123",
+            "has_more": 0,
+        }
+        sync_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=token_response)
+        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        assert result["open_kf_id"] == "wkABC123"
+        assert result["external_user_id"] == "wmXYZ789"
+        assert result["content"] == "Hello from WeChat"
+        assert result["should_process"] is True
+        assert result["next_cursor"] == "cursor123"
+
+    @pytest.mark.asyncio
+    async def test_sync_messages_no_open_kf_id(self) -> None:
+        """Test sync fails without open_kf_id."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            corp_id="corp123",
+            corp_secret="secret456",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert "open_kf_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_sync_messages_no_external_messages(self) -> None:
+        """Test sync with no messages from external users."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            corp_id="corp123",
+            corp_secret="secret456",
+            open_kf_id="wkABC123",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "errcode": 0,
+            "access_token": "test_token",
+            "expires_in": 7200,
+        }
+        token_response.raise_for_status = MagicMock()
+
+        sync_response = MagicMock()
+        sync_response.json.return_value = {
+            "errcode": 0,
+            "msg_list": [
+                {
+                    "msgtype": "text",
+                    "origin": 5,  # Internal user, not external
+                    "text": {"content": "Internal message"},
+                }
+            ],
+            "next_cursor": "",
+            "has_more": 0,
+        }
+        sync_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=token_response)
+        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        assert result["external_user_id"] == ""
+        assert result["content"] == ""
+        assert result["should_process"] is False
+
+    @pytest.mark.asyncio
+    async def test_sync_messages_api_error(self) -> None:
+        """Test handling of API error response."""
+        node = WeComCustomerServiceSyncNode(
+            name="wecom_cs_sync",
+            corp_id="corp123",
+            corp_secret="secret456",
+            open_kf_id="wkABC123",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "errcode": 0,
+            "access_token": "test_token",
+            "expires_in": 7200,
+        }
+        token_response.raise_for_status = MagicMock()
+
+        sync_response = MagicMock()
+        sync_response.json.return_value = {
+            "errcode": 95011,
+            "errmsg": "token is invalid",
+        }
+        sync_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=token_response)
+        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert result["errcode"] == 95011
+
+
+# WeComCustomerServiceSendNode tests
+
+
+class TestWeComCustomerServiceSendNode:
+    """Tests for WeComCustomerServiceSendNode."""
+
+    @pytest.mark.asyncio
+    async def test_send_message_success(self) -> None:
+        """Test successful message send."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            corp_id="corp123",
+            corp_secret="secret456",
+            message="Hello, welcome!",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "wecom_cs_sync": {
+                    "open_kf_id": "wkABC123",
+                    "external_user_id": "wmXYZ789",
+                }
+            },
+        )
+
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "errcode": 0,
+            "access_token": "test_token",
+            "expires_in": 7200,
+        }
+        token_response.raise_for_status = MagicMock()
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "msgid": "msg123",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=token_response)
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        assert result["errcode"] == 0
+        assert result["msgid"] == "msg123"
+
+        # Verify the correct API was called
+        call_kwargs = mock_client.post.call_args
+        assert "kf/send_msg" in call_kwargs[0][0]
+        assert call_kwargs[1]["json"]["touser"] == "wmXYZ789"
+        assert call_kwargs[1]["json"]["open_kfid"] == "wkABC123"
+        assert call_kwargs[1]["json"]["text"]["content"] == "Hello, welcome!"
+
+    @pytest.mark.asyncio
+    async def test_send_message_no_open_kf_id(self) -> None:
+        """Test send fails without open_kf_id."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            corp_id="corp123",
+            corp_secret="secret456",
+            message="Hello!",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert "open_kf_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_send_message_no_external_user_id(self) -> None:
+        """Test send fails without external_user_id."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            corp_id="corp123",
+            corp_secret="secret456",
+            open_kf_id="wkABC123",
+            message="Hello!",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert "external_user_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_send_message_api_error(self) -> None:
+        """Test handling of API error response."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            corp_id="corp123",
+            corp_secret="secret456",
+            open_kf_id="wkABC123",
+            external_user_id="wmXYZ789",
+            message="Hello!",
+        )
+
+        state = State(messages=[], inputs={}, results={})
+
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "errcode": 0,
+            "access_token": "test_token",
+            "expires_in": 7200,
+        }
+        token_response.raise_for_status = MagicMock()
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 95017,
+            "errmsg": "invalid external_userid",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=token_response)
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is True
+        assert result["errcode"] == 95017
+        assert result["errmsg"] == "invalid external_userid"

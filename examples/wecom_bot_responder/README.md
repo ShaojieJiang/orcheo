@@ -38,6 +38,7 @@ Configure these secrets in the Orcheo vault (referenced via `[[key]]` syntax):
 | Secret Key | Description |
 |------------|-------------|
 | `wecom_corp_secret` | WeCom app secret for access token retrieval |
+| `wecom_mp_secret` | WeCom Customer Service app secret for external users |
 | `wecom_token` | Callback token for signature validation |
 | `wecom_encoding_aes_key` | AES key for callback payload decryption |
 

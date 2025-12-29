@@ -4,6 +4,8 @@ This module provides nodes for integrating with WeCom (企业微信) APIs:
 - WeComEventsParserNode: Validates signatures and parses callback payloads
 - WeComAccessTokenNode: Fetches WeCom access tokens
 - WeComSendMessageNode: Sends messages to WeCom chats
+- WeComCustomerServiceSyncNode: Syncs messages from Customer Service (微信客服)
+- WeComCustomerServiceSendNode: Sends messages via Customer Service API
 """
 
 import base64
@@ -79,7 +81,12 @@ class WeComEventsParserNode(TaskNode):
             msg = "WeCom signature verification failed"
             raise ValueError(msg)
 
-    def decrypt_message(self, encrypt: str, encoding_aes_key: str) -> str:
+    def decrypt_message(
+        self,
+        encrypt: str,
+        encoding_aes_key: str,
+        expected_receive_id: str | None = None,
+    ) -> str:
         """Decrypt WeCom encrypted message."""
         aes_key = base64.b64decode(encoding_aes_key + "=")
         cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
@@ -87,11 +94,34 @@ class WeComEventsParserNode(TaskNode):
 
         # Remove PKCS7 padding
         pad_len = decrypted[-1]
+        if pad_len < 1 or pad_len > 32:
+            msg = "WeCom payload padding invalid"
+            raise ValueError(msg)
         content = decrypted[:-pad_len]
 
         # Parse format: random(16) + msg_len(4) + msg + receive_id
+        if len(content) < 20:
+            msg = "WeCom payload too short"
+            raise ValueError(msg)
         msg_len = struct.unpack(">I", content[16:20])[0]
-        msg = content[20 : 20 + msg_len].decode("utf-8")
+        msg_end = 20 + msg_len
+        if msg_end > len(content):
+            msg = "WeCom payload length mismatch"
+            raise ValueError(msg)
+        msg = content[20:msg_end].decode("utf-8")
+        receive_id = content[msg_end:].decode("utf-8")
+        if expected_receive_id and receive_id != expected_receive_id:
+            logger.warning(
+                "WeCom receive_id validation failed",
+                extra={
+                    "event": "wecom_receive_id_validation",
+                    "status": "failed",
+                    "receive_id": receive_id,
+                    "expected_receive_id": expected_receive_id,
+                },
+            )
+            msg = "WeCom receive_id validation failed"
+            raise ValueError(msg)
         return msg
 
     def parse_xml(self, xml_str: str) -> dict[str, str]:
@@ -139,11 +169,115 @@ class WeComEventsParserNode(TaskNode):
             return False
         return bool(content.strip())
 
+    def is_customer_service_event(self, msg_data: dict[str, str]) -> bool:
+        """Return whether this is a Customer Service (微信客服) event.
+
+        External WeChat users send messages through Customer Service,
+        which triggers a kf_msg_or_event callback. This callback only signals
+        that new messages are available; actual messages must be fetched
+        via the sync_msg API.
+        """
+        msg_type = msg_data.get("MsgType", "").strip().lower()
+        event = msg_data.get("Event", "").strip().lower()
+        return msg_type == "event" and event == "kf_msg_or_event"
+
     def is_allowlisted_user(self, user_id: str) -> bool:
         """Return whether the user is allowed to send messages."""
         if not self.allowlist_user_ids:
             return True
         return user_id in self.allowlist_user_ids
+
+    def validate_timestamp(self, timestamp: str) -> bool:
+        """Validate that the timestamp is within the tolerance window.
+
+        Returns True if valid, False if invalid or outside tolerance.
+        """
+        if not self.timestamp_tolerance_seconds:
+            return True
+        try:
+            ts = int(timestamp)
+        except ValueError:
+            logger.warning(
+                "WeCom request timestamp invalid",
+                extra={
+                    "event": "wecom_timestamp_validation",
+                    "status": "failed",
+                    "timestamp": timestamp,
+                },
+            )
+            return False
+        now = int(time.time())
+        if abs(now - ts) > self.timestamp_tolerance_seconds:
+            logger.warning(
+                "WeCom request timestamp outside tolerance window",
+                extra={
+                    "event": "wecom_timestamp_validation",
+                    "status": "failed",
+                    "timestamp": timestamp,
+                    "tolerance_seconds": self.timestamp_tolerance_seconds,
+                },
+            )
+            return False
+        return True
+
+    def handle_internal_message(
+        self, msg_data: dict[str, str], is_sync_check: bool
+    ) -> dict[str, Any]:
+        """Handle internal WeCom user message."""
+        msg_type = msg_data.get("MsgType", "").strip().lower()
+        chat_id = msg_data.get("ChatId", "")
+        content = msg_data.get("Content", "")
+        user_id = msg_data.get("FromUserName", "")
+
+        # Ignore group chat messages; only respond to direct messages.
+        if chat_id:
+            logger.info(
+                "WeCom group message ignored",
+                extra={
+                    "event": "wecom_message_filter",
+                    "status": "ignored",
+                    "chat_id": chat_id,
+                },
+            )
+            return self.add_immediate_response(
+                {
+                    "is_verification": False,
+                    "is_customer_service": False,
+                    "event_type": msg_type,
+                    "chat_id": chat_id,
+                    "should_process": False,
+                },
+                is_sync_check,
+            )
+
+        # Direct message detection (no ChatId).
+        is_direct_message = self.is_direct_message(msg_type, chat_id, content)
+        is_allowlisted = self.is_allowlisted_user(user_id)
+        if is_direct_message and not is_allowlisted:
+            logger.warning(
+                "WeCom user rejected by allowlist",
+                extra={
+                    "event": "wecom_allowlist_validation",
+                    "status": "failed",
+                    "user_id": user_id,
+                },
+            )
+
+        # Sync check: return immediate_response to ack WeCom quickly.
+        # Async run: no immediate_response, workflow continues to send_message.
+        return self.add_immediate_response(
+            {
+                "is_verification": False,
+                "is_customer_service": False,
+                "event_type": msg_type,
+                "chat_id": chat_id,
+                "user": user_id,
+                "content": content,
+                "target_user": user_id,
+                "should_process": is_direct_message and is_allowlisted,
+            },
+            is_sync_check,
+        )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the WeCom callback payload and validate signatures."""
@@ -160,7 +294,9 @@ class WeComEventsParserNode(TaskNode):
         # Always return immediate_response for verification
         if echostr:
             self.verify_signature(self.token, timestamp, nonce, echostr, msg_signature)
-            decrypted_echostr = self.decrypt_message(echostr, self.encoding_aes_key)
+            decrypted_echostr = self.decrypt_message(
+                echostr, self.encoding_aes_key, self.corp_id
+            )
             return {
                 "is_verification": True,
                 "should_process": False,
@@ -204,102 +340,50 @@ class WeComEventsParserNode(TaskNode):
         self.verify_signature(self.token, timestamp, nonce, encrypt, msg_signature)
 
         # Check timestamp tolerance
-        if self.timestamp_tolerance_seconds:
-            now = int(time.time())
-            try:
-                ts = int(timestamp)
-            except ValueError:
-                logger.warning(
-                    "WeCom request timestamp invalid",
-                    extra={
-                        "event": "wecom_timestamp_validation",
-                        "status": "failed",
-                        "timestamp": timestamp,
-                    },
-                )
-                return self.add_immediate_response(
-                    {
-                        "is_verification": False,
-                        "event_type": None,
-                        "should_process": False,
-                    },
-                    is_sync_check,
-                )
-            if abs(now - ts) > self.timestamp_tolerance_seconds:
-                logger.warning(
-                    "WeCom request timestamp outside tolerance window",
-                    extra={
-                        "event": "wecom_timestamp_validation",
-                        "status": "failed",
-                        "timestamp": timestamp,
-                        "tolerance_seconds": self.timestamp_tolerance_seconds,
-                    },
-                )
-                return self.add_immediate_response(
-                    {
-                        "is_verification": False,
-                        "event_type": None,
-                        "should_process": False,
-                    },
-                    is_sync_check,
-                )
-
-        # Decrypt message
-        decrypted_xml = self.decrypt_message(encrypt, self.encoding_aes_key)
-        msg_data = self.parse_xml(decrypted_xml)
-
-        msg_type = msg_data.get("MsgType", "").strip().lower()
-        chat_id = msg_data.get("ChatId", "")
-        content = msg_data.get("Content", "")
-        user_id = msg_data.get("FromUserName", "")
-
-        # Ignore group chat messages; only respond to direct messages.
-        if chat_id:
-            logger.info(
-                "WeCom group message ignored",
-                extra={
-                    "event": "wecom_message_filter",
-                    "status": "ignored",
-                    "chat_id": chat_id,
-                },
-            )
+        if not self.validate_timestamp(timestamp):
             return self.add_immediate_response(
                 {
                     "is_verification": False,
-                    "event_type": msg_type,
-                    "chat_id": chat_id,
+                    "event_type": None,
                     "should_process": False,
                 },
                 is_sync_check,
             )
 
-        # Direct message detection (no ChatId).
-        is_direct_message = self.is_direct_message(msg_type, chat_id, content)
-        is_allowlisted = self.is_allowlisted_user(user_id)
-        if is_direct_message and not is_allowlisted:
-            logger.warning(
-                "WeCom user rejected by allowlist",
+        # Decrypt message
+        decrypted_xml = self.decrypt_message(
+            encrypt, self.encoding_aes_key, self.corp_id
+        )
+        msg_data = self.parse_xml(decrypted_xml)
+
+        # Check for Customer Service (微信客服) event from external WeChat users.
+        # These events only signal that new messages are available; actual
+        # messages must be fetched via the sync_msg API.
+        if self.is_customer_service_event(msg_data):
+            open_kf_id = msg_data.get("OpenKfId", "")
+            kf_token = msg_data.get("Token", "")
+            logger.info(
+                "WeCom Customer Service event received",
                 extra={
-                    "event": "wecom_allowlist_validation",
-                    "status": "failed",
-                    "user_id": user_id,
+                    "event": "wecom_customer_service",
+                    "status": "received",
+                    "open_kf_id": open_kf_id,
                 },
             )
+            return self.add_immediate_response(
+                {
+                    "is_verification": False,
+                    "is_customer_service": True,
+                    "event_type": "kf_msg_or_event",
+                    "open_kf_id": open_kf_id,
+                    "kf_token": kf_token,
+                    "should_process": bool(open_kf_id and kf_token),
+                },
+                is_sync_check,
+            )
 
-        # Sync check: return immediate_response to ack WeCom quickly.
-        # Async run: no immediate_response, workflow continues to send_message.
-        return self.add_immediate_response(
-            {
-                "is_verification": False,
-                "event_type": msg_type,
-                "chat_id": chat_id,
-                "user": user_id,
-                "content": content,
-                "target_user": user_id,
-                "should_process": is_direct_message and is_allowlisted,
-            },
-            is_sync_check,
-        )
+        # Handle internal WeCom user message
+        return self.handle_internal_message(msg_data, is_sync_check)
 
 
 @registry.register(
@@ -470,8 +554,340 @@ class WeComSendMessageNode(TaskNode):
         }
 
 
+@registry.register(
+    NodeMetadata(
+        name="WeComCustomerServiceSyncNode",
+        description="Sync messages from WeCom Customer Service (微信客服)",
+        category="wecom",
+    )
+)
+class WeComCustomerServiceSyncNode(TaskNode):
+    """Sync messages from WeCom Customer Service (微信客服).
+
+    This node fetches messages from external WeChat users who contact
+    the enterprise through Customer Service. It should be used after
+    WeComEventsParserNode detects a kf_msg_or_event callback.
+
+    The sync_msg API returns all new messages since the last cursor.
+    Only the first text message from external users is processed.
+    """
+
+    corp_id: str = Field(description="WeCom corp ID")
+    corp_secret: str = "[[wecom_corp_secret]]"
+    """WeCom Customer Service app secret (from Orcheo vault)."""
+    open_kf_id: str | None = Field(
+        default=None,
+        description="Customer Service account ID (from parser result)",
+    )
+    kf_token: str | None = Field(
+        default=None,
+        description="Sync token from callback (from parser result)",
+    )
+    cursor: str | None = Field(
+        default=None,
+        description="Optional cursor for pagination",
+    )
+    limit: int = Field(
+        default=100,
+        description="Maximum number of messages to fetch (1-1000)",
+    )
+
+    async def get_access_token(self) -> str:
+        """Fetch Customer Service access token."""
+        url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
+        params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
+
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            await client.aclose()
+
+        if data.get("errcode", 0) != 0:
+            msg = f"WeCom CS token error: {data.get('errmsg', 'Unknown error')}"
+            raise ValueError(msg)
+
+        return data.get("access_token", "")
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Sync messages from Customer Service."""
+        # Get open_kf_id and token from parser result if not provided
+        results = state.get("results", {})
+        parser_result = results.get("wecom_events_parser", {})
+
+        open_kf_id = self.open_kf_id or parser_result.get("open_kf_id", "")
+        kf_token = self.kf_token or parser_result.get("kf_token", "")
+
+        token_display = kf_token[:20] + "..." if len(kf_token) > 20 else kf_token
+        logger.info(
+            "WeCom CS sync starting: open_kf_id=%s, kf_token=%s",
+            open_kf_id or "(none)",
+            token_display or "(none)",
+        )
+
+        if not open_kf_id:
+            logger.warning(
+                "WeCom CS sync failed: missing open_kf_id",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "failed",
+                    "reason": "missing_open_kf_id",
+                },
+            )
+            return {"is_error": True, "error": "No open_kf_id provided"}
+
+        # Get access token
+        access_token = await self.get_access_token()
+
+        # Sync messages
+        url = "https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg"
+        params = {"access_token": access_token}
+        payload: dict[str, Any] = {
+            "open_kfid": open_kf_id,
+            "limit": min(self.limit, 1000),
+        }
+        if kf_token:
+            payload["token"] = kf_token
+        if self.cursor:
+            payload["cursor"] = self.cursor
+
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
+            response = await client.post(url, params=params, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            await client.aclose()
+
+        errcode = data.get("errcode", 0)
+        if errcode != 0:
+            logger.warning(
+                "WeCom CS sync failed",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": data.get("errmsg", "Unknown error"),
+                },
+            )
+            return {
+                "is_error": True,
+                "errcode": errcode,
+                "errmsg": data.get("errmsg", "Unknown error"),
+            }
+
+        msg_list = data.get("msg_list", [])
+        next_cursor = data.get("next_cursor", "")
+        has_more = data.get("has_more", 0) == 1
+
+        # Find the most recent text message from an external user
+        # Messages are returned oldest-first, so reverse to get newest first
+        external_user_id = ""
+        content = ""
+        for msg in reversed(msg_list):
+            # origin: 3=external WeChat user, 4=system, 5=internal user
+            if msg.get("origin") == 3 and msg.get("msgtype") == "text":
+                external_user_id = msg.get("external_userid", "")
+                text_data = msg.get("text", {})
+                content = text_data.get("content", "")
+                if content:
+                    break
+
+        logger.info(
+            "WeCom CS sync completed: %d messages, external_user=%s, content=%s",
+            len(msg_list),
+            external_user_id or "(none)",
+            content[:50] if content else "(none)",
+            extra={
+                "event": "wecom_cs_sync",
+                "status": "success",
+                "open_kf_id": open_kf_id,
+                "message_count": len(msg_list),
+                "has_more": has_more,
+            },
+        )
+
+        return {
+            "is_error": False,
+            "open_kf_id": open_kf_id,
+            "external_user_id": external_user_id,
+            "content": content,
+            "message_count": len(msg_list),
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+            "should_process": bool(external_user_id and content),
+        }
+
+
+@registry.register(
+    NodeMetadata(
+        name="WeComCustomerServiceSendNode",
+        description="Send messages via WeCom Customer Service (微信客服)",
+        category="wecom",
+    )
+)
+class WeComCustomerServiceSendNode(TaskNode):
+    """Send messages via WeCom Customer Service (微信客服).
+
+    This node sends messages to external WeChat users through Customer
+    Service. It should be used after WeComCustomerServiceSyncNode has
+    fetched the external user ID.
+    """
+
+    corp_id: str = Field(description="WeCom corp ID")
+    corp_secret: str = "[[wecom_corp_secret]]"
+    """WeCom Customer Service app secret (from Orcheo vault)."""
+    open_kf_id: str | None = Field(
+        default=None,
+        description="Customer Service account ID",
+    )
+    external_user_id: str | None = Field(
+        default=None,
+        description="External WeChat user ID",
+    )
+    message: str = Field(description="Message content to send")
+    msg_type: str = Field(default="text", description="Message type (text only)")
+
+    async def get_access_token(self) -> str:
+        """Fetch Customer Service access token."""
+        url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
+        params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
+
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            await client.aclose()
+
+        if data.get("errcode", 0) != 0:
+            msg = f"WeCom CS token error: {data.get('errmsg', 'Unknown error')}"
+            raise ValueError(msg)
+
+        return data.get("access_token", "")
+
+    async def send_message(
+        self,
+        access_token: str,
+        external_user_id: str,
+        open_kf_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send a customer service message."""
+        url = "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg"
+        params = {"access_token": access_token, "debug": 1}
+
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
+            response = await client.post(url, params=params, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            await client.aclose()
+
+        errcode = data.get("errcode", 0)
+        errmsg = data.get("errmsg", "Unknown error")
+        if errcode != 0:
+            logger.warning(
+                "WeCom CS send failed: errcode=%s errmsg=%s",
+                errcode,
+                errmsg,
+                extra={
+                    "event": "wecom_cs_send",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": errmsg,
+                    "external_user_id": external_user_id,
+                },
+            )
+            return {
+                "is_error": True,
+                "errcode": errcode,
+                "errmsg": data.get("errmsg", "Unknown error"),
+            }
+
+        logger.info(
+            "WeCom CS message delivered",
+            extra={
+                "event": "wecom_cs_send",
+                "status": "success",
+                "errcode": 0,
+                "external_user_id": external_user_id,
+                "msgid": data.get("msgid"),
+            },
+        )
+        return {
+            "is_error": False,
+            "errcode": 0,
+            "errmsg": "ok",
+            "msgid": data.get("msgid"),
+        }
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Send message via Customer Service."""
+        # Get IDs from sync node result if not provided
+        results = state.get("results", {})
+        sync_result = results.get("wecom_cs_sync", {})
+        parser_result = results.get("wecom_events_parser", {})
+
+        open_kf_id = (
+            self.open_kf_id
+            or sync_result.get("open_kf_id")
+            or parser_result.get("open_kf_id", "")
+        )
+        external_user_id = self.external_user_id or sync_result.get(
+            "external_user_id", ""
+        )
+
+        if not open_kf_id:
+            logger.warning(
+                "WeCom CS send failed: missing open_kf_id",
+                extra={
+                    "event": "wecom_cs_send",
+                    "status": "failed",
+                    "reason": "missing_open_kf_id",
+                },
+            )
+            return {"is_error": True, "error": "No open_kf_id provided"}
+
+        if not external_user_id:
+            logger.warning(
+                "WeCom CS send failed: missing external_user_id",
+                extra={
+                    "event": "wecom_cs_send",
+                    "status": "failed",
+                    "reason": "missing_external_user_id",
+                },
+            )
+            return {"is_error": True, "error": "No external_user_id provided"}
+
+        # Get access token
+        access_token = await self.get_access_token()
+
+        payload: dict[str, Any] = {
+            "touser": external_user_id,
+            "open_kfid": open_kf_id,
+            "msgtype": self.msg_type,
+        }
+
+        if self.msg_type == "text":
+            payload["text"] = {"content": self.message}
+        else:
+            # Only text is currently supported
+            payload["text"] = {"content": self.message}
+
+        return await self.send_message(
+            access_token, external_user_id, open_kf_id, payload
+        )
+
+
 __all__ = [
     "WeComAccessTokenNode",
+    "WeComCustomerServiceSendNode",
+    "WeComCustomerServiceSyncNode",
     "WeComEventsParserNode",
     "WeComSendMessageNode",
 ]
