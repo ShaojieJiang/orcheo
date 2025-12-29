@@ -29,7 +29,7 @@ class WebhookTriggerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     allowed_methods: list[str] = Field(
-        default_factory=lambda: ["POST"],
+        default_factory=lambda: ["GET", "POST"],
         description="Set of HTTP methods that are permitted for the webhook.",
     )
     required_headers: dict[str, str] = Field(
