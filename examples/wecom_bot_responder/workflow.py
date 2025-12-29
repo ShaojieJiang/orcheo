@@ -14,8 +14,7 @@ Configurable inputs (workflow_config.json):
 - reply_message (fixed response content)
 
 Orcheo vault secrets required:
-- wecom_corp_secret: WeCom app secret for access token (internal users)
-- wecom_mp_secret: WeCom Customer Service app secret (external users)
+- wecom_corp_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
 """
