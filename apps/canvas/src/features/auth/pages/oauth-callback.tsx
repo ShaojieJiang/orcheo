@@ -22,7 +22,8 @@ export default function OAuthCallback() {
       const error = url.searchParams.get("error");
       const errorDescription = url.searchParams.get("error_description");
       if (error) {
-        setMessage(errorDescription || "OAuth login failed.");
+        console.error("OAuth login failed.", { error, errorDescription });
+        setMessage("OAuth login failed. Please try again.");
         return;
       }
 
@@ -38,9 +39,8 @@ export default function OAuthCallback() {
         const redirectTo = consumePostLoginRedirect() ?? "/";
         navigate(redirectTo, { replace: true });
       } catch (err) {
-        setMessage(
-          err instanceof Error ? err.message : "Unable to complete login.",
-        );
+        console.error("Unable to complete login.", err);
+        setMessage("Unable to complete login.");
       }
     };
 

@@ -28,7 +28,11 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
     except AuthenticationError:
         return
 
-    await websocket.accept()
+    subprotocol = getattr(websocket.state, "subprotocol", None)
+    if subprotocol:
+        await websocket.accept(subprotocol=subprotocol)
+    else:
+        await websocket.accept()
     websocket.state.auth = context
 
     try:

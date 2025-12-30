@@ -69,7 +69,6 @@ export const buildBackendHttpUrl = (path: string, baseUrl?: string): string => {
 export const buildWorkflowWebSocketUrl = (
   workflowId: string,
   baseUrl?: string,
-  token?: string | null,
 ): string => {
   const resolvedId = workflowId.trim();
   if (!resolvedId) {
@@ -77,21 +76,21 @@ export const buildWorkflowWebSocketUrl = (
   }
   const resolved = normaliseBaseUrl(baseUrl ?? getBackendBaseUrl());
   if (resolved.startsWith("ws://") || resolved.startsWith("wss://")) {
-    const url = `${trimTrailingSlash(resolved)}/ws/workflow/${resolvedId}`;
-    if (!token) {
-      return url;
-    }
-    const parsed = new URL(url);
-    parsed.searchParams.set("access_token", token);
-    return parsed.toString();
+    return `${trimTrailingSlash(resolved)}/ws/workflow/${resolvedId}`;
   }
   const protocol = resolved.startsWith("https://") ? "wss://" : "ws://";
   const host = resolved.replace(/^https?:\/\//, "").replace(/^ws?:\/\//, "");
-  const url = `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}`;
+  return `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}`;
+};
+
+const WEBSOCKET_AUTH_PROTOCOL = "orcheo-auth";
+const WEBSOCKET_AUTH_PREFIX = "bearer.";
+
+export const buildWorkflowWebSocketProtocols = (
+  token?: string | null,
+): string[] | undefined => {
   if (!token) {
-    return url;
+    return undefined;
   }
-  const parsed = new URL(url);
-  parsed.searchParams.set("access_token", token);
-  return parsed.toString();
+  return [WEBSOCKET_AUTH_PROTOCOL, `${WEBSOCKET_AUTH_PREFIX}${token}`];
 };

@@ -46,46 +46,25 @@ async def test_authenticate_websocket_with_auth_header(
 
 
 @pytest.mark.asyncio
-async def test_authenticate_websocket_with_query_param(
+async def test_authenticate_websocket_with_subprotocol_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """WebSocket authentication via query parameter."""
+    """WebSocket authentication via subprotocol token."""
 
-    token = "ws-query-token"
-    _setup_service_token(monkeypatch, token, identifier="ws-query")
+    token = "ws-protocol-token"
+    _setup_service_token(monkeypatch, token, identifier="ws-protocol")
     reset_authentication_state()
 
     websocket = Mock(spec=WebSocket)
-    websocket.headers = {}
-    websocket.query_params = {"token": token}
+    websocket.headers = {"sec-websocket-protocol": f"orcheo-auth, bearer.{token}"}
+    websocket.query_params = {}
     websocket.client = Mock(host="1.2.3.4")
     websocket.state = Mock()
 
     context = await authenticate_websocket(websocket)
 
     assert context.is_authenticated
-
-
-@pytest.mark.asyncio
-async def test_authenticate_websocket_with_access_token_param(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """WebSocket authentication via access_token query parameter."""
-
-    token = "ws-access-token"
-    _setup_service_token(monkeypatch, token, identifier="ws-access")
-    reset_authentication_state()
-
-    websocket = Mock(spec=WebSocket)
-    websocket.headers = {}
-    websocket.query_params = {"access_token": token}
-    websocket.client = Mock(host="1.2.3.4")
-    websocket.state = Mock()
-    websocket.close = AsyncMock()
-
-    context = await authenticate_websocket(websocket)
-
-    assert context.is_authenticated
+    assert websocket.state.subprotocol == "orcheo-auth"
 
 
 @pytest.mark.asyncio
