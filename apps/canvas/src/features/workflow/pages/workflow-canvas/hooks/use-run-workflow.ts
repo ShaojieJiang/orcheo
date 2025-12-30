@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { MutableRefObject } from "react";
 
 import { toast } from "@/hooks/use-toast";
+import { getAccessToken } from "@features/auth/lib/auth-session";
 import { buildWorkflowWebSocketUrl, getBackendBaseUrl } from "@/lib/config";
 import { buildGraphConfigFromCanvas } from "@features/workflow/lib/graph-config";
 import { generateRandomId } from "@features/workflow/pages/workflow-canvas/helpers/id";
@@ -92,6 +93,7 @@ export function useRunWorkflow({
       websocketUrl = buildWorkflowWebSocketUrl(
         currentWorkflowId ?? "canvas-preview",
         getBackendBaseUrl(),
+        getAccessToken(),
       );
     } catch (error) {
       setIsRunning(false);

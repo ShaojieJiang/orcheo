@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
   Card,
@@ -14,61 +14,43 @@ import { Separator } from "@/design-system/ui/separator";
 import { Loader2 } from "lucide-react";
 import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
 import { toast } from "@/hooks/use-toast";
-import { buildBackendHttpUrl } from "@/lib/config";
+import { startOidcLogin } from "@features/auth/lib/oidc-client";
 
 interface AuthPageProps {
   type?: "login" | "signup";
 }
 
 export default function AuthPage({ type = "login" }: AuthPageProps) {
-  const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [providerLoading, setProviderLoading] = useState<
     "google" | "github" | null
   >(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Authentication coming soon",
-      description:
-        "The canvas prototype does not include authentication yet. Your credentials were not sent anywhere.",
-    });
-
-    // In a real app, this would handle authentication
+    setFormLoading(true);
+    try {
+      await startOidcLogin({ redirectTo });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to start login.";
+      toast({
+        title: "Login failed",
+        description: message,
+        variant: "destructive",
+      });
+      setFormLoading(false);
+    }
   };
 
-  const startDevLogin = async (provider: "google" | "github") => {
+  const startProviderLogin = async (provider: "google" | "github") => {
     setProviderLoading(provider);
     try {
-      const response = await fetch(buildBackendHttpUrl("/api/auth/dev/login"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          provider,
-          email: email || undefined,
-          name: email ? email.split("@")[0] : undefined,
-        }),
-      });
-
-      if (!response.ok) {
-        const detail = await response.json().catch(() => null);
-        const message =
-          detail?.message ||
-          detail?.detail?.message ||
-          "Developer login is disabled for this environment. Set ORCHEO_AUTH_DEV_LOGIN_ENABLED=true on the backend.";
-        throw new Error(message);
-      }
-
-      toast({
-        title: "Signed in",
-        description: `Authenticated via ${provider} (dev mode).`,
-      });
-      navigate("/");
+      await startOidcLogin({ provider, redirectTo });
     } catch (error) {
       const message =
         error instanceof Error
@@ -120,8 +102,8 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => startDevLogin("google")}
-              disabled={providerLoading !== null}
+              onClick={() => startProviderLogin("google")}
+              disabled={providerLoading !== null || formLoading}
             >
               {providerLoading === "google" ? (
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -133,8 +115,8 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => startDevLogin("github")}
-              disabled={providerLoading !== null}
+              onClick={() => startProviderLogin("github")}
+              disabled={providerLoading !== null || formLoading}
             >
               {providerLoading === "github" ? (
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -189,8 +171,16 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
                   required
                 />
               </div>
-              <Button className="w-full" type="submit">
-                {type === "login" ? "Login" : "Create account"}
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={formLoading || providerLoading !== null}
+              >
+                {formLoading
+                  ? "Signing in…"
+                  : type === "login"
+                    ? "Login"
+                    : "Create account"}
               </Button>
             </div>
           </form>

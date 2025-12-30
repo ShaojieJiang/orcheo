@@ -33,6 +33,21 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
 
+## Canvas frontend configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:8000` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. |
+| `VITE_ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OIDC issuer used for IdP-only login (Canvas OAuth). |
+| `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Canvas SPA. |
+| `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Canvas callback route). |
+| `VITE_ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | Scopes requested during OIDC login. |
+| `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
+| `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
+| `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | Override the ChatKit domain key for Canvas if needed. |
+
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |

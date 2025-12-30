@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import type {
   CanvasNode,
@@ -214,7 +215,7 @@ export const useWorkflowChat = ({
       delete metadata.threadId;
       delete metadata.thread_id;
 
-      const response = await fetch(
+      const response = await authFetch(
         buildBackendHttpUrl(
           `/api/chatkit/workflows/${workflowId}/trigger`,
           backendBaseUrl,

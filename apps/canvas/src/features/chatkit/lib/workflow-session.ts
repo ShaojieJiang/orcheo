@@ -1,3 +1,4 @@
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 
 interface WorkflowSessionResponse {
@@ -40,7 +41,7 @@ export async function requestWorkflowChatSession(
     `/api/workflows/${workflowId}/chatkit/session`,
     backendBaseUrl ?? undefined,
   );
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

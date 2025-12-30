@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { toast } from "@/hooks/use-toast";
 import type {
@@ -44,7 +45,7 @@ export const useWorkflowCredentials = ({
           url.searchParams.set("workflow_id", routeWorkflowId);
         }
 
-        const response = await fetch(url.toString(), {
+        const response = await authFetch(url.toString(), {
           signal: controller.signal,
         });
 

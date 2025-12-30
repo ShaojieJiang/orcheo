@@ -1,3 +1,4 @@
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
@@ -37,7 +38,7 @@ export const request = async <T>(
   const expectJson = options.expectJson ?? true;
   const url = buildBackendHttpUrl(path);
 
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     ...options,
     headers: options.body ? JSON_HEADERS : options.headers,
   });

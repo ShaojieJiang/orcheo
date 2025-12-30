@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import { toast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { executionStatusFromValue } from "@features/workflow/pages/workflow-canvas/helpers/execution";
 
@@ -116,7 +117,7 @@ export function useExecutionHistoryHandlers({
     );
 
     try {
-      const response = await fetch(url);
+      const response = await authFetch(url);
       if (!response.ok) {
         const detail = await response.text();
         throw new Error(

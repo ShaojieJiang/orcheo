@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogContent } from "@/design-system/ui/dialog";
 import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
+import { clearAuthSession } from "@features/auth/lib/auth-session";
 import type {
   Credential,
   CredentialInput,
@@ -78,7 +79,11 @@ export default function AccountMenu({
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              clearAuthSession();
+            }}
+          >
             <Link to="/login" className="flex w-full items-center">
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>
