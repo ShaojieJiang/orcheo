@@ -95,4 +95,23 @@ describe("buildPublicChatFetch", () => {
       workflow_id: "wf-789",
     });
   });
+
+  it("does not inject Authorization headers by default", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+
+    const handler = buildPublicChatFetch({
+      workflowId: "wf-222",
+    });
+
+    await handler("http://localhost:8000/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const [, options] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(options?.headers ?? {});
+    expect(headers.has("Authorization")).toBe(false);
+  });
 });

@@ -1,4 +1,3 @@
-import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 
 export interface PublicChatHttpError {
@@ -96,7 +95,8 @@ export const buildPublicChatFetch = ({
   onHttpError,
   metadata,
 }: PublicChatFetchOptions): typeof fetch => {
-  const baseFetch = authFetch;
+  // Use plain fetch to avoid attaching Canvas access tokens to public requests.
+  const baseFetch = fetch;
   const resolvedUrl = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
 
   const emitError = async (response: Response) => {
