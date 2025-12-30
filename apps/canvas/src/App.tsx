@@ -17,6 +17,7 @@ export default function OrcheoCanvasApp() {
         <Route path="/login" element={<Login />} />
 
         <Route path="/auth/callback" element={<OAuthCallback />} />
+        <Route path="/chat/:workflowId" element={<PublicChatPage />} />
 
         <Route element={<RequireAuth />}>
           <Route path="/" element={<WorkflowGallery />} />
@@ -37,8 +38,6 @@ export default function OrcheoCanvasApp() {
           <Route path="/settings" element={<Settings />} />
 
           <Route path="/help-support" element={<HelpSupport />} />
-
-          <Route path="/chat/:workflowId" element={<PublicChatPage />} />
         </Route>
       </Routes>
     </Router>
