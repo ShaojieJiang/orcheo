@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
   DropdownMenu,
@@ -32,6 +32,7 @@ export default function AccountMenu({
   onDeleteCredential,
 }: AccountMenuProps) {
   const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <>
@@ -82,12 +83,14 @@ export default function AccountMenu({
           <DropdownMenuItem
             onSelect={() => {
               clearAuthSession();
+              navigate("/login", { replace: true });
             }}
+            className="cursor-pointer"
           >
-            <Link to="/login" className="flex w-full items-center">
+            <div className="flex w-full items-center">
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>
-            </Link>
+            </div>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
