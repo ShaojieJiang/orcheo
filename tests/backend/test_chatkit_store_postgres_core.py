@@ -500,7 +500,7 @@ async def test_get_pool_caching(monkeypatch: pytest.MonkeyPatch) -> None:
         async def __aexit__(self, *args):
             pass
 
-    store._init_lock = SideEffectLock()  # type: ignore
+    store._pool_lock = SideEffectLock()  # type: ignore
 
     pool = await store._get_pool()
     assert pool == "race_pool"
@@ -517,7 +517,7 @@ async def test_ensure_initialized_race(monkeypatch: pytest.MonkeyPatch) -> None:
         async def __aexit__(self, *args):
             pass
 
-    store._init_lock = SideEffectLock()  # type: ignore
+    store._schema_lock = SideEffectLock()  # type: ignore
 
     # Should return early inside lock and NO connection activity (no responses needed)
     await store._ensure_initialized()
