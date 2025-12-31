@@ -14,6 +14,7 @@ interface OidcAuthConfig {
   redirectUri: string;
   scopes: string;
   audience?: string;
+  organization?: string;
   providerParam?: string;
   providerValues: Partial<Record<AuthProvider, string>>;
 }
@@ -166,6 +167,7 @@ const getAuthConfig = (): OidcAuthConfig => {
   }
   const scopes = readEnv("VITE_ORCHEO_AUTH_SCOPES") ?? "openid profile email";
   const audience = readEnv("VITE_ORCHEO_AUTH_AUDIENCE");
+  const organization = readEnv("VITE_ORCHEO_AUTH_ORGANIZATION");
   const providerParam = readEnv("VITE_ORCHEO_AUTH_PROVIDER_PARAM");
   const providerValues: Partial<Record<AuthProvider, string>> = {
     google: readEnv("VITE_ORCHEO_AUTH_PROVIDER_GOOGLE"),
@@ -178,6 +180,7 @@ const getAuthConfig = (): OidcAuthConfig => {
     redirectUri: resolveRedirectUri(),
     scopes,
     audience,
+    organization,
     providerParam,
     providerValues,
   };
@@ -327,6 +330,9 @@ export const startOidcLogin = async ({
   url.searchParams.set("code_challenge_method", "S256");
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
+  }
+  if (config.organization) {
+    url.searchParams.set("organization", config.organization);
   }
   if (provider && config.providerParam) {
     const providerValue = config.providerValues[provider] ?? provider;
