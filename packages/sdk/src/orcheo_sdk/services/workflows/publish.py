@@ -29,11 +29,14 @@ def _enrich_workflow(
     enriched = dict(workflow)
     workflow_id = str(enriched.get("id")) if enriched.get("id") else None
     if workflow_id and enriched.get("is_public"):
-        enriched["share_url"] = _build_share_url(
-            base_url,
-            workflow_id,
-            public_base_url=public_base_url,
-        )
+        if public_base_url:
+            enriched["share_url"] = _build_share_url(
+                base_url,
+                workflow_id,
+                public_base_url=public_base_url,
+            )
+        elif not enriched.get("share_url"):
+            enriched["share_url"] = _build_share_url(base_url, workflow_id)
     else:
         enriched["share_url"] = None
     return enriched
@@ -52,11 +55,15 @@ def publish_workflow_data(
         f"/api/workflows/{workflow_id}/publish",
         json_body={"require_login": require_login, "actor": actor},
     )
+    share_url_override = payload.get("share_url")
+    public_base_url = public_base_url or client.public_base_url
     workflow = _enrich_workflow(
         client.base_url,
         payload["workflow"],
-        public_base_url=public_base_url or client.public_base_url,
+        public_base_url=public_base_url,
     )
+    if share_url_override and not public_base_url:
+        workflow["share_url"] = share_url_override
     return {
         "workflow": workflow,
         "message": payload.get("message"),

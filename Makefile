@@ -49,6 +49,9 @@ docker-up:
 docker-down:
 	docker compose down
 
+docker-restart:
+	docker compose restart
+
 docker-build:
 	docker compose build
 
