@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   Credential,
@@ -59,7 +60,7 @@ export function useCredentialVault(
           url.searchParams.set("workflow_id", workflowId);
         }
 
-        const response = await fetch(url.toString(), {
+        const response = await authFetch(url.toString(), {
           signal: controller.signal,
         });
 
@@ -119,7 +120,7 @@ export function useCredentialVault(
         throw new Error(message);
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         buildBackendHttpUrl("/api/credentials", backendBaseUrl),
         {
           method: "POST",
@@ -201,7 +202,7 @@ export function useCredentialVault(
       }
 
       try {
-        const response = await fetch(url.toString(), {
+        const response = await authFetch(url.toString(), {
           method: "DELETE",
         });
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import { toast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import {
@@ -145,7 +146,7 @@ export function useExecutionTrace({
           attempt += 1
         ) {
           try {
-            const response = await fetch(
+            const response = await authFetch(
               buildTraceUrl(backendBaseUrl, executionId),
             );
             if (!response.ok) {

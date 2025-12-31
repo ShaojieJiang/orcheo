@@ -66,3 +66,27 @@ def test_try_dev_login_cookie_returns_none_when_cookie_missing() -> None:
 
     result = _try_dev_login_cookie(request, settings)
     assert result is None
+
+
+def test_try_dev_login_cookie_returns_context_when_cookie_present() -> None:
+    """_try_dev_login_cookie constructs a developer context when the cookie exists."""
+
+    settings = _base_settings()
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"cookie", b"orcheo_dev_session=abc123")],
+        "client": None,
+    }
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request"}
+
+    request = Request(scope, receive)  # type: ignore[arg-type]
+
+    result = _try_dev_login_cookie(request, settings)
+    assert result is not None
+    assert result.identity_type == "developer"
+    assert result.subject == "dev:abc123"

@@ -7,10 +7,7 @@ from types import ModuleType
 import pytest
 from orcheo_backend.app import _create_repository, create_app, get_repository
 from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
-from orcheo_backend.app.factory import (
-    _DEFAULT_ALLOWED_ORIGINS,
-    _load_allowed_origins,
-)
+from orcheo_backend.app.factory import _DEFAULT_ALLOWED_ORIGINS, _load_allowed_origins
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 

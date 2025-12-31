@@ -95,7 +95,8 @@ export const buildPublicChatFetch = ({
   onHttpError,
   metadata,
 }: PublicChatFetchOptions): typeof fetch => {
-  const baseFetch = window.fetch.bind(window);
+  // Use plain fetch to avoid attaching Canvas access tokens to public requests.
+  const baseFetch = fetch;
   const resolvedUrl = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
 
   const emitError = async (response: Response) => {

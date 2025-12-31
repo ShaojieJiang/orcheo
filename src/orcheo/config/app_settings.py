@@ -31,6 +31,7 @@ class AppSettings(BaseModel):
     chatkit_storage_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
     )
+    chatkit_public_base_url: str | None = None
     chatkit_max_upload_size_bytes: int = Field(
         default=cast(int, _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]), gt=0
     )
@@ -157,6 +158,14 @@ class AppSettings(BaseModel):
     @classmethod
     def _coerce_chatkit_storage_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
+
+    @field_validator("chatkit_public_base_url", mode="before")
+    @classmethod
+    def _coerce_chatkit_public_base_url(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        return candidate or None
 
     @field_validator("chatkit_max_upload_size_bytes", mode="before")
     @classmethod

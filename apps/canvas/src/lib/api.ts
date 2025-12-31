@@ -1,3 +1,4 @@
+import { authFetch } from "./auth-fetch";
 import { buildBackendHttpUrl } from "./config";
 
 export interface NodeExecutionRequest {
@@ -26,7 +27,7 @@ export async function executeNode(
 ): Promise<NodeExecutionResponse> {
   const url = buildBackendHttpUrl("/api/nodes/execute", baseUrl);
 
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

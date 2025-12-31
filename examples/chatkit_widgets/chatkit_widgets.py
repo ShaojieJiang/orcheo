@@ -10,7 +10,7 @@ from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
 DEFAULT_MODEL = "openai:gpt-4o-mini"
-DEFAULT_WIDGETS_DIR = "path/to/widgets"
+DEFAULT_WIDGETS_DIR = "/app/examples/chatkit_widgets/widgets"
 DEFAULT_MESSAGE = "Generate a shopping list with the following items: apples, bananas, bread, milk, eggs, cheese, butter, and tomato."  # noqa: E501
 
 

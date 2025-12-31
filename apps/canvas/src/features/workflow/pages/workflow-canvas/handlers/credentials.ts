@@ -1,5 +1,6 @@
 import type React from "react";
 
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { toast } from "@/hooks/use-toast";
 import type {
@@ -40,7 +41,7 @@ export const createHandleAddCredential =
       throw new Error(message);
     }
 
-    const response = await fetch(
+    const response = await authFetch(
       buildBackendHttpUrl("/api/credentials", backendBaseUrl),
       {
         method: "POST",
@@ -125,7 +126,7 @@ export const createHandleDeleteCredential =
     }
 
     try {
-      const response = await fetch(url.toString(), {
+      const response = await authFetch(url.toString(), {
         method: "DELETE",
       });
 

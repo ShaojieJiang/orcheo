@@ -82,3 +82,15 @@ export const buildWorkflowWebSocketUrl = (
   const host = resolved.replace(/^https?:\/\//, "").replace(/^ws?:\/\//, "");
   return `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}`;
 };
+
+const WEBSOCKET_AUTH_PROTOCOL = "orcheo-auth";
+const WEBSOCKET_AUTH_PREFIX = "bearer.";
+
+export const buildWorkflowWebSocketProtocols = (
+  token?: string | null,
+): string[] | undefined => {
+  if (!token) {
+    return undefined;
+  }
+  return [WEBSOCKET_AUTH_PROTOCOL, `${WEBSOCKET_AUTH_PREFIX}${token}`];
+};

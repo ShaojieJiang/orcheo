@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
   Card,
@@ -8,67 +8,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/design-system/ui/card";
-import { Input } from "@/design-system/ui/input";
-import { Label } from "@/design-system/ui/label";
-import { Separator } from "@/design-system/ui/separator";
 import { Loader2 } from "lucide-react";
 import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
 import { toast } from "@/hooks/use-toast";
-import { buildBackendHttpUrl } from "@/lib/config";
+import { startOidcLogin } from "@features/auth/lib/oidc-client";
 
-interface AuthPageProps {
-  type?: "login" | "signup";
-}
-
-export default function AuthPage({ type = "login" }: AuthPageProps) {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+export default function AuthPage() {
+  const location = useLocation();
   const [providerLoading, setProviderLoading] = useState<
     "google" | "github" | null
   >(null);
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    toast({
-      title: "Authentication coming soon",
-      description:
-        "The canvas prototype does not include authentication yet. Your credentials were not sent anywhere.",
-    });
-
-    // In a real app, this would handle authentication
-  };
-
-  const startDevLogin = async (provider: "google" | "github") => {
+  const startProviderLogin = async (provider: "google" | "github") => {
     setProviderLoading(provider);
     try {
-      const response = await fetch(buildBackendHttpUrl("/api/auth/dev/login"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          provider,
-          email: email || undefined,
-          name: email ? email.split("@")[0] : undefined,
-        }),
-      });
-
-      if (!response.ok) {
-        const detail = await response.json().catch(() => null);
-        const message =
-          detail?.message ||
-          detail?.detail?.message ||
-          "Developer login is disabled for this environment. Set ORCHEO_AUTH_DEV_LOGIN_ENABLED=true on the backend.";
-        throw new Error(message);
-      }
-
-      toast({
-        title: "Signed in",
-        description: `Authenticated via ${provider} (dev mode).`,
-      });
-      navigate("/");
+      await startOidcLogin({ provider, redirectTo });
     } catch (error) {
       const message =
         error instanceof Error
@@ -106,21 +61,15 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
               <span className="text-xl font-bold">Orcheo Canvas</span>
             </Link>
           </div>
-          <CardTitle className="text-2xl">
-            {type === "login" ? "Login" : "Create an account"}
-          </CardTitle>
-          <CardDescription>
-            {type === "login"
-              ? "Enter your email below to login to your account"
-              : "Enter your information below to create your account"}
-          </CardDescription>
+          <CardTitle className="text-2xl">Sign in</CardTitle>
+          <CardDescription>Continue with your OAuth provider.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => startDevLogin("google")}
+              onClick={() => startProviderLogin("google")}
               disabled={providerLoading !== null}
             >
               {providerLoading === "google" ? (
@@ -133,7 +82,7 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => startDevLogin("github")}
+              onClick={() => startProviderLogin("github")}
               disabled={providerLoading !== null}
             >
               {providerLoading === "github" ? (
@@ -144,79 +93,8 @@ export default function AuthPage({ type = "login" }: AuthPageProps) {
               {providerLoading === "github" ? "Signing in…" : "GitHub"}
             </Button>
           </div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@orcheo.dev"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  {type === "login" && (
-                    <Link
-                      to="/forgot-password"
-                      className="text-sm text-primary underline-offset-4 hover:underline"
-                    >
-                      Forgot password?
-                    </Link>
-                  )}
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <Button className="w-full" type="submit">
-                {type === "login" ? "Login" : "Create account"}
-              </Button>
-            </div>
-          </form>
-
-          <div className="mt-4 text-center text-sm">
-            {type === "login" ? (
-              <div>
-                Don&apos;t have an account?{" "}
-                <Link
-                  to="/signup"
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Sign up
-                </Link>
-              </div>
-            ) : (
-              <div>
-                Already have an account?{" "}
-                <Link
-                  to="/login"
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Login
-                </Link>
-              </div>
-            )}
+          <div className="mt-4 text-center text-sm text-muted-foreground">
+            Need access? Contact your admin.
           </div>
         </CardContent>
       </Card>

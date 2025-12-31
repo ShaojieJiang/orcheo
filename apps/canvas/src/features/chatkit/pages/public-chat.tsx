@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
 import { Skeleton } from "@/design-system/ui/skeleton";
@@ -10,11 +10,12 @@ import { getBackendBaseUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { Theme } from "@/lib/theme";
 import { useThemePreferences } from "@features/account/components/use-theme-preferences";
+import { isAuthenticated } from "@features/auth/lib/auth-session";
 import {
   ApiRequestError,
-  fetchWorkflow,
+  fetchPublicWorkflow,
 } from "@features/workflow/lib/workflow-storage-api";
-import type { ApiWorkflow } from "@features/workflow/lib/workflow-storage.types";
+import type { PublicWorkflowMetadata } from "@features/workflow/lib/workflow-storage.types";
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
 import { PublicChatErrorBoundary } from "@features/chatkit/components/public-chat-error-boundary";
 import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
@@ -24,7 +25,7 @@ type ColorScheme = "light" | "dark";
 type WorkflowState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; workflow: ApiWorkflow };
+  | { status: "ready"; workflow: PublicWorkflowMetadata };
 
 const sanitizeWorkflowNameForEmail = (value: string): string =>
   value
@@ -34,6 +35,7 @@ const sanitizeWorkflowNameForEmail = (value: string): string =>
 
 export default function PublicChatPage() {
   const { workflowId } = useParams<{ workflowId: string }>();
+  const location = useLocation();
   const [workflowState, setWorkflowState] = useState<WorkflowState>({
     status: workflowId ? "loading" : "error",
     ...(workflowId ? {} : { message: "Workflow identifier missing from URL." }),
@@ -50,6 +52,7 @@ export default function PublicChatPage() {
   );
   const { theme, setTheme } = useThemePreferences({});
   const backendBaseUrl = useMemo(() => getBackendBaseUrl(), []);
+  const redirectTo = `${location.pathname}${location.search}${location.hash}`;
 
   useEffect(() => {
     setChatError(null);
@@ -64,7 +67,7 @@ export default function PublicChatPage() {
     let cancelled = false;
     setWorkflowState({ status: "loading" });
 
-    fetchWorkflow(workflowId)
+    fetchPublicWorkflow(workflowId)
       .then((workflow) => {
         if (cancelled) {
           return;
@@ -91,6 +94,14 @@ export default function PublicChatPage() {
           return;
         }
         if (error instanceof ApiRequestError) {
+          if (error.status === 403) {
+            setWorkflowState({
+              status: "error",
+              message:
+                "This workflow is private. Ask the owner to republish it before trying again.",
+            });
+            return;
+          }
           const message =
             error.status >= 500
               ? "The workflow service is unavailable. Please try again later."
@@ -220,6 +231,31 @@ export default function PublicChatPage() {
             <Button asChild variant="secondary" className="mt-4">
               <Link to="/">Return home</Link>
             </Button>
+          </div>
+        );
+      }
+
+      if (
+        workflowState.status === "ready" &&
+        workflowState.workflow.require_login &&
+        !isAuthenticated()
+      ) {
+        return (
+          <div className="rounded-3xl border border-slate-200/80 bg-white/70 p-6 text-slate-900 shadow-sm dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-white">
+            <p className="text-lg font-semibold">Login required</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              The owner requires OAuth login before this chat can start.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button asChild>
+                <Link to="/login" state={{ from: redirectTo }}>
+                  Sign in to continue
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a href={contactHref}>Contact owner</a>
+              </Button>
+            </div>
           </div>
         );
       }

@@ -97,3 +97,15 @@ class WorkflowPublishResponse(BaseModel):
 
     workflow: Workflow
     message: str | None = None
+    share_url: str | None = None
+
+
+class PublicWorkflow(BaseModel):
+    """Public workflow metadata returned without authentication."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    is_public: bool
+    require_login: bool
+    share_url: str | None = None

@@ -36,12 +36,14 @@ describe("executeNode", () => {
       expect.stringContaining("/api/nodes/execute"),
       expect.objectContaining({
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: expect.stringContaining("SetVariableNode"),
       }),
     );
+    const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    const headers = options?.headers as Headers;
+    expect(headers).toBeInstanceOf(Headers);
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 
   it("should handle error responses", async () => {

@@ -1,3 +1,4 @@
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 
 import { mapHistoryToExecution } from "./workflow-execution-builders";
@@ -31,7 +32,7 @@ export const loadWorkflowExecutions = async (
     options.backendBaseUrl,
   );
 
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(

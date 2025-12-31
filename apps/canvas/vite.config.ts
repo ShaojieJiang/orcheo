@@ -17,6 +17,11 @@ export default defineConfig({
       '@features': path.resolve(__dirname, './src/features'),
     }
   },
+  server: {
+    allowedHosts: [
+      'orcheo-canvas.ai-colleagues.com'
+    ]
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',

@@ -41,7 +41,7 @@ def reset_auth_state(
         "ORCHEO_AUTH_RATE_LIMIT_INTERVAL",
         "ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH",
     ):
-        monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv(key, "")
     reset_authentication_state()
     try:
         yield

@@ -1,11 +1,14 @@
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
   ApiWorkflowVersion,
+  PublicWorkflowMetadata,
   RequestOptions,
 } from "./workflow-storage.types";
 
 export const API_BASE = "/api/workflows";
+export const PUBLIC_WORKFLOW_PATH = "/api/workflows";
 
 const JSON_HEADERS = {
   Accept: "application/json",
@@ -37,7 +40,7 @@ export const request = async <T>(
   const expectJson = options.expectJson ?? true;
   const url = buildBackendHttpUrl(path);
 
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     ...options,
     headers: options.body ? JSON_HEADERS : options.headers,
   });
@@ -63,6 +66,24 @@ export const fetchWorkflow = async (
 ): Promise<ApiWorkflow | undefined> => {
   try {
     return await request<ApiWorkflow>(`${API_BASE}/${workflowId}`);
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+export const fetchPublicWorkflow = async (
+  workflowId: string,
+): Promise<PublicWorkflowMetadata | undefined> => {
+  try {
+    return await request<PublicWorkflowMetadata>(
+      `${PUBLIC_WORKFLOW_PATH}/${workflowId}/public`,
+    );
   } catch (error) {
     if (
       error instanceof ApiRequestError &&

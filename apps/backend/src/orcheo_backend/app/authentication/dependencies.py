@@ -108,6 +108,38 @@ def _extract_bearer_token(header_value: str | None) -> str:
     return token
 
 
+def _extract_websocket_protocol_token(
+    header_value: str | None,
+) -> tuple[str | None, str | None]:
+    if not header_value:
+        return None, None
+    protocols = [value.strip() for value in header_value.split(",") if value.strip()]
+    if not protocols:
+        return None, None
+    selected = "orcheo-auth" if "orcheo-auth" in protocols else None
+    token = None
+    for protocol in protocols:
+        if protocol.startswith("bearer."):
+            token = protocol.removeprefix("bearer.").strip()
+            if token:
+                break
+            token = None
+    return token, selected
+
+
+def _resolve_websocket_token(websocket: WebSocket) -> tuple[str | None, str | None]:
+    protocol_header = websocket.headers.get("sec-websocket-protocol")
+    protocol_token, subprotocol = _extract_websocket_protocol_token(protocol_header)
+
+    header_value = websocket.headers.get("authorization")
+    if header_value:
+        return _extract_bearer_token(header_value), subprotocol
+    if protocol_token:
+        return protocol_token, subprotocol
+
+    return None, subprotocol
+
+
 def _build_dev_context(identity: str, settings: AuthSettings) -> RequestContext:
     scopes = (
         frozenset(settings.dev_login_scopes)
@@ -252,16 +284,11 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:  # noq
         await websocket.close(code=exc.websocket_code, reason=exc.message)
         raise
 
-    header_value = websocket.headers.get("authorization")
     token: str | None = None
     try:
-        if header_value:
-            token = _extract_bearer_token(header_value)
-        else:
-            query_params = websocket.query_params
-            token_param = query_params.get("token") or query_params.get("access_token")
-            if token_param:
-                token = token_param
+        token, subprotocol = _resolve_websocket_token(websocket)
+        if subprotocol:
+            websocket.state.subprotocol = subprotocol
     except AuthenticationError as exc:
         auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
         await websocket.close(code=exc.websocket_code, reason=exc.message)

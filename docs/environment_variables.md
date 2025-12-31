@@ -29,9 +29,24 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_INSECURE` | `false` | Boolean (`1/0`, `true/false`, etc.) | Allows insecure OTLP connections when set to true ([tracing/provider.py](../src/orcheo/tracing/provider.py)). |
 | `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Token usage threshold that emits `token.chunk` events ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews ([tracing/workflow.py](../src/orcheo/tracing/workflow.py)). |
-| `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
+| `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the backend API responses and the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset in the CLI/MCP ([publish.py](../packages/sdk/src/orcheo_sdk/services/workflows/publish.py)). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
 Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
+
+## Canvas frontend configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:8000` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. |
+| `VITE_ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OIDC issuer used for IdP-only login (Canvas OAuth). |
+| `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Canvas SPA. |
+| `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Canvas callback route). |
+| `VITE_ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | Scopes requested during OIDC login. |
+| `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
+| `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
+| `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | Override the ChatKit domain key for Canvas if needed. |
 
 ## Vault configuration
 

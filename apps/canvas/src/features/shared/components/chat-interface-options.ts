@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import {
   buildPublicChatFetch,
@@ -91,7 +92,7 @@ const useSessionSecretResolver = ({
       }
 
       const url = buildBackendHttpUrl("/api/chatkit/session", backendBaseUrl);
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

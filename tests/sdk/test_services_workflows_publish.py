@@ -93,6 +93,30 @@ def test_publish_workflow_data_prefers_explicit_public_base() -> None:
     assert result["share_url"] == "https://canvas.example/chat/wf-2"
 
 
+def test_publish_workflow_data_uses_server_share_url_when_available() -> None:
+    payload = {
+        "workflow": {
+            "id": "wf-10",
+            "is_public": True,
+            "require_login": False,
+            "share_url": "https://canvas.example/chat/wf-10",
+        },
+        "share_url": "https://canvas.example/chat/wf-10",
+        "message": "Published",
+    }
+    client = DummyClient(base_url="http://api.example.com/api", response=payload)
+
+    result = publish_module.publish_workflow_data(
+        client,
+        "wf-10",
+        require_login=False,
+        actor="cli",
+    )
+
+    assert result["share_url"] == "https://canvas.example/chat/wf-10"
+    assert result["workflow"]["share_url"] == "https://canvas.example/chat/wf-10"
+
+
 def test_unpublish_workflow_returns_enriched_workflow() -> None:
     workflow = {"id": "wf-3", "is_public": False}
     client = DummyClient(base_url="http://api.test", response=workflow)

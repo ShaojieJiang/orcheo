@@ -35,7 +35,7 @@ def test_required_mode_without_credentials_warns(
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     # Ensure no credentials are set
     monkeypatch.delenv("ORCHEO_AUTH_JWT_SECRET", raising=False)
-    monkeypatch.delenv("ORCHEO_AUTH_JWKS_URL", raising=False)
+    monkeypatch.setenv("ORCHEO_AUTH_JWKS_URL", "")
     monkeypatch.delenv("ORCHEO_AUTH_JWKS_STATIC", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", raising=False)
