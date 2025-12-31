@@ -13,7 +13,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.json_schema import SkipJsonSchema
 from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
@@ -100,7 +100,7 @@ class WorkflowTool(BaseModel):
 class AgentNode(AINode):
     """Node for executing an AI agent with tools."""
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     ai_model: str
     """Identifier of the AI chat model to use."""
@@ -122,6 +122,13 @@ class AgentNode(AINode):
     response_format: dict | type[BaseModel] | None = None
 
     """Response format for the agent."""
+
+    @field_serializer("system_prompt", when_used="json")
+    def _serialize_system_prompt(self, value: str | TextTensor | None) -> str | None:
+        """Normalize TextTensor prompts into JSON-safe strings."""
+        if isinstance(value, TextTensor):
+            return value.text
+        return value
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize system prompts into TextTensor for optimization."""

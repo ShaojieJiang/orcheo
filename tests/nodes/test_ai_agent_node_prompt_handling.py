@@ -56,3 +56,14 @@ def test_get_params_skips_non_trainable_system_prompt() -> None:
     )
 
     assert node.get_params() == []
+
+
+def test_model_dump_serializes_text_tensor_prompt() -> None:
+    node = AgentNode(name="agent", ai_model="provider:model")
+    node.system_prompt = TextTensor(
+        text="serialized", requires_grad=True, model=SimpleNamespace()
+    )
+
+    payload = node.model_dump(mode="json")
+
+    assert payload["system_prompt"] == "serialized"

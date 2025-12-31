@@ -84,6 +84,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
     protected_router.include_router(agentensor.router)
 
+    router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)

@@ -40,6 +40,9 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             chatkit_storage_path=source.get(
                 "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
             ),
+            chatkit_public_base_url=source.get(
+                "CHATKIT_PUBLIC_BASE_URL", _DEFAULTS["CHATKIT_PUBLIC_BASE_URL"]
+            ),
             chatkit_max_upload_size_bytes=source.get(
                 "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
                 _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"],
@@ -108,6 +111,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
     normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
+    normalized.set("CHATKIT_PUBLIC_BASE_URL", settings.chatkit_public_base_url)
     normalized.set(
         "CHATKIT_MAX_UPLOAD_SIZE_BYTES", settings.chatkit_max_upload_size_bytes
     )

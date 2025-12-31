@@ -66,6 +66,7 @@ class Workflow(TimestampedAuditModel):
     published_at: datetime | None = None
     published_by: str | None = None
     require_login: bool = False
+    share_url: str | None = None
 
     @field_validator("name", mode="before")
     @classmethod

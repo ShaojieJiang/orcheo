@@ -5,6 +5,7 @@ import logging
 from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from orcheo.config import get_settings
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import (
     Workflow,
@@ -27,6 +28,7 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
+    PublicWorkflow,
     WorkflowCreateRequest,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
@@ -39,7 +41,32 @@ from orcheo_backend.app.schemas.workflows import (
 
 
 router = APIRouter()
+public_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _resolve_chatkit_public_base_url() -> str | None:
+    settings = get_settings()
+    value = settings.get("CHATKIT_PUBLIC_BASE_URL")
+    if not value:
+        return None
+    return str(value).rstrip("/")
+
+
+def _apply_share_url(workflow: Workflow, public_base_url: str | None) -> Workflow:
+    if public_base_url and workflow.is_public:
+        workflow.share_url = f"{public_base_url}/chat/{workflow.id}"
+    else:
+        workflow.share_url = None
+    return workflow
+
+
+def _apply_share_urls(
+    workflows: list[Workflow], public_base_url: str | None
+) -> list[Workflow]:
+    for workflow in workflows:
+        _apply_share_url(workflow, public_base_url)
+    return workflows
 
 
 def _serialize_runnable_config(
@@ -55,13 +82,49 @@ def _serialize_runnable_config(
     )
 
 
+def _serialize_public_workflow(
+    workflow: Workflow, public_base_url: str | None
+) -> PublicWorkflow:
+    workflow = _apply_share_url(workflow, public_base_url)
+    return PublicWorkflow(
+        id=workflow.id,
+        name=workflow.name,
+        description=workflow.description,
+        is_public=workflow.is_public,
+        require_login=workflow.require_login,
+        share_url=workflow.share_url,
+    )
+
+
+@public_router.get("/workflows/{workflow_id}/public", response_model=PublicWorkflow)
+async def get_public_workflow(
+    workflow_id: UUID,
+    repository: RepositoryDep,
+) -> PublicWorkflow:
+    """Fetch public workflow metadata without authentication."""
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    if not workflow.is_public:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": "Workflow is not published.",
+                "code": "workflow.not_public",
+            },
+        )
+    return _serialize_public_workflow(workflow, _resolve_chatkit_public_base_url())
+
+
 @router.get("/workflows", response_model=list[Workflow])
 async def list_workflows(
     repository: RepositoryDep,
     include_archived: bool = False,
 ) -> list[Workflow]:
     """Return workflows, excluding archived ones by default."""
-    return await repository.list_workflows(include_archived=include_archived)
+    workflows = await repository.list_workflows(include_archived=include_archived)
+    return _apply_share_urls(workflows, _resolve_chatkit_public_base_url())
 
 
 @router.post(
@@ -74,13 +137,14 @@ async def create_workflow(
     repository: RepositoryDep,
 ) -> Workflow:
     """Create a new workflow entry."""
-    return await repository.create_workflow(
+    workflow = await repository.create_workflow(
         name=request.name,
         slug=request.slug,
         description=request.description,
         tags=request.tags,
         actor=request.actor,
     )
+    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
 
 
 @router.get("/workflows/{workflow_id}", response_model=Workflow)
@@ -90,7 +154,8 @@ async def get_workflow(
 ) -> Workflow:
     """Fetch a single workflow by its identifier."""
     try:
-        return await repository.get_workflow(workflow_id)
+        workflow = await repository.get_workflow(workflow_id)
+        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -103,7 +168,7 @@ async def update_workflow(
 ) -> Workflow:
     """Update attributes of an existing workflow."""
     try:
-        return await repository.update_workflow(
+        workflow = await repository.update_workflow(
             workflow_id,
             name=request.name,
             description=request.description,
@@ -111,6 +176,7 @@ async def update_workflow(
             is_archived=request.is_archived,
             actor=request.actor,
         )
+        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -123,7 +189,8 @@ async def archive_workflow(
 ) -> Workflow:
     """Archive a workflow via the delete verb."""
     try:
-        return await repository.archive_workflow(workflow_id, actor=actor)
+        workflow = await repository.archive_workflow(workflow_id, actor=actor)
+        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -252,6 +319,7 @@ def _publish_response(
     return WorkflowPublishResponse(
         workflow=workflow,
         message=message,
+        share_url=workflow.share_url,
     )
 
 
@@ -272,6 +340,7 @@ async def publish_workflow(
             require_login=request.require_login,
             actor=request.actor,
         )
+        workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowPublishStateError as exc:
@@ -306,6 +375,7 @@ async def revoke_workflow_publish(
     """Revoke public access to the workflow."""
     try:
         workflow = await repository.revoke_publish(workflow_id, actor=request.actor)
+        workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowPublishStateError as exc:
@@ -429,4 +499,4 @@ async def create_workflow_chatkit_session(
     return ChatKitSessionResponse(client_secret=token, expires_at=expires_at)
 
 
-__all__ = ["router"]
+__all__ = ["public_router", "router"]

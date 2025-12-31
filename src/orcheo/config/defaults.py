@@ -8,6 +8,7 @@ _DEFAULTS: dict[str, object] = {
     "CHATKIT_BACKEND": "sqlite",
     "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
     "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",
+    "CHATKIT_PUBLIC_BASE_URL": None,
     "CHATKIT_MAX_UPLOAD_SIZE_BYTES": 5_000_000,
     "CHATKIT_RETENTION_DAYS": 30,
     "POSTGRES_DSN": None,
