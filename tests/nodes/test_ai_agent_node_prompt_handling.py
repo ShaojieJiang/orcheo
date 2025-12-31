@@ -67,3 +67,17 @@ def test_model_dump_serializes_text_tensor_prompt() -> None:
     payload = node.model_dump(mode="json")
 
     assert payload["system_prompt"] == "serialized"
+
+
+def test_model_dump_preserves_string_prompt() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="simple-model",
+        system_prompt="literal prompt",
+    )
+
+    assert isinstance(node.system_prompt, str)
+
+    payload = node.model_dump(mode="json")
+
+    assert payload["system_prompt"] == "literal prompt"
