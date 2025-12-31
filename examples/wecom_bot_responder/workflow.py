@@ -19,9 +19,12 @@ Orcheo vault secrets required:
 - wecom_encoding_aes_key: AES key for callback decryption
 """
 
+from collections.abc import Mapping
+from typing import Any
 from langgraph.graph import END, StateGraph
 from orcheo.edges import Condition, IfElse
 from orcheo.graph.state import State
+from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.wecom import (
     WeComAccessTokenNode,
     WeComCustomerServiceSendNode,
@@ -29,6 +32,79 @@ from orcheo.nodes.wecom import (
     WeComEventsParserNode,
     WeComSendMessageNode,
 )
+
+
+DEFAULT_MODEL = "openai:gpt-4o-mini"
+
+
+def build_internal_agent_messages(state: State) -> dict[str, Any]:
+    """Build a user message list from internal WeCom messages."""
+    results = state.get("results", {})
+    parser_result = results.get("wecom_events_parser", {})
+    content = ""
+    if isinstance(parser_result, Mapping):
+        content = str(parser_result.get("content", "")).strip()
+    if not content:
+        return {"messages": []}
+    return {"messages": [{"role": "user", "content": content}]}
+
+
+def build_cs_agent_messages(state: State) -> dict[str, Any]:
+    """Build a user message list from Customer Service messages."""
+    results = state.get("results", {})
+    sync_result = results.get("wecom_cs_sync", {})
+    content = ""
+    if isinstance(sync_result, Mapping):
+        content = str(sync_result.get("content", "")).strip()
+    if not content:
+        return {"messages": []}
+    return {"messages": [{"role": "user", "content": content}]}
+
+
+def extract_reply_from_messages(messages: list[Any]) -> str | None:
+    """Return the most recent assistant reply from LangGraph messages."""
+    for message in messages[::-1]:
+        if isinstance(message, Mapping):
+            content = message.get("content")
+            role = message.get("type") or message.get("role")
+        else:
+            content = None
+            role = None
+            try:
+                content = message.content
+            except AttributeError:
+                content = None
+            try:
+                role = message.type
+            except AttributeError:
+                try:
+                    role = message.role
+                except AttributeError:
+                    role = None
+        if role in ("ai", "assistant") and isinstance(content, str):
+            stripped = content.strip()
+            if stripped:
+                return stripped
+    return None
+
+
+def extract_agent_reply(state: State) -> dict[str, Any]:
+    """Extract the latest agent reply or fall back to configured text."""
+    reply = None
+    messages = state.get("messages")
+    if isinstance(messages, list):
+        reply = extract_reply_from_messages(messages)
+
+    if not reply:
+        config = state.get("config", {})
+        configurable = (
+            config.get("configurable", {}) if isinstance(config, dict) else {}
+        )
+        fallback = configurable.get("reply_message", "")
+        if isinstance(fallback, str) and fallback.strip():
+            reply = fallback.strip()
+
+    return {"results": {"agent_reply": reply or ""}}
 
 
 async def build_graph() -> StateGraph:
@@ -58,7 +134,7 @@ async def build_graph() -> StateGraph:
         WeComSendMessageNode(
             name="send_message",
             agent_id="{{config.configurable.agent_id}}",
-            message="{{config.configurable.reply_message}}",
+            message="{{agent_reply}}",
         ),
     )
 
@@ -86,9 +162,26 @@ async def build_graph() -> StateGraph:
         "wecom_cs_send",
         WeComCustomerServiceSendNode(
             name="wecom_cs_send",
-            message="{{config.configurable.reply_message}}",
+            message="{{agent_reply}}",
         ),
     )
+
+    graph.add_node(
+        "agent",
+        AgentNode(
+            name="agent",
+            ai_model=DEFAULT_MODEL,
+            model_kwargs={"api_key": "[[openai_api_key]]"},
+            system_prompt=(
+                "You are a helpful assistant responding to WeCom users. "
+                "Reply concisely, be friendly and professional, and match "
+                "the user's language."
+            ),
+        ),
+    )
+    graph.add_node("build_internal_agent_messages", build_internal_agent_messages)
+    graph.add_node("build_cs_agent_messages", build_cs_agent_messages)
+    graph.add_node("extract_agent_reply", extract_agent_reply)
 
     # Entry point
     graph.set_entry_point("wecom_events_parser")
@@ -143,7 +236,10 @@ async def build_graph() -> StateGraph:
     )
 
     # --- Internal user path ---
-    graph.add_edge("get_access_token", "send_message")
+    graph.add_edge("get_access_token", "build_internal_agent_messages")
+    graph.add_edge("build_internal_agent_messages", "agent")
+    graph.add_edge("agent", "extract_agent_reply")
+    graph.add_edge("extract_agent_reply", "send_message")
     graph.add_edge("send_message", END)
 
     # --- External user (CS) path ---
@@ -164,9 +260,11 @@ async def build_graph() -> StateGraph:
         cs_sync_router,
         {
             "true": END,  # No message from external user
-            "false": "wecom_cs_send",  # Send reply
+            "false": "build_cs_agent_messages",  # Send reply
         },
     )
+    graph.add_edge("build_cs_agent_messages", "agent")
     graph.add_edge("wecom_cs_send", END)
+    graph.add_edge("extract_agent_reply", "wecom_cs_send")
 
     return graph
