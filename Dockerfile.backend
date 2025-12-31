@@ -10,8 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
+# Install uv (+ uvx shim)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN printf '%s\n' '#!/bin/sh' 'exec uv tool run "$@"' > /usr/local/bin/uvx \
+    && chmod +x /usr/local/bin/uvx
 
 # Copy dependency files first for better caching
 COPY pyproject.toml uv.lock README.md ./
