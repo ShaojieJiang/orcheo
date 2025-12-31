@@ -20,6 +20,15 @@ export interface ApiWorkflow {
   updated_at: string;
 }
 
+export interface PublicWorkflowMetadata {
+  id: string;
+  name: string;
+  description: string | null;
+  is_public: boolean;
+  require_login: boolean;
+  share_url: string | null;
+}
+
 export interface ApiWorkflowVersion {
   id: string;
   workflow_id: string;

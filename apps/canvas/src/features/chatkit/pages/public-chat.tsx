@@ -13,9 +13,9 @@ import { useThemePreferences } from "@features/account/components/use-theme-pref
 import { isAuthenticated } from "@features/auth/lib/auth-session";
 import {
   ApiRequestError,
-  fetchWorkflow,
+  fetchPublicWorkflow,
 } from "@features/workflow/lib/workflow-storage-api";
-import type { ApiWorkflow } from "@features/workflow/lib/workflow-storage.types";
+import type { PublicWorkflowMetadata } from "@features/workflow/lib/workflow-storage.types";
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
 import { PublicChatErrorBoundary } from "@features/chatkit/components/public-chat-error-boundary";
 import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
@@ -25,7 +25,7 @@ type ColorScheme = "light" | "dark";
 type WorkflowState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; workflow: ApiWorkflow };
+  | { status: "ready"; workflow: PublicWorkflowMetadata };
 
 const sanitizeWorkflowNameForEmail = (value: string): string =>
   value
@@ -67,7 +67,7 @@ export default function PublicChatPage() {
     let cancelled = false;
     setWorkflowState({ status: "loading" });
 
-    fetchWorkflow(workflowId)
+    fetchPublicWorkflow(workflowId)
       .then((workflow) => {
         if (cancelled) {
           return;
@@ -94,6 +94,14 @@ export default function PublicChatPage() {
           return;
         }
         if (error instanceof ApiRequestError) {
+          if (error.status === 403) {
+            setWorkflowState({
+              status: "error",
+              message:
+                "This workflow is private. Ask the owner to republish it before trying again.",
+            });
+            return;
+          }
           const message =
             error.status >= 500
               ? "The workflow service is unavailable. Please try again later."
