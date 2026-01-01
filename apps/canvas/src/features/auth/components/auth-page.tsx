@@ -57,7 +57,7 @@ export default function AuthPage() {
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-2">
             <Link to="/" className="flex items-center gap-2 font-semibold">
-              <img src="/favicon.png" alt="Orcheo Logo" className="h-8 w-8" />
+              <img src="/favicon.svg" alt="Orcheo Logo" className="h-8 w-8" />
               <span className="text-xl font-bold">Orcheo Canvas</span>
             </Link>
           </div>
