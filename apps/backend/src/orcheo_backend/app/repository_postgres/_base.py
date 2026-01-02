@@ -7,6 +7,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import (
@@ -77,7 +78,8 @@ CREATE TABLE IF NOT EXISTS webhook_triggers (
 
 CREATE TABLE IF NOT EXISTS cron_triggers (
     workflow_id TEXT PRIMARY KEY,
-    config JSONB NOT NULL
+    config JSONB NOT NULL,
+    last_dispatched_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS retry_policies (
@@ -194,9 +196,26 @@ class PostgresRepositoryBase:
                     stmt = raw_stmt.strip()
                     if stmt:
                         await conn.execute(stmt)
+                await self._ensure_cron_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
+
+    async def _ensure_cron_schema_migrations(self, conn: Any) -> None:
+        """Add missing columns to cron_triggers table for existing databases."""
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'cron_triggers'
+            """
+        )
+        rows = await cursor.fetchall()
+        existing_columns = {row["column_name"] for row in rows}
+        if "last_dispatched_at" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TIMESTAMPTZ"
+            )
 
     async def _hydrate_trigger_state(self) -> None:
         async with self._connection() as conn:
@@ -218,12 +237,17 @@ class PostgresRepositoryBase:
                 webhook_config = WebhookTriggerConfig.model_validate(row["config"])
                 self._trigger_layer.configure_webhook(workflow_id, webhook_config)
 
-            cursor = await conn.execute("SELECT workflow_id, config FROM cron_triggers")
+            cursor = await conn.execute(
+                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+            )
             rows = await cursor.fetchall()
             for row in rows:
                 workflow_id = UUID(row["workflow_id"])
                 cron_config = CronTriggerConfig.model_validate(row["config"])
-                self._trigger_layer.configure_cron(workflow_id, cron_config)
+                last_dispatched_at: datetime | None = row["last_dispatched_at"]
+                self._trigger_layer.configure_cron(
+                    workflow_id, cron_config, last_dispatched_at=last_dispatched_at
+                )
 
             cursor = await conn.execute(
                 """
@@ -248,14 +272,17 @@ class PostgresRepositoryBase:
     async def _refresh_cron_triggers(self) -> None:
         """Refresh cron trigger configs to reflect the latest persisted state."""
         async with self._connection() as conn:
-            cursor = await conn.execute("SELECT workflow_id, config FROM cron_triggers")
+            cursor = await conn.execute(
+                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+            )
             rows = await cursor.fetchall()
 
-        desired: dict[UUID, CronTriggerConfig] = {}
+        desired: dict[UUID, tuple[CronTriggerConfig, datetime | None]] = {}
         for row in rows:
             workflow_id = UUID(row["workflow_id"])
             config = CronTriggerConfig.model_validate(row["config"])
-            desired[workflow_id] = config
+            last_dispatched_at: datetime | None = row["last_dispatched_at"]
+            desired[workflow_id] = (config, last_dispatched_at)
 
         current_states = self._trigger_layer._cron_states  # noqa: SLF001
         current_ids = set(current_states)
@@ -264,15 +291,19 @@ class PostgresRepositoryBase:
         for workflow_id in current_ids - desired_ids:
             self._trigger_layer.remove_cron_config(workflow_id)
 
-        for workflow_id, config in desired.items():
+        for workflow_id, (config, last_dispatched_at) in desired.items():
             state = current_states.get(workflow_id)
             if state is None:
-                self._trigger_layer.configure_cron(workflow_id, config)
+                self._trigger_layer.configure_cron(
+                    workflow_id, config, last_dispatched_at=last_dispatched_at
+                )
                 continue
             if state.config.model_dump(mode="json") != config.model_dump(
                 mode="json"
             ):  # pragma: no branch
-                self._trigger_layer.configure_cron(workflow_id, config)
+                self._trigger_layer.configure_cron(
+                    workflow_id, config, last_dispatched_at=last_dispatched_at
+                )
 
     async def close(self) -> None:
         """Close the connection pool."""

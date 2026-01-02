@@ -156,3 +156,82 @@ def test_cron_trigger_rejects_invalid_timezone() -> None:
 
     with pytest.raises(ValidationError):
         CronTriggerConfig(expression="0 * * * *", timezone="Mars/Phobos")
+
+
+def test_cron_state_with_last_dispatched_at_computes_next_correctly() -> None:
+    """When last_dispatched_at is provided, the next fire time is computed from it."""
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+
+    # Simulate a scenario where a cron was dispatched yesterday at 9 AM
+    last_dispatched = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    state = CronTriggerState(config, last_dispatched_at=last_dispatched)
+
+    # Even if we peek at a time later today (after 9 AM), it should NOT be due
+    # because the last dispatch was today at 9 AM
+    later_today = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    due = state.peek_due(now=later_today)
+    assert due is None
+
+    # It should be due tomorrow at 9 AM
+    tomorrow_9am = datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
+    due_tomorrow = state.peek_due(now=tomorrow_9am)
+    assert due_tomorrow == tomorrow_9am
+
+
+def test_cron_state_without_last_dispatched_uses_now_as_reference() -> None:
+    """When no last_dispatched_at is set, use 'now' as the reference."""
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    state = CronTriggerState(config)
+
+    # At 12:00 PM, the next occurrence is tomorrow 9 AM (not today)
+    now_12pm = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    due = state.peek_due(now=now_12pm)
+    assert due is None  # Not due yet
+
+    # Check that _next_fire_at is tomorrow 9 AM
+    expected_next = datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
+    assert state._next_fire_at == expected_next
+
+
+def test_cron_consume_updates_last_dispatched_at() -> None:
+    """Consuming a due cron should update last_dispatched_at."""
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    state = CronTriggerState(config)
+
+    # Prime the schedule at 9 AM
+    now_9am = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    due = state.peek_due(now=now_9am)
+    assert due == now_9am
+
+    # Before consume, last_dispatched_at is None
+    assert state.last_dispatched_at is None
+
+    # Consume the due time
+    consumed = state.consume_due()
+    assert consumed == now_9am
+
+    # After consume, last_dispatched_at is updated
+    assert state.last_dispatched_at == now_9am
+
+
+def test_cron_state_with_start_at_and_last_dispatched_prefers_last_dispatched() -> None:
+    """When both start_at and last_dispatched_at are set, use last_dispatched_at."""
+    # start_at is in the past
+    start_at = datetime(2024, 1, 1, 9, 0, tzinfo=UTC)
+    config = CronTriggerConfig(
+        expression="0 9 * * *", timezone="UTC", start_at=start_at
+    )
+
+    # last_dispatched_at is more recent
+    last_dispatched = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    state = CronTriggerState(config, last_dispatched_at=last_dispatched)
+
+    # At 12:00 PM on Jan 1, 2025, should NOT be due (last dispatch was today)
+    now_12pm = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    due = state.peek_due(now=now_12pm)
+    assert due is None
+
+    # Should be due tomorrow at 9 AM
+    tomorrow_9am = datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
+    due_tomorrow = state.peek_due(now=tomorrow_9am)
+    assert due_tomorrow == tomorrow_9am

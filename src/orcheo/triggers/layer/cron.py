@@ -12,11 +12,27 @@ class CronTriggerMixin(TriggerLayerState):
     """Provide cron trigger orchestration helpers."""
 
     def configure_cron(
-        self, workflow_id: UUID, config: CronTriggerConfig
+        self,
+        workflow_id: UUID,
+        config: CronTriggerConfig,
+        *,
+        last_dispatched_at: datetime | None = None,
     ) -> CronTriggerConfig:
-        """Persist cron configuration for the workflow and return a copy."""
-        state = self._cron_states.setdefault(workflow_id, CronTriggerState())
-        state.update_config(config)
+        """Persist cron configuration for the workflow and return a copy.
+
+        Args:
+            workflow_id: The workflow identifier.
+            config: The cron trigger configuration.
+            last_dispatched_at: Optional datetime of the last successful dispatch.
+                Used to correctly compute the next fire time after worker restarts.
+        """
+        existing_state = self._cron_states.get(workflow_id)
+        if existing_state is None:
+            state = CronTriggerState(config, last_dispatched_at=last_dispatched_at)
+            self._cron_states[workflow_id] = state
+        else:
+            existing_state.update_config(config, last_dispatched_at=last_dispatched_at)
+            state = existing_state
         return state.config
 
     def get_cron_config(self, workflow_id: UUID) -> CronTriggerConfig | None:
@@ -25,6 +41,13 @@ class CronTriggerMixin(TriggerLayerState):
         if state is None:
             return None
         return state.config
+
+    def get_cron_last_dispatched_at(self, workflow_id: UUID) -> datetime | None:
+        """Return the last dispatch time for the workflow or None if not set."""
+        state = self._cron_states.get(workflow_id)
+        if state is None:
+            return None
+        return state.last_dispatched_at
 
     def remove_cron_config(self, workflow_id: UUID) -> bool:
         """Remove cron configuration state for the workflow if present."""

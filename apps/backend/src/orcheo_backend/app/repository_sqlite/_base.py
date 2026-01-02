@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 import aiosqlite
@@ -23,6 +24,16 @@ from orcheo.vault.oauth import CredentialHealthError, OAuthCredentialService
 
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp if present."""
+    if value is None:
+        return None
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
 
 
 class SqliteRepositoryBase:
@@ -128,7 +139,8 @@ class SqliteRepositoryBase:
                     );
                     CREATE TABLE IF NOT EXISTS cron_triggers (
                         workflow_id TEXT PRIMARY KEY,
-                        config TEXT NOT NULL
+                        config TEXT NOT NULL,
+                        last_dispatched_at TEXT
                     );
                     CREATE TABLE IF NOT EXISTS retry_policies (
                         workflow_id TEXT PRIMARY KEY,
@@ -136,9 +148,20 @@ class SqliteRepositoryBase:
                     );
                     """
                 )
+                await self._ensure_cron_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
+
+    async def _ensure_cron_schema_migrations(self, conn: aiosqlite.Connection) -> None:
+        """Add missing columns to cron_triggers table for existing databases."""
+        cursor = await conn.execute("PRAGMA table_info(cron_triggers)")
+        rows = await cursor.fetchall()
+        existing_columns = {row["name"] for row in rows}
+        if "last_dispatched_at" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TEXT"
+            )
 
     async def _hydrate_trigger_state(self) -> None:
         async with self._connection() as conn:
@@ -158,11 +181,16 @@ class SqliteRepositoryBase:
                 webhook_config = WebhookTriggerConfig.model_validate_json(row["config"])
                 self._trigger_layer.configure_webhook(workflow_id, webhook_config)
 
-            cursor = await conn.execute("SELECT workflow_id, config FROM cron_triggers")
+            cursor = await conn.execute(
+                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+            )
             for row in await cursor.fetchall():
                 workflow_id = UUID(row["workflow_id"])
                 cron_config = CronTriggerConfig.model_validate_json(row["config"])
-                self._trigger_layer.configure_cron(workflow_id, cron_config)
+                last_dispatched_at = _parse_optional_datetime(row["last_dispatched_at"])
+                self._trigger_layer.configure_cron(
+                    workflow_id, cron_config, last_dispatched_at=last_dispatched_at
+                )
 
             cursor = await conn.execute(
                 """
@@ -186,14 +214,17 @@ class SqliteRepositoryBase:
     async def _refresh_cron_triggers(self) -> None:
         """Refresh cron trigger configs to reflect the latest persisted state."""
         async with self._connection() as conn:
-            cursor = await conn.execute("SELECT workflow_id, config FROM cron_triggers")
+            cursor = await conn.execute(
+                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+            )
             rows = await cursor.fetchall()
 
-        desired: dict[UUID, CronTriggerConfig] = {}
+        desired: dict[UUID, tuple[CronTriggerConfig, datetime | None]] = {}
         for row in rows:
             workflow_id = UUID(row["workflow_id"])
             config = CronTriggerConfig.model_validate_json(row["config"])
-            desired[workflow_id] = config
+            last_dispatched_at = _parse_optional_datetime(row["last_dispatched_at"])
+            desired[workflow_id] = (config, last_dispatched_at)
 
         current_states = self._trigger_layer._cron_states  # noqa: SLF001
         current_ids = set(current_states)
@@ -202,13 +233,17 @@ class SqliteRepositoryBase:
         for workflow_id in current_ids - desired_ids:
             self._trigger_layer.remove_cron_config(workflow_id)
 
-        for workflow_id, config in desired.items():
+        for workflow_id, (config, last_dispatched_at) in desired.items():
             state = current_states.get(workflow_id)
             if state is None:
-                self._trigger_layer.configure_cron(workflow_id, config)
+                self._trigger_layer.configure_cron(
+                    workflow_id, config, last_dispatched_at=last_dispatched_at
+                )
                 continue
             if state.config.model_dump(mode="json") != config.model_dump(mode="json"):
-                self._trigger_layer.configure_cron(workflow_id, config)
+                self._trigger_layer.configure_cron(
+                    workflow_id, config, last_dispatched_at=last_dispatched_at
+                )
 
 
 __all__ = ["SqliteRepositoryBase", "logger"]
