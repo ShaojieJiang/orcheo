@@ -240,7 +240,10 @@ class SqliteRepositoryBase:
                     workflow_id, config, last_dispatched_at=last_dispatched_at
                 )
                 continue
-            if state.config.model_dump(mode="json") != config.model_dump(mode="json"):
+            if (
+                state.config.model_dump(mode="json") != config.model_dump(mode="json")
+                or state.last_dispatched_at != last_dispatched_at
+            ):
                 self._trigger_layer.configure_cron(
                     workflow_id, config, last_dispatched_at=last_dispatched_at
                 )

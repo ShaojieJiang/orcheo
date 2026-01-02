@@ -299,6 +299,59 @@ async def test_sqlite_refresh_cron_triggers_updates_changed_configs(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_refresh_cron_triggers_updates_last_dispatched_at(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Refreshing cron configs updates last_dispatched_at when it changes."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "refresh-last-dispatched.sqlite"
+    worker_repository = SqliteWorkflowRepository(db_path)
+    api_repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await api_repository.create_workflow(
+            name="Refresh Dispatch Cursor",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await api_repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await api_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 0 * * *", timezone="UTC"),
+        )
+
+        await worker_repository._refresh_cron_triggers()
+        state = worker_repository._trigger_layer._cron_states[workflow.id]
+        assert state.last_dispatched_at is None
+
+        last_dispatched_at = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        async with api_repository._connection() as conn:
+            await conn.execute(
+                """
+                UPDATE cron_triggers
+                   SET last_dispatched_at = ?
+                 WHERE workflow_id = ?
+                """,
+                (last_dispatched_at.isoformat(), str(workflow.id)),
+            )
+
+        await worker_repository._refresh_cron_triggers()
+        updated_state = worker_repository._trigger_layer._cron_states[workflow.id]
+        assert updated_state.last_dispatched_at == last_dispatched_at
+    finally:
+        await worker_repository.reset()
+        await api_repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_handle_webhook_trigger_success(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
