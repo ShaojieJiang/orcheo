@@ -45,20 +45,39 @@ def show_workflow_data(
     workflow: dict[str, Any] | None = None,
     versions: list[dict[str, Any]] | None = None,
     runs: list[dict[str, Any]] | None = None,
+    target_version: int | None = None,
 ) -> dict[str, Any]:
-    """Return workflow metadata plus optional latest version and runs."""
+    """Return workflow metadata plus optional version and runs.
+
+    Args:
+        client: API client for making requests.
+        workflow_id: ID of the workflow.
+        include_runs: Whether to include recent runs.
+        workflow: Pre-fetched workflow data (optional).
+        versions: Pre-fetched versions list (optional).
+        runs: Pre-fetched runs list (optional).
+        target_version: Specific version number to retrieve. If None,
+            returns the latest version.
+
+    Returns:
+        Dictionary containing workflow details, selected version, and recent runs.
+    """
     if workflow is None:
         workflow = client.get(f"/api/workflows/{workflow_id}")
 
-    if versions is None:
-        versions = client.get(f"/api/workflows/{workflow_id}/versions")
-
-    latest_version = None
-    if versions:
-        latest_version = max(
-            versions,
-            key=lambda entry: entry.get("version", 0),
+    selected_version: dict[str, Any] | None = None
+    if target_version is not None:
+        selected_version = client.get(
+            f"/api/workflows/{workflow_id}/versions/{target_version}"
         )
+    else:
+        if versions is None:
+            versions = client.get(f"/api/workflows/{workflow_id}/versions")
+        if versions:
+            selected_version = max(
+                versions,
+                key=lambda entry: entry.get("version", 0),
+            )
 
     recent_runs: list[dict[str, Any]] = []
     if include_runs:
@@ -75,6 +94,6 @@ def show_workflow_data(
 
     return {
         "workflow": enriched_workflow,
-        "latest_version": latest_version,
+        "selected_version": selected_version,
         "recent_runs": recent_runs,
     }

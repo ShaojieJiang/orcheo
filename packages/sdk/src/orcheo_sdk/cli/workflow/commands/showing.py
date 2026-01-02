@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Mapping
+from typing import Annotated
 import typer
 from orcheo_sdk.cli.output import format_datetime, render_json, render_table
 from orcheo_sdk.cli.utils import load_with_cache
@@ -15,6 +16,10 @@ from orcheo_sdk.services import show_workflow_data
 def show_workflow(
     ctx: typer.Context,
     workflow_id: WorkflowIdArgument,
+    version: Annotated[
+        int | None,
+        typer.Option("--version", "-v", help="Show a specific version number"),
+    ] = None,
 ) -> None:
     """Display details about a workflow, including its latest version and runs."""
     state = _state(ctx)
@@ -26,11 +31,14 @@ def show_workflow(
     if workflow_cached:
         _cache_notice(state, f"workflow {workflow_id}", workflow_stale)
 
-    versions, _, _ = load_with_cache(
-        state,
-        f"workflow:{workflow_id}:versions",
-        lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
-    )
+    # Only fetch versions list when no specific version is requested
+    versions = None
+    if version is None:
+        versions, _, _ = load_with_cache(
+            state,
+            f"workflow:{workflow_id}:versions",
+            lambda: state.client.get(f"/api/workflows/{workflow_id}/versions"),
+        )
 
     runs, runs_cached, runs_stale = load_with_cache(
         state,
@@ -46,10 +54,11 @@ def show_workflow(
         workflow=workflow,
         versions=versions,
         runs=runs,
+        target_version=version,
     )
 
     workflow_details = data["workflow"]
-    latest_version = data.get("latest_version")
+    selected_version = data.get("selected_version")
     recent_runs = data.get("recent_runs", [])
 
     state.console.print("[bold]Publish status[/bold]")
@@ -68,12 +77,14 @@ def show_workflow(
 
     render_json(state.console, workflow_details, title="Workflow")
 
-    if latest_version:
-        graph_raw = latest_version.get("graph", {})
+    if selected_version:
+        graph_raw = selected_version.get("graph", {})
         graph = graph_raw if isinstance(graph_raw, Mapping) else {}
         mermaid = _mermaid_from_graph(graph)
-        state.console.print("\n[bold]Latest version[/bold]")
-        render_json(state.console, latest_version)
+        version_num = selected_version.get("version")
+        version_label = f"Version {version_num}" if version else "Latest version"
+        state.console.print(f"\n[bold]{version_label}[/bold]")
+        render_json(state.console, selected_version)
         state.console.print("\n[bold]Mermaid[/bold]")
         state.console.print(mermaid)
 

@@ -123,10 +123,10 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
-| `orcheo workflow show <workflow>` | Print workflow summary, publish status/details, Mermaid graph, and latest runs. |
+| `orcheo workflow show <workflow> [--version <num>]` | Print workflow summary, publish status/details, Mermaid graph, and runs. Use `--version` to show a specific version instead of the latest. |
 | `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>]` | Trigger a workflow execution and stream status to the console. |
 | `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from Python or JSON file. |
-| `orcheo workflow download <workflow> [-o <file>]` | Download workflow definition as Python or JSON. |
+| `orcheo workflow download <workflow> [-o <file>] [--version <num>]` | Download workflow definition as Python or JSON. Use `--version` to download a specific version. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
 | `orcheo workflow schedule <workflow>` | Activate cron scheduling based on the workflow's cron trigger (no-op if none). |
 | `orcheo workflow unschedule <workflow>` | Remove cron scheduling for the workflow. |

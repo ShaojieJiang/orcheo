@@ -206,3 +206,88 @@ def test_workflow_download_unsupported_format_error(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "Unsupported format" in str(result.exception)
+
+
+def test_workflow_download_specific_version(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download with --version option fetches specific version."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    version_2 = {
+        "id": "ver-2",
+        "version": 2,
+        "graph": {"nodes": [{"id": "node_v2"}], "edges": []},
+    }
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions/2").mock(
+            return_value=httpx.Response(200, json=version_2)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--version", "2"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "node_v2" in result.stdout
+
+
+def test_workflow_download_specific_version_short_option(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow download with -v short option."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    version_1 = {
+        "id": "ver-1",
+        "version": 1,
+        "graph": {"nodes": [{"id": "node_v1"}], "edges": []},
+    }
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions/1").mock(
+            return_value=httpx.Response(200, json=version_1)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "-v", "1"],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "node_v1" in result.stdout
+
+
+def test_workflow_download_specific_version_to_file(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test workflow download with --version saves specific version to file."""
+    workflow = {"id": "wf-1", "name": "TestV3"}
+    version_3 = {
+        "id": "ver-3",
+        "version": 3,
+        "graph": {"nodes": [{"id": "node_v3"}], "edges": []},
+    }
+    output_file = tmp_path / "output.json"
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions/3").mock(
+            return_value=httpx.Response(200, json=version_3)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--version", "3", "-o", str(output_file)],
+            env=env,
+        )
+    assert result.exit_code == 0
+    assert "downloaded to" in result.stdout
+    assert output_file.exists()
+    content = json.loads(output_file.read_text(encoding="utf-8"))
+    assert content["name"] == "TestV3"

@@ -84,6 +84,10 @@ FormatOption = Annotated[
     str,
     typer.Option("--format", "-f", help="Output format (auto, json, or python)."),
 ]
+VersionOption = Annotated[
+    int | None,
+    typer.Option("--version", "-v", help="Specific version number to use."),
+]
 
 
 def _state(ctx: typer.Context) -> CLIState:
@@ -108,5 +112,6 @@ __all__ = [
     "WorkflowNameOption",
     "OutputPathOption",
     "FormatOption",
+    "VersionOption",
     "_state",
 ]

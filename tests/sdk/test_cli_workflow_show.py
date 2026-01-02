@@ -186,3 +186,98 @@ def test_workflow_show_with_mermaid_generation(
     assert result.exit_code == 0
     assert "start_node" in result.stdout
     assert "end_node" in result.stdout
+
+
+def test_workflow_show_with_specific_version(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow show with --version option fetches specific version."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    version_2 = {
+        "id": "ver-2",
+        "version": 2,
+        "graph": {
+            "nodes": [{"id": "node_v2"}],
+            "edges": [],
+        },
+    }
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions/2").mock(
+            return_value=httpx.Response(200, json=version_2)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(
+            app, ["workflow", "show", "wf-1", "--version", "2"], env=env
+        )
+    assert result.exit_code == 0
+    assert "Version 2" in result.stdout
+    assert "node_v2" in result.stdout
+
+
+def test_workflow_show_with_version_short_option(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow show with -v short option."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    version_1 = {
+        "id": "ver-1",
+        "version": 1,
+        "graph": {
+            "nodes": [{"id": "node_v1"}],
+            "edges": [],
+        },
+    }
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions/1").mock(
+            return_value=httpx.Response(200, json=version_1)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1", "-v", "1"], env=env)
+    assert result.exit_code == 0
+    assert "Version 1" in result.stdout
+    assert "node_v1" in result.stdout
+
+
+def test_workflow_show_without_version_shows_latest(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test workflow show without --version shows latest version."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {"id": "ver-1", "version": 1, "graph": {"nodes": [], "edges": []}},
+        {
+            "id": "ver-2",
+            "version": 2,
+            "graph": {"nodes": [{"id": "latest"}], "edges": []},
+        },
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+    assert result.exit_code == 0
+    assert "Latest version" in result.stdout
+    assert "latest" in result.stdout
