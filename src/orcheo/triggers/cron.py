@@ -154,11 +154,24 @@ class CronTriggerConfig(BaseModel):
 class CronTriggerState:
     """Holds cron trigger configuration and scheduling state."""
 
-    def __init__(self, config: CronTriggerConfig | None = None) -> None:
-        """Initialize the cron trigger state with optional configuration."""
+    def __init__(
+        self,
+        config: CronTriggerConfig | None = None,
+        *,
+        last_dispatched_at: datetime | None = None,
+    ) -> None:
+        """Initialize the cron trigger state with optional configuration.
+
+        Args:
+            config: The cron trigger configuration.
+            last_dispatched_at: The datetime when the cron was last successfully
+                dispatched. Used to compute the next fire time correctly after
+                worker restarts.
+        """
         self._config = (config or CronTriggerConfig()).model_copy(deep=True)
         self._occurrence = self._config.to_occurrence()
         self._next_fire_at: datetime | None = None
+        self._last_dispatched_at: datetime | None = last_dispatched_at
         self._active_runs: set[UUID] = set()
 
     @property
@@ -166,11 +179,29 @@ class CronTriggerState:
         """Return a deep copy of the cron trigger configuration."""
         return self._config.model_copy(deep=True)
 
-    def update_config(self, config: CronTriggerConfig) -> None:
-        """Replace the configuration and reset the scheduling cursor."""
+    @property
+    def last_dispatched_at(self) -> datetime | None:
+        """Return the datetime when the cron was last successfully dispatched."""
+        return self._last_dispatched_at
+
+    def update_config(
+        self,
+        config: CronTriggerConfig,
+        *,
+        last_dispatched_at: datetime | None = None,
+    ) -> None:
+        """Replace the configuration and optionally update dispatch state.
+
+        Args:
+            config: The new cron trigger configuration.
+            last_dispatched_at: If provided, updates the last dispatch time.
+                If None, preserves the existing last_dispatched_at value.
+        """
         self._config = config.model_copy(deep=True)
         self._occurrence = self._config.to_occurrence()
         self._next_fire_at = None
+        if last_dispatched_at is not None:
+            self._last_dispatched_at = last_dispatched_at
 
     def can_dispatch(self) -> bool:
         """Return whether a new cron run may be dispatched."""
@@ -200,6 +231,7 @@ class CronTriggerState:
             msg = "No scheduled run is ready to consume"
             raise CronValidationError(msg)
         fire_at = self._next_fire_at
+        self._last_dispatched_at = fire_at
         next_time = self._occurrence.next_after(fire_at, inclusive=False)
         self._next_fire_at = next_time.astimezone(UTC) if next_time else None
         return fire_at
@@ -207,6 +239,18 @@ class CronTriggerState:
     def _ensure_next(self, now: datetime) -> None:
         if self._next_fire_at is not None:
             return
-        reference = self._config.start_at or now
-        next_time = self._occurrence.next_after(reference, inclusive=True)
+        # Priority for determining the reference time:
+        # 1. last_dispatched_at - ensures we compute NEXT occurrence after last dispatch
+        # 2. start_at - allows scheduling to begin from a specific time
+        # 3. now - fallback for newly configured crons
+        #
+        # When last_dispatched_at is set, we use inclusive=False to get the NEXT
+        # occurrence after that time, not the same occurrence again.
+        if self._last_dispatched_at is not None:
+            next_time = self._occurrence.next_after(
+                self._last_dispatched_at, inclusive=False
+            )
+        else:
+            reference = self._config.start_at or now
+            next_time = self._occurrence.next_after(reference, inclusive=True)
         self._next_fire_at = next_time.astimezone(UTC) if next_time else None

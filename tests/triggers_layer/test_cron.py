@@ -52,6 +52,13 @@ def test_cron_dispatch_and_overlap_controls() -> None:
     assert next_plans[0].timezone == "UTC"
 
 
+def test_get_cron_last_dispatched_at_returns_none_for_unknown_workflow() -> None:
+    """Unconfigured workflows should report no last dispatch."""
+
+    layer = TriggerLayer()
+    assert layer.get_cron_last_dispatched_at(uuid4()) is None
+
+
 def test_remove_cron_config_cleans_run_index() -> None:
     """Removing a cron config also drops overlap tracking entries."""
 

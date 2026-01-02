@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 from datetime import UTC, datetime
+import aiosqlite
 import pytest
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
@@ -10,6 +11,10 @@ from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
     WorkflowPublishStateError,
+)
+from orcheo_backend.app.repository_sqlite._base import (
+    SqliteRepositoryBase,
+    _parse_optional_datetime,
 )
 
 
@@ -82,6 +87,89 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
     finally:
         if restart_repository is not None:
             await restart_repository.reset()
+        await repository.reset()
+
+
+def test_parse_optional_datetime_adds_utc_timezone() -> None:
+    """Naive timestamps returned from SQLite should be converted to UTC."""
+
+    iso_naive = "2025-01-01T00:00:00"
+    parsed = _parse_optional_datetime(iso_naive)
+    assert parsed is not None
+    assert parsed.tzinfo is not None
+    assert parsed.isoformat().endswith("+00:00")
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_cron_schema_migrations_adds_missing_column(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The migration adds the `last_dispatched_at` column when absent."""
+
+    db_path = tmp_path / "legacy.sqlite"
+    repo_base = SqliteRepositoryBase(db_path)
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE cron_triggers (
+                workflow_id TEXT PRIMARY KEY,
+                config TEXT NOT NULL
+            );
+            """
+        )
+        await conn.commit()
+        await repo_base._ensure_cron_schema_migrations(conn)
+        cursor = await conn.execute("PRAGMA table_info(cron_triggers)")
+        rows = await cursor.fetchall()
+
+    assert any(row["name"] == "last_dispatched_at" for row in rows)
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_dispatch_due_cron_runs_persists_last_dispatched(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Cron dispatch stores the latest dispatch time for recovery."""
+
+    db_path = tmp_path_factory.mktemp("cron") / "dispatch.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Persistence Flow",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="owner",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="owner",
+        )
+        await repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+        )
+
+        now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        runs = await repository.dispatch_due_cron_runs(now=now)
+        assert runs
+
+        async with repository._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT last_dispatched_at FROM cron_triggers WHERE workflow_id = ?",
+                (str(workflow.id),),
+            )
+            row = await cursor.fetchone()
+
+        assert row is not None
+        assert row["last_dispatched_at"] == now.isoformat()
+    finally:
         await repository.reset()
 
 
@@ -207,6 +295,59 @@ async def test_sqlite_refresh_cron_triggers_updates_changed_configs(
         assert updated_state.config.timezone == "America/Los_Angeles"
     finally:
         await primary_repository.reset()
+        await api_repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_refresh_cron_triggers_updates_last_dispatched_at(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Refreshing cron configs updates last_dispatched_at when it changes."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "refresh-last-dispatched.sqlite"
+    worker_repository = SqliteWorkflowRepository(db_path)
+    api_repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await api_repository.create_workflow(
+            name="Refresh Dispatch Cursor",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await api_repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await api_repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 0 * * *", timezone="UTC"),
+        )
+
+        await worker_repository._refresh_cron_triggers()
+        state = worker_repository._trigger_layer._cron_states[workflow.id]
+        assert state.last_dispatched_at is None
+
+        last_dispatched_at = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        async with api_repository._connection() as conn:
+            await conn.execute(
+                """
+                UPDATE cron_triggers
+                   SET last_dispatched_at = ?
+                 WHERE workflow_id = ?
+                """,
+                (last_dispatched_at.isoformat(), str(workflow.id)),
+            )
+
+        await worker_repository._refresh_cron_triggers()
+        updated_state = worker_repository._trigger_layer._cron_states[workflow.id]
+        assert updated_state.last_dispatched_at == last_dispatched_at
+    finally:
+        await worker_repository.reset()
         await api_repository.reset()
 
 

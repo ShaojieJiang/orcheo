@@ -17,7 +17,7 @@ export default function ProjectSwitcher() {
         to="/"
         className="flex items-center gap-2 whitespace-nowrap font-semibold"
       >
-        <img src="/favicon.png" alt="Orcheo Logo" className="h-6 w-6" />
+        <img src="/favicon.ico" alt="Orcheo Logo" className="h-6 w-6" />
         <span>Orcheo Canvas</span>
       </Link>
 

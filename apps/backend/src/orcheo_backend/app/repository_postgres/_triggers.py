@@ -195,6 +195,20 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                     actor="cron",
                 )
                 self._trigger_layer.commit_cron_dispatch(plan.workflow_id)
+                # Persist the last_dispatched_at to survive worker restarts
+                last_dispatched = self._trigger_layer.get_cron_last_dispatched_at(
+                    plan.workflow_id
+                )
+                if last_dispatched is not None:  # pragma: no branch
+                    async with self._connection() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE cron_triggers
+                               SET last_dispatched_at = %s
+                             WHERE workflow_id = %s
+                            """,
+                            (last_dispatched, str(plan.workflow_id)),
+                        )
                 runs.append(run.model_copy(deep=True))
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:

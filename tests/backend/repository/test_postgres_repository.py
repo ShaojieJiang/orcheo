@@ -1024,12 +1024,20 @@ async def test_hydrate_trigger_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class HydrateMockValues:
         def pop_response(self, query):
+            if "information_schema.columns" in query:
+                return []
             if "retry_policies" in query:
                 return [{"workflow_id": str(w_id), "config": retry_conf}]
             if "webhook_triggers" in query:
                 return [{"workflow_id": str(w_id), "config": webhook_conf}]
-            if "cron_triggers" in query:
-                return [{"workflow_id": str(w_id), "config": cron_conf}]
+            if "FROM cron_triggers" in query:
+                return [
+                    {
+                        "workflow_id": str(w_id),
+                        "config": cron_conf,
+                        "last_dispatched_at": None,
+                    }
+                ]
             if "workflow_runs" in query:
                 return []
             return []
@@ -1066,7 +1074,11 @@ async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> No
     responses = [
         {
             "rows": [
-                {"workflow_id": str(w_id), "config": cron_conf.model_dump(mode="json")}
+                {
+                    "workflow_id": str(w_id),
+                    "config": cron_conf.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                }
             ]
         }
     ]
@@ -1083,6 +1095,7 @@ async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> No
                 {
                     "workflow_id": str(w_id),
                     "config": cron_conf_2.model_dump(mode="json"),
+                    "last_dispatched_at": None,
                 }
             ]
         }
@@ -1092,6 +1105,25 @@ async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> No
     await repo._refresh_cron_triggers()
     stored = repo._trigger_layer._cron_states[w_id].config
     assert stored.expression == "0 0 * * *"
+
+    # 2b. Update last_dispatched_at without changing config
+    last_dispatched_at = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(w_id),
+                    "config": cron_conf_2.model_dump(mode="json"),
+                    "last_dispatched_at": last_dispatched_at,
+                }
+            ]
+        }
+    ]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+    stored_state = repo._trigger_layer._cron_states[w_id]
+    assert stored_state.last_dispatched_at == last_dispatched_at
 
     # 3. Remove cron
     responses = [{"rows": []}]
