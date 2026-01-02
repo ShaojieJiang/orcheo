@@ -212,7 +212,7 @@ class PostgresRepositoryBase:
         )
         rows = await cursor.fetchall()
         existing_columns = {row["column_name"] for row in rows}
-        if "last_dispatched_at" not in existing_columns:
+        if "last_dispatched_at" not in existing_columns:  # pragma: no branch
             await conn.execute(
                 "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TIMESTAMPTZ"
             )

@@ -199,7 +199,7 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                 last_dispatched = self._trigger_layer.get_cron_last_dispatched_at(
                     plan.workflow_id
                 )
-                if last_dispatched is not None:
+                if last_dispatched is not None:  # pragma: no branch
                     async with self._connection() as conn:
                         await conn.execute(
                             """

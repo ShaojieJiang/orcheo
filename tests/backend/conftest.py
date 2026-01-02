@@ -28,7 +28,7 @@ def sample_token_record() -> ServiceTokenRecord:
         scopes=frozenset(["read", "write"]),
         workspace_ids=frozenset(["ws-1", "ws-2"]),
         issued_at=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
-        expires_at=datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+        expires_at=datetime(2099, 12, 31, 23, 59, 59, tzinfo=UTC),
     )
 
 

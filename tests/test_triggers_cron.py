@@ -214,6 +214,24 @@ def test_cron_consume_updates_last_dispatched_at() -> None:
     assert state.last_dispatched_at == now_9am
 
 
+def test_cron_state_update_config_can_override_last_dispatched() -> None:
+    """Updating a cron config may reset the last dispatched marker if provided."""
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    state = CronTriggerState(config)
+
+    now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    assert state.peek_due(now=now) == now
+    state.consume_due()
+    assert state.last_dispatched_at == now
+
+    new_time = datetime(2025, 1, 2, 10, 0, tzinfo=UTC)
+    new_config = CronTriggerConfig(expression="0 10 * * *", timezone="UTC")
+    state.update_config(new_config, last_dispatched_at=new_time)
+
+    assert state.last_dispatched_at == new_time
+    assert state.config.expression == "0 10 * * *"
+
+
 def test_cron_state_with_start_at_and_last_dispatched_prefers_last_dispatched() -> None:
     """When both start_at and last_dispatched_at are set, use last_dispatched_at."""
     # start_at is in the past

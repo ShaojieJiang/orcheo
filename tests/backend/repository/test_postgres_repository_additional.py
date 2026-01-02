@@ -467,6 +467,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_missing_version(
                 {
                     "workflow_id": str(workflow_id),
                     "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
                 }
             ]
         },
@@ -506,6 +507,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
                 {
                     "workflow_id": str(workflow_id),
                     "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
                 }
             ]
         },
@@ -1033,10 +1035,18 @@ async def test_hydrate_trigger_state_with_cron_run(
 
         async def execute(self, query: str, params: Any = None) -> FakeCursor:
             self.queries.append((query, params))
+            if "information_schema.columns" in query:
+                return FakeCursor(rows=[])
             # Return cron config to set up state first
-            if "cron_triggers" in query:
+            if "FROM cron_triggers" in query:
                 return FakeCursor(
-                    rows=[{"workflow_id": str(w_id), "config": cron_conf}]
+                    rows=[
+                        {
+                            "workflow_id": str(w_id),
+                            "config": cron_conf,
+                            "last_dispatched_at": None,
+                        }
+                    ]
                 )
             # Return runs for workflow_runs query
             if "workflow_runs" in query and "status" in query:
@@ -1292,6 +1302,59 @@ async def test_triggers_dispatch_due_cron_runs_enqueues_runs(
 
     # If runs were created, they should have been enqueued
     assert len(enqueued_runs) == len(runs)
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_due_cron_runs_updates_last_dispatched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cron dispatch should persist the latest dispatch time when available."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    version_payload = _version_payload(version_id, workflow_id)
+
+    repo = make_repository(monkeypatch, [])
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    repo._trigger_layer.configure_cron(workflow_id, config)
+
+    from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+
+    version = WorkflowVersion.model_validate(version_payload)
+    monkeypatch.setattr(
+        repo, "_get_latest_version_locked", AsyncMock(return_value=version)
+    )
+
+    run_id = uuid4()
+    now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    mock_run = WorkflowRun(
+        id=run_id,
+        workflow_version_id=version_id,
+        triggered_by="cron",
+        input_payload={},
+        created_at=now,
+        updated_at=now,
+    )
+    monkeypatch.setattr(repo, "_create_run_locked", AsyncMock(return_value=mock_run))
+    monkeypatch.setattr(repo, "_refresh_cron_triggers", AsyncMock())
+
+    with patch(
+        "orcheo_backend.app.repository_postgres._triggers._enqueue_run_for_execution"
+    ):
+        runs = await repo.dispatch_due_cron_runs(now=now)
+
+    assert runs
+    assert runs[0].id == run_id
+
+    update_queries = [
+        (query, params)
+        for query, params in repo._pool._connection.queries
+        if "UPDATE cron_triggers" in query
+    ]
+    assert len(update_queries) == 1
+    _, params = update_queries[0]
+    assert params[1] == str(workflow_id)
+    assert params[0] == now
 
 
 @pytest.mark.asyncio
