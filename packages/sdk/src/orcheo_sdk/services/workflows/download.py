@@ -12,21 +12,39 @@ def download_workflow_data(
     workflow_id: str,
     output_path: str | Path | None = None,
     format_type: str = "auto",
+    target_version: int | None = None,
 ) -> dict[str, Any]:
-    """Download the latest workflow definition in json or python form."""
+    """Download a workflow definition in json or python form.
+
+    Args:
+        client: API client for making requests.
+        workflow_id: ID of the workflow.
+        output_path: Optional path to write the output to.
+        format_type: Output format ('auto', 'json', or 'python').
+        target_version: Specific version number to download. If None,
+            downloads the latest version.
+
+    Returns:
+        Dictionary with content and format, or status message if output_path given.
+    """
     from orcheo_sdk.cli.workflow import (
         _format_workflow_as_json,
         _format_workflow_as_python,
     )
 
     workflow = client.get(f"/api/workflows/{workflow_id}")
-    versions = client.get(f"/api/workflows/{workflow_id}/versions")
 
-    if not versions:
-        raise CLIError(f"Workflow '{workflow_id}' has no versions.")
+    if target_version is not None:
+        selected_version = client.get(
+            f"/api/workflows/{workflow_id}/versions/{target_version}"
+        )
+    else:
+        versions = client.get(f"/api/workflows/{workflow_id}/versions")
+        if not versions:
+            raise CLIError(f"Workflow '{workflow_id}' has no versions.")
+        selected_version = max(versions, key=lambda entry: entry.get("version", 0))
 
-    latest_version = max(versions, key=lambda entry: entry.get("version", 0))
-    graph_raw = latest_version.get("graph")
+    graph_raw = selected_version.get("graph")
     graph = graph_raw if isinstance(graph_raw, dict) else {}
 
     resolved_format = format_type.lower()

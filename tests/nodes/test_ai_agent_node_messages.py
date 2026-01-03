@@ -181,3 +181,52 @@ def test_build_messages_prefers_existing_state_messages() -> None:
     messages = node._build_messages(state)
     assert len(messages) == 1
     assert messages[0].content == "Existing"
+
+
+def test_apply_reset_command_filters_to_latest_reset() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        reset_command="RESET",
+    )
+    messages = [
+        HumanMessage(content="before"),
+        HumanMessage(content="RESET"),
+        HumanMessage(content="after"),
+    ]
+    trimmed = node._apply_reset_command(messages)
+    assert trimmed == messages[1:]
+
+
+def test_apply_reset_command_returns_original_when_command_missing() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        reset_command="RESET",
+    )
+    messages = [
+        HumanMessage(content="keep one"),
+        HumanMessage(content="keep two"),
+    ]
+    assert node._apply_reset_command(messages) == messages
+
+
+def test_build_messages_respects_max_messages_limit() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        max_messages=1,
+    )
+    state = State(
+        messages=[
+            {"role": "assistant", "content": "first"},
+            {"role": "user", "content": "last"},
+        ],
+        inputs={},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(state)
+    assert len(messages) == 1
+    assert messages[0].content == "last"

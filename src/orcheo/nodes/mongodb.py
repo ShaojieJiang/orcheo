@@ -89,10 +89,10 @@ class MongoDBNode(TaskNode):
     ]
     query: dict | list[dict[str, Any]] = Field(default_factory=dict)
     """Legacy query payload passed directly to the operation."""
-    filter: dict[str, Any] | None = Field(
+    filter: dict[str, Any] | str | None = Field(
         default=None, description="Filter document for query/update operations"
     )
-    update: dict[str, Any] | None = Field(
+    update: dict[str, Any] | str | None = Field(
         default=None, description="Update document for update operations"
     )
     pipeline: list[dict[str, Any]] | None = Field(
@@ -140,6 +140,9 @@ class MongoDBNode(TaskNode):
         provided as a dict, otherwise defaults to an empty filter.
         """
         if self.filter is not None:
+            if isinstance(self.filter, str):
+                msg = "filter must resolve to a dict before execution"
+                raise ValueError(msg)
             return dict(self.filter)
         if isinstance(self.query, dict):
             return dict(self.query)
@@ -148,6 +151,9 @@ class MongoDBNode(TaskNode):
     def _resolve_update(self) -> dict[str, Any]:
         """Resolve an update/replacement document from inputs."""
         if self.update is not None:
+            if isinstance(self.update, str):
+                msg = "update must resolve to a dict before execution"
+                raise ValueError(msg)
             return dict(self.update)
         if isinstance(self.query, dict):  # pragma: no branch
             candidate = self.query.get("update")

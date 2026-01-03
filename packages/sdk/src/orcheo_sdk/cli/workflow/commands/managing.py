@@ -13,6 +13,7 @@ from orcheo_sdk.cli.workflow.app import (
     OutputPathOption,
     RunnableConfigFileOption,
     RunnableConfigOption,
+    VersionOption,
     WorkflowIdArgument,
     WorkflowIdOption,
     WorkflowNameOption,
@@ -95,17 +96,20 @@ def download_workflow(
     workflow_id: WorkflowIdArgument,
     output_path: OutputPathOption = None,
     format_type: FormatOption = "auto",
+    version: VersionOption = None,
 ) -> None:
     """Download a workflow configuration to a file or stdout."""
     state = _state(ctx)
+    version_suffix = f":{version}" if version else ""
     payload, from_cache, stale = load_with_cache(
         state,
-        f"workflow:{workflow_id}:download:{format_type}",
+        f"workflow:{workflow_id}:download:{format_type}{version_suffix}",
         lambda: download_workflow_data(
             state.client,
             workflow_id,
             output_path=None,
             format_type=format_type,
+            target_version=version,
         ),
     )
     if from_cache:

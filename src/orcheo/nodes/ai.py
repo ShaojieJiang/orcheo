@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.json_schema import SkipJsonSchema
 from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
+from orcheo.nodes.agent_tools.context import tool_execution_context
 from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -120,8 +121,11 @@ class AgentNode(AINode):
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
     """MCP servers to be used as tools (Connection from langchain_mcp_adapters)."""
     response_format: dict | type[BaseModel] | None = None
-
     """Response format for the agent."""
+    max_messages: int = 30
+    """Maximum number of messages to keep when sending to the agent."""
+    reset_command: str = ""
+    """Command that resets history. Messages before the latest reset are ignored."""
 
     @field_serializer("system_prompt", when_used="json")
     def _serialize_system_prompt(self, value: str | TextTensor | None) -> str | None:
@@ -273,14 +277,27 @@ class AgentNode(AINode):
 
         return normalized
 
+    def _apply_reset_command(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Trim messages to start from the latest reset command (inclusive)."""
+        if not self.reset_command:
+            return messages
+        for i in range(len(messages) - 1, -1, -1):
+            content = messages[i].content
+            if isinstance(content, str) and content.strip() == self.reset_command:
+                return messages[i:]
+        return messages
+
     def _build_messages(self, state: State) -> list[BaseMessage]:
         """Construct the message list for the agent invocation."""
         existing_messages = self._normalize_messages(state.get("messages"))
         if existing_messages:
-            return existing_messages
+            messages = self._apply_reset_command(existing_messages)
+            return messages[-self.max_messages :]
 
         inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
-        return self._messages_from_inputs(inputs)
+        messages = self._messages_from_inputs(inputs)
+        messages = self._apply_reset_command(messages)
+        return messages[-self.max_messages :]
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
@@ -303,7 +320,8 @@ class AgentNode(AINode):
         messages = self._build_messages(state)
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
-        result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
+        with tool_execution_context(config):
+            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
         return result
 
     @property
@@ -311,3 +329,76 @@ class AgentNode(AINode):
         if isinstance(self.system_prompt, TextTensor):
             return self.system_prompt.text
         return self.system_prompt
+
+
+@registry.register(
+    NodeMetadata(
+        name="LLMNode",
+        description="Execute a text-only LLM call",
+        category="ai",
+    )
+)
+class LLMNode(AgentNode):
+    """Node for executing an LLM on a single text input."""
+
+    input_text: str | None = None
+    """Text input to be processed by the LLM."""
+    instruction: str | None = None
+    """Optional instruction for post-processing the input."""
+    user_message: str | None = None
+    """Optional user message for language or tone inference."""
+    draft_reply: str | None = None
+    """Draft reply to be post-processed."""
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Execute the LLM with a single text input."""
+        messages = self._build_messages(state)
+        if not messages:
+            return {"messages": []}
+
+        tools = await self._prepare_tools()
+
+        response_format_strategy = None
+        if self.response_format is not None:
+            response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
+
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        agent = create_agent(
+            model,
+            tools=tools,
+            system_prompt=self._system_prompt_text,
+            response_format=response_format_strategy,
+        )
+
+        payload: dict[str, Any] = {"messages": messages}
+        with tool_execution_context(config):
+            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
+        return result
+
+    def _build_messages(self, _state: State) -> list[BaseMessage]:
+        """Construct a single-turn message list for the LLM."""
+        draft_reply = self._normalize_text(self.draft_reply)
+        input_text = self._normalize_text(self.input_text)
+        if not draft_reply and not input_text:
+            return []
+
+        base_text = draft_reply or input_text
+        user_message = self._normalize_text(self.user_message)
+
+        if user_message:
+            content_text = f"User message:\n{user_message}\n\nDraft reply:\n{base_text}"
+        else:
+            content_text = base_text
+
+        instruction = self._normalize_text(self.instruction)
+        if instruction:
+            content = f"Instruction:\n{instruction}\n\nText:\n{content_text}"
+        else:
+            content = content_text
+        return [HumanMessage(content=content)]
+
+    @staticmethod
+    def _normalize_text(value: str | None) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        return ""
