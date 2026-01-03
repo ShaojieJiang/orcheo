@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import importlib
+import json
 import logging
 import pytest
 
@@ -32,3 +33,30 @@ def test_configure_logging_applies_requested_log_level(
 
     assert reloaded.get_logger().name == "orcheo_backend.app"
     assert reloaded.get_logger("custom.logger").name == "custom.logger"
+
+
+def test_configure_logging_renders_extra_fields(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Structured logs should include extra fields from stdlib logging."""
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    importlib.reload(logging_config)
+
+    logger = logging.getLogger("orcheo.logging_test")
+    logger.info(
+        "WeCom Customer Service event received",
+        extra={
+            "event": "wecom_customer_service",
+            "status": "received",
+            "open_kf_id": "kf_123",
+        },
+    )
+
+    captured = capsys.readouterr().err.strip().splitlines()
+    payload = json.loads(captured[-1])
+
+    assert payload["message"] == "WeCom Customer Service event received"
+    assert payload["event"] == "wecom_customer_service"
+    assert payload["status"] == "received"
+    assert payload["open_kf_id"] == "kf_123"

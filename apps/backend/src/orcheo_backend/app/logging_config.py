@@ -3,17 +3,48 @@
 from __future__ import annotations
 import logging
 import os
+import structlog
 
 
 def configure_logging() -> None:
     """Configure module and framework loggers based on environment variables."""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_format = os.getenv("LOG_FORMAT", "console").lower()
     resolved_level = getattr(logging, log_level, logging.INFO)
 
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.WARNING,
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.EventRenamer("message"),
+        structlog.stdlib.ExtraAdder(),
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.StackInfoRenderer(),
+    ]
+
+    if log_format == "console":
+        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer()
+    else:
+        renderer = structlog.processors.JSONRenderer()
+
+    structlog.configure(
+        processors=shared_processors
+        + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
     )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processor=renderer,
+        foreign_pre_chain=shared_processors,
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    for existing_handler in list(root_logger.handlers):
+        root_logger.removeHandler(existing_handler)
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.WARNING)
 
     for name in (
         "uvicorn",
