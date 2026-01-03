@@ -3494,7 +3494,7 @@ examples = [{ name = "orcheo-backend", editable = "apps/backend" }]
 
 [[package]]
 name = "orcheo-backend"
-version = "0.16.4"
+version = "0.17.0"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "celery", extra = ["redis"] },
