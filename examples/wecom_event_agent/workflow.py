@@ -183,8 +183,8 @@ class PrepareEventUpdateNode(TaskNode):
                 "reply_message": "无法识别请求者，请稍后再试。",
             }
 
-        event_data = self._normalize_event(parse_result)
-        missing = self._missing_fields(event_data)
+        event_data = self.normalize_event(parse_result)
+        missing = self.missing_fields(event_data)
         if missing:
             missing_str = ", ".join(missing)
             return {
@@ -192,7 +192,7 @@ class PrepareEventUpdateNode(TaskNode):
                 "reply_message": (f"请提供以下活动信息：{missing_str}。"),
             }
 
-        event_id, generated_id = self._resolve_event_id(event_data)
+        event_id, generated_id = self.resolve_event_id(event_data)
         if not event_id:
             return {
                 "is_valid": False,
@@ -200,7 +200,7 @@ class PrepareEventUpdateNode(TaskNode):
             }
 
         now = datetime.now(UTC).isoformat()
-        update_doc = self._build_update_doc(event_data, event_id, requester_id, now)
+        update_doc = self.build_update_doc(event_data, event_id, requester_id, now)
 
         return {
             "is_valid": True,
@@ -218,7 +218,8 @@ class PrepareEventUpdateNode(TaskNode):
             "reply_message": "",
         }
 
-    def _normalize_event(self, parse_result: Any) -> dict[str, Any]:
+    def normalize_event(self, parse_result: Any) -> dict[str, Any]:
+        """Extract normalized event data from the parsed command result."""
         event = (
             parse_result.get("event", {}) if isinstance(parse_result, Mapping) else {}
         )
@@ -240,7 +241,8 @@ class PrepareEventUpdateNode(TaskNode):
             "host": self.coerce_host(event.get("host")),
         }
 
-    def _missing_fields(self, event_data: Mapping[str, Any]) -> list[str]:
+    def missing_fields(self, event_data: Mapping[str, Any]) -> list[str]:
+        """List any required event fields that are missing when not ending an event."""
         if event_data["is_end_request"]:
             return []
         missing: list[str] = []
@@ -251,7 +253,8 @@ class PrepareEventUpdateNode(TaskNode):
             missing.append("host")
         return missing
 
-    def _resolve_event_id(self, event_data: Mapping[str, Any]) -> tuple[str, bool]:
+    def resolve_event_id(self, event_data: Mapping[str, Any]) -> tuple[str, bool]:
+        """Ensure an event ID exists, generating one if needed for new events."""
         event_id = event_data["event_id"]
         generated_id = False
         if not event_id and not event_data["is_end_request"]:
@@ -259,13 +262,14 @@ class PrepareEventUpdateNode(TaskNode):
             generated_id = True
         return event_id, generated_id
 
-    def _build_update_doc(
+    def build_update_doc(
         self,
         event_data: Mapping[str, Any],
         event_id: str,
         requester_id: str,
         now: str,
     ) -> dict[str, Any]:
+        """Construct the MongoDB update payload based on the event details."""
         update_fields: dict[str, Any] = {
             "event_id": event_id,
             "updated_at": now,
@@ -408,6 +412,28 @@ class PrepareGetRsvpsNode(TaskNode):
             return {
                 "is_valid": False,
                 "reply_message": "请提供 event_id 以查询 RSVP。",
+            }
+
+        return {"is_valid": True, "event_id": event_id, "reply_message": ""}
+
+
+class PrepareGetEventNode(TaskNode):
+    """Prepare parameters to fetch event details."""
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Ensure an event_id is present before querying event details."""
+        results = state.get("results", {})
+        parse_result = results.get("parse_command", {})
+        event = parse_result.get("event", {}) if isinstance(parse_result, dict) else {}
+
+        event_id = str(
+            event.get("event_id") or parse_result.get("event_id") or ""
+        ).strip()
+
+        if not event_id:
+            return {
+                "is_valid": False,
+                "reply_message": "请提供 event_id 以查询活动详情。",
             }
 
         return {"is_valid": True, "event_id": event_id, "reply_message": ""}
@@ -614,6 +640,50 @@ class FormatEventListReplyNode(TaskNode):
         return {"message": "\n".join(lines)}
 
 
+class FormatEventDetailReplyNode(TaskNode):
+    """Format reply for event detail query."""
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Format the event details for the reply."""
+        results = state.get("results", {})
+        payload = results.get("prepare_get_event", {})
+        event_id = payload.get("event_id") or ""
+        find_result = results.get("find_event_detail", {})
+        data = find_result.get("data") if isinstance(find_result, dict) else None
+
+        if not isinstance(data, list) or not data:
+            if event_id:
+                return {"message": f"未找到活动（ID：{event_id}）。"}
+            return {"message": "未找到活动。"}
+
+        event = data[0]
+        title = event.get("title") or "未命名活动"
+        description = event.get("description") or ""
+        iso_date = event.get("iso_date") or ""
+        location = event.get("location") or ""
+        host = event.get("host") or {}
+        status = event.get("status") or "active"
+        creator_id = event.get("creator_id") or ""
+
+        lines = [f"活动详情（ID：{event_id}）："]
+        lines.append(f"标题：{title}")
+        if description:
+            lines.append(f"描述：{description}")
+        if iso_date:
+            lines.append(f"日期：{iso_date}")
+        if location:
+            lines.append(f"地点：{location}")
+        if isinstance(host, dict) and host:
+            host_label = host.get("name") or host.get("id") or host.get("email")
+            if host_label:
+                lines.append(f"主持人：{host_label}")
+        lines.append(f"状态：{status}")
+        if creator_id:
+            lines.append(f"创建者：{creator_id}")
+
+        return {"message": "\n".join(lines)}
+
+
 class FormatUnknownReplyNode(TaskNode):
     """Format reply for unknown commands."""
 
@@ -625,12 +695,13 @@ class FormatUnknownReplyNode(TaskNode):
         if isinstance(fallback_result, Mapping):
             fallback_message = str(fallback_result.get("agent_reply", "")).strip()
         if fallback_message:
-            return {"message": fallback_message}
+            return {"message": f"{fallback_message}\n\n如需重置对话，请发送 /重置聊天"}
         return {
             "message": (
-                "我可以更新活动、记录 RSVP，或查询 RSVP。"
-                "示例：'更新活动 ...'、'为活动 <id> RSVP yes'，"
-                "或 '查询活动 <id> 的 RSVP'。"
+                "我可以更新活动、记录 RSVP，查询活动详情或查询 RSVP。"
+                "示例：'更新活动 ...'、'为活动 <id> RSVP yes'、"
+                "'查询活动 <id> 的详情'或 '查询活动 <id> 的 RSVP'。"
+                "\n\n如需重置对话，请发送 /重置聊天"
             )
         }
 
@@ -638,24 +709,25 @@ class FormatUnknownReplyNode(TaskNode):
 async def build_graph() -> StateGraph:
     """Build the WeCom event agent workflow."""
     graph = StateGraph(State)
-    _register_wecom_and_agent_nodes(graph)
-    _register_parser_nodes(graph)
-    _register_prepare_nodes(graph)
-    _register_mongodb_nodes(graph)
-    _register_format_nodes(graph)
-    _register_routing_nodes(graph)
-    _register_send_nodes(graph)
-    _setup_initial_routing(graph)
-    _setup_action_routing(graph)
-    _setup_event_flow(graph)
-    _setup_rsvp_flow(graph)
-    _setup_get_and_list_flow(graph)
-    _setup_unknown_flow(graph)
-    _setup_reply_channel(graph)
+    register_wecom_and_agent_nodes(graph)
+    register_parser_nodes(graph)
+    register_prepare_nodes(graph)
+    register_mongodb_nodes(graph)
+    register_format_nodes(graph)
+    register_routing_nodes(graph)
+    register_send_nodes(graph)
+    setup_initial_routing(graph)
+    setup_action_routing(graph)
+    setup_event_flow(graph)
+    setup_rsvp_flow(graph)
+    setup_get_and_list_flow(graph)
+    setup_unknown_flow(graph)
+    setup_reply_channel(graph)
     return graph
 
 
-def _register_wecom_and_agent_nodes(graph: StateGraph) -> None:
+def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
+    """Register the nodes that set up WeCom credentials and agent behavior."""
     graph.add_node(
         "wecom_events_parser",
         WeComEventsParserNode(
@@ -696,8 +768,8 @@ def _register_wecom_and_agent_nodes(graph: StateGraph) -> None:
             system_prompt=(
                 "你是活动运营助手。请仅输出 JSON（不要 markdown），将用户消息解析为"
                 "以下 schema："
-                '{"action": "update_event|end_event|update_rsvp|get_rsvps|'
-                '"list_events|unknown", '
+                '{"action": "update_event|end_event|get_event|update_rsvp|get_rsvps|'
+                'list_events|unknown", '
                 '"event": {"event_id": "", "title": "", '
                 '"description": "", "iso_date": "", '
                 '"status": "active|ended", '
@@ -718,7 +790,7 @@ def _register_wecom_and_agent_nodes(graph: StateGraph) -> None:
             model_kwargs={"api_key": "[[openai_api_key]]"},
             system_prompt=(
                 "你是活动运营助手。用户的请求无法处理或聊天被重置。请用用户最新消息的语言"
-                "回复简短、有帮助的指引，说明你可以做的事情：更新活动、"
+                "回复简短、有帮助的指引，说明你可以做的事情：更新活动、查询活动详情、"
                 "记录 RSVP、查询 RSVP 或列出活动。如有缺失信息，请提示补充。"
                 "不要返回 JSON 或 markdown。"
             ),
@@ -727,7 +799,8 @@ def _register_wecom_and_agent_nodes(graph: StateGraph) -> None:
     )
 
 
-def _register_parser_nodes(graph: StateGraph) -> None:
+def register_parser_nodes(graph: StateGraph) -> None:
+    """Register parser nodes that extract agent replies and parse commands."""
     graph.add_node(
         "extract_agent_reply",
         ExtractAgentReplyNode(name="extract_agent_reply"),
@@ -739,10 +812,12 @@ def _register_parser_nodes(graph: StateGraph) -> None:
     graph.add_node("parse_command", ParseCommandNode(name="parse_command"))
 
 
-def _register_prepare_nodes(graph: StateGraph) -> None:
+def register_prepare_nodes(graph: StateGraph) -> None:
+    """Register preparation nodes for handling event, RSVP, and list actions."""
     graph.add_node("prepare_event", PrepareEventUpdateNode(name="prepare_event"))
     graph.add_node("prepare_rsvp", PrepareRsvpUpdateNode(name="prepare_rsvp"))
     graph.add_node("prepare_get_rsvps", PrepareGetRsvpsNode(name="prepare_get_rsvps"))
+    graph.add_node("prepare_get_event", PrepareGetEventNode(name="prepare_get_event"))
     graph.add_node(
         "prepare_list_events", PrepareListEventsNode(name="prepare_list_events")
     )
@@ -751,7 +826,8 @@ def _register_prepare_nodes(graph: StateGraph) -> None:
     )
 
 
-def _register_mongodb_nodes(graph: StateGraph) -> None:
+def register_mongodb_nodes(graph: StateGraph) -> None:
+    """Register MongoDB nodes for searching and updating events and RSVPs."""
     graph.add_node(
         "find_event_for_update",
         MongoDBFindNode(
@@ -812,9 +888,20 @@ def _register_mongodb_nodes(graph: StateGraph) -> None:
             limit="{{prepare_list_events.limit}}",
         ),
     )
+    graph.add_node(
+        "find_event_detail",
+        MongoDBFindNode(
+            name="find_event_detail",
+            database="{{config.configurable.events_database}}",
+            collection="{{config.configurable.events_collection}}",
+            filter={"event_id": "{{prepare_get_event.event_id}}"},
+            limit=1,
+        ),
+    )
 
 
-def _register_format_nodes(graph: StateGraph) -> None:
+def register_format_nodes(graph: StateGraph) -> None:
+    """Register formatting nodes that build user-facing replies."""
     graph.add_node(
         "format_event_reply", FormatEventReplyNode(name="format_event_reply")
     )
@@ -831,15 +918,21 @@ def _register_format_nodes(graph: StateGraph) -> None:
         FormatEventListReplyNode(name="format_event_list_reply"),
     )
     graph.add_node(
+        "format_event_detail_reply",
+        FormatEventDetailReplyNode(name="format_event_detail_reply"),
+    )
+    graph.add_node(
         "format_unknown_reply",
         FormatUnknownReplyNode(name="format_unknown_reply"),
     )
 
 
-def _register_routing_nodes(graph: StateGraph) -> None:
+def register_routing_nodes(graph: StateGraph) -> None:
+    """Register routing nodes keyed by the intent and reply types."""
     graph.add_node("route_by_type", NoOpNode(name="route_by_type"))
     graph.add_node("route_action_rsvp", NoOpNode(name="route_action_rsvp"))
     graph.add_node("route_action_get", NoOpNode(name="route_action_get"))
+    graph.add_node("route_action_get_event", NoOpNode(name="route_action_get_event"))
     graph.add_node("route_action_list", NoOpNode(name="route_action_list"))
     graph.add_node("route_event_reply", NoOpNode(name="route_event_reply"))
     graph.add_node("route_event_error", NoOpNode(name="route_event_error"))
@@ -847,11 +940,16 @@ def _register_routing_nodes(graph: StateGraph) -> None:
     graph.add_node("route_rsvp_error", NoOpNode(name="route_rsvp_error"))
     graph.add_node("route_rsvp_list_reply", NoOpNode(name="route_rsvp_list_reply"))
     graph.add_node("route_event_list_reply", NoOpNode(name="route_event_list_reply"))
+    graph.add_node(
+        "route_event_detail_reply", NoOpNode(name="route_event_detail_reply")
+    )
+    graph.add_node("route_get_event_error", NoOpNode(name="route_get_event_error"))
     graph.add_node("route_get_error", NoOpNode(name="route_get_error"))
     graph.add_node("route_unknown_reply", NoOpNode(name="route_unknown_reply"))
 
 
-def _register_send_nodes(graph: StateGraph) -> None:
+def register_send_nodes(graph: StateGraph) -> None:
+    """Register nodes responsible for sending replies through WeCom."""
     graph.add_node(
         "send_event_reply",
         WeComCustomerServiceSendNode(
@@ -961,6 +1059,42 @@ def _register_send_nodes(graph: StateGraph) -> None:
         ),
     )
     graph.add_node(
+        "send_event_detail_reply",
+        WeComCustomerServiceSendNode(
+            name="send_event_detail_reply",
+            open_kf_id="{{wecom_cs_sync.open_kf_id}}",
+            external_userid="{{wecom_cs_sync.external_userid}}",
+            message="{{format_event_detail_reply.message}}",
+        ),
+    )
+    graph.add_node(
+        "send_event_detail_reply_internal",
+        WeComSendMessageNode(
+            name="send_event_detail_reply_internal",
+            agent_id="{{config.configurable.agent_id}}",
+            to_user="{{wecom_events_parser.target_user}}",
+            message="{{format_event_detail_reply.message}}",
+        ),
+    )
+    graph.add_node(
+        "send_get_event_error",
+        WeComCustomerServiceSendNode(
+            name="send_get_event_error",
+            open_kf_id="{{wecom_cs_sync.open_kf_id}}",
+            external_userid="{{wecom_cs_sync.external_userid}}",
+            message="{{prepare_get_event.reply_message}}",
+        ),
+    )
+    graph.add_node(
+        "send_get_event_error_internal",
+        WeComSendMessageNode(
+            name="send_get_event_error_internal",
+            agent_id="{{config.configurable.agent_id}}",
+            to_user="{{wecom_events_parser.target_user}}",
+            message="{{prepare_get_event.reply_message}}",
+        ),
+    )
+    graph.add_node(
         "send_get_error",
         WeComCustomerServiceSendNode(
             name="send_get_error",
@@ -998,7 +1132,8 @@ def _register_send_nodes(graph: StateGraph) -> None:
     )
 
 
-def _setup_initial_routing(graph: StateGraph) -> None:
+def setup_initial_routing(graph: StateGraph) -> None:
+    """Configure the entry-point and handling for incoming messages."""
     graph.set_entry_point("wecom_events_parser")
     immediate_response_router = IfElse(
         name="immediate_response_router",
@@ -1062,7 +1197,8 @@ def _setup_initial_routing(graph: StateGraph) -> None:
     )
 
 
-def _setup_action_routing(graph: StateGraph) -> None:
+def setup_action_routing(graph: StateGraph) -> None:
+    """Route parsed commands to the appropriate preparation nodes."""
     graph.add_edge("agent", "extract_agent_reply")
     graph.add_edge("extract_agent_reply", "parse_command")
 
@@ -1125,6 +1261,25 @@ def _setup_action_routing(graph: StateGraph) -> None:
         action_get_router,
         {
             "true": "prepare_get_rsvps",
+            "false": "route_action_get_event",
+        },
+    )
+
+    action_get_event_router = IfElse(
+        name="action_get_event_router",
+        conditions=[
+            Condition(
+                left="{{parse_command.action}}",
+                operator="equals",
+                right="get_event",
+            )
+        ],
+    )
+    graph.add_conditional_edges(
+        "route_action_get_event",
+        action_get_event_router,
+        {
+            "true": "prepare_get_event",
             "false": "route_action_list",
         },
     )
@@ -1149,7 +1304,8 @@ def _setup_action_routing(graph: StateGraph) -> None:
     )
 
 
-def _setup_event_flow(graph: StateGraph) -> None:
+def setup_event_flow(graph: StateGraph) -> None:
+    """Wire the validation and persistence flow for event updates."""
     event_valid_router = IfElse(
         name="event_valid_router",
         conditions=[
@@ -1191,7 +1347,8 @@ def _setup_event_flow(graph: StateGraph) -> None:
     graph.add_edge("format_event_error", "route_event_error")
 
 
-def _setup_rsvp_flow(graph: StateGraph) -> None:
+def setup_rsvp_flow(graph: StateGraph) -> None:
+    """Wire the RSVP validation and persistence flow."""
     rsvp_valid_router = IfElse(
         name="rsvp_valid_router",
         conditions=[
@@ -1213,7 +1370,8 @@ def _setup_rsvp_flow(graph: StateGraph) -> None:
     graph.add_edge("format_rsvp_reply", "route_rsvp_reply")
 
 
-def _setup_get_and_list_flow(graph: StateGraph) -> None:
+def setup_get_and_list_flow(graph: StateGraph) -> None:
+    """Arrange the flows for fetching RSVP lists, event details, and upcoming events."""
     get_valid_router = IfElse(
         name="get_valid_router",
         conditions=[
@@ -1234,18 +1392,40 @@ def _setup_get_and_list_flow(graph: StateGraph) -> None:
     graph.add_edge("find_rsvps", "format_rsvp_list_reply")
     graph.add_edge("format_rsvp_list_reply", "route_rsvp_list_reply")
 
+    get_event_valid_router = IfElse(
+        name="get_event_valid_router",
+        conditions=[
+            Condition(
+                left="{{prepare_get_event.is_valid}}",
+                operator="is_truthy",
+            )
+        ],
+    )
+    graph.add_conditional_edges(
+        "prepare_get_event",
+        get_event_valid_router,
+        {
+            "true": "find_event_detail",
+            "false": "route_get_event_error",
+        },
+    )
+    graph.add_edge("find_event_detail", "format_event_detail_reply")
+    graph.add_edge("format_event_detail_reply", "route_event_detail_reply")
+
     graph.add_edge("prepare_list_events", "find_events")
     graph.add_edge("find_events", "format_event_list_reply")
     graph.add_edge("format_event_list_reply", "route_event_list_reply")
 
 
-def _setup_unknown_flow(graph: StateGraph) -> None:
+def setup_unknown_flow(graph: StateGraph) -> None:
+    """Handle fallback requests that the agent cannot interpret."""
     graph.add_edge("fallback_agent", "extract_fallback_reply")
     graph.add_edge("extract_fallback_reply", "format_unknown_reply")
     graph.add_edge("format_unknown_reply", "route_unknown_reply")
 
 
-def _setup_reply_channel(graph: StateGraph) -> None:
+def setup_reply_channel(graph: StateGraph) -> None:
+    """Route finalized replies either to customer service or internally."""
     reply_channel_router = IfElse(
         name="reply_channel_router",
         conditions=[
@@ -1304,6 +1484,22 @@ def _setup_reply_channel(graph: StateGraph) -> None:
         },
     )
     graph.add_conditional_edges(
+        "route_event_detail_reply",
+        reply_channel_router,
+        {
+            "true": "send_event_detail_reply",
+            "false": "send_event_detail_reply_internal",
+        },
+    )
+    graph.add_conditional_edges(
+        "route_get_event_error",
+        reply_channel_router,
+        {
+            "true": "send_get_event_error",
+            "false": "send_get_event_error_internal",
+        },
+    )
+    graph.add_conditional_edges(
         "route_get_error",
         reply_channel_router,
         {
@@ -1331,6 +1527,10 @@ def _setup_reply_channel(graph: StateGraph) -> None:
     graph.add_edge("send_rsvp_list_reply_internal", END)
     graph.add_edge("send_event_list_reply", END)
     graph.add_edge("send_event_list_reply_internal", END)
+    graph.add_edge("send_event_detail_reply", END)
+    graph.add_edge("send_event_detail_reply_internal", END)
+    graph.add_edge("send_get_event_error", END)
+    graph.add_edge("send_get_event_error_internal", END)
     graph.add_edge("send_get_error", END)
     graph.add_edge("send_get_error_internal", END)
     graph.add_edge("send_unknown_reply", END)

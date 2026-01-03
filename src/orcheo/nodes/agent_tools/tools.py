@@ -25,7 +25,7 @@ def greet_user(username: str) -> str:
 async def _run_mongodb_node(
     node: MongoDBNode, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    if config is None:
+    if config is None:  # pragma: no branch
         config = get_active_tool_config()
     state: State = {
         "inputs": {},

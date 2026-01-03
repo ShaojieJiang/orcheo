@@ -3,21 +3,45 @@
 from __future__ import annotations
 import base64
 import hashlib
+import json
 import struct
 import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+import httpx
 import pytest
+import redis
 from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.wecom import (
+    CS_MESSAGE_TTL_SECONDS,
     WeComAccessTokenNode,
     WeComCustomerServiceSendNode,
     WeComCustomerServiceSyncNode,
     WeComEventsParserNode,
     WeComGroupPushNode,
     WeComSendMessageNode,
+    _build_cs_inbound_entry,
+    _build_cs_message_id,
+    _build_cs_sync_payload,
+    _close_cs_redis_client,
+    _coerce_msgtime,
+    _compute_message_ttl,
+    _create_cs_redis_client,
+    _cs_message_index_key,
+    _cs_message_key,
+    _fetch_cs_customer_username,
+    _fetch_cs_message_history,
+    _fetch_cs_page,
+    _normalize_cs_sync_response,
+    _pick_latest_message,
+    _process_cs_page,
+    _pull_cs_pages,
+    _resolve_cs_history,
+    _resolve_cs_sync_inputs,
+    _select_cs_customer_nickname,
+    _store_cs_message,
     decrypt_wecom_message,
     get_access_token_from_state,
     verify_wecom_signature,
@@ -1835,6 +1859,117 @@ class TestWeComCustomerServiceSendNode:
         call_kwargs = mock_client.post.call_args
         assert call_kwargs[1]["json"]["text"]["content"] == "Hello from non-text!"
 
+    @pytest.mark.asyncio
+    async def test_send_message_generates_fallback_msgid(
+        self, patch_redis: FakeRedis
+    ) -> None:
+        """Fallback to hashed msgid when API response omits msgid."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            open_kf_id="wkABC123",
+            external_userid="wmXYZ789",
+            message="Fallback ID",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={"get_access_token": {"access_token": "test_token"}},
+        )
+
+        send_response = MagicMock()
+        send_response.json.return_value = {"errcode": 0, "errmsg": "ok"}
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            with patch("orcheo.nodes.wecom.hashlib.sha1") as mock_sha1:
+                mock_sha1.return_value.hexdigest.return_value = "fallback-hash"
+                result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        mock_sha1.assert_called_once()
+        assert result["msgid"] is None
+
+    @pytest.mark.asyncio
+    async def test_send_message_redis_write_failure_logged(
+        self, patch_redis: FakeRedis
+    ) -> None:
+        """Redis write failures are caught and do not block API success."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            open_kf_id="wkABC123",
+            external_userid="wmXYZ789",
+            message="Hello!",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={"get_access_token": {"access_token": "test_token"}},
+        )
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "msgid": "msg123",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            with patch(
+                "orcheo.nodes.wecom._store_cs_message",
+                new=AsyncMock(side_effect=redis.RedisError("write failure")),
+            ):
+                result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_send_message_closes_redis_client(self) -> None:
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            open_kf_id="wkABC123",
+            external_userid="wmXYZ789",
+            message="Close Redis!",
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={"get_access_token": {"access_token": "test_token"}},
+        )
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "msgid": "msg123",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        fake_redis = AsyncMock()
+        fake_redis.close = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            with patch("orcheo.nodes.wecom.redis.from_url", return_value=fake_redis):
+                result = await node.run(state, RunnableConfig())
+
+        assert result["is_error"] is False
+        fake_redis.close.assert_awaited_once()
+
 
 # get_access_token_from_state tests
 
@@ -1866,3 +2001,518 @@ class TestGetAccessTokenFromState:
         """Test returns None when access_token is empty string."""
         results = {"get_access_token": {"access_token": ""}}
         assert get_access_token_from_state(results) is None
+
+
+class TestWeComNodeCallBehaviors:
+    """Tests for TaskNode __call__ message merging."""
+
+    @pytest.mark.asyncio
+    async def test_events_parser_call_merges_agent_messages(self) -> None:
+        node = WeComEventsParserNode(
+            name="wecom_parser",
+            token="token",
+            encoding_aes_key="key",
+            corp_id="corp123",
+        )
+        run_result = {"agent_messages": [{"role": "user", "content": "hi"}]}
+
+        with patch.object(
+            WeComEventsParserNode,
+            "run",
+            new=AsyncMock(return_value=run_result),
+        ):
+            output = await node.__call__(
+                State(messages=[], inputs={}, results={}), RunnableConfig()
+            )
+
+        assert "agent_messages" not in output["results"]["wecom_parser"]
+        assert output["messages"] == run_result["agent_messages"]
+
+    @pytest.mark.asyncio
+    async def test_customer_service_sync_call_merges_agent_messages(self) -> None:
+        node = WeComCustomerServiceSyncNode(name="wecom_cs_sync")
+        run_result = {"agent_messages": [{"role": "assistant", "content": "hi"}]}
+
+        with patch.object(
+            WeComCustomerServiceSyncNode,
+            "run",
+            new=AsyncMock(return_value=run_result),
+        ):
+            output = await node.__call__(
+                State(messages=[], inputs={}, results={}), RunnableConfig()
+            )
+
+        assert "agent_messages" not in output["results"]["wecom_cs_sync"]
+        assert output["messages"] == run_result["agent_messages"]
+
+
+class TestWeComHelperFunctions:
+    """Tests for WeCom helper utilities."""
+
+    def test_coerce_msgtime_handles_various_inputs(self, monkeypatch):
+        monkeypatch.setattr("orcheo.nodes.wecom.time.time", lambda: 1000)
+        assert _coerce_msgtime(None) == 1000
+        assert _coerce_msgtime(0) == 1000
+        assert _coerce_msgtime(1_600_000_000) == 1_600_000_000
+        assert _coerce_msgtime(1_500_000_000_000) == 1_500_000_000_000 // 1000
+
+    def test_compute_message_ttl_uses_constant(self, monkeypatch):
+        monkeypatch.setattr("orcheo.nodes.wecom.time.time", lambda: 1_000_000)
+        expected = max(0, 1_000_000 + CS_MESSAGE_TTL_SECONDS - 1_000_000)
+        assert _compute_message_ttl(1_000_000) == expected
+
+    def test_build_cs_message_id_prefers_existing_id(self):
+        assert _build_cs_message_id({"msgid": "abc"}) == "abc"
+
+    def test_build_cs_message_id_hashes_payload(self):
+        payload = {"z": 1, "a": 2}
+        expected = hashlib.sha1(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        assert _build_cs_message_id(payload) == expected
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_message_history_returns_empty_when_index_missing(
+        self, fake_redis
+    ):
+        history = await _fetch_cs_message_history(fake_redis, "user")
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_store_cs_message_detects_existing_key(self, fake_redis):
+        message_key = _cs_message_key("user", "msg")
+        fake_redis.store[message_key] = "value"
+        result = await _store_cs_message(
+            fake_redis,
+            message_key,
+            _cs_message_index_key("user"),
+            int(time.time()),
+            {"content": "value"},
+        )
+        assert result == (False, True)
+
+    @pytest.mark.asyncio
+    async def test_store_cs_message_handles_expired_ttl(self, fake_redis, monkeypatch):
+        msgtime = 1_000
+        monkeypatch.setattr(
+            "orcheo.nodes.wecom.time.time",
+            lambda: msgtime + CS_MESSAGE_TTL_SECONDS + 5,
+        )
+        message_key = _cs_message_key("user", "expired")
+        result = await _store_cs_message(
+            fake_redis,
+            message_key,
+            _cs_message_index_key("user"),
+            msgtime,
+            {"content": "dead"},
+        )
+        assert result == (False, False)
+
+    @pytest.mark.asyncio
+    async def test_store_cs_message_success(self, fake_redis, monkeypatch):
+        msgtime = 1_000_000
+        monkeypatch.setattr("orcheo.nodes.wecom.time.time", lambda: msgtime)
+        message_key = _cs_message_key("user", "fresh")
+        result = await _store_cs_message(
+            fake_redis,
+            message_key,
+            _cs_message_index_key("user"),
+            msgtime,
+            {"content": "alive"},
+        )
+        assert result == (True, False)
+        assert fake_redis.store[message_key] == json.dumps({"content": "alive"})
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_message_history_filters_stale_entries(self, fake_redis):
+        index_key = _cs_message_index_key("user")
+        keys = [
+            _cs_message_key("user", "one"),
+            _cs_message_key("user", "two"),
+            _cs_message_key("user", "three"),
+        ]
+        fake_redis.zsets[index_key] = {keys[0]: 1, keys[1]: 2, keys[2]: 3}
+        fake_redis.store[keys[0]] = '{"content":"v1"}'
+        fake_redis.store[keys[2]] = "not json"
+
+        history = await _fetch_cs_message_history(fake_redis, "user")
+
+        assert history == [{"content": "v1"}]
+        assert keys[1] not in fake_redis.zsets[index_key]
+        assert keys[2] not in fake_redis.zsets[index_key]
+
+    def test_build_cs_sync_payload_adds_cursor(self):
+        base = {"open_kfid": "open"}
+        payload = _build_cs_sync_payload(base, "cursor123")
+        assert payload["cursor"] == "cursor123"
+        assert base == {"open_kfid": "open"}
+
+    def test_normalize_cs_sync_response_converts_flags(self):
+        data = {
+            "errcode": 1,
+            "errmsg": "bad",
+            "msg_list": [{"msg": "value"}],
+            "next_cursor": "next",
+            "has_more": 1,
+        }
+        errcode, errmsg, msg_list, next_cursor, has_more = _normalize_cs_sync_response(
+            data
+        )
+        assert errcode == 1
+        assert errmsg == "bad"
+        assert next_cursor == "next"
+        assert has_more is True
+        assert msg_list == [{"msg": "value"}]
+
+    def test_build_cs_inbound_entry_validation(self):
+        empty_origin = _build_cs_inbound_entry("open", {"origin": 2, "msgtype": "text"})
+        assert empty_origin is None
+        empty_data = _build_cs_inbound_entry(
+            "open",
+            {
+                "origin": 3,
+                "msgtype": "text",
+                "external_userid": "",
+                "text": {"content": "hi"},
+            },
+        )
+        assert empty_data is None
+
+    def test_build_cs_inbound_entry_returns_entry(self):
+        msg = {
+            "origin": 3,
+            "msgtype": "text",
+            "external_userid": "user",
+            "text": {"content": "hello"},
+            "msgtime": 1_234,
+            "msgid": "abc123",
+        }
+        entry = _build_cs_inbound_entry("open", msg)
+        assert entry is not None
+        assert entry["id"] == "abc123"
+        assert entry["content"] == "hello"
+
+    def test_pick_latest_message_prefers_newer(self):
+        current = {"msgtime": 10}
+        candidate = {"msgtime": 20}
+        assert _pick_latest_message(current, candidate) == candidate
+        assert _pick_latest_message(None, candidate) == candidate
+        assert _pick_latest_message(current, None) == current
+
+    @pytest.mark.asyncio
+    async def test_process_cs_page_without_redis_client(self):
+        msg = {
+            "origin": 3,
+            "msgtype": "text",
+            "external_userid": "user",
+            "text": {"content": "hello"},
+            "msgtime": 1,
+            "msgid": "id1",
+        }
+        new_messages, latest, saw_existing, redis_failed = await _process_cs_page(
+            [msg], "open", None
+        )
+        assert len(new_messages) == 1
+        assert latest["external_userid"] == "user"
+        assert saw_existing is False
+        assert redis_failed is False
+
+    @pytest.mark.asyncio
+    async def test_process_cs_page_handles_redis_write_error(self, fake_redis):
+        msg = {
+            "origin": 3,
+            "msgtype": "text",
+            "external_userid": "user",
+            "text": {"content": "hello"},
+            "msgtime": 1,
+            "msgid": "id1",
+        }
+        with patch(
+            "orcheo.nodes.wecom._store_cs_entry",
+            new=AsyncMock(side_effect=redis.RedisError("boom")),
+        ):
+            new_messages, latest, saw_existing, redis_failed = await _process_cs_page(
+                [msg], "open", fake_redis
+            )
+        assert new_messages
+        assert latest is not None
+        assert saw_existing is False
+        assert redis_failed is True
+
+    @pytest.mark.asyncio
+    async def test_process_cs_page_detects_existing_entry(self, fake_redis):
+        msg = {
+            "origin": 3,
+            "msgtype": "text",
+            "external_userid": "user",
+            "text": {"content": "hello"},
+            "msgtime": 1,
+            "msgid": "id_existing",
+        }
+        with patch(
+            "orcheo.nodes.wecom._store_cs_entry",
+            new=AsyncMock(return_value=(False, True)),
+        ):
+            new_messages, latest, saw_existing, redis_failed = await _process_cs_page(
+                [msg], "open", fake_redis
+            )
+        assert new_messages == []
+        assert saw_existing is True
+        assert redis_failed is False
+
+    def test_resolve_cs_sync_inputs_prefers_explicit_values(self):
+        direct = _resolve_cs_sync_inputs("open", "token", {"open_kf_id": "parser"})
+        assert direct == ("open", "token")
+        fallback = _resolve_cs_sync_inputs(
+            None, None, {"open_kf_id": "parser", "kf_token": "abc"}
+        )
+        assert fallback == ("parser", "abc")
+
+    def test_create_cs_redis_client_handles_unavailable(self):
+        with patch(
+            "orcheo.nodes.wecom.redis.from_url",
+            side_effect=redis.RedisError("unavailable"),
+        ):
+            assert _create_cs_redis_client() is None
+
+    @pytest.mark.asyncio
+    async def test_close_cs_redis_client_ignores_errors(self):
+        class Dummy:
+            async def close(self) -> None:
+                raise redis.RedisError("boom")
+
+        await _close_cs_redis_client(Dummy())
+
+    @pytest.mark.asyncio
+    async def test_close_cs_redis_client_handles_none(self):
+        await _close_cs_redis_client(None)
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_page_includes_cursor(self):
+        client = AsyncMock()
+        response = MagicMock()
+        response.json.return_value = {"errcode": 0}
+        response.raise_for_status = MagicMock()
+        client.post = AsyncMock(return_value=response)
+        payload = {"open_kfid": "open"}
+        result = await _fetch_cs_page(
+            client, "url", {"access_token": "token"}, payload, "cursor123"
+        )
+        client.post.assert_awaited_once()
+        assert result == {"errcode": 0}
+        assert client.post.call_args[1]["json"]["cursor"] == "cursor123"
+
+    @pytest.mark.asyncio
+    async def test_pull_cs_pages_handles_api_error(self):
+        client = AsyncMock()
+        with patch(
+            "orcheo.nodes.wecom._fetch_cs_page",
+            new=AsyncMock(return_value={"errcode": 123, "errmsg": "bad"}),
+        ):
+            result = await _pull_cs_pages(client, None, "url", {}, {}, None)
+        assert result["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_pull_cs_pages_closes_redis_on_failure(self, fake_redis):
+        client = AsyncMock()
+        normalized = MagicMock(return_value=(0, "", [], "", False))
+        processed = AsyncMock(
+            return_value=([], {"external_userid": "user"}, True, True)
+        )
+        closer = AsyncMock()
+        with (
+            patch(
+                "orcheo.nodes.wecom._fetch_cs_page",
+                new=AsyncMock(
+                    return_value={
+                        "errcode": 0,
+                        "msg_list": [],
+                        "next_cursor": "",
+                        "has_more": 0,
+                    }
+                ),
+            ),
+            patch(
+                "orcheo.nodes.wecom._normalize_cs_sync_response",
+                new=normalized,
+            ),
+            patch(
+                "orcheo.nodes.wecom._process_cs_page",
+                new=processed,
+            ),
+            patch(
+                "orcheo.nodes.wecom._close_cs_redis_client",
+                new=closer,
+            ),
+        ):
+            result = await _pull_cs_pages(
+                client,
+                fake_redis,
+                "url",
+                {"access_token": "token"},
+                {"open_kfid": "open"},
+                None,
+            )
+        closer.assert_awaited_once_with(fake_redis)
+        assert result["redis_client"] is None
+
+    @pytest.mark.asyncio
+    async def test_pull_cs_pages_uses_cursor_for_pagination(self):
+        client = AsyncMock()
+        fetch = AsyncMock(
+            side_effect=[
+                {"errcode": 0, "msg_list": [], "next_cursor": "next123", "has_more": 1},
+                {"errcode": 0, "msg_list": [], "next_cursor": "", "has_more": 0},
+            ]
+        )
+        normalized = MagicMock(
+            side_effect=[(0, "", [], "next123", True), (0, "", [], "", False)]
+        )
+        processed = AsyncMock(return_value=([], None, False, False))
+        with (
+            patch("orcheo.nodes.wecom._fetch_cs_page", new=fetch),
+            patch("orcheo.nodes.wecom._normalize_cs_sync_response", new=normalized),
+            patch("orcheo.nodes.wecom._process_cs_page", new=processed),
+        ):
+            result = await _pull_cs_pages(
+                client,
+                None,
+                "url",
+                {"access_token": "token"},
+                {"open_kfid": "open"},
+                None,
+            )
+        assert fetch.call_count == 2
+        assert fetch.call_args_list[1][0][4] == "next123"
+        assert result["has_more"] is False
+
+    @pytest.mark.asyncio
+    async def test_resolve_cs_history_returns_empty_without_latest(self):
+        external_userid, history = await _resolve_cs_history(None, None, [])
+        assert external_userid == ""
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_resolve_cs_history_falls_back_to_new_messages(self):
+        latest = {"external_userid": "user"}
+        new_messages = [
+            {"external_userid": "user", "msgtime": 200},
+            {"external_userid": "user", "msgtime": 100},
+        ]
+        external_userid, history = await _resolve_cs_history(None, latest, new_messages)
+        assert external_userid == "user"
+        assert history[0]["msgtime"] == 100
+
+    @pytest.mark.asyncio
+    async def test_resolve_cs_history_handles_missing_external_userid(self):
+        latest = {"external_userid": ""}
+        external_userid, history = await _resolve_cs_history(None, latest, [])
+        assert external_userid == ""
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_resolve_cs_history_prefers_redis_history(self, fake_redis):
+        latest = {"external_userid": "user"}
+        history_payload = [{"external_userid": "user", "msgtime": 5}]
+        with patch(
+            "orcheo.nodes.wecom._fetch_cs_message_history",
+            new=AsyncMock(return_value=history_payload),
+        ):
+            external_userid, history = await _resolve_cs_history(fake_redis, latest, [])
+        assert external_userid == "user"
+        assert history == history_payload
+
+    @pytest.mark.asyncio
+    async def test_resolve_cs_history_handles_redis_error(self, fake_redis):
+        latest = {"external_userid": "user"}
+        fallback_messages = [{"external_userid": "user", "msgtime": 1}]
+        with patch(
+            "orcheo.nodes.wecom._fetch_cs_message_history",
+            new=AsyncMock(side_effect=redis.RedisError("boom")),
+        ):
+            external_userid, history = await _resolve_cs_history(
+                fake_redis, latest, fallback_messages
+            )
+        assert external_userid == "user"
+        assert history == fallback_messages
+
+    def test_select_cs_customer_nickname_handles_various(self):
+        assert _select_cs_customer_nickname("notalist", "user") == ""
+        matches = [
+            {"external_userid": "user", "nickname": "Nick"},
+            {"external_userid": "other", "nickname": "Other"},
+        ]
+        assert _select_cs_customer_nickname(matches, "user") == "Nick"
+        fallback = [{"external_userid": "none", "name": "Name"}]
+        assert _select_cs_customer_nickname(fallback, "user") == "Name"
+
+    def test_select_cs_customer_nickname_skips_non_mapping_entries(self):
+        customers = [
+            "invalid",
+            {"external_userid": "user", "nickname": "Nick"},
+        ]
+        assert _select_cs_customer_nickname(customers, "user") == "Nick"
+
+    def test_select_cs_customer_nickname_returns_empty_when_no_mapping(self):
+        customers = ["invalid", 123]
+        assert _select_cs_customer_nickname(customers, "user") == ""
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_customer_username_returns_empty_on_missing_userid(self):
+        client = AsyncMock()
+        result = await _fetch_cs_customer_username(client, "token", "")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_customer_username_handles_http_error(self):
+        client = AsyncMock()
+        client.post = AsyncMock(side_effect=httpx.HTTPError("fail"))
+        result = await _fetch_cs_customer_username(client, "token", "user")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_customer_username_handles_errcode(self):
+        client = AsyncMock()
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"errcode": 1, "errmsg": "bad"}
+        client.post = AsyncMock(return_value=response)
+        result = await _fetch_cs_customer_username(client, "token", "user")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_fetch_cs_customer_username_returns_nickname(self):
+        client = AsyncMock()
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "errcode": 0,
+            "customer_list": [{"external_userid": "user", "nickname": "Display"}],
+        }
+        client.post = AsyncMock(return_value=response)
+        result = await _fetch_cs_customer_username(client, "token", "user")
+        assert result == "Display"
+
+    def test_build_agent_messages_filters_roles(self):
+        history = [
+            {"role": "user", "content": " hi "},
+            {"role": "ai", "content": "assistant"},
+            {"role": "assistant", "content": " "},
+            "invalid",
+        ]
+        messages = WeComCustomerServiceSyncNode._build_agent_messages(history)
+        assert messages == [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "assistant"},
+        ]
+
+    def test_build_agent_messages_handles_non_list(self):
+        assert WeComCustomerServiceSyncNode._build_agent_messages(None) == []
+
+    def test_build_agent_messages_skips_non_mapping_items(self):
+        history = [
+            "bad",
+            {"role": "user", "content": "hello"},
+        ]
+        messages = WeComCustomerServiceSyncNode._build_agent_messages(history)
+        assert messages == [{"role": "user", "content": "hello"}]
