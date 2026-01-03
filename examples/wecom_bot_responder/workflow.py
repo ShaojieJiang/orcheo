@@ -37,30 +37,6 @@ from orcheo.nodes.wecom import (
 DEFAULT_MODEL = "openai:gpt-4o-mini"
 
 
-def build_internal_agent_messages(state: State) -> dict[str, Any]:
-    """Build a user message list from internal WeCom messages."""
-    results = state.get("results", {})
-    parser_result = results.get("wecom_events_parser", {})
-    content = ""
-    if isinstance(parser_result, Mapping):
-        content = str(parser_result.get("content", "")).strip()
-    if not content:
-        return {"messages": []}
-    return {"messages": [{"role": "user", "content": content}]}
-
-
-def build_cs_agent_messages(state: State) -> dict[str, Any]:
-    """Build a user message list from Customer Service messages."""
-    results = state.get("results", {})
-    sync_result = results.get("wecom_cs_sync", {})
-    content = ""
-    if isinstance(sync_result, Mapping):
-        content = str(sync_result.get("content", "")).strip()
-    if not content:
-        return {"messages": []}
-    return {"messages": [{"role": "user", "content": content}]}
-
-
 def extract_reply_from_messages(messages: list[Any]) -> str | None:
     """Return the most recent assistant reply from LangGraph messages."""
     for message in messages[::-1]:
@@ -179,8 +155,6 @@ async def build_graph() -> StateGraph:
             ),
         ),
     )
-    graph.add_node("build_internal_agent_messages", build_internal_agent_messages)
-    graph.add_node("build_cs_agent_messages", build_cs_agent_messages)
     graph.add_node("extract_agent_reply", extract_agent_reply)
 
     # Entry point
@@ -236,8 +210,7 @@ async def build_graph() -> StateGraph:
     )
 
     # --- Internal user path ---
-    graph.add_edge("get_access_token", "build_internal_agent_messages")
-    graph.add_edge("build_internal_agent_messages", "agent")
+    graph.add_edge("get_access_token", "agent")
     graph.add_edge("agent", "extract_agent_reply")
     graph.add_edge("extract_agent_reply", "send_message")
     graph.add_edge("send_message", END)
@@ -260,10 +233,9 @@ async def build_graph() -> StateGraph:
         cs_sync_router,
         {
             "true": END,  # No message from external user
-            "false": "build_cs_agent_messages",  # Send reply
+            "false": "agent",  # Send reply
         },
     )
-    graph.add_edge("build_cs_agent_messages", "agent")
     graph.add_edge("wecom_cs_send", END)
     graph.add_edge("extract_agent_reply", "wecom_cs_send")
 

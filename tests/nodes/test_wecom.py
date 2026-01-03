@@ -115,6 +115,62 @@ def _build_state(
     return State(messages=[], inputs=inputs, results={})
 
 
+class FakeRedis:
+    """In-memory Redis stand-in for WeCom node tests."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.zsets: dict[str, dict[str, int]] = {}
+
+    async def exists(self, key: str) -> int:
+        return 1 if key in self.store else 0
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> bool:
+        self.store[key] = value
+        return True
+
+    async def zadd(self, key: str, mapping: dict[str, int]) -> int:
+        zset = self.zsets.setdefault(key, {})
+        zset.update(mapping)
+        return len(mapping)
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return True
+
+    async def zrange(self, key: str, start: int, end: int) -> list[str]:
+        items = sorted(self.zsets.get(key, {}).items(), key=lambda item: item[1])
+        members = [member for member, _ in items]
+        if end == -1:
+            return members[start:]
+        return members[start : end + 1]
+
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.store.get(key) for key in keys]
+
+    async def zrem(self, key: str, *members: str) -> int:
+        zset = self.zsets.get(key, {})
+        removed = 0
+        for member in members:
+            if member in zset:
+                removed += 1
+                zset.pop(member, None)
+        return removed
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.fixture
+def fake_redis() -> FakeRedis:
+    return FakeRedis()
+
+
+@pytest.fixture
+def patch_redis(fake_redis: FakeRedis) -> FakeRedis:
+    with patch("orcheo.nodes.wecom.redis.from_url", return_value=fake_redis):
+        yield fake_redis
+
+
 # WeComEventsParserNode tests
 
 
@@ -1249,7 +1305,7 @@ class TestWeComCustomerServiceSyncNode:
     """Tests for WeComCustomerServiceSyncNode."""
 
     @pytest.mark.asyncio
-    async def test_sync_messages_success(self) -> None:
+    async def test_sync_messages_success(self, patch_redis: FakeRedis) -> None:
         """Test successful message sync."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
@@ -1286,8 +1342,21 @@ class TestWeComCustomerServiceSyncNode:
         }
         sync_response.raise_for_status = MagicMock()
 
+        customer_response = MagicMock()
+        customer_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "customer_list": [
+                {
+                    "external_userid": "wmXYZ789",
+                    "nickname": "张三",
+                }
+            ],
+        }
+        customer_response.raise_for_status = MagicMock()
+
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.post = AsyncMock(side_effect=[sync_response, customer_response])
         mock_client.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
@@ -1295,8 +1364,9 @@ class TestWeComCustomerServiceSyncNode:
 
         assert result["is_error"] is False
         assert result["open_kf_id"] == "wkABC123"
-        assert result["external_user_id"] == "wmXYZ789"
-        assert result["content"] == "Hello from WeChat"
+        assert result["external_userid"] == "wmXYZ789"
+        assert result["external_username"] == "张三"
+        assert result["messages"][0]["content"] == "Hello from WeChat"
         assert result["should_process"] is True
         assert result["next_cursor"] == "cursor123"
 
@@ -1338,7 +1408,9 @@ class TestWeComCustomerServiceSyncNode:
         assert "open_kf_id" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_sync_messages_no_external_messages(self) -> None:
+    async def test_sync_messages_no_external_messages(
+        self, patch_redis: FakeRedis
+    ) -> None:
         """Test sync with no messages from external users."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
@@ -1379,12 +1451,13 @@ class TestWeComCustomerServiceSyncNode:
             result = await node.run(state, RunnableConfig())
 
         assert result["is_error"] is False
-        assert result["external_user_id"] == ""
-        assert result["content"] == ""
+        assert result["external_userid"] == ""
+        assert result["external_username"] == ""
+        assert result["messages"] == []
         assert result["should_process"] is False
 
     @pytest.mark.asyncio
-    async def test_sync_messages_with_cursor(self) -> None:
+    async def test_sync_messages_with_cursor(self, patch_redis: FakeRedis) -> None:
         """Test sync with cursor parameter for pagination."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
@@ -1419,8 +1492,21 @@ class TestWeComCustomerServiceSyncNode:
         }
         sync_response.raise_for_status = MagicMock()
 
+        customer_response = MagicMock()
+        customer_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "customer_list": [
+                {
+                    "external_userid": "wmXYZ789",
+                    "nickname": "Paginated User",
+                }
+            ],
+        }
+        customer_response.raise_for_status = MagicMock()
+
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.post = AsyncMock(side_effect=[sync_response, customer_response])
         mock_client.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
@@ -1428,11 +1514,13 @@ class TestWeComCustomerServiceSyncNode:
 
         assert result["is_error"] is False
         # Verify cursor was included in the request payload
-        call_kwargs = mock_client.post.call_args
+        call_kwargs = mock_client.post.call_args_list[0]
         assert call_kwargs[1]["json"]["cursor"] == "previous_cursor_value"
 
     @pytest.mark.asyncio
-    async def test_sync_messages_skips_empty_content(self) -> None:
+    async def test_sync_messages_skips_empty_content(
+        self, patch_redis: FakeRedis
+    ) -> None:
         """Test sync skips messages with empty content and finds next valid one.
 
         This test exercises the branch where the loop continues when content is
@@ -1479,8 +1567,21 @@ class TestWeComCustomerServiceSyncNode:
         }
         sync_response.raise_for_status = MagicMock()
 
+        customer_response = MagicMock()
+        customer_response.json.return_value = {
+            "errcode": 0,
+            "errmsg": "ok",
+            "customer_list": [
+                {
+                    "external_userid": "wmOldest",
+                    "nickname": "Oldest User",
+                }
+            ],
+        }
+        customer_response.raise_for_status = MagicMock()
+
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=sync_response)
+        mock_client.post = AsyncMock(side_effect=[sync_response, customer_response])
         mock_client.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
@@ -1488,12 +1589,13 @@ class TestWeComCustomerServiceSyncNode:
 
         assert result["is_error"] is False
         # Should skip empty message and get the oldest with content
-        assert result["external_user_id"] == "wmOldest"
-        assert result["content"] == "Oldest message with content"
+        assert result["external_userid"] == "wmOldest"
+        assert result["external_username"] == "Oldest User"
+        assert result["messages"][0]["content"] == "Oldest message with content"
         assert result["should_process"] is True
 
     @pytest.mark.asyncio
-    async def test_sync_messages_api_error(self) -> None:
+    async def test_sync_messages_api_error(self, patch_redis: FakeRedis) -> None:
         """Test handling of API error response."""
         node = WeComCustomerServiceSyncNode(
             name="wecom_cs_sync",
@@ -1536,7 +1638,7 @@ class TestWeComCustomerServiceSendNode:
     """Tests for WeComCustomerServiceSendNode."""
 
     @pytest.mark.asyncio
-    async def test_send_message_success(self) -> None:
+    async def test_send_message_success(self, patch_redis: FakeRedis) -> None:
         """Test successful message send."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
@@ -1553,7 +1655,7 @@ class TestWeComCustomerServiceSendNode:
                 },
                 "wecom_cs_sync": {
                     "open_kf_id": "wkABC123",
-                    "external_user_id": "wmXYZ789",
+                    "external_userid": "wmXYZ789",
                 },
             },
         )
@@ -1624,8 +1726,8 @@ class TestWeComCustomerServiceSendNode:
         assert "open_kf_id" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_send_message_no_external_user_id(self) -> None:
-        """Test send fails without external_user_id."""
+    async def test_send_message_no_external_userid(self) -> None:
+        """Test send fails without external_userid."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
             open_kf_id="wkABC123",
@@ -1646,15 +1748,15 @@ class TestWeComCustomerServiceSendNode:
         result = await node.run(state, RunnableConfig())
 
         assert result["is_error"] is True
-        assert "external_user_id" in result["error"]
+        assert "external_userid" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_send_message_api_error(self) -> None:
+    async def test_send_message_api_error(self, patch_redis: FakeRedis) -> None:
         """Test handling of API error response."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
             open_kf_id="wkABC123",
-            external_user_id="wmXYZ789",
+            external_userid="wmXYZ789",
             message="Hello!",
         )
 
@@ -1688,7 +1790,9 @@ class TestWeComCustomerServiceSendNode:
         assert result["errmsg"] == "invalid external_userid"
 
     @pytest.mark.asyncio
-    async def test_send_non_text_message_falls_back_to_text(self) -> None:
+    async def test_send_non_text_message_falls_back_to_text(
+        self, patch_redis: FakeRedis
+    ) -> None:
         """Test that non-text message types fall back to text format."""
         node = WeComCustomerServiceSendNode(
             name="wecom_cs_send",
@@ -1706,7 +1810,7 @@ class TestWeComCustomerServiceSendNode:
                 },
                 "wecom_cs_sync": {
                     "open_kf_id": "wkABC123",
-                    "external_user_id": "wmXYZ789",
+                    "external_userid": "wmXYZ789",
                 },
             },
         )

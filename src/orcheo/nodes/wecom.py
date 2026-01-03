@@ -16,9 +16,11 @@ import logging
 import os
 import struct
 import time
+from collections.abc import Mapping
 from typing import Any
 from xml.etree import ElementTree
 import httpx
+import redis.asyncio as redis
 from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -36,6 +38,9 @@ PKCS7_PAD_MAX = 32
 RANDOM_PREFIX_LEN = 16
 MSG_LEN_BYTES = 4
 MIN_DECRYPTED_LEN = RANDOM_PREFIX_LEN + MSG_LEN_BYTES
+CS_MESSAGE_TTL_SECONDS = 3 * 24 * 60 * 60
+CS_REDIS_PREFIX = "wecom:cs"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 
 def verify_wecom_signature(
@@ -331,6 +336,11 @@ class WeComEventsParserNode(TaskNode):
         should_continue = is_direct_message and is_allowlisted
 
         # For sync checks, return immediate success to avoid WeCom retries.
+        agent_messages: list[dict[str, str]] = []
+        content_stripped = content.strip()
+        if should_continue and content_stripped:
+            agent_messages = [{"role": "user", "content": content_stripped}]
+
         result: dict[str, Any] = {
             "is_verification": False,
             "is_customer_service": False,
@@ -340,6 +350,7 @@ class WeComEventsParserNode(TaskNode):
             "content": content,
             "target_user": user_id,
             "should_process": should_continue,
+            "agent_messages": agent_messages,
         }
         if is_sync_check:
             result["immediate_response"] = self.success_response()
@@ -374,6 +385,7 @@ class WeComEventsParserNode(TaskNode):
             "open_kf_id": open_kf_id,
             "kf_token": kf_token,
             "should_process": should_continue,
+            "agent_messages": [],
         }
         if is_sync_check:
             result["immediate_response"] = self.success_response()
@@ -399,6 +411,7 @@ class WeComEventsParserNode(TaskNode):
                 "content_type": "text/plain",
                 "status_code": 200,
             },
+            "agent_messages": [],
         }
 
     def extract_body_string(self, inputs: dict[str, Any]) -> str:
@@ -417,6 +430,7 @@ class WeComEventsParserNode(TaskNode):
                 "is_verification": False,
                 "event_type": None,
                 "should_process": False,
+                "agent_messages": [],
             },
             is_sync_check,
         )
@@ -479,6 +493,18 @@ class WeComEventsParserNode(TaskNode):
             return self.handle_customer_service_event(msg_data, is_sync_check)
 
         return self.handle_internal_message(msg_data, is_sync_check)
+
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Execute the node and merge agent messages into state."""
+        self.decode_variables(state, config=config)
+        result = await self.run(state, config)
+        serialized = self._serialize_result(result)
+        output: dict[str, Any] = {"results": {self.name: serialized}}
+        if isinstance(serialized, dict):
+            agent_messages = serialized.pop("agent_messages", None)
+            if isinstance(agent_messages, list):
+                output["messages"] = agent_messages
+        return output
 
 
 @registry.register(
@@ -1307,6 +1333,430 @@ def get_access_token_from_state(results: dict[str, Any]) -> str | None:
     return None
 
 
+def _coerce_msgtime(raw_value: Any) -> int:
+    """Normalize WeCom message timestamp to epoch seconds."""
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return int(time.time())
+    if value <= 0:
+        return int(time.time())
+    if value > 1_000_000_000_000:
+        return value // 1000
+    return value
+
+
+def _compute_message_ttl(msgtime_seconds: int) -> int:
+    """Compute TTL seconds from a message timestamp."""
+    return max(0, (msgtime_seconds + CS_MESSAGE_TTL_SECONDS) - int(time.time()))
+
+
+def _cs_message_index_key(external_userid: str) -> str:
+    return f"{CS_REDIS_PREFIX}:messages:{external_userid}"
+
+
+def _cs_message_key(external_userid: str, message_id: str) -> str:
+    return f"{CS_REDIS_PREFIX}:message:{external_userid}:{message_id}"
+
+
+def _build_cs_message_id(message: dict[str, Any]) -> str:
+    msgid = str(message.get("msgid") or message.get("msg_id") or "").strip()
+    if msgid:
+        return msgid
+    payload = json.dumps(message, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+async def _store_cs_message(
+    redis_client: redis.Redis,
+    message_key: str,
+    index_key: str,
+    msgtime: int,
+    payload: dict[str, Any],
+) -> tuple[bool, bool]:
+    """Store a CS message in Redis and update its index."""
+    exists = await redis_client.exists(message_key)
+    if exists:
+        return False, True
+    ttl_seconds = _compute_message_ttl(msgtime)
+    if ttl_seconds <= 0:
+        return False, False
+    await redis_client.set(message_key, json.dumps(payload), ex=ttl_seconds)
+    await redis_client.zadd(index_key, {message_key: msgtime})
+    await redis_client.expire(index_key, max(ttl_seconds, 1))
+    return True, False
+
+
+async def _fetch_cs_message_history(
+    redis_client: redis.Redis,
+    external_userid: str,
+) -> list[dict[str, Any]]:
+    """Fetch stored CS message history in chronological order."""
+    index_key = _cs_message_index_key(external_userid)
+    keys = await redis_client.zrange(index_key, 0, -1)
+    if not keys:
+        return []
+    values = await redis_client.mget(keys)
+    history: list[dict[str, Any]] = []
+    stale_keys: list[str] = []
+    for key, value in zip(keys, values, strict=False):
+        if value is None:
+            stale_keys.append(key)
+            continue
+        try:
+            history.append(json.loads(value))
+        except json.JSONDecodeError:
+            stale_keys.append(key)
+    if stale_keys:
+        await redis_client.zrem(index_key, *stale_keys)
+    return history
+
+
+def _build_cs_sync_payload(
+    base_payload: dict[str, Any], cursor: str | None
+) -> dict[str, Any]:
+    payload = dict(base_payload)
+    if cursor:
+        payload["cursor"] = cursor
+    return payload
+
+
+def _normalize_cs_sync_response(
+    data: dict[str, Any],
+) -> tuple[int, str, list[dict[str, Any]], str, bool]:
+    errcode = data.get("errcode", 0)
+    errmsg = data.get("errmsg", "Unknown error")
+    msg_list = data.get("msg_list", [])
+    next_cursor = data.get("next_cursor", "")
+    has_more = data.get("has_more", 0) == 1
+    return errcode, errmsg, msg_list, next_cursor, has_more
+
+
+def _build_cs_inbound_entry(
+    open_kf_id: str, msg: dict[str, Any]
+) -> dict[str, Any] | None:
+    if msg.get("origin") != 3 or msg.get("msgtype") != "text":
+        return None
+    external_userid = msg.get("external_userid", "")
+    text_data = msg.get("text", {})
+    content = text_data.get("content", "")
+    if not external_userid or not content:
+        return None
+    msgtime = _coerce_msgtime(msg.get("msgtime"))
+    message_id = _build_cs_message_id(msg)
+    return {
+        "id": message_id,
+        "external_userid": external_userid,
+        "open_kf_id": open_kf_id,
+        "direction": "inbound",
+        "role": "user",
+        "msgtype": msg.get("msgtype", "text"),
+        "content": content,
+        "msgtime": msgtime,
+    }
+
+
+def _pick_latest_message(
+    current: dict[str, Any] | None, candidate: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    return (
+        candidate
+        if candidate.get("msgtime", 0) >= current.get("msgtime", 0)
+        else current
+    )
+
+
+async def _store_cs_entry(
+    redis_client: redis.Redis, entry: dict[str, Any]
+) -> tuple[bool, bool]:
+    message_key = _cs_message_key(entry["external_userid"], entry["id"])
+    index_key = _cs_message_index_key(entry["external_userid"])
+    return await _store_cs_message(
+        redis_client,
+        message_key,
+        index_key,
+        entry["msgtime"],
+        entry,
+    )
+
+
+async def _process_cs_page(
+    msg_list: list[dict[str, Any]],
+    open_kf_id: str,
+    redis_client: redis.Redis | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, bool, bool]:
+    new_messages: list[dict[str, Any]] = []
+    latest_message: dict[str, Any] | None = None
+    saw_existing = False
+    redis_failed = False
+    for msg in msg_list:
+        entry = _build_cs_inbound_entry(open_kf_id, msg)
+        if entry is None:
+            continue
+        latest_message = _pick_latest_message(latest_message, entry)
+        if redis_client is None:
+            new_messages.append(entry)
+            continue
+        try:
+            stored, already_exists = await _store_cs_entry(redis_client, entry)
+        except redis.RedisError as exc:
+            logger.warning(
+                "WeCom CS sync: Redis write failed",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "degraded",
+                    "reason": "redis_write_failed",
+                    "error": str(exc),
+                },
+            )
+            redis_failed = True
+            new_messages.append(entry)
+            continue
+        if already_exists:
+            saw_existing = True
+        elif stored:
+            new_messages.append(entry)
+    return new_messages, latest_message, saw_existing, redis_failed
+
+
+def _resolve_cs_sync_inputs(
+    open_kf_id: str | None, kf_token: str | None, parser_result: dict[str, Any]
+) -> tuple[str, str]:
+    resolved_open_kf_id = open_kf_id or parser_result.get("open_kf_id", "")
+    resolved_kf_token = kf_token or parser_result.get("kf_token", "")
+    return resolved_open_kf_id, resolved_kf_token
+
+
+def _create_cs_redis_client() -> redis.Redis | None:
+    try:
+        return redis.from_url(REDIS_URL, decode_responses=True)
+    except redis.RedisError as exc:
+        logger.warning(
+            "WeCom CS sync: Redis unavailable",
+            extra={
+                "event": "wecom_cs_sync",
+                "status": "degraded",
+                "reason": "redis_unavailable",
+                "error": str(exc),
+            },
+        )
+        return None
+
+
+async def _close_cs_redis_client(redis_client: redis.Redis | None) -> None:
+    if redis_client is None:
+        return
+    try:
+        await redis_client.close()
+    except redis.RedisError:
+        return
+
+
+async def _fetch_cs_page(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict[str, str],
+    base_payload: dict[str, Any],
+    cursor: str | None,
+) -> dict[str, Any]:
+    payload = _build_cs_sync_payload(base_payload, cursor)
+    response = await client.post(url, params=params, json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+async def _pull_cs_pages(
+    client: httpx.AsyncClient,
+    redis_client: redis.Redis | None,
+    url: str,
+    params: dict[str, str],
+    base_payload: dict[str, Any],
+    cursor: str | None,
+) -> dict[str, Any]:
+    total_message_count = 0
+    next_cursor = ""
+    has_more = False
+    saw_existing = False
+    new_user_messages: list[dict[str, Any]] = []
+    latest_message: dict[str, Any] | None = None
+
+    while True:
+        data = await _fetch_cs_page(client, url, params, base_payload, cursor)
+        errcode, errmsg, msg_list, next_cursor, has_more = _normalize_cs_sync_response(
+            data
+        )
+        if errcode != 0:
+            logger.warning(
+                "WeCom CS sync failed",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": errmsg,
+                },
+            )
+            return {"is_error": True, "errcode": errcode, "errmsg": errmsg}
+
+        total_message_count += len(msg_list)
+        (
+            page_new_messages,
+            page_latest_message,
+            page_saw_existing,
+            redis_failed,
+        ) = await _process_cs_page(msg_list, base_payload["open_kfid"], redis_client)
+
+        new_user_messages.extend(page_new_messages)
+        latest_message = _pick_latest_message(latest_message, page_latest_message)
+
+        if redis_failed and redis_client is not None:
+            await _close_cs_redis_client(redis_client)
+            redis_client = None
+
+        if page_saw_existing:
+            saw_existing = True
+        if not has_more or saw_existing:
+            if saw_existing:
+                has_more = False
+            break
+        cursor = next_cursor
+
+    return {
+        "is_error": False,
+        "new_user_messages": new_user_messages,
+        "latest_message": latest_message,
+        "message_count": total_message_count,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "redis_client": redis_client,
+    }
+
+
+async def _resolve_cs_history(
+    redis_client: redis.Redis | None,
+    latest_message: dict[str, Any] | None,
+    new_user_messages: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    if latest_message is None:
+        return "", []
+    external_userid = latest_message.get("external_userid", "")
+    if not external_userid:
+        return "", []
+    history_messages: list[dict[str, Any]] = []
+    if redis_client is not None:
+        try:
+            history_messages = await _fetch_cs_message_history(
+                redis_client, external_userid
+            )
+        except redis.RedisError as exc:
+            logger.warning(
+                "WeCom CS sync: Redis read failed",
+                extra={
+                    "event": "wecom_cs_sync",
+                    "status": "degraded",
+                    "reason": "redis_read_failed",
+                    "error": str(exc),
+                },
+            )
+            history_messages = []
+
+    if not history_messages:
+        history_messages = sorted(
+            [
+                message
+                for message in new_user_messages
+                if message.get("external_userid") == external_userid
+            ],
+            key=lambda item: item.get("msgtime", 0),
+        )
+    return external_userid, history_messages
+
+
+def _select_cs_customer_nickname(customer_list: Any, external_userid: str) -> str:
+    """Pick a display name from a CS customer list response."""
+    if not isinstance(customer_list, list):
+        return ""
+    normalized_userid = str(external_userid).strip()
+    for customer in customer_list:
+        if not isinstance(customer, Mapping):
+            continue
+        customer_id = str(customer.get("external_userid") or "").strip()
+        if customer_id and customer_id != normalized_userid:
+            continue
+        nickname = (
+            customer.get("nickname")
+            or customer.get("name")
+            or customer.get("display_name")
+            or ""
+        )
+        if nickname:
+            return nickname
+    if customer_list and isinstance(customer_list[0], Mapping):
+        fallback = customer_list[0]
+        return (
+            fallback.get("nickname")
+            or fallback.get("name")
+            or fallback.get("display_name")
+            or ""
+        )
+    return ""
+
+
+async def _fetch_cs_customer_username(
+    client: httpx.AsyncClient,
+    access_token: str,
+    external_userid: str,
+) -> str:
+    """Fetch external customer nickname for WeCom CS messages."""
+    nickname = ""
+    external_userid = str(external_userid).strip()
+    if not external_userid:
+        return nickname
+    url = "https://qyapi.weixin.qq.com/cgi-bin/kf/customer/batchget"
+    params = {"access_token": access_token}
+    payload = {
+        "external_userid_list": [external_userid],
+        "need_enter_session_context": 0,
+    }
+    try:
+        response = await client.post(url, params=params, json=payload)
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning(
+            "WeCom CS customer info fetch failed",
+            extra={
+                "event": "wecom_cs_customer_info",
+                "status": "failed",
+                "error": str(exc),
+                "external_userid": external_userid,
+            },
+        )
+    else:
+        errcode = data.get("errcode", 0)
+        errmsg = data.get("errmsg", "Unknown error")
+        if errcode != 0:
+            logger.warning(
+                "WeCom CS customer info error: errcode=%s errmsg=%s",
+                errcode,
+                errmsg,
+                extra={
+                    "event": "wecom_cs_customer_info",
+                    "status": "failed",
+                    "errcode": errcode,
+                    "errmsg": errmsg,
+                    "external_userid": external_userid,
+                },
+            )
+        else:
+            customer_list = data.get("customer_list", [])
+            nickname = _select_cs_customer_nickname(customer_list, external_userid)
+    return nickname.strip() if isinstance(nickname, str) else ""
+
+
 @registry.register(
     NodeMetadata(
         name="WeComCustomerServiceSyncNode",
@@ -1322,7 +1772,7 @@ class WeComCustomerServiceSyncNode(TaskNode):
     WeComEventsParserNode detects a kf_msg_or_event callback.
 
     The sync_msg API returns all new messages since the last cursor.
-    Only the first text message from external users is processed.
+    Messages are stored in Redis and returned in chronological order.
 
     Requires an access token from a preceding WeComAccessTokenNode
     (named 'get_access_token' or 'get_cs_access_token' in the workflow).
@@ -1341,9 +1791,29 @@ class WeComCustomerServiceSyncNode(TaskNode):
         description="Optional cursor for pagination",
     )
     limit: int = Field(
-        default=100,
+        default=1000,
         description="Maximum number of messages to fetch (1-1000)",
     )
+
+    @staticmethod
+    def _build_agent_messages(
+        history_messages: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        if not isinstance(history_messages, list):
+            return messages
+        for item in history_messages:
+            if not isinstance(item, Mapping):
+                continue
+            content = item.get("content")
+            role = item.get("role") or item.get("type")
+            if role == "ai":
+                role = "assistant"
+            if role in {"user", "assistant"} and isinstance(content, str):
+                content = content.strip()
+                if content:
+                    messages.append({"role": role, "content": content})
+        return messages
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Sync messages from Customer Service."""
@@ -1361,10 +1831,15 @@ class WeComCustomerServiceSyncNode(TaskNode):
                     "reason": "missing_access_token",
                 },
             )
-            return {"is_error": True, "error": "No access token available"}
+            return {
+                "is_error": True,
+                "error": "No access token available",
+                "agent_messages": [],
+            }
 
-        open_kf_id = self.open_kf_id or parser_result.get("open_kf_id", "")
-        kf_token = self.kf_token or parser_result.get("kf_token", "")
+        open_kf_id, kf_token = _resolve_cs_sync_inputs(
+            self.open_kf_id, self.kf_token, parser_result
+        )
 
         if not open_kf_id:
             logger.warning(
@@ -1375,72 +1850,77 @@ class WeComCustomerServiceSyncNode(TaskNode):
                     "reason": "missing_open_kf_id",
                 },
             )
-            return {"is_error": True, "error": "No open_kf_id provided"}
+            return {
+                "is_error": True,
+                "error": "No open_kf_id provided",
+                "agent_messages": [],
+            }
 
-        # Sync messages
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg"
         params = {"access_token": access_token}
-        payload: dict[str, Any] = {
+        base_payload: dict[str, Any] = {
             "open_kfid": open_kf_id,
             "limit": min(self.limit, 1000),
         }
         if kf_token:
-            payload["token"] = kf_token
-        if self.cursor:
-            payload["cursor"] = self.cursor
+            base_payload["token"] = kf_token
 
+        redis_client = _create_cs_redis_client()
         client = httpx.AsyncClient(timeout=10.0)
         try:
-            response = await client.post(url, params=params, json=payload)
-            response.raise_for_status()
-            data = response.json()
+            sync_result = await _pull_cs_pages(
+                client, redis_client, url, params, base_payload, self.cursor
+            )
+            if sync_result.get("is_error"):
+                return {
+                    "is_error": True,
+                    "errcode": sync_result.get("errcode", 0),
+                    "errmsg": sync_result.get("errmsg", "Unknown error"),
+                    "agent_messages": [],
+                }
+
+            redis_client = sync_result.get("redis_client")
+            new_user_messages = sync_result.get("new_user_messages", [])
+            latest_message = sync_result.get("latest_message")
+            external_userid, history_messages = await _resolve_cs_history(
+                redis_client, latest_message, new_user_messages
+            )
+            should_process = any(
+                message.get("external_userid") == external_userid
+                for message in new_user_messages
+            )
+
+            external_username = await _fetch_cs_customer_username(
+                client, access_token, external_userid
+            )
+            agent_messages = self._build_agent_messages(history_messages)
+            return {
+                "is_error": False,
+                "open_kf_id": open_kf_id,
+                "external_userid": external_userid,
+                "external_username": external_username,
+                "messages": history_messages,
+                "agent_messages": agent_messages,
+                "message_count": sync_result.get("message_count", 0),
+                "next_cursor": sync_result.get("next_cursor", ""),
+                "has_more": sync_result.get("has_more", False),
+                "should_process": should_process,
+            }
         finally:
             await client.aclose()
+            await _close_cs_redis_client(redis_client)
 
-        errcode = data.get("errcode", 0)
-        if errcode != 0:
-            logger.warning(
-                "WeCom CS sync failed",
-                extra={
-                    "event": "wecom_cs_sync",
-                    "status": "failed",
-                    "errcode": errcode,
-                    "errmsg": data.get("errmsg", "Unknown error"),
-                },
-            )
-            return {
-                "is_error": True,
-                "errcode": errcode,
-                "errmsg": data.get("errmsg", "Unknown error"),
-            }
-
-        msg_list = data.get("msg_list", [])
-        next_cursor = data.get("next_cursor", "")
-        has_more = data.get("has_more", 0) == 1
-
-        # Find the most recent text message from an external user
-        # Messages are returned oldest-first, so reverse to get newest first
-        external_user_id = ""
-        content = ""
-        for msg in reversed(msg_list):
-            # origin: 3=external WeChat user, 4=system, 5=internal user
-            if msg.get("origin") == 3 and msg.get("msgtype") == "text":
-                external_user_id = msg.get("external_userid", "")
-                text_data = msg.get("text", {})
-                content = text_data.get("content", "")
-                if content:
-                    break
-
-        return {
-            "is_error": False,
-            "open_kf_id": open_kf_id,
-            "external_user_id": external_user_id,
-            "content": content,
-            "message_count": len(msg_list),
-            "next_cursor": next_cursor,
-            "has_more": has_more,
-            "should_process": bool(external_user_id and content),
-        }
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Execute the node and merge agent messages into state."""
+        self.decode_variables(state, config=config)
+        result = await self.run(state, config)
+        serialized = self._serialize_result(result)
+        output: dict[str, Any] = {"results": {self.name: serialized}}
+        if isinstance(serialized, dict):
+            agent_messages = serialized.pop("agent_messages", None)
+            if isinstance(agent_messages, list):
+                output["messages"] = agent_messages
+        return output
 
 
 @registry.register(
@@ -1465,7 +1945,7 @@ class WeComCustomerServiceSendNode(TaskNode):
         default=None,
         description="Customer Service account ID",
     )
-    external_user_id: str | None = Field(
+    external_userid: str | None = Field(
         default=None,
         description="External WeChat user ID",
     )
@@ -1475,7 +1955,7 @@ class WeComCustomerServiceSendNode(TaskNode):
     async def send_message(
         self,
         access_token: str,
-        external_user_id: str,
+        external_userid: str,
         open_kf_id: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
@@ -1503,7 +1983,7 @@ class WeComCustomerServiceSendNode(TaskNode):
                     "status": "failed",
                     "errcode": errcode,
                     "errmsg": errmsg,
-                    "external_user_id": external_user_id,
+                    "external_userid": external_userid,
                 },
             )
             return {
@@ -1518,10 +1998,51 @@ class WeComCustomerServiceSendNode(TaskNode):
                 "event": "wecom_cs_send",
                 "status": "success",
                 "errcode": 0,
-                "external_user_id": external_user_id,
+                "external_userid": external_userid,
                 "msgid": data.get("msgid"),
             },
         )
+        msgtime = int(time.time())
+        message_id = str(data.get("msgid") or "").strip()
+        if not message_id:
+            payload_id = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            message_id = hashlib.sha1(payload_id.encode("utf-8")).hexdigest()
+        entry = {
+            "id": message_id,
+            "external_userid": external_userid,
+            "open_kf_id": open_kf_id,
+            "direction": "outbound",
+            "role": "assistant",
+            "msgtype": payload.get("msgtype", "text"),
+            "content": payload.get("text", {}).get("content", ""),
+            "msgtime": msgtime,
+        }
+        redis_client: redis.Redis | None = None
+        try:
+            redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+            message_key = _cs_message_key(external_userid, message_id)
+            index_key = _cs_message_index_key(external_userid)
+            await _store_cs_message(
+                redis_client,
+                message_key,
+                index_key,
+                msgtime,
+                entry,
+            )
+        except redis.RedisError as exc:
+            logger.warning(
+                "WeCom CS send: Redis write failed",
+                extra={
+                    "event": "wecom_cs_send",
+                    "status": "degraded",
+                    "reason": "redis_write_failed",
+                    "error": str(exc),
+                    "external_userid": external_userid,
+                },
+            )
+        finally:
+            if redis_client is not None:
+                await redis_client.close()
         return {
             "is_error": False,
             "errcode": 0,
@@ -1561,9 +2082,7 @@ class WeComCustomerServiceSendNode(TaskNode):
             or sync_result.get("open_kf_id")
             or parser_result.get("open_kf_id", "")
         )
-        external_user_id = self.external_user_id or sync_result.get(
-            "external_user_id", ""
-        )
+        external_userid = self.external_userid or sync_result.get("external_userid", "")
 
         if not open_kf_id:
             logger.warning(
@@ -1576,19 +2095,19 @@ class WeComCustomerServiceSendNode(TaskNode):
             )
             return {"is_error": True, "error": "No open_kf_id provided"}
 
-        if not external_user_id:
+        if not external_userid:
             logger.warning(
-                "WeCom CS send failed: missing external_user_id",
+                "WeCom CS send failed: missing external_userid",
                 extra={
                     "event": "wecom_cs_send",
                     "status": "failed",
-                    "reason": "missing_external_user_id",
+                    "reason": "missing_external_userid",
                 },
             )
-            return {"is_error": True, "error": "No external_user_id provided"}
+            return {"is_error": True, "error": "No external_userid provided"}
 
         payload: dict[str, Any] = {
-            "touser": external_user_id,
+            "touser": external_userid,
             "open_kfid": open_kf_id,
             "msgtype": self.msg_type,
         }
@@ -1600,7 +2119,7 @@ class WeComCustomerServiceSendNode(TaskNode):
             payload["text"] = {"content": self.message}
 
         return await self.send_message(
-            access_token, external_user_id, open_kf_id, payload
+            access_token, external_userid, open_kf_id, payload
         )
 
 

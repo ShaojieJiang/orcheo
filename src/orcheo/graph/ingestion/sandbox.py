@@ -71,6 +71,7 @@ class AsyncAllowingTransformer(RestrictingNodeTransformer):
 TraceFunc = Callable[[FrameType | None, str, object], object]
 
 _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
+    "json",
     "langgraph",
     "langchain",
     "langchain_core",
@@ -88,6 +89,7 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "math",
     "operator",
     "pydantic",
+    "uuid",
 )
 
 

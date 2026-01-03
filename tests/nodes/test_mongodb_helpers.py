@@ -68,6 +68,15 @@ def test_resolve_filter_prefers_filter_and_falls_back_to_empty() -> None:
     assert node._resolve_filter() == {}
 
 
+def test_resolve_filter_rejects_unresolved_template() -> None:
+    node = _build_node(operation="find", filter="{{prepare_event.filter}}")
+
+    with pytest.raises(
+        ValueError, match="filter must resolve to a dict before execution"
+    ):
+        node._resolve_filter()
+
+
 def test_resolve_update_handles_explicit_and_query_updates() -> None:
     node = _build_node(operation="update_one", update={"$set": {"count": 1}})
     assert node._resolve_update() == {"$set": {"count": 1}}
@@ -78,6 +87,15 @@ def test_resolve_update_handles_explicit_and_query_updates() -> None:
 
     node.query = {"other": "value"}
     with pytest.raises(ValueError, match="update is required for update operations"):
+        node._resolve_update()
+
+
+def test_resolve_update_rejects_unresolved_template() -> None:
+    node = _build_node(operation="update_one", update="{{prepare_event.update}}")
+
+    with pytest.raises(
+        ValueError, match="update must resolve to a dict before execution"
+    ):
         node._resolve_update()
 
 

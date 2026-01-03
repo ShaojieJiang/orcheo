@@ -128,7 +128,7 @@ def test_show_workflow_success(mock_env: None) -> None:
 
     assert result["workflow"]["share_url"] == "http://api.test/chat/wf-1"
     assert result["workflow"]["is_public"] is True
-    assert result["latest_version"] == versions[0]
+    assert result["selected_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
 
@@ -158,7 +158,7 @@ def test_show_workflow_with_cached_runs(mock_env: None) -> None:
         )
 
     assert result["workflow"]["share_url"] is None
-    assert result["latest_version"] == versions[0]
+    assert result["selected_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
 
@@ -192,7 +192,7 @@ def test_show_workflow_with_runs_none_path(mock_env: None) -> None:
         )
 
     assert result["workflow"]["share_url"] is None
-    assert result["latest_version"] == versions[0]
+    assert result["selected_version"] == versions[0]
     assert len(result["recent_runs"]) == 1
 
 
@@ -220,5 +220,5 @@ def test_show_workflow_without_runs(mock_env: None) -> None:
         )
 
     assert result["workflow"]["share_url"] is None
-    assert result["latest_version"] == versions[0]
+    assert result["selected_version"] == versions[0]
     assert result["recent_runs"] == []
