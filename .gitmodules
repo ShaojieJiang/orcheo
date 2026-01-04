@@ -1,0 +1,3 @@
+[submodule "homepage"]
+	path = homepage
+	url = git@github.com:AI-Colleagues/ai-colleagues.github.io.git
