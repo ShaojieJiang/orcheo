@@ -124,7 +124,7 @@
     "react-masonry-css": "latest",
     "react-pdf": "latest",
     "react-plotly.js": "latest",
-    "react-resizable-panels": "latest",
+    "react-resizable-panels": "3.0.6",
     "react-router-dom": "latest",
     "react-split": "^2.0.14",
     "react-syntax-highlighter": "^15.6.1",
