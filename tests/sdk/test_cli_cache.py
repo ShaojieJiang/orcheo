@@ -156,13 +156,8 @@ def test_load_with_cache_online_mode_error_with_cache(tmp_path: Path) -> None:
     def failing_loader() -> dict:
         raise CLIError("Network error")
 
-    payload, from_cache, is_stale = load_with_cache(
-        state,
-        "test_key",
-        failing_loader,
-    )
-    assert payload == {"cached": "data"}
-    assert from_cache
+    with pytest.raises(CLIError):
+        load_with_cache(state, "test_key", failing_loader)
 
 
 def test_load_with_cache_online_mode_error_no_cache(tmp_path: Path) -> None:

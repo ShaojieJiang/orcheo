@@ -20,10 +20,12 @@ def load_with_cache[T](
     try:
         payload = loader()
     except CLIError:
-        entry = state.cache.load(cache_key)
-        if entry is None:
-            raise
-        return entry.payload, True, entry.is_stale
+        if state.settings.offline:
+            entry = state.cache.load(cache_key)
+            if entry is None:
+                raise
+            return entry.payload, True, entry.is_stale
+        raise
 
     state.cache.store(cache_key, payload)
     return payload, False, False
