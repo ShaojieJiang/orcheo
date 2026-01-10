@@ -232,6 +232,8 @@ jobs:
           echo "GITHUB_WORKFLOW_REF=$GITHUB_WORKFLOW_REF"
           echo "GITHUB_REF=$GITHUB_REF"
           echo "GITHUB_REF_NAME=$GITHUB_REF_NAME"
+      - name: Dump OIDC env (temporary)
+        run: env | grep -E "ACTIONS_ID_TOKEN_REQUEST_(URL|TOKEN)" || true
       - name: Dump npm config sources (temporary)
         run: npm config list -l | grep -i -E "authToken|registry"
       - name: Clear npm auth token (force OIDC)
