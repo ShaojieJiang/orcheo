@@ -196,9 +196,6 @@ jobs:
     needs: [canvas]
     if: "startsWith(github.ref, 'refs/tags/canvas-v')"
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ""
-      NPM_TOKEN: ""
     defaults:
       run:
         working-directory: apps/canvas
@@ -211,7 +208,6 @@ jobs:
         with:
           node-version: "20"
           registry-url: 'https://registry.npmjs.org'
-          token: ""
       - name: Install dependencies
         run: |
           npm ci
@@ -227,20 +223,5 @@ jobs:
           echo "Version check passed: $version"
       - name: Build
         run: npm run build
-      - name: Dump workflow refs (temporary)
-        run: |
-          echo "GITHUB_WORKFLOW_REF=$GITHUB_WORKFLOW_REF"
-          echo "GITHUB_REF=$GITHUB_REF"
-          echo "GITHUB_REF_NAME=$GITHUB_REF_NAME"
-      - name: Dump npm config sources (temporary)
-        run: npm config list -l | grep -i -E "authToken|registry"
-      - name: Clear npm auth token (force OIDC)
-        run: npm config delete //registry.npmjs.org/:_authToken || true
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
