@@ -115,6 +115,29 @@ def test_load_with_cache_offline_mode_with_cache(tmp_path: Path) -> None:
     assert from_cache
 
 
+def test_load_with_cache_offline_mode_error_uses_cache(tmp_path: Path) -> None:
+    from rich.console import Console
+    from orcheo_sdk.cli.config import CLISettings
+
+    cache_dir = tmp_path / "cache"
+    cache = CacheManager(directory=cache_dir, ttl=timedelta(hours=1))
+
+    settings = CLISettings(
+        api_url="http://test.com", service_token=None, profile="test", offline=True
+    )
+    client = ApiClient(base_url="http://test.com", token=None)
+    state = CLIState(settings=settings, client=client, cache=cache, console=Console())
+
+    def failing_loader() -> dict:
+        cache.store("test_key", {"cached": "data"})
+        raise CLIError("Network error")
+
+    payload, from_cache, is_stale = load_with_cache(state, "test_key", failing_loader)
+    assert payload == {"cached": "data"}
+    assert from_cache
+    assert not is_stale
+
+
 def test_load_with_cache_online_mode_success(tmp_path: Path) -> None:
     from rich.console import Console
 
@@ -156,13 +179,8 @@ def test_load_with_cache_online_mode_error_with_cache(tmp_path: Path) -> None:
     def failing_loader() -> dict:
         raise CLIError("Network error")
 
-    payload, from_cache, is_stale = load_with_cache(
-        state,
-        "test_key",
-        failing_loader,
-    )
-    assert payload == {"cached": "data"}
-    assert from_cache
+    with pytest.raises(CLIError):
+        load_with_cache(state, "test_key", failing_loader)
 
 
 def test_load_with_cache_online_mode_error_no_cache(tmp_path: Path) -> None:

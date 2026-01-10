@@ -4,6 +4,7 @@ from __future__ import annotations
 import httpx
 import respx
 from typer.testing import CliRunner
+from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
 
 
@@ -111,6 +112,31 @@ def test_workflow_list_uses_cache_notice(
     result = runner.invoke(app, ["--offline", "workflow", "list"], env=env)
     assert result.exit_code == 0
     assert "Using cached data" in result.stdout
+
+
+def test_workflow_list_errors_when_api_unreachable_even_with_cache(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    payload = [{"id": "wf-1", "name": "Demo", "is_archived": False}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        router.get("http://api.test/api/workflows/wf-1/triggers/cron/config").mock(
+            return_value=httpx.Response(404)
+        )
+        first = runner.invoke(app, ["workflow", "list"], env=env)
+        assert first.exit_code == 0
+
+    request = httpx.Request("GET", "http://api.test/api/workflows")
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            side_effect=httpx.RequestError("boom", request=request)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env=env)
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
 
 
 def test_workflow_list_detects_scheduled_workflows(
