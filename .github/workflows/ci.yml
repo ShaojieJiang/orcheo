@@ -196,6 +196,9 @@ jobs:
     needs: [canvas]
     if: "startsWith(github.ref, 'refs/tags/canvas-v')"
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ""
+      NPM_TOKEN: ""
     defaults:
       run:
         working-directory: apps/canvas
@@ -233,11 +236,5 @@ jobs:
         run: npm config list -l | grep -i -E "authToken|registry"
       - name: Clear npm auth token (force OIDC)
         run: npm config delete //registry.npmjs.org/:_authToken || true
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
