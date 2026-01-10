@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-01-10
+
+### Changed
+- Version 2.0 release candidate
+
 ## [0.1.0] - 2025-11-14
 
 ### Added
@@ -22,5 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Package name set to orcheo-canvas
 - Set up automated npm publishing workflow
 
-[Unreleased]: https://github.com/orcheo-ai/orcheo/compare/canvas-v0.1.0...HEAD
+[Unreleased]: https://github.com/orcheo-ai/orcheo/compare/canvas-v0.1.4...HEAD
+[0.1.4]: https://github.com/orcheo-ai/orcheo/releases/tag/canvas-v0.1.4
 [0.1.0]: https://github.com/orcheo-ai/orcheo/releases/tag/canvas-v0.1.0

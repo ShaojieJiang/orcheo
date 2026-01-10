@@ -189,4 +189,6 @@ checkpoints.sqlite
 .orcheo/
 **/workflow_config.json
 
+# Miscellaneous
 homepage/
+orcheo-paper/
