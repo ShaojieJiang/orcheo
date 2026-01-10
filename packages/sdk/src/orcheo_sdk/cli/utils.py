@@ -23,7 +23,7 @@ def load_with_cache[T](
         if state.settings.offline:
             entry = state.cache.load(cache_key)
             if entry is None:
-                raise
+                raise  # pragma: no cover - defensive
             return entry.payload, True, entry.is_stale
         raise
 
