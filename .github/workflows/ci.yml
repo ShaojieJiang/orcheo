@@ -208,6 +208,7 @@ jobs:
         with:
           node-version: "20"
           registry-url: 'https://registry.npmjs.org'
+          token: ${{ secrets.NODE_AUTH_TOKEN }}
       - name: Install dependencies
         run: |
           npm ci
@@ -225,3 +226,5 @@ jobs:
         run: npm run build
       - name: Publish to npm
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
