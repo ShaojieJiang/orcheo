@@ -222,5 +222,9 @@ jobs:
           echo "Version check passed: $version"
       - name: Build
         run: npm run build
+      - name: Dump npm config sources (temporary)
+        run: npm config list -l | rg -i "authToken|registry"
+      - name: Clear npm auth token (force OIDC)
+        run: npm config delete //registry.npmjs.org/:_authToken || true
       - name: Publish to npm
         run: npm publish --provenance --access public
