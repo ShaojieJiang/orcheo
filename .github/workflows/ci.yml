@@ -8,6 +8,7 @@ on:
       - 'core-v*'
       - 'backend-v*'
       - 'sdk-v*'
+      - 'agentensor-v*'
       - 'canvas-v*'
   pull_request:
     branches:
@@ -130,7 +131,7 @@ jobs:
 
   build-and-release:
     needs: [lint, coverage, postgres-persistence]
-    if: "startsWith(github.ref, 'refs/tags/core-v') || startsWith(github.ref, 'refs/tags/backend-v') || startsWith(github.ref, 'refs/tags/sdk-v')"
+    if: "startsWith(github.ref, 'refs/tags/core-v') || startsWith(github.ref, 'refs/tags/backend-v') || startsWith(github.ref, 'refs/tags/sdk-v') || startsWith(github.ref, 'refs/tags/agentensor-v')"
     runs-on: ubuntu-latest
 
     steps:
@@ -152,6 +153,8 @@ jobs:
             echo "package=orcheo-backend" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == sdk-v* ]]; then
             echo "package=orcheo-sdk" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == agentensor-v* ]]; then
+            echo "package=agentensor" >> "$GITHUB_OUTPUT"
           else
             echo "Unsupported tag prefix: $tag" >&2
             exit 1
