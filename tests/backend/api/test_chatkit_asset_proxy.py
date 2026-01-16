@@ -155,3 +155,43 @@ def test_proxy_chatkit_deployment_html_strips_cloudflare_challenge() -> None:
             assert "/cdn-cgi/challenge-platform/" not in response.text
             # Other content should remain
             assert "<div id='root'></div>" in response.text
+
+
+def test_proxy_chatkit_asset_forwards_query_string() -> None:
+    """Query string parameters are forwarded to the upstream CDN."""
+    app = create_app(InMemoryWorkflowRepository())
+    with respx.mock(assert_all_called=True) as router:
+        router.get(
+            "https://cdn.platform.openai.com/assets/ck1/index.js?v=123&foo=bar"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                content=b"console.log('versioned');",
+                headers={"Content-Type": "application/javascript"},
+            )
+        )
+        with TestClient(app) as client:
+            response = client.get("/api/chatkit/assets/ck1/index.js?v=123&foo=bar")
+            assert response.status_code == 200
+            assert response.content == b"console.log('versioned');"
+
+
+def test_proxy_chatkit_asset_rejects_post_method() -> None:
+    """POST requests to asset proxy return 405 Method Not Allowed."""
+    app = create_app(InMemoryWorkflowRepository())
+    with TestClient(app) as client:
+        response = client.post("/api/chatkit/assets/ck1/index.js")
+        assert response.status_code == 405
+
+
+def test_proxy_chatkit_asset_request_error_returns_502() -> None:
+    """Network errors when fetching upstream return 502 Bad Gateway."""
+    app = create_app(InMemoryWorkflowRepository())
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://cdn.platform.openai.com/assets/ck1/index.js").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with TestClient(app) as client:
+            response = client.get("/api/chatkit/assets/ck1/index.js")
+            assert response.status_code == 502
+            assert "Failed to fetch ChatKit asset" in response.json()["detail"]

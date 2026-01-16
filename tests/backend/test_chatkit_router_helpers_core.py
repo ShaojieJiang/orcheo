@@ -151,3 +151,31 @@ def test_rate_limit_reraises_authentication_error() -> None:
     with pytest.raises(HTTPException) as excinfo:
         chatkit._rate_limit(DummyLimiter(), "key", now=datetime.now(tz=UTC))
     assert excinfo.value.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+def test_with_root_path_prepends_slash_to_relative_path() -> None:
+    """When root_path exists and path lacks leading slash, one is added."""
+    request = make_chatkit_request()
+    # Inject a root_path into the request scope
+    request.scope["root_path"] = "/api"
+
+    result = chatkit._with_root_path(request, "chatkit/assets/ck1")
+    assert result == "/api/chatkit/assets/ck1"
+
+
+def test_with_root_path_absolute_path_with_root() -> None:
+    """Absolute path is correctly combined with root_path."""
+    request = make_chatkit_request()
+    request.scope["root_path"] = "/api"
+
+    result = chatkit._with_root_path(request, "/chatkit/assets/ck1")
+    assert result == "/api/chatkit/assets/ck1"
+
+
+def test_with_root_path_no_root() -> None:
+    """Without root_path, path is returned unchanged."""
+    request = make_chatkit_request()
+    request.scope["root_path"] = ""
+
+    result = chatkit._with_root_path(request, "/chatkit/assets/ck1")
+    assert result == "/chatkit/assets/ck1"
