@@ -38,6 +38,7 @@ from orcheo_backend.app.authentication import (
 )
 from orcheo_backend.app.authentication.rate_limit import SlidingWindowRateLimiter
 from orcheo_backend.app.chatkit import ChatKitRequestContext
+from orcheo_backend.app.chatkit_asset_proxy import proxy_chatkit_asset
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import (
     ChatKitSessionTokenIssuer,
@@ -180,6 +181,15 @@ def _build_chatkit_log_context(
     return log_context
 
 
+def _with_root_path(request: Request, path: str) -> str:
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    if not root_path:
+        return path
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{root_path}{path}"
+
+
 def _chatkit_error(
     status_code: int,
     *,
@@ -320,6 +330,33 @@ async def authenticate_chatkit_invocation(
         workflow_id=workflow_id,
         now=now,
         repository=repository,
+    )
+
+
+@router.get("/chatkit/assets/ck1/{asset_path:path}", include_in_schema=False)
+@router.head("/chatkit/assets/ck1/{asset_path:path}", include_in_schema=False)
+async def proxy_chatkit_ck1_asset(
+    request: Request,
+    asset_path: str,
+) -> Response:
+    return await proxy_chatkit_asset(
+        request,
+        prefix="assets/ck1",
+        asset_path=asset_path,
+    )
+
+
+@router.get("/chatkit/assets/{asset_path:path}", include_in_schema=False)
+@router.head("/chatkit/assets/{asset_path:path}", include_in_schema=False)
+async def proxy_chatkit_deployment_asset(
+    request: Request,
+    asset_path: str,
+) -> Response:
+    return await proxy_chatkit_asset(
+        request,
+        prefix="deployments/chatkit",
+        asset_path=asset_path,
+        rewrite_prefix=_with_root_path(request, "/api/chatkit/assets/ck1"),
     )
 
 
