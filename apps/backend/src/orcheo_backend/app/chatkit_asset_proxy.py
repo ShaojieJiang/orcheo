@@ -22,6 +22,7 @@ _RESPONSE_HEADER_ALLOWLIST = {
     "access-control-allow-credentials",
     "access-control-allow-origin",
     "cache-control",
+    "content-range",
     "content-length",
     "content-type",
     "etag",
