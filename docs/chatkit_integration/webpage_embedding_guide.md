@@ -33,10 +33,13 @@ copy/paste or customize.
    ```html
    <script
      async
-     src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+     src="https://orcheo.ai-colleagues.com/api/chatkit/assets/chatkit.js"
      crossorigin="anonymous"
    ></script>
    ```
+   Orcheo proxies ChatKit assets to the upstream CDN. The server must be able
+   to reach `https://cdn.platform.openai.com`; override with
+   `ORCHEO_CHATKIT_CDN_BASE_URL` if needed.
 2. **Add a launcher + container** – place a floating button and a hidden panel
    that contains `<openai-chatkit>`. See `examples/chatkit-orcheo.html` for a
    fully styled version that mirrors the Canvas chat bubble UX.

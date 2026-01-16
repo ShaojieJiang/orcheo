@@ -36,6 +36,7 @@ from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
     agentensor,
     auth,
+    chatkit_assets,
     credential_alerts,
     credential_health,
     credential_templates,
@@ -177,6 +178,7 @@ def create_app(
             )
 
     application.include_router(api_router)
+    application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
