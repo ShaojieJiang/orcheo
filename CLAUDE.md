@@ -45,7 +45,7 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 
 ### Key Design Patterns
 - Backend-first with optional frontend
-- Supports both low-code (config) and code-first (Python SDK) approaches
+- Supports both low-code (config) and vibe-coding-first (AI agents build workflows via SDK) approaches
 - Simple cross-node protocol for extensibility
 - Variable interpolation using `{{path.to.value}}` syntax in node attributes
 

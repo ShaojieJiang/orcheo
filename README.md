@@ -8,7 +8,15 @@
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
 [![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
 
-Orcheo is a tool for creating and running workflows.
+Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically.
+
+> **Note:** This project is currently in Alpha. Remote development and deployment are still to be tested.
+
+## Why Orcheo?
+
+- **Vibe-coding-first**: Built from the ground up for AI agents to operate. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) for your coding agent and let it handle setup, workflow creation, and deployment.
+- **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
+- **Backend-first**: Run headless in production; the UI is optional.
 
 ## For users
 
@@ -282,7 +290,7 @@ codex add server Orcheo \
 
 ### Canvas (Visual Workflow Designer)
 
-Orcheo Canvas is the visual workflow designer for creating and managing workflows through a drag-and-drop interface.
+Orcheo Canvas is the visual workflow designer for creating, visualizing, and managing workflows.
 
 #### Installation
 
