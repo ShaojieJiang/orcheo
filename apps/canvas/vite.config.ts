@@ -15,6 +15,9 @@ export default defineConfig({
       '@lib': path.resolve(__dirname, './src/lib'),
       '@design-system': path.resolve(__dirname, './src/design-system'),
       '@features': path.resolve(__dirname, './src/features'),
+      // Fix for use-sync-external-store CJS/ESM compatibility with React 19
+      'use-sync-external-store/shim': 'react',
+      'use-sync-external-store/shim/index.js': 'react',
     }
   },
   server: {
