@@ -18,12 +18,48 @@ export default defineConfig({
     }
   },
   // Fix for CJS/ESM compatibility issues with React 19
+  // These packages are CommonJS but imported by ESM modules, causing issues in dev server
   optimizeDeps: {
     include: [
+      // Used by zustand, swr, @radix-ui
       'use-sync-external-store/shim',
       'use-sync-external-store/shim/with-selector',
+      // Used by react-split, react-big-calendar, etc.
       'prop-types',
       'react-split',
+      // Used by @rjsf/utils
+      'jsonpointer',
+      'json-schema-merge-allof',
+      'react-is',
+      // Lodash submodules used by @rjsf
+      'lodash/get',
+      'lodash/set',
+      'lodash/has',
+      'lodash/omit',
+      'lodash/pick',
+      'lodash/merge',
+      'lodash/cloneDeep',
+      'lodash/isEmpty',
+      'lodash/isObject',
+      'lodash/isString',
+      'lodash/isNumber',
+      'lodash/isNil',
+      'lodash/isPlainObject',
+      'lodash/forEach',
+      'lodash/toPath',
+      'lodash/uniqueId',
+      'lodash/keys',
+      'lodash/union',
+      'lodash/uniq',
+      'lodash/times',
+      'lodash/reduce',
+      'lodash/transform',
+      'lodash/difference',
+      'lodash/flattenDeep',
+      'lodash/isEqualWith',
+      'lodash/setWith',
+      'lodash/pickBy',
+      'lodash/unset',
     ]
   },
   build: {
