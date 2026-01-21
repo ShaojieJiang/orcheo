@@ -18,64 +18,44 @@ export default defineConfig({
     }
   },
   // Fix for CJS/ESM compatibility issues with React 19
-  // These packages are CommonJS but imported by ESM modules, causing issues in dev server
+  // Force Vite to pre-bundle all dependencies to handle CJS->ESM conversion
   optimizeDeps: {
+    // Force pre-bundling of all dependencies
+    force: true,
+    // Exclude nothing - bundle everything
+    exclude: [],
+    // Explicitly include problematic nested imports
     include: [
-      // Used by zustand, swr, @radix-ui
       'use-sync-external-store/shim',
       'use-sync-external-store/shim/with-selector',
-      // Used by react-split, react-big-calendar, etc.
-      'prop-types',
-      'react-split',
-      // Used by @rjsf/utils and @rjsf/validator-ajv8
-      'jsonpointer',
-      'json-schema-merge-allof',
-      'react-is',
-      'ajv',
-      'ajv-formats',
-      // Used by react-big-calendar, antd, etc.
-      'dayjs',
-      'invariant',
-      'dom-helpers',
-      // Lodash submodules used by @rjsf
-      'lodash/get',
-      'lodash/set',
-      'lodash/has',
-      'lodash/omit',
-      'lodash/pick',
-      'lodash/merge',
-      'lodash/cloneDeep',
-      'lodash/isEmpty',
-      'lodash/isObject',
-      'lodash/isString',
-      'lodash/isNumber',
-      'lodash/isNil',
-      'lodash/isPlainObject',
-      'lodash/forEach',
-      'lodash/toPath',
-      'lodash/uniqueId',
-      'lodash/keys',
-      'lodash/union',
-      'lodash/uniq',
-      'lodash/times',
-      'lodash/reduce',
-      'lodash/transform',
-      'lodash/difference',
-      'lodash/flattenDeep',
-      'lodash/isEqualWith',
-      'lodash/setWith',
-      'lodash/pickBy',
-      'lodash/unset',
-    ]
+      'react-split > prop-types',
+      'ajv/dist/standalone',
+    ],
+    // Scan all entry points
+    esbuildOptions: {
+      // Ensure proper CJS to ESM conversion
+      mainFields: ['module', 'main'],
+    }
   },
   build: {
     commonjsOptions: {
-      include: [/use-sync-external-store/, /node_modules/]
+      // Transform all CJS modules in node_modules
+      include: [/node_modules/],
+      // Use proper named exports detection
+      requireReturnsDefault: 'auto',
     }
   },
   server: {
     allowedHosts: [
       'orcheo-canvas.ai-colleagues.com'
-    ]
+    ],
+    // Force dependency pre-bundling on server start
+    warmup: {
+      clientFiles: ['./src/**/*.tsx', './src/**/*.ts']
+    }
+  },
+  // Ensure SSR also handles CJS properly
+  ssr: {
+    noExternal: true
   }
 })
