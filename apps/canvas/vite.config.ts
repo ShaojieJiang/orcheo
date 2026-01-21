@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -21,15 +21,5 @@ export default defineConfig({
     allowedHosts: [
       'orcheo-canvas.ai-colleagues.com'
     ]
-  },
-  test: {
-    environment: 'jsdom',
-    setupFiles: './src/setupTests.ts',
-    alias: {
-      '@openai/chatkit-react': path.resolve(
-        __dirname,
-        './src/test-utils/chatkit-stub.ts',
-      ),
-    },
   }
 })
