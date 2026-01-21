@@ -27,10 +27,16 @@ export default defineConfig({
       // Used by react-split, react-big-calendar, etc.
       'prop-types',
       'react-split',
-      // Used by @rjsf/utils
+      // Used by @rjsf/utils and @rjsf/validator-ajv8
       'jsonpointer',
       'json-schema-merge-allof',
       'react-is',
+      'ajv',
+      'ajv-formats',
+      // Used by react-big-calendar, antd, etc.
+      'dayjs',
+      'invariant',
+      'dom-helpers',
       // Lodash submodules used by @rjsf
       'lodash/get',
       'lodash/set',
