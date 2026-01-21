@@ -17,9 +17,14 @@ export default defineConfig({
       '@features': path.resolve(__dirname, './src/features'),
     }
   },
-  // Fix for use-sync-external-store CJS/ESM compatibility with React 19
+  // Fix for CJS/ESM compatibility issues with React 19
   optimizeDeps: {
-    include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector']
+    include: [
+      'use-sync-external-store/shim',
+      'use-sync-external-store/shim/with-selector',
+      'prop-types',
+      'react-split',
+    ]
   },
   build: {
     commonjsOptions: {
