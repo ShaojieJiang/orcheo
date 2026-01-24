@@ -144,6 +144,9 @@ After installation, restart your shell or source your shell configuration file.
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
 | `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
+| `orcheo auth login [--no-browser] [--port <port>]` | Authenticate via browser-based OAuth flow. |
+| `orcheo auth logout` | Clear stored OAuth tokens for the current profile. |
+| `orcheo auth status` | Show current authentication status (OAuth or service token). |
 | `orcheo token create [--id <id>] [--scope <scope>]` | Create a service token for CLI/API authentication. |
 | `orcheo token list` | List all service tokens with their scopes and status. |
 | `orcheo token show <token-id>` | Show detailed information for a specific service token. |
@@ -219,6 +222,28 @@ client = OrcheoClient(
 ```bash
 orcheo token rotate my-ci-token --overlap 300
 ```
+
+#### OAuth Authentication
+
+For interactive CLI usage, you can authenticate via browser-based OAuth using the same identity provider as Canvas:
+
+```bash
+# Configure OAuth (same settings as Canvas, without VITE_ prefix)
+export ORCHEO_AUTH_ISSUER="https://your-idp.com/"
+export ORCHEO_AUTH_CLIENT_ID="your-client-id"
+export ORCHEO_AUTH_ORGANIZATION="org_xxx"  # optional
+
+# Login via browser
+orcheo auth login
+
+# Check authentication status
+orcheo auth status
+
+# Logout
+orcheo auth logout
+```
+
+OAuth tokens are stored per-profile in `~/.config/orcheo/tokens/` and automatically refresh when expired.
 
 #### JWT Authentication
 

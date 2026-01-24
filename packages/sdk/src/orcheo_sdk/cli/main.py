@@ -3,12 +3,14 @@
 from __future__ import annotations
 import os
 import sys
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Annotated
 import click
 import typer
 from rich.console import Console
 from orcheo_sdk.cli.agent_tool import agent_tool_app
+from orcheo_sdk.cli.auth import auth_app
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
@@ -31,6 +33,7 @@ def _is_completion_mode() -> bool:
 
 
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
+app.add_typer(auth_app, name="auth")
 app.add_typer(node_app, name="node")
 app.add_typer(edge_app, name="edge")
 app.add_typer(workflow_app, name="workflow")
@@ -38,6 +41,17 @@ app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
+
+
+def _create_token_provider(profile: str | None) -> Callable[[], str | None]:
+    """Create a token provider callback for OAuth token resolution."""
+
+    def provider() -> str | None:
+        from orcheo_sdk.cli.auth.refresh import get_valid_access_token
+
+        return get_valid_access_token(profile=profile)
+
+    return provider
 
 
 @app.callback()
@@ -89,6 +103,7 @@ def main(
         base_url=settings.api_url,
         token=settings.service_token,
         public_base_url=settings.chatkit_public_base_url,
+        token_provider=_create_token_provider(settings.profile),
     )
     ctx.obj = CLIState(settings=settings, client=client, cache=cache, console=console)
 
@@ -103,8 +118,8 @@ def _print_cli_error(console: Console, exc: CLIError) -> None:
             console.print(f"[red]Error:[/red] {error_msg}")
             console.print(
                 "\n[yellow]Hint:[/yellow] Authentication failed. "
-                "Set ORCHEO_SERVICE_TOKEN environment variable or "
-                "configure a profile with 'orcheo config'."
+                "Run 'orcheo auth login' to authenticate via OAuth, or "
+                "set ORCHEO_SERVICE_TOKEN environment variable."
             )
             return
         elif exc.status_code == 403:
