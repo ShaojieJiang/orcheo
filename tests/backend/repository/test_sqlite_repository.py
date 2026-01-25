@@ -10,6 +10,7 @@ from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
+    WorkflowNotFoundError,
     WorkflowPublishStateError,
 )
 from orcheo_backend.app.repository_sqlite._base import (
@@ -449,6 +450,41 @@ async def test_sqlite_publish_revoke_workflow_lifecycle(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_archive_workflow_revokes_publish(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Archiving a public workflow revokes publish state."""
+
+    db_path = tmp_path / "archive-revoke.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Archive",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.publish_workflow(
+            workflow.id,
+            require_login=True,
+            actor="author",
+        )
+
+        archived = await repository.archive_workflow(workflow.id, actor="author")
+        assert archived.is_archived is True
+        assert archived.is_public is False
+        assert archived.require_login is False
+
+        stored = await repository.get_workflow(workflow.id)
+        assert stored.is_archived is True
+        assert stored.is_public is False
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_publish_workflow_translates_value_error(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -482,6 +518,35 @@ async def test_sqlite_publish_workflow_translates_value_error(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_publish_archived_workflow_raises_not_found(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Publishing an archived workflow raises WorkflowNotFoundError."""
+
+    db_path = tmp_path / "publish-archived.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Archived Publish",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.archive_workflow(workflow.id, actor="author")
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository.publish_workflow(
+                workflow.id,
+                require_login=False,
+                actor="author",
+            )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_revoke_requires_published_state(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -500,6 +565,31 @@ async def test_sqlite_revoke_requires_published_state(
         )
 
         with pytest.raises(WorkflowPublishStateError):
+            await repository.revoke_publish(workflow.id, actor="author")
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_revoke_archived_workflow_raises_not_found(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Revoking publish on an archived workflow raises WorkflowNotFoundError."""
+
+    db_path = tmp_path / "revoke-archived.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Archived Revoke",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.archive_workflow(workflow.id, actor="author")
+
+        with pytest.raises(WorkflowNotFoundError):
             await repository.revoke_publish(workflow.id, actor="author")
     finally:
         await repository.reset()

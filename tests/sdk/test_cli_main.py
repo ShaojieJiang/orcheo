@@ -1,6 +1,7 @@
 """High-level CLI entrypoint tests."""
 
 from __future__ import annotations
+from pathlib import Path
 import httpx
 import pytest
 import respx
@@ -9,9 +10,18 @@ from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run
 
 
-def test_main_config_error_handling(runner: CliRunner) -> None:
+def test_main_config_error_handling(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     # With the default API URL, this should attempt to connect to localhost:8000
     # The test should mock the API call to verify it uses the default
+    # Clear env vars to ensure the default localhost:8000 is used
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("ORCHEO_API_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
     payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://localhost:8000/api/workflows").mock(

@@ -86,6 +86,16 @@ async def test_create_workflow_chatkit_session_requires_permissions() -> None:
         )
 
 
+class _ArchivedWorkflowRepo:
+    def __init__(self, workflow: Workflow) -> None:
+        self._workflow = workflow
+
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        if workflow_id != self._workflow.id:
+            raise WorkflowNotFoundError(str(workflow_id))
+        return self._workflow
+
+
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_validates_workflow_exists() -> None:
     repo = _MissingWorkflowRepo()
@@ -94,6 +104,26 @@ async def test_create_workflow_chatkit_session_validates_workflow_exists() -> No
     with pytest.raises(HTTPException) as excinfo:
         await workflows.create_workflow_chatkit_session(
             uuid4(),
+            repo,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_rejects_archived_workflow() -> None:
+    """Test that archived workflows return 404 as if they don't exist."""
+    workflow = Workflow(
+        name="Archived Workflow", tags=["workspace:ws-1"], is_archived=True
+    )
+    repo = _ArchivedWorkflowRepo(workflow)
+    policy = _policy({"workflows:read", "workflows:execute"})
+
+    with pytest.raises(HTTPException) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            workflow.id,
             repo,
             policy=policy,
             issuer=_issuer(),
