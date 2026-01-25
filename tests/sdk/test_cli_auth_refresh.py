@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 import pytest
+import orcheo_sdk.cli.auth.refresh as refresh_module
 from orcheo_sdk.cli.auth.refresh import get_valid_access_token, refresh_oauth_tokens
 from orcheo_sdk.cli.auth.tokens import AuthTokens, set_oauth_tokens
 
@@ -85,6 +86,37 @@ def test_refresh_oauth_tokens_not_configured(
 ) -> None:
     monkeypatch.delenv("ORCHEO_AUTH_ISSUER", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_CLIENT_ID", raising=False)
+
+    result = refresh_oauth_tokens(profile="default")
+    assert result is None
+
+
+def test_refresh_oauth_tokens_invalid_discovery_json(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
+    monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+
+    tokens = AuthTokens(
+        access_token="expired-token", expires_at=0, refresh_token="refresh-token"
+    )
+    set_oauth_tokens(profile="default", tokens=tokens)
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            raise ValueError("invalid json")
+
+    monkeypatch.setattr(
+        refresh_module.httpx, "get", lambda *args, **kwargs: DummyResponse()
+    )
+    monkeypatch.setattr(
+        refresh_module.httpx,
+        "post",
+        lambda *args, **kwargs: pytest.fail("httpx.post should not be called"),
+    )
 
     result = refresh_oauth_tokens(profile="default")
     assert result is None

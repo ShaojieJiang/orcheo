@@ -12,12 +12,27 @@ from orcheo_sdk.cli.auth.tokens import (
 )
 
 
-def _load_discovery_token_endpoint(issuer: str) -> str:
-    """Fetch only the token endpoint from discovery."""
+def _load_discovery_token_endpoint(issuer: str) -> str | None:
+    """Fetch only the token endpoint from discovery.
+
+    Returns None when discovery JSON is invalid or missing the token endpoint.
+    """
     url = f"{issuer}/.well-known/openid-configuration"
     response = httpx.get(url, timeout=30.0)
     response.raise_for_status()
-    return response.json()["token_endpoint"]
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    token_endpoint = payload.get("token_endpoint")
+    if not isinstance(token_endpoint, str):
+        return None
+
+    return token_endpoint
 
 
 def refresh_oauth_tokens(*, profile: str | None) -> AuthTokens | None:
@@ -35,6 +50,8 @@ def refresh_oauth_tokens(*, profile: str | None) -> AuthTokens | None:
     try:
         config = get_oauth_config()
         token_endpoint = _load_discovery_token_endpoint(config.issuer)
+        if not token_endpoint:
+            return None
 
         response = httpx.post(
             token_endpoint,
