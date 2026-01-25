@@ -18,11 +18,15 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
+## Prerequisites
+
+- **Docker** — for running Redis and other services
+- **Python 3.12+** — required for the backend
+- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
+
 ## Quick Start
 
 The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
-
-**Prerequisites:** Docker, Python 3.12+, and uv
 
 ### 1. Install the Orcheo Agent Skill
 
@@ -46,9 +50,9 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 ## Documentation
 
-For users who prefer manual control or need advanced configuration:
+For users who prefer manual setup or need advanced configuration:
 
-- **[Manual Setup Guide](docs/manual_setup.md)** — Complete guide for manual installation, CLI reference, authentication, MCP configuration, and Canvas setup
+- **[Manual Setup Guide](docs/manual_setup.md)** — Complete guide for installation, CLI reference, authentication, MCP configuration, and Canvas setup
 
 For developers contributing to Orcheo:
 
