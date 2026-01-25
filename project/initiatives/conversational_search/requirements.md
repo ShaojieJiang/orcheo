@@ -12,7 +12,7 @@
 
 | Documents | Link |
 |-----------|------|
-| Prior Artifacts | [Roadmap](../roadmap.md) |
+| Prior Artifacts | [Roadmap](../../product/roadmap.md) |
 | Design Review | [This document](requirements.md) |
 | Design File/Deck | TBD |
 | Eng Requirement Doc | TBD |

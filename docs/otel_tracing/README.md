@@ -2,7 +2,7 @@
 
 This guide explains how to configure OpenTelemetry (OTel) for Orcheo, deploy a collector,
 and operate the Workflow Trace tab in Canvas. It complements the architectural notes in
-[design.md](design.md) and the implementation milestones recorded in [plan.md](plan.md).
+[design.md](../../project/initiatives/otel_tracing/design.md) and the implementation milestones recorded in [plan.md](../../project/initiatives/otel_tracing/plan.md).
 
 ## Runtime configuration
 

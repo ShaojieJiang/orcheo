@@ -12,10 +12,10 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Prior Artifacts | docs/chatkit_integration/design.md | Eng | ChatKit integration design |
-| Design Review | docs/chatkit_widget_support/design.md | Eng | Widget support design |
-| Eng Requirement Doc | docs/chatkit_widget_support/requirements.md | Tech Lead | This document |
-| Rollout Docs (if applicable) | docs/chatkit_widget_support/plan.md | Eng | Widget support plan |
+| Prior Artifacts | `../chatkit_integration/design.md` | Eng | ChatKit integration design |
+| Design Review | `./design.md` | Eng | Widget support design |
+| Eng Requirement Doc | `./requirements.md` | Tech Lead | This document |
+| Rollout Docs (if applicable) | `./plan.md` | Eng | Widget support plan |
 | Widget Builder | https://widgets.chatkit.studio/ | Product | ChatKit Widget Builder |
 
 ## PROBLEM DEFINITION
@@ -68,7 +68,7 @@ Out of scope:
 - New analytics pipeline for widget usage beyond existing logging/metrics hooks.
 
 ### Designs (if applicable)
-- Design doc: docs/chatkit_widget_support/design.md
+- Design doc: `./design.md`
 - Copy/UX follows existing ChatKit widget rendering; no separate Figma.
 
 ## TECHNICAL CONSIDERATIONS

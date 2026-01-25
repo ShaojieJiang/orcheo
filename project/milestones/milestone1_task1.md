@@ -56,4 +56,3 @@ that will power both the code-first SDK and the future canvas experience.
 - Wire Postgres-backed persistence into CI to validate connection pooling under
   load tests once available infrastructure is provisioned. **(Completed via
   GitHub Actions Postgres integration test job.)**
-

@@ -16,9 +16,9 @@ using Celery with Redis as the broker. Runs update status in the database so the
 CLI and UI reflect execution outcomes. Deployment target is systemd.
 
 **Related Documents:**
-- Requirements: `docs/execution_worker/1_requirements.md`
-- Design: `docs/execution_worker/2_design.md`
-- Deployment: `docs/execution_worker/4_deployment.md`
+- Requirements: `./1_requirements.md`
+- Design: `./2_design.md`
+- Deployment: `../../../docs/execution_worker/deployment.md`
 
 ---
 

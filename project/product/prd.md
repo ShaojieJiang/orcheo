@@ -10,7 +10,7 @@
 ## RELEVANT LINKS & STAKEHOLDERS
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Roadmap & Project Board | [docs/roadmap.md](./roadmap.md) | PM | Shaojie Jiang |
+| Roadmap & Project Board | [roadmap](./roadmap.md) | PM | Shaojie Jiang |
 | Prior Artifacts | TBD | PM | Shaojie Jiang |
 | PRD / Design Review | TBD | PM | Shaojie Jiang |
 | Design File/Deck | TBD | Designer | TBD |
