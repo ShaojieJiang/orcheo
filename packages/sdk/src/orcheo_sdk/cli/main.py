@@ -14,6 +14,7 @@ from orcheo_sdk.cli.auth import auth_app
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
+from orcheo_sdk.cli.config_command import config_app
 from orcheo_sdk.cli.credential import credential_app
 from orcheo_sdk.cli.edge import edge_app
 from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
@@ -39,6 +40,7 @@ app.add_typer(edge_app, name="edge")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")
+app.add_typer(config_app, name="config")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
 
