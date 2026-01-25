@@ -375,7 +375,7 @@ The CLI reads configuration from:
 - Config file: `~/.config/orcheo/cli.toml` (profiles for multiple environments)
 - Command flags: `--api-url`, `--service-token`, `--profile`
 
-See [cli_tool_design.md](cli_tool_design.md) for detailed design, roadmap, and future MCP server integration plans.
+See [cli_tool_design.md](../project/architecture/cli_tool_design.md) for detailed design, roadmap, and future MCP server integration plans.
 
 ## Custom Nodes and Tools
 

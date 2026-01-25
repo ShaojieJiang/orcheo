@@ -14,8 +14,8 @@
 Add upload-time runnable config support so workflows can ship with initial configuration using `--config` or `--config-file`, and persist that config on workflow versions in the configured repository backend (SQLite by default). This plan coordinates CLI, API, repository, and runtime merge behavior.
 
 **Related Documents:**
-- Requirements: docs/workflow_upload_config/1_requirements.md
-- Design: docs/workflow_upload_config/2_design.md
+- Requirements: `./1_requirements.md`
+- Design: `./2_design.md`
 
 **Priority Mapping:** P0 work is covered in Milestones 1 and 2. P1 work is covered in Milestone 3 (runtime merge, documentation, and regression coverage).
 

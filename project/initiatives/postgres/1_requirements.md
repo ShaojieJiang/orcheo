@@ -12,8 +12,8 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Design Doc | `docs/postgres/2_design.md` | Shaojie Jiang | PostgreSQL Migration Design |
-| Project Plan | `docs/postgres/3_plan.md` | Shaojie Jiang | PostgreSQL Migration Plan |
+| Design Doc | `./2_design.md` | Shaojie Jiang | PostgreSQL Migration Design |
+| Project Plan | `./3_plan.md` | Shaojie Jiang | PostgreSQL Migration Plan |
 | Config Types | `src/orcheo/config/types.py` | Shaojie Jiang | Config Types |
 | App Settings Validators | `src/orcheo/config/app_settings.py` | Shaojie Jiang | Settings Validators |
 
@@ -66,7 +66,7 @@ P2/Optional:
 - Vault migration to PostgreSQL using pgcrypto (deferred for local hosting).
 
 ### Designs (if applicable)
-Design doc: `docs/postgres/2_design.md`
+Design doc: `./2_design.md`
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview

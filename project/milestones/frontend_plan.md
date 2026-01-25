@@ -54,7 +54,7 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 ## Status Update (2025-10-07)
 The frontend rebuild scoped in this plan is now live within the `apps/canvas` workspace. Key highlights:
 
-- Feature-first routing backed by React Router powers deep links for the gallery, designer canvas, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`. 
+- Feature-first routing backed by React Router powers deep links for the gallery, designer canvas, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`.
 - A composable design system (buttons, inputs, overlays, navigation primitives, charts, etc.) under `src/design-system/ui` now drives every screen and centralizes styling tokens.
 - Workflow gallery and canvas experiences were rebuilt to consume shared services, present rich empty/loading states, and surface toast-driven feedback for CRUD operations.
 - QA coverage expanded with Vitest suites that exercise navigation scaffolding and workflow management behaviours, and lint/test automation now runs via shared workspace commands.

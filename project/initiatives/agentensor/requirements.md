@@ -13,9 +13,9 @@
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
 | Prior Artifacts | [agentensor trainer example](https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py) | Shaojie Jiang | Agentensor trainer example |
-| Design Review | docs/agentensor/design.md | Shaojie Jiang | Agent training design |
-| Eng Requirement Doc | docs/agentensor/requirements.md | Shaojie Jiang | Agent training PRD |
-| Experiment Plan | docs/agentensor/plan.md | Shaojie Jiang | Agent training plan |
+| Design Review | `./design.md` | Shaojie Jiang | Agent training design |
+| Eng Requirement Doc | `./requirements.md` | Shaojie Jiang | Agent training PRD |
+| Experiment Plan | `./plan.md` | Shaojie Jiang | Agent training plan |
 
 ## PROBLEM DEFINITION
 ### Objectives
@@ -56,7 +56,7 @@ Goals: support runtime `RunnableConfig` across API/SDK runs; deliver an Agentens
   - Documentation and examples covering config schemas, evaluator hooks, and checkpoint handling.
 
 ### Designs (if applicable)
-See docs/agentensor/design.md for architecture, flows, and API contracts.
+See `./design.md` for architecture, flows, and API contracts.
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview

@@ -17,7 +17,7 @@ The runnable config is persisted alongside the workflow version in the configure
 
 The design is intentionally narrow: it reuses the same runnable config parsing/validation as workflow runs and only expands upload payloads and storage, avoiding new config schemas or runtime behavior changes beyond merge precedence. The config is stored with workflow versions in the workflow_versions.payload JSON column (payload["runnable_config"]), separate from Agentensor checkpoint tables.
 
-Priority mapping: P0 covers upload-time config inputs and persistence. P1 covers runtime merge and documentation (see docs/workflow_upload_config/3_plan.md).
+Priority mapping: P0 covers upload-time config inputs and persistence. P1 covers runtime merge and documentation (see `./3_plan.md`).
 
 ## Components
 

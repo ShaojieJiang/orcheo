@@ -13,9 +13,9 @@
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
 | CLI Reference | README.md | Shaojie Jiang | CLI commands and `workflow run` config options |
-| Design Review | docs/workflow_upload_config/2_design.md | Shaojie Jiang | Workflow upload config design |
-| Eng Requirement Doc | docs/workflow_upload_config/1_requirements.md | Shaojie Jiang | Workflow upload config requirements |
-| Project Plan | docs/workflow_upload_config/3_plan.md | Shaojie Jiang | Workflow upload config plan |
+| Design Review | `./2_design.md` | Shaojie Jiang | Workflow upload config design |
+| Eng Requirement Doc | `./1_requirements.md` | Shaojie Jiang | Workflow upload config requirements |
+| Project Plan | `./3_plan.md` | Shaojie Jiang | Workflow upload config plan |
 
 ## PROBLEM DEFINITION
 ### Objectives
@@ -51,7 +51,7 @@ Goals: provide upload-time config inputs equivalent to run-time inputs; persist 
   - Update README and workflow upload documentation to show examples of `--config` and `--config-file`.
 
 ### Designs (if applicable)
-See docs/workflow_upload_config/2_design.md for architecture and API details, including [API Contracts](2_design.md#api-contracts), [Data Models / Schemas](2_design.md#data-models--schemas), [Error Scenarios](2_design.md#error-scenarios), and [Rollback Plan](2_design.md#rollback-plan).
+See `./2_design.md` for architecture and API details, including [API Contracts](2_design.md#api-contracts), [Data Models / Schemas](2_design.md#data-models--schemas), [Error Scenarios](2_design.md#error-scenarios), and [Rollback Plan](2_design.md#rollback-plan).
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview

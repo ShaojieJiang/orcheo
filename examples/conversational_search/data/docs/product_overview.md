@@ -14,9 +14,9 @@ Orcheo Cloud is a managed platform for building stateful AI workflows. Teams use
 3. Run `orcheo dev` to iterate locally, then promote to staging and production.
 
 ## Documentation Map
-- Architecture: `docs/architecture.md`
-- Node Reference: `docs/nodes.md`
-- Deployment Guide: `docs/deployments.md`
+- Architecture: `project/architecture/design.md`
+- Node Reference: `docs/custom_nodes_and_tools.md`
+- Deployment Guide: `docs/deployment.md`
 
 ## Example Questions
 - How do I add a custom node to my graph?
