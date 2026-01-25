@@ -128,6 +128,40 @@ def test_workflow_run_invalid_transitions(api_client: TestClient) -> None:
     )
 
 
+def test_create_run_rejects_archived_workflow(api_client: TestClient) -> None:
+    workflow_response = api_client.post(
+        "/api/workflows",
+        json={"name": "Archived Flow", "actor": "runner"},
+    )
+    workflow_id = workflow_response.json()["id"]
+
+    version_response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions",
+        json={
+            "graph": {"nodes": ["start"], "edges": []},
+            "metadata": {},
+            "created_by": "runner",
+        },
+    )
+    version_id = version_response.json()["id"]
+
+    archive_response = api_client.delete(
+        f"/api/workflows/{workflow_id}",
+        params={"actor": "runner"},
+    )
+    assert archive_response.status_code == 200
+
+    run_response = api_client.post(
+        f"/api/workflows/{workflow_id}/runs",
+        json={
+            "workflow_version_id": version_id,
+            "triggered_by": "runner",
+            "input_payload": {},
+        },
+    )
+    assert run_response.status_code == 404
+
+
 def test_not_found_responses(api_client: TestClient) -> None:
     """Missing workflows and runs return uniform 404 responses."""
 

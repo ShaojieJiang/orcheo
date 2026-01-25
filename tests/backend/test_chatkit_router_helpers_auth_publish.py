@@ -138,3 +138,31 @@ async def test_authenticate_publish_request_accepts_oauth_session() -> None:
         repository=repository,
     )
     assert result.subject == "abc"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_publish_request_rejects_archived_workflow() -> None:
+    request = make_chatkit_request()
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Publish",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.publish_workflow(
+        workflow.id,
+        require_login=False,
+        actor="tester",
+    )
+    await repository.archive_workflow(workflow.id, actor="tester")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_publish_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+    assert excinfo.value.status_code == status.HTTP_404_NOT_FOUND

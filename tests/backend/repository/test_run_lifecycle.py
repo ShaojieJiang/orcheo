@@ -146,6 +146,29 @@ async def test_run_error_paths(repository: WorkflowRepository) -> None:
 
 
 @pytest.mark.asyncio()
+async def test_create_run_rejects_archived_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows cannot create runs."""
+    workflow = await repository.create_workflow(
+        name="Archived",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="owner",
+    )
+    await repository.archive_workflow(workflow.id, actor="owner")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.create_run(
+            workflow.id,
+            workflow_version_id=uuid4(),
+            triggered_by="runner",
+            input_payload={},
+        )
+
+
+@pytest.mark.asyncio()
 async def test_run_merges_version_runnable_config(
     repository: WorkflowRepository,
 ) -> None:

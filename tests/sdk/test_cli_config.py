@@ -99,7 +99,13 @@ api_url = "http://prod.test"
     assert "prod" in profiles
 
 
-def test_resolve_settings_from_args() -> None:
+def test_resolve_settings_from_args(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv(CONFIG_DIR_ENV, str(config_dir))
+    monkeypatch.delenv(CHATKIT_PUBLIC_BASE_URL_ENV, raising=False)
     settings = resolve_settings(
         profile=None,
         api_url="http://test.com",

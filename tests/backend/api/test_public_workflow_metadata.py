@@ -41,3 +41,24 @@ def test_public_workflow_metadata_returns_published_workflow(
     assert payload["id"] == str(workflow_id)
     assert payload["is_public"] is True
     assert payload["require_login"] is True
+
+
+def test_public_workflow_metadata_rejects_archived_workflow(
+    api_client: TestClient,
+) -> None:
+    workflow_id = _create_workflow(api_client)
+    publish_response = api_client.post(
+        f"/api/workflows/{workflow_id}/publish",
+        json={"require_login": False, "actor": "publisher"},
+    )
+    assert publish_response.status_code == 201
+
+    delete_response = api_client.delete(
+        f"/api/workflows/{workflow_id}",
+        params={"actor": "publisher"},
+    )
+    assert delete_response.status_code == 200
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/public")
+
+    assert response.status_code == 404

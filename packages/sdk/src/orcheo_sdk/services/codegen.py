@@ -78,15 +78,15 @@ def generate_workflow_template_data() -> dict[str, str]:
     """
     template = '''"""Minimal LangGraph workflow for Orcheo.
 
-This is a simple LangGraph workflow template demonstrating state access in Orcheo.
-You can customize the state definition, add more nodes, and define complex logic.
+Orcheo loads any top-level StateGraph or a `build_graph` function (sync or async)
+that returns one.
 
-Key features:
-- Use plain dict for state (StateGraph(dict))
-- Access inputs directly: state.get("param_name")
-- Define any custom state fields you need
-- No predefined "messages" or "results" fields
-- RestrictedPython limitations apply (no variables starting with "_")
+Key points:
+- Build `StateGraph(State)`; `State` provides `inputs`, `results`, `messages`,
+  `structured_response`, and `config`.
+- Task nodes return `{"results": {node_name: ...}}`; results merge by node name.
+- Template node fields with `{{inputs.foo}}` or `{{results.node_name}}`.
+- RestrictedPython: no relative imports or leading-underscore variables.
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -94,7 +94,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.logic import SetVariableNode
 
 
-def build_graph():
+async def build_graph() -> StateGraph:
     """Build and return the LangGraph workflow."""
     graph = StateGraph(State)
     graph.add_node(
@@ -102,23 +102,13 @@ def build_graph():
         SetVariableNode(
             name="set_variable",
             variables={
-                "output": "Hi there!",
+                "reply": "Hi there!",
             },
         ),
     )
     graph.add_edge(START, "set_variable")
     graph.add_edge("set_variable", END)
     return graph
-
-
-if __name__ == "__main__":
-    # Test the workflow locally
-    import asyncio
-
-    graph = build_graph().compile()
-    result = asyncio.run(graph.ainvoke({}))
-    print(result)
-    print(result["results"]["set_variable"]["output"])
 '''
 
     return {

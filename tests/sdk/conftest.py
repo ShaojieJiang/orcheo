@@ -28,10 +28,14 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 
 @pytest.fixture()
-def mock_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def mock_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Set up mock environment variables for SDK tests."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
     monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")
+    monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
 
 
 @pytest.fixture()

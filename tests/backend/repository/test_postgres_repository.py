@@ -15,7 +15,10 @@ from orcheo.models.workflow import WorkflowRunStatus
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
-from orcheo_backend.app.repository.errors import WorkflowPublishStateError
+from orcheo_backend.app.repository.errors import (
+    WorkflowNotFoundError,
+    WorkflowPublishStateError,
+)
 from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_postgres import _base as pg_base
 
@@ -327,6 +330,34 @@ async def test_postgres_repository_archive_workflow(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_archive_revokes_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archiving a public workflow revokes publish state."""
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _workflow_payload(
+                    workflow_id,
+                    is_public=True,
+                    require_login=True,
+                    published_by="publisher",
+                )
+            }
+        },
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.archive_workflow(workflow_id, actor="archiver")
+
+    assert workflow.is_archived is True
+    assert workflow.is_public is False
+    assert workflow.require_login is False
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_publish_revoke_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -359,6 +390,36 @@ async def test_postgres_repository_publish_revoke_lifecycle(
 
     revoked = await repo.revoke_publish(workflow_id, actor="revoker")
     assert revoked.is_public is False
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_publish_archived_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publishing an archived workflow raises WorkflowNotFoundError."""
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.publish_workflow(workflow_id, require_login=False, actor="actor")
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_revoke_archived_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revoking publish on an archived workflow raises WorkflowNotFoundError."""
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.revoke_publish(workflow_id, actor="actor")
 
 
 @pytest.mark.asyncio

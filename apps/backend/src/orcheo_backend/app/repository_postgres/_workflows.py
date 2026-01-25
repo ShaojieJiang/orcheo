@@ -5,7 +5,10 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
-from orcheo_backend.app.repository.errors import WorkflowPublishStateError
+from orcheo_backend.app.repository.errors import (
+    WorkflowNotFoundError,
+    WorkflowPublishStateError,
+)
 from orcheo_backend.app.repository_postgres._persistence import PostgresPersistenceMixin
 
 
@@ -103,6 +106,8 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                     workflow.tags = normalized_tags
 
             if is_archived is not None and is_archived != workflow.is_archived:
+                if is_archived and workflow.is_public:
+                    workflow.revoke_publish(actor=actor)
                 metadata["is_archived"] = {
                     "from": workflow.is_archived,
                     "to": is_archived,
@@ -150,6 +155,8 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             try:
                 workflow.publish(
                     require_login=require_login,
@@ -176,6 +183,8 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             try:
                 workflow.revoke_publish(actor=actor)
             except ValueError as exc:

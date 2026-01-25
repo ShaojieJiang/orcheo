@@ -156,3 +156,34 @@ async def test_authenticate_jwt_request_raises_not_found(
             repository=_MissingWorkflowRepo(),
         )
     assert excinfo.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_jwt_request_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = make_chatkit_request(headers={"Authorization": "Bearer token"})
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Archived",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.archive_workflow(workflow.id, actor="tester")
+
+    monkeypatch.setattr(
+        chatkit,
+        "_decode_chatkit_jwt",
+        lambda token: {"chatkit": {"token_id": "jwt-1"}, "sub": "alice"},
+    )  # type: ignore[attr-defined]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_jwt_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+    assert excinfo.value.status_code == status.HTTP_404_NOT_FOUND

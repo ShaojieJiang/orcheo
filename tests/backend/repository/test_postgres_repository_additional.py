@@ -1117,6 +1117,27 @@ async def test_runs_create_run_full_flow(
 
 
 @pytest.mark.asyncio
+async def test_runs_create_run_archived_workflow_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived workflows cannot create runs."""
+    workflow_id = uuid4()
+    responses = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.create_run(
+            workflow_id,
+            workflow_version_id=uuid4(),
+            triggered_by="manual",
+            input_payload={},
+        )
+
+
+@pytest.mark.asyncio
 async def test_triggers_enqueue_run_for_execution_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
