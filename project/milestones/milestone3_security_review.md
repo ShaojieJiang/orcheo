@@ -10,7 +10,7 @@ _Date completed: 2025-10-18_
 Stakeholders included the backend lead (repository & runtime), security reviewer, and the trigger/vault component owners to validate remediation ownership and sequencing.
 
 ## Methodology
-1. **Architecture review** – Cross-referenced the credential vault, trigger layer, and runtime diagrams with the implementation (see `docs/design.md`) to map trust boundaries (SDK callers, trigger entry points, worker queues) before enumerating threats.
+1. **Architecture review** – Cross-referenced the credential vault, trigger layer, and runtime diagrams with the implementation (see `../architecture/design.md`) to map trust boundaries (SDK callers, trigger entry points, worker queues) before enumerating threats.
 2. **Threat modeling** – Identified asset flows (secrets, OAuth refresh tokens, webhook payloads) and abuse cases (secret exfiltration, trigger replay, tenant bleed) and documented mitigations per component.
 3. **Targeted penetration tests** – Exercised webhook validation, cron overlap protection, retry throttling, and vault rotation APIs using crafted requests and mocked contexts.
 4. **Secure code review** – Audited encryption, logging, and persistence logic for secret exposure, constant-time comparisons, and data isolation.
@@ -47,7 +47,7 @@ Stakeholders included the backend lead (repository & runtime), security reviewer
 - [ ] Introduce tenant/workspace isolation at execution-worker layer (SR-005).
 
 ## Exit Criteria & Sign-off
-- ✅ Roadmap item completed; see [Milestone 3 roadmap entry](./roadmap.md#milestone-3-–-credential-vault--security).
+- ✅ Roadmap item completed; see [Milestone 3 roadmap entry](../product/roadmap.md#milestone-3-–-credential-vault--security).
 - ✅ Linting (`make lint`) and test suite (`make test`) executed successfully.
 - ✅ Regression tests added for secret scrubbing and constant-time comparisons.
 

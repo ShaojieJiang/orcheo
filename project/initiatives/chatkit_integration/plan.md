@@ -1,6 +1,6 @@
 # ChatKit Integration Plan
 
-Author: Shaojie Jiang. See `docs/chatkit_integration/requirements.md` and `docs/chatkit_integration/design.md` for full context.
+Author: Shaojie Jiang. See `./requirements.md` and `./design.md` for full context.
 
 ## Milestone 0 – Backend foundations ✅ *(complete)*
 
@@ -71,7 +71,7 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
   - [x] Document manual QA checklist referenced in requirements success metrics, including OAuth-required flows and transcript persistence checks.
 - [x] **Docs & enablement**
   - [x] Update product docs/tutorials explaining how to publish, share links, and use Canvas bubble.
-    - [x] Add Canvas chat bubble integration guide (`docs/chatkit_integration/canvas_chat_bubble_guide.md`).
-    - [x] Add workflow publishing guide for ChatKit UI (`docs/chatkit_integration/workflow_publish_guide.md`).
+    - [x] Add Canvas chat bubble integration guide (`../../../docs/chatkit_integration/canvas_chat_bubble_guide.md`).
+    - [x] Add workflow publishing guide for ChatKit UI (`../../../docs/chatkit_integration/workflow_publish_guide.md`).
   - [x] Ship feature flags (`chatkit_canvas_enabled`, `chatkit_publish_enabled`) and rollout plan.
   - [x] Monitor logs/metrics post-deploy and prepare rollback steps.

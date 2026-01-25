@@ -17,8 +17,8 @@ Deliver end-to-end ChatKit widget support so Orcheo workflows can render widgets
 Streaming widget updates are deferred until after this MVP completes.
 
 **Related Documents:**
-- Requirements: docs/chatkit_widget_support/requirements.md
-- Design: docs/chatkit_widget_support/design.md
+- Requirements: `./requirements.md`
+- Design: `./design.md`
 
 ---
 

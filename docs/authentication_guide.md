@@ -85,7 +85,7 @@ A bootstrap token is a special service token configured via the `ORCHEO_AUTH_BOO
    ```
    Optional: set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` (ISO 8601 or UNIX epoch) to automatically disable the bootstrap token after a deadline, for example `2024-05-01T12:00:00Z`.
 
-   ⚠️ **Security Note**: Bootstrap tokens should be treated as root credentials. 
+   ⚠️ **Security Note**: Bootstrap tokens should be treated as root credentials.
    Store them in secure secret management systems, not in plain text files.
 
 3. **Start the server**:
@@ -774,12 +774,12 @@ If you continue to experience authentication issues:
 1. Check the [environment variables documentation](environment_variables.md)
 2. Review server logs for detailed error messages
 3. Verify your configuration matches the authentication mode
-4. Consult the [authentication design document](authentication_design.md) for architecture details
+4. Consult the [authentication design document](../project/architecture/authentication_design.md) for architecture details
 5. Open an issue on GitHub with logs and configuration details (redact secrets!)
 
 ## Related Documentation
 
 - [Environment Variables Reference](environment_variables.md) - Complete list of authentication-related environment variables
-- [Authentication Design](authentication_design.md) - Architecture and design decisions
+- [Authentication Design](../project/architecture/authentication_design.md) - Architecture and design decisions
 - [Deployment Guide](deployment.md) - Production deployment considerations
-- [Security Review](milestone3_security_review.md) - Security audit findings and mitigations
+- [Security Review](../project/milestones/milestone3_security_review.md) - Security audit findings and mitigations

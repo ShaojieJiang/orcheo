@@ -1,7 +1,7 @@
 """HTTP client helpers for the Orcheo CLI."""
 
 from __future__ import annotations
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 import httpx
 from orcheo_sdk.cli.errors import APICallError
@@ -17,12 +17,23 @@ class ApiClient:
         token: str | None,
         timeout: float = 30.0,
         public_base_url: str | None = None,
+        token_provider: Callable[[], str | None] | None = None,
     ) -> None:
-        """Initialize the HTTP client wrapper."""
+        """Initialize the HTTP client wrapper.
+
+        Args:
+            base_url: The API base URL.
+            token: Static bearer token (e.g., service token).
+            timeout: Request timeout in seconds.
+            public_base_url: Optional public ChatKit base URL for share links.
+            token_provider: Optional callback that returns a valid token,
+                used for dynamic token resolution (e.g., OAuth with refresh).
+        """
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._timeout = timeout
         self._public_base_url = public_base_url.rstrip("/") if public_base_url else None
+        self._token_provider = token_provider
 
     @property
     def base_url(self) -> str:
@@ -34,10 +45,22 @@ class ApiClient:
         """Return the optional public ChatKit base URL for share links."""
         return self._public_base_url
 
+    def _get_active_token(self) -> str | None:
+        """Get the active bearer token.
+
+        Priority: token_provider (OAuth with refresh) > static token (service token).
+        """
+        if self._token_provider:
+            provided = self._token_provider()
+            if provided:
+                return provided
+        return self._token
+
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        token = self._get_active_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     def get(self, path: str, *, params: Mapping[str, Any] | None = None) -> Any:

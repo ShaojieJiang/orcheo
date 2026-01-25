@@ -40,20 +40,20 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 text-foreground dark:bg-slate-950">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-100 text-foreground dark:bg-slate-950">
       <div
-        className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 dark:from-slate-950 dark:via-slate-900/80 dark:to-black"
+        className="absolute inset-0 bg-gradient-to-br from-slate-100 via-slate-200 to-slate-100 dark:from-slate-950 dark:via-slate-900/80 dark:to-black"
         aria-hidden="true"
       />
       <div
-        className="absolute inset-0 opacity-60 mix-blend-soft-light"
+        className="absolute inset-0 opacity-40 mix-blend-soft-light dark:opacity-60"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.12), transparent 45%), radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.15), transparent 50%), radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.12), transparent 55%)",
+            "radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.2), transparent 45%), radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.25), transparent 50%), radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.2), transparent 55%)",
         }}
         aria-hidden="true"
       />
-      <Card className="relative z-10 mx-auto min-w-80 max-w-md border-primary/25 bg-primary/5 backdrop-blur-xl">
+      <Card className="relative z-10 mx-auto min-w-80 max-w-md border-border bg-card/80 backdrop-blur-xl dark:border-primary/25 dark:bg-primary/5">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-2">
             <Link to="/" className="flex items-center gap-2 font-semibold">

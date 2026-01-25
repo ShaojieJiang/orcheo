@@ -60,8 +60,8 @@ Orcheo delivers a unified automation surface where visual designers can assemble
 - **Trigger**: Workflow entry point driven by webhooks, schedules, or API events.
 
 ### 1.4 References
-- **Product Requirements Document**: ["Orcheo – Hybrid Workflow Automation Platform PRD" (prd.md)](../prd.md), version 1.0, dated 6 Sep 2025.
-- **Roadmap**: ["Orcheo Roadmap" (roadmap.md)](../roadmap.md), last updated 28 Sep 2025.
+- **Product Requirements Document**: ["Orcheo – Hybrid Workflow Automation Platform PRD" (prd.md)](../product/prd.md), version 1.0, dated 6 Sep 2025.
+- **Roadmap**: ["Orcheo Roadmap" (roadmap.md)](../product/roadmap.md), last updated 28 Sep 2025.
 - **Design document template**: https://github.com/jam01/SDD-Template/blob/master/template.md
 
 ### 1.5 Document Overview

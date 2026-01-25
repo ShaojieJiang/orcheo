@@ -14,8 +14,8 @@
 Deliver runtime support for `langchain_core.runnables.RunnableConfig` on workflow runs and ship an AgentensorNode that handles evaluation and prompt-optimization training with checkpoints. The plan prioritizes runtime compatibility, reproducible evaluations, and safe training loops. See related documents for full context.
 
 **Related Documents:**
-- Requirements: docs/agentensor/requirements.md
-- Design: docs/agentensor/design.md
+- Requirements: `./requirements.md`
+- Design: `./design.md`
 
 ---
 
