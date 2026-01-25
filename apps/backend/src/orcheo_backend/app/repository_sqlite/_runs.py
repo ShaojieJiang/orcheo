@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import WorkflowRun
+from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
 
 
@@ -23,7 +24,9 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
             run = await self._create_run_locked(
                 workflow_id=workflow_id,

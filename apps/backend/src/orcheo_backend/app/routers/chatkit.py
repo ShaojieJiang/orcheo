@@ -792,9 +792,11 @@ async def _authenticate_jwt_request(
     _rate_limit(_JWT_RATE_LIMITER, str(identity) if identity else None, now=now)
 
     try:
-        await repository.get_workflow(workflow_id)
+        workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    if workflow.is_archived:
+        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     actor_subject = str(claims.get("sub") or "chatkit")
     return ChatKitAuthResult(
@@ -816,6 +818,8 @@ async def _authenticate_publish_request(
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    if workflow.is_archived:
+        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     if not workflow.is_public:
         raise _chatkit_error(

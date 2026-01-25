@@ -106,6 +106,8 @@ async def get_public_workflow(
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    if workflow.is_archived:
+        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
     if not workflow.is_public:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -437,6 +439,8 @@ async def create_workflow_chatkit_session(
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    if workflow.is_archived:
+        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     workflow_workspaces = _extract_workflow_workspace_ids(workflow)
     if workflow_workspaces:

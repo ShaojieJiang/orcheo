@@ -95,3 +95,34 @@ def test_publish_invalid_state_returns_conflict(api_client: TestClient) -> None:
     assert conflict.status_code == 409
     detail = conflict.json()
     assert detail["detail"]["code"] == "workflow.publish.invalid_state"
+
+
+def test_archived_workflow_blocks_publish_actions(api_client: TestClient) -> None:
+    workflow_id = _create_workflow(api_client)
+
+    publish_response = api_client.post(
+        f"/api/workflows/{workflow_id}/publish",
+        json={"actor": "publisher"},
+    )
+    assert publish_response.status_code == 201
+
+    delete_response = api_client.delete(
+        f"/api/workflows/{workflow_id}",
+        params={"actor": "tester"},
+    )
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["is_archived"] is True
+    assert delete_payload["is_public"] is False
+
+    republish = api_client.post(
+        f"/api/workflows/{workflow_id}/publish",
+        json={"actor": "publisher"},
+    )
+    assert republish.status_code == 404
+
+    revoke = api_client.post(
+        f"/api/workflows/{workflow_id}/publish/revoke",
+        json={"actor": "revoker"},
+    )
+    assert revoke.status_code == 404

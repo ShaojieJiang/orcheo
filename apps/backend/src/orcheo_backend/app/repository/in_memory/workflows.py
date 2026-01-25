@@ -93,6 +93,8 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                     workflow.tags = normalized_tags
 
             if is_archived is not None and is_archived != workflow.is_archived:
+                if is_archived and workflow.is_public:
+                    workflow.revoke_publish(actor=actor)
                 metadata["is_archived"] = {
                     "from": workflow.is_archived,
                     "to": is_archived,
@@ -127,7 +129,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         """Mark the workflow as public."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
-            if workflow is None:
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
             try:
                 workflow.publish(
@@ -142,7 +144,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         """Revoke public access for the workflow."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
-            if workflow is None:
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
             try:
                 workflow.revoke_publish(actor=actor)

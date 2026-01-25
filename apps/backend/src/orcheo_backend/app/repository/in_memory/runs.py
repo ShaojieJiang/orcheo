@@ -26,7 +26,8 @@ class WorkflowRunMixin(InMemoryRepositoryState):
     ) -> WorkflowRun:
         """Create a workflow run tied to a version."""
         async with self._lock:
-            if workflow_id not in self._workflows:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
 
             await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
