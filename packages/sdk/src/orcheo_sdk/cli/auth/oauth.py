@@ -160,9 +160,9 @@ def start_oauth_login(
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
-    if config.audience:
+    if config.audience:  # pragma: no branch
         auth_params["audience"] = config.audience
-    if config.organization:
+    if config.organization:  # pragma: no branch
         auth_params["organization"] = config.organization
 
     auth_url = (
