@@ -102,7 +102,7 @@ async def build_graph() -> StateGraph:
         SetVariableNode(
             name="set_variable",
             variables={
-                "output": "Hi there!",
+                "reply": "Hi there!",
             },
         ),
     )
