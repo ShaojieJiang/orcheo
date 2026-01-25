@@ -1,6 +1,7 @@
 """API client request method tests for the CLI."""
 
 from __future__ import annotations
+import json
 import httpx
 import pytest
 import respx
@@ -142,3 +143,51 @@ def test_api_client_without_token() -> None:
     assert result == {"key": "value"}
     # Verify no Authorization header was sent
     assert "Authorization" not in route.calls[0].request.headers
+
+
+def test_api_client_token_provider_overrides_static_token() -> None:
+    provided_tokens: list[str | None] = ["provider-token"]
+
+    def token_provider() -> str | None:
+        return provided_tokens[0]
+
+    client = ApiClient(
+        base_url="http://test.com",
+        token="static-token",
+        token_provider=token_provider,
+    )
+    with respx.mock:
+        route = respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(200, json={"key": "value"})
+        )
+        client.get("/api/test")
+    assert route.calls[0].request.headers["Authorization"] == "Bearer provider-token"
+
+
+def test_api_client_token_provider_falls_back_to_static_token() -> None:
+    def token_provider() -> str | None:
+        return None
+
+    client = ApiClient(
+        base_url="http://test.com",
+        token="static-token",
+        token_provider=token_provider,
+    )
+    with respx.mock:
+        route = respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(200, json={"key": "value"})
+        )
+        client.get("/api/test")
+    assert route.calls[0].request.headers["Authorization"] == "Bearer static-token"
+
+
+def test_api_client_delete_with_json_body() -> None:
+    client = ApiClient(base_url="http://test.com", token="token123")
+    with respx.mock:
+        route = respx.delete("http://test.com/api/test/123").mock(
+            return_value=httpx.Response(200, json={"deleted": True})
+        )
+        result = client.delete("/api/test/123", json_body={"foo": "bar"})
+    assert result == {"deleted": True}
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"foo": "bar"}
