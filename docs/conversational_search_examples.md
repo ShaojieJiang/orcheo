@@ -9,12 +9,16 @@ This guide walks you through a progressive demo suite for building conversationa
 
 | Demo | Description | Credentials Required | External Services |
 |------|-------------|---------------------|-------------------|
-| Demo 1 | Hybrid indexing | `openai_api_key`, `pinecone_api_key` | Pinecone |
-| Demo 2 | Basic RAG pipeline | `openai_api_key` | None (in-memory) |
-| Demo 3 | Hybrid search with fusion | `openai_api_key`, `tavily_api_key` | Pinecone |
+| Demo 1 | Hybrid indexing (web docs to Pinecone) | `openai_api_key`, `pinecone_api_key` | Pinecone |
+| Demo 2 | Basic RAG pipeline (in-memory store) | `openai_api_key` | None |
+| Demo 3 | Hybrid search + web search + rerank | `openai_api_key`, `pinecone_api_key`, `tavily_api_key` | Pinecone, Tavily |
 | Demo 4 | Conversational search | `openai_api_key`, `pinecone_api_key` | Pinecone |
 | Demo 5 | Production-ready pipeline | `openai_api_key`, `pinecone_api_key` | Pinecone |
 | Demo 6 | Evaluation & research | `openai_api_key`, `pinecone_api_key` | Pinecone |
+
+Note: Demo 1 and Demo 6 default to GitHub raw URLs for docs and datasets. You can
+override them to point at the local sample data in
+`examples/conversational_search/data/`.
 
 ## Prerequisites
 
@@ -37,7 +41,7 @@ orcheo credential create openai_api_key --secret sk-your-openai-key
 # Required for Demo 3 (web search)
 orcheo credential create tavily_api_key --secret tvly-your-tavily-key
 
-# Required for Demos 1, 4-6 (Pinecone)
+# Required for Demos 1, 3-6 (Pinecone)
 orcheo credential create pinecone_api_key --secret your-pinecone-key
 ```
 
@@ -59,18 +63,26 @@ The simplest starting point. This demo works entirely locally with no external v
 
 - Routes queries through ingestion, search, or direct generation based on context
 - Uses an in-memory vector store for document embeddings
+- Uses a demo embedding function for retrieval; OpenAI is used for grounded generation
 - Produces grounded responses with inline citations
 
 ### Run It
 
+Upload and run through Orcheo:
+
 ```bash
-python examples/conversational_search/demo_2_basic_rag/demo_2.py
+orcheo workflow upload examples/conversational_search/demo_2_basic_rag/demo_2.py --name "Demo 2: Basic RAG"
+orcheo workflow run <workflow-id> --inputs '{"message": "What is this document about?"}'
+orcheo workflow run <workflow-id> --inputs '{"documents":[{"storage_path":"/abs/path/document.txt","source":"document.txt","metadata":{"category":"tech"}}],"message":"What is this document about?"}'
 ```
 
 **What to expect:**
 
-1. **Non-RAG phase**: Runs the graph before any documents are indexed (direct answering)
-2. **RAG phase**: Creates a temporary file, ingests it, and demonstrates retrieval + grounded generation
+- If `documents` are provided, ingestion runs first and (when `message` is present)
+  the workflow continues to retrieval + grounded generation.
+- If no documents are provided and the in-memory store already has chunks from prior
+  runs, the workflow skips ingestion and performs search + generation.
+- If no documents are provided and the store is empty, the workflow answers directly.
 
 ### Configuration
 
@@ -119,24 +131,30 @@ Dense + sparse retrieval with reciprocal-rank fusion and optional web search.
 
 ### Step 1: Index the Corpus (Demo 1)
 
-First, populate the Pinecone indexes with sample data:
+First, populate the Pinecone indexes with the default demo corpus:
 
 ```bash
-python examples/conversational_search/demo_1_hybrid_indexing/demo_1.py
+orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py --name "Demo 1: Hybrid Indexing"
+orcheo workflow run <workflow-id> --inputs '{}'
 ```
 
-This upserts embeddings and metadata into Pinecone from the sample corpus in `examples/conversational_search/data/docs`.
+By default Demo 1 pulls Orcheo docs from GitHub raw URLs and writes to the
+`orcheo-demo-dense` and `orcheo-demo-sparse` indexes under the `hybrid_search`
+namespace. Override `DEFAULT_DOC_URLS` in `demo_1.py` if you want to ingest the
+local sample corpus instead.
 
 ### Step 2: Run Hybrid Search (Demo 3)
 
 ```bash
-python examples/conversational_search/demo_3_hybrid_search/demo_3.py
+orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Demo 3: Hybrid Search"
+orcheo workflow run <workflow-id> --inputs '{"message": "How does Orcheo handle authentication?"}'
 ```
 
 **What to expect:**
 
 - Queries fan out across dense (vector), sparse (BM25), and web search branches
-- Results are fused using reciprocal-rank fusion
+- Results are fused with reciprocal-rank fusion, reranked in Pinecone, and
+  summarized before generation
 - Outputs a grounded answer with citations
 
 ### Deploy to Orcheo Server
@@ -144,8 +162,8 @@ python examples/conversational_search/demo_3_hybrid_search/demo_3.py
 Upload and run via the Orcheo platform:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py
-orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py
+orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py --name "Demo 1: Hybrid Indexing"
+orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Demo 3: Hybrid Search"
 ```
 
 ## Demo 4: Conversational Search
@@ -167,17 +185,18 @@ Run Demo 1 first to populate the Pinecone indexes.
 ### Run It
 
 ```bash
-python examples/conversational_search/demo_4_conversational/demo_4.py
+orcheo workflow upload examples/conversational_search/demo_4_conversational/demo_4.py --name "Demo 4: Conversational Search"
+orcheo workflow run <workflow-id> --inputs '{"message": "How does authentication work?"}'
 ```
 
 **What to expect:**
 
-The script steps through five scripted turns demonstrating:
+Iterate across multiple turns to see:
 
 - Query classification and coreference resolution for follow-ups
 - Clarification prompts when ambiguity is detected
 - Topic-shift detection
-- Memory summarization at conversation end
+- Memory summarization when the conversation is finalized
 
 ### Configuration
 
@@ -191,40 +210,45 @@ DEFAULT_CONFIG = {
         "type": "pinecone",
         "index_name": "orcheo-demo-dense",
         "namespace": "hybrid_search",
+        "client_kwargs": {"api_key": "[[pinecone_api_key]]"},
     },
 }
 ```
 
 ## Demo 5: Production-Ready Pipeline
 
-Production-focused scaffold with caching, guardrails, streaming, and incremental indexing.
+Production-focused scaffold with caching, guardrails, streaming, and multi-hop planning.
 
 ### Features
 
 - **Caching**: Response caching for repeated queries
 - **Guardrails**: Hallucination detection and policy checks
-- **Streaming**: Optimized for fast iteration
-- **Incremental indexing**: Efficient document updates
+- **Streaming**: Streaming generator for fast iteration
+- **Multi-hop planning**: Plans chained search queries
+- **Session controls**: Conversation state and memory privacy hooks
 
 ### Run It
 
 This demo is designed for the Orcheo server:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_5_production/demo_5.py
+orcheo workflow upload examples/conversational_search/demo_5_production/demo_5.py --name "Demo 5: Production"
 ```
 
 Execute via the Orcheo Console or API.
 
 ## Demo 6: Evaluation & Research
 
-Evaluation-focused scaffold with golden datasets and retrieval A/B testing.
+Evaluation-focused scaffold with golden datasets, retrieval A/B testing, and
+LLM-based judging.
 
 ### What's Included
 
-- **Golden queries**: `examples/conversational_search/data/golden/golden_dataset.json`
-- **Relevance labels**: `examples/conversational_search/data/labels/relevance_labels.json`
-- **Variant definitions**: Compare different retrieval strategies
+- **Golden queries**: Defaults to GitHub raw data under
+  `examples/conversational_search/data/golden/golden_dataset.json`
+- **Relevance labels**: Defaults to GitHub raw
+  `examples/conversational_search/data/labels/relevance_labels.json`
+- **Variant definitions**: Compare dense-only vs hybrid retrieval strategies
 
 ### Prerequisites
 
@@ -233,7 +257,9 @@ Run Demo 1 first to populate the Pinecone indexes.
 ### Run It
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py
+orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --name "Demo 6: Evaluation"
+# Optional: include default recursion limit/tags
+orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --config-file examples/conversational_search/demo_6_evaluation/config.json
 ```
 
 Execute via the Orcheo Console or API to run evaluation sweeps.
@@ -264,11 +290,13 @@ The demos share sample data in `examples/conversational_search/data/`:
 - `golden/`: Golden datasets for evaluation
 - `labels/`: Relevance labels for metrics
 
-Replace these with your own domain content to experiment.
+Demo 1 and Demo 6 default to GitHub raw URLs, but you can point configs at these
+local files when running offline or customizing the corpus.
 
 ## Next Steps
 
 - Start with Demo 2 to understand the basic RAG pattern
+- Run Demo 1 before Demos 3-6 to seed the Pinecone indexes
 - Progress through Demos 3-4 to add hybrid search and conversation state
 - Use Demo 5 patterns for production deployments
 - Set up Demo 6 for systematic evaluation of your search quality
