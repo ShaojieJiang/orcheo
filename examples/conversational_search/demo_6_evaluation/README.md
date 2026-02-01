@@ -1,6 +1,6 @@
-# Demo 5: Evaluation & Research
+# Demo 6: Evaluation & Research
 
-Evaluation-focused scaffold with golden datasets, relevance labels, and variant definitions for retrieval A/B tests. This workflow assumes you have already run **Demo 0 (Hybrid Search Indexing)** so the Pinecone indexes are populated; it no longer builds an in-memory vector store.
+Evaluation-focused scaffold with golden datasets, relevance labels, and variant definitions for retrieval A/B tests. This workflow assumes you have already run **Demo 1 (Hybrid Search Indexing)** so the Pinecone indexes are populated; it no longer builds an in-memory vector store.
 
 ## Usage
 This demo is designed to be uploaded and executed on the Orcheo server.

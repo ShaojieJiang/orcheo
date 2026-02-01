@@ -61,7 +61,7 @@ That's it! Your agent handles the complexity while you focus on describing what 
 # Quick start: Run Demo 1 (no external services required)
 uv sync --group examples
 orcheo credential create openai_api_key --secret sk-your-key
-python examples/conversational_search/demo_1_basic_rag/demo_1.py
+python examples/conversational_search/demo_2_basic_rag/demo_2.py
 ```
 
 ## Reference

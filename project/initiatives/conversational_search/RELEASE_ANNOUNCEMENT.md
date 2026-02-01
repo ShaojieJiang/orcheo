@@ -13,28 +13,32 @@ We're excited to announce the release of the **Conversational Search Demo Suite*
 
 ### Five Progressive Demo Workflows
 
-1. **Demo 1: Basic RAG Pipeline**
+1. **Demo 1: Hybrid Indexing**
+   - Index corpus into Pinecone for downstream demos
+   - Prerequisite for Demos 3, 4, and 6
+
+2. **Demo 2: Basic RAG Pipeline**
    - Minimal ingestion and retrieval workflow
    - Works entirely locally with in-memory vector store
    - Perfect starting point for understanding core concepts
    - Quickstart time: ~2 minutes
 
-2. **Demo 2: Hybrid Search**
+3. **Demo 3: Hybrid Search**
    - Dense + sparse retrieval with fusion
    - Integration with Tavily for web search augmentation
    - Advanced reranking and result combination strategies
 
-3. **Demo 3: Conversational Search**
+4. **Demo 4: Conversational Search**
    - Stateful multi-turn conversations
    - Query rewriting and context management
    - Memory management and history compression
 
-4. **Demo 4: Production-Ready Pipeline**
+5. **Demo 5: Production-Ready Pipeline**
    - Production guardrails and compliance checks
    - Answer caching and streaming support
    - Hallucination detection and citation verification
 
-5. **Demo 5: Evaluation & Research**
+6. **Demo 6: Evaluation & Research**
    - Comprehensive evaluation metrics (retrieval, generation, end-to-end)
    - Golden datasets and feedback collection
    - A/B testing and failure analysis
@@ -86,13 +90,13 @@ python examples/conversational_search/check_setup.py
 
 This validates your Python version, dependencies, credentials, and sample data.
 
-### Try Demo 1 (Recommended First Demo)
+### Try Demo 2 (Recommended First Demo)
 
 ```bash
-python examples/conversational_search/demo_1_basic_rag/demo_1.py
+python examples/conversational_search/demo_2_basic_rag/demo_2.py
 ```
 
-Demo 1 works entirely locally with no external vector database required, making it the perfect introduction to the suite.
+Demo 2 works entirely locally with no external vector database required, making it the perfect introduction to the suite.
 
 ## Architecture Highlights
 
@@ -111,10 +115,10 @@ This release provides a solid foundation for building conversational search appl
 - **Educational**: Progressive complexity from basic to production-ready
 
 We encourage you to:
-1. Start with Demo 1 to understand core concepts
-2. Explore Demos 2-3 for advanced retrieval and conversation patterns
-3. Review Demo 4 for production deployment considerations
-4. Use Demo 5 as a template for evaluation and continuous improvement
+1. Start with Demo 2 to understand core concepts
+2. Explore Demos 3-4 for advanced retrieval and conversation patterns
+3. Review Demo 5 for production deployment considerations
+4. Use Demo 6 as a template for evaluation and continuous improvement
 
 ## Technical Details
 

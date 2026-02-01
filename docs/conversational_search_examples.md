@@ -9,11 +9,12 @@ This guide walks you through a progressive demo suite for building conversationa
 
 | Demo | Description | Credentials Required | External Services |
 |------|-------------|---------------------|-------------------|
-| Demo 1 | Basic RAG pipeline | `openai_api_key` | None (in-memory) |
-| Demo 2 | Hybrid search with fusion | `openai_api_key`, `tavily_api_key` | Pinecone |
-| Demo 3 | Conversational search | `openai_api_key`, `pinecone_api_key` | Pinecone |
-| Demo 4 | Production-ready pipeline | `openai_api_key`, `pinecone_api_key` | Pinecone |
-| Demo 5 | Evaluation & research | `openai_api_key`, `pinecone_api_key` | Pinecone |
+| Demo 1 | Hybrid indexing | `openai_api_key`, `pinecone_api_key` | Pinecone |
+| Demo 2 | Basic RAG pipeline | `openai_api_key` | None (in-memory) |
+| Demo 3 | Hybrid search with fusion | `openai_api_key`, `tavily_api_key` | Pinecone |
+| Demo 4 | Conversational search | `openai_api_key`, `pinecone_api_key` | Pinecone |
+| Demo 5 | Production-ready pipeline | `openai_api_key`, `pinecone_api_key` | Pinecone |
+| Demo 6 | Evaluation & research | `openai_api_key`, `pinecone_api_key` | Pinecone |
 
 ## Prerequisites
 
@@ -33,10 +34,10 @@ Store credentials securely in the Orcheo vault (`~/.orcheo/vault.sqlite`):
 # Required for all demos
 orcheo credential create openai_api_key --secret sk-your-openai-key
 
-# Required for Demo 2 (web search)
+# Required for Demo 3 (web search)
 orcheo credential create tavily_api_key --secret tvly-your-tavily-key
 
-# Required for Demos 2-5 (Pinecone)
+# Required for Demos 1, 4-6 (Pinecone)
 orcheo credential create pinecone_api_key --secret your-pinecone-key
 ```
 
@@ -50,7 +51,7 @@ python examples/conversational_search/check_setup.py
 
 This checks your Python version, dependencies, credentials, and data files.
 
-## Demo 1: Basic RAG Pipeline
+## Demo 2: Basic RAG Pipeline
 
 The simplest starting point. This demo works entirely locally with no external vector database.
 
@@ -63,7 +64,7 @@ The simplest starting point. This demo works entirely locally with no external v
 ### Run It
 
 ```bash
-python examples/conversational_search/demo_1_basic_rag/demo_1.py
+python examples/conversational_search/demo_2_basic_rag/demo_2.py
 ```
 
 **What to expect:**
@@ -112,24 +113,24 @@ flowchart TD
     search --> generator --> end2([END])
 ```
 
-## Demo 0 + Demo 2: Hybrid Search
+## Demo 1 + Demo 3: Hybrid Search
 
 Dense + sparse retrieval with reciprocal-rank fusion and optional web search.
 
-### Step 1: Index the Corpus (Demo 0)
+### Step 1: Index the Corpus (Demo 1)
 
 First, populate the Pinecone indexes with sample data:
 
 ```bash
-python examples/conversational_search/demo_0_hybrid_indexing/demo_0.py
+python examples/conversational_search/demo_1_hybrid_indexing/demo_1.py
 ```
 
 This upserts embeddings and metadata into Pinecone from the sample corpus in `examples/conversational_search/data/docs`.
 
-### Step 2: Run Hybrid Search (Demo 2)
+### Step 2: Run Hybrid Search (Demo 3)
 
 ```bash
-python examples/conversational_search/demo_2_hybrid_search/demo_2.py
+python examples/conversational_search/demo_3_hybrid_search/demo_3.py
 ```
 
 **What to expect:**
@@ -143,11 +144,11 @@ python examples/conversational_search/demo_2_hybrid_search/demo_2.py
 Upload and run via the Orcheo platform:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_0_hybrid_indexing/demo_0.py
-orcheo workflow upload examples/conversational_search/demo_2_hybrid_search/demo_2.py
+orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py
+orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py
 ```
 
-## Demo 3: Conversational Search
+## Demo 4: Conversational Search
 
 Stateful, multi-turn chat with conversation memory and query rewriting.
 
@@ -161,12 +162,12 @@ Stateful, multi-turn chat with conversation memory and query rewriting.
 
 ### Prerequisites
 
-Run Demo 0 first to populate the Pinecone indexes.
+Run Demo 1 first to populate the Pinecone indexes.
 
 ### Run It
 
 ```bash
-python examples/conversational_search/demo_3_conversational/demo_3.py
+python examples/conversational_search/demo_4_conversational/demo_4.py
 ```
 
 **What to expect:**
@@ -194,7 +195,7 @@ DEFAULT_CONFIG = {
 }
 ```
 
-## Demo 4: Production-Ready Pipeline
+## Demo 5: Production-Ready Pipeline
 
 Production-focused scaffold with caching, guardrails, streaming, and incremental indexing.
 
@@ -210,12 +211,12 @@ Production-focused scaffold with caching, guardrails, streaming, and incremental
 This demo is designed for the Orcheo server:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_4_production/demo_4.py
+orcheo workflow upload examples/conversational_search/demo_5_production/demo_5.py
 ```
 
 Execute via the Orcheo Console or API.
 
-## Demo 5: Evaluation & Research
+## Demo 6: Evaluation & Research
 
 Evaluation-focused scaffold with golden datasets and retrieval A/B testing.
 
@@ -227,12 +228,12 @@ Evaluation-focused scaffold with golden datasets and retrieval A/B testing.
 
 ### Prerequisites
 
-Run Demo 0 first to populate the Pinecone indexes.
+Run Demo 1 first to populate the Pinecone indexes.
 
 ### Run It
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_5_evaluation/demo_5.py
+orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py
 ```
 
 Execute via the Orcheo Console or API to run evaluation sweeps.
@@ -243,7 +244,7 @@ All demos can be uploaded and run on the Orcheo server:
 
 ```bash
 # Upload a demo
-orcheo workflow upload examples/conversational_search/demo_1_basic_rag/demo_1.py
+orcheo workflow upload examples/conversational_search/demo_2_basic_rag/demo_2.py
 
 # List workflows
 orcheo workflow list
@@ -267,7 +268,7 @@ Replace these with your own domain content to experiment.
 
 ## Next Steps
 
-- Start with Demo 1 to understand the basic RAG pattern
-- Progress through Demos 2-3 to add hybrid search and conversation state
-- Use Demo 4 patterns for production deployments
-- Set up Demo 5 for systematic evaluation of your search quality
+- Start with Demo 2 to understand the basic RAG pattern
+- Progress through Demos 3-4 to add hybrid search and conversation state
+- Use Demo 5 patterns for production deployments
+- Set up Demo 6 for systematic evaluation of your search quality

@@ -13,16 +13,16 @@ This document defines the minimal set of demo workflows that collectively demons
 
 We organize demos into **6 workflows** that map to the node composition patterns from the requirements document: Demo 0 builds the hybrid index foundation, and the remaining five progressive demos build on top of that indexing work.
 
-1. **Demo 0: Hybrid Search Indexing** - Persist deterministic dense embeddings and sparse metadata inside Pinecone so downstream retrieval demos can assume a populated vector store.
-2. **Demo 1: Basic RAG Pipeline** - Core ingestion and retrieval
-3. **Demo 2: Hybrid Search** - Retrieval, fusion, and ranking (Demo 0 prepopulates the indexes so this workflow focuses on multi-retriever fusion and summarization)
-4. **Demo 3: Conversational Search** - Multi-turn conversation with memory
-5. **Demo 4: Production-Ready Pipeline** - Guardrails, compliance, and optimization
-6. **Demo 5: Evaluation & Research** - Metrics, analytics, and continuous improvement
+1. **Demo 1: Hybrid Search Indexing** - Persist deterministic dense embeddings and sparse metadata inside Pinecone so downstream retrieval demos can assume a populated vector store.
+2. **Demo 2: Basic RAG Pipeline** - Core ingestion and retrieval
+3. **Demo 3: Hybrid Search** - Retrieval, fusion, and ranking (Demo 1 prepopulates the indexes so this workflow focuses on multi-retriever fusion and summarization)
+4. **Demo 4: Conversational Search** - Multi-turn conversation with memory
+5. **Demo 5: Production-Ready Pipeline** - Guardrails, compliance, and optimization
+6. **Demo 6: Evaluation & Research** - Metrics, analytics, and continuous improvement
 
 ---
 
-## Demo 0: Hybrid Search Indexing
+## Demo 1: Hybrid Search Indexing
 
 **Goal:** Persist deterministic dense embeddings and the metadata required for sparse retrieval inside Pinecone so downstream demos can assume a fully populated vector store.
 
@@ -62,10 +62,10 @@ vector_store:
 
 ### Running the Demo
 ```bash
-python examples/conversational_search/demo_0/hybrid_indexing.py
+python examples/conversational_search/demo_1/hybrid_indexing.py
 ```
 
-## Demo 1: Basic RAG Pipeline
+## Demo 2: Basic RAG Pipeline
 
 **Goal:** Demonstrate a flexible conversational pipeline that supports both RAG (with documents) and non-RAG (without documents) modes.
 
@@ -158,16 +158,16 @@ System: "The capital of France is Paris. It is located in the north-central part
 
 ---
 
-## Demo 2: Hybrid Search with Ranking
+## Demo 3: Hybrid Search with Ranking
 
 **Goal:** Show advanced retrieval combining dense and sparse search with fusion, AI summarization, and live web search.
 
-This demo assumes the Pinecone indexes have already been created by Demo 0 (hybrid indexing) so the workflow can concentrate on retrieval and grounding.
+This demo assumes the Pinecone indexes have already been created by Demo 1 (hybrid indexing) so the workflow can concentrate on retrieval and grounding.
 
 ### Use Case
 A legal document search system that needs both semantic understanding and exact keyword matching for statute citations, with the ability to fetch fresh web results for recent case law.
 
-Before invoking this workflow, run Demo 0 (hybrid indexing) so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, a ReRankerNode reorders the combined results and an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
+Before invoking this workflow, run Demo 1 (hybrid indexing) so Pinecone already contains the corpus vectors that both the dense and sparse retrievers query. After fusion, a ReRankerNode reorders the combined results and an AI-based context summarizer condenses the supporting passages so generation stays within local token limits.
 
 ### Workflow Graph
 
@@ -224,7 +224,7 @@ context:
 
 ### Running the Demo
 ```bash
-python examples/conversational_search/demo_2_hybrid_search/demo_2.py
+python examples/conversational_search/demo_3_hybrid_search/demo_3.py
 ```
 
 ### Sample Interaction
@@ -238,7 +238,7 @@ System: "Cases addressing reasonable doubt in mens rea analysis include...
 
 ---
 
-## Demo 3: Conversational Search
+## Demo 4: Conversational Search
 
 **Goal:** Demonstrate multi-turn conversation with context tracking, query rewriting, and coreference resolution.
 
@@ -317,7 +317,7 @@ AI: "I notice you're switching to API keys. To summarize our password discussion
 
 ---
 
-## Demo 4: Production-Ready Pipeline
+## Demo 5: Production-Ready Pipeline
 
 **Goal:** Showcase guardrails, compliance, caching, and optimization for production deployment.
 
@@ -436,7 +436,7 @@ System: "I found multiple orders. Could you provide your order number?"
 
 ---
 
-## Demo 5: Evaluation & Research Pipeline
+## Demo 6: Evaluation & Research Pipeline
 
 **Goal:** Demonstrate evaluation, analytics, feedback collection, and A/B testing for continuous improvement.
 
@@ -592,11 +592,11 @@ User Feedback:
 
 ---
 
-## Node Coverage Matrix (Demos 1-5)
+## Node Coverage Matrix (Demos 2-6)
 
-The matrix below tracks node coverage for the five progressive demos; Demo 0 is a preparatory indexing workflow that reuses the ingestion nodes already shown in Demo 1 and therefore is not enumerated separately.
+The matrix below tracks node coverage for the five progressive demos; Demo 1 is a preparatory indexing workflow that reuses the ingestion nodes already shown in Demo 2 and therefore is not enumerated separately.
 
-| Node | Demo 1 | Demo 2 (Retrieval + Fusion) | Demo 3 | Demo 4 | Demo 5 |
+| Node | Demo 2 | Demo 3 (Retrieval + Fusion) | Demo 4 | Demo 5 | Demo 6 |
 |------|--------|---------------------------|--------|--------|--------|
 | **Data Ingestion** |
 | DocumentLoaderNode | ✓ | | | | |
@@ -657,30 +657,30 @@ The matrix below tracks node coverage for the five progressive demos; Demo 0 is 
 ## Implementation Roadmap
 
 ### Phase 1: Basic Demos (Weeks 1-2)
-- **Demo 0**: Hybrid Search Indexing
+- **Demo 1**: Hybrid Search Indexing
   - Focus: Persist deterministic dense embeddings and metadata so downstream demos can start with a populated vector store
   - Deliverable: Pinecone indexes with dense and sparse vectors that can be reused for retrieval experiments
 
-- **Demo 1**: Basic RAG Pipeline
+- **Demo 2**: Basic RAG Pipeline
   - Focus: Core P0 nodes, simple linear flow
   - Deliverable: Working example with sample docs
 
-- **Demo 2**: Hybrid Search (retrieval + fusion)
-  - Focus: Multi-retriever fusion and ranking built on the indexes created by Demo 0
+- **Demo 3**: Hybrid Search (retrieval + fusion)
+  - Focus: Multi-retriever fusion and ranking built on the indexes created by Demo 1
   - Deliverable: Retrieval workflow with metrics comparing fusion outcomes
 
 ### Phase 2: Conversational Demos (Weeks 3-4)
-- **Demo 3**: Conversational Search
+- **Demo 4**: Conversational Search
   - Focus: State management, multi-turn interaction
   - Deliverable: Interactive CLI chat interface
 
 ### Phase 3: Production Demos (Weeks 5-6)
-- **Demo 4**: Production-Ready Pipeline
+- **Demo 5**: Production-Ready Pipeline
   - Focus: Guardrails, caching, streaming
   - Deliverable: Deployment-ready configuration
 
 ### Phase 4: Research Demos (Weeks 7-8)
-- **Demo 5**: Evaluation & Research Pipeline
+- **Demo 6**: Evaluation & Research Pipeline
   - Focus: Metrics, A/B testing, feedback loops
   - Deliverable: Full evaluation framework with dashboard
 
@@ -762,28 +762,28 @@ Each demo will include:
 
 ```
 examples/conversational_search/
-├── demo_0/
-│   └── hybrid_indexing.py
-├── demo_1_basic_rag/
-│   ├── demo.py
+├── demo_1_hybrid_indexing/
+│   └── demo_1.py
+├── demo_2_basic_rag/
+│   ├── demo_2.py
 │   ├── README.md
 │   └── data/
 │       ├── docs/
 │       └── queries.json
-├── demo_2_hybrid_search/
-│   ├── demo_2_2.py
+├── demo_3_hybrid_search/
+│   ├── demo_3.py
 │   ├── README.md
 │   └── data/
-├── demo_3_conversational/
-│   ├── demo.py
+├── demo_4_conversational/
+│   ├── demo_4.py
 │   ├── README.md
 │   └── data/
-├── demo_4_production/
-│   ├── demo.py
+├── demo_5_production/
+│   ├── demo_5.py
 │   ├── README.md
 │   └── data/
-├── demo_5_evaluation/
-│   ├── demo.py
+├── demo_6_evaluation/
+│   ├── demo_6.py
 │   ├── README.md
 │   └── data/
 │       ├── golden_dataset.json
@@ -795,11 +795,11 @@ examples/conversational_search/
 
 ## Conclusion
 
-These 5 progressive demos, underpinned by the preparatory Demo 0 indexing workflow, provide complete coverage of all conversational search nodes while maintaining clear separation of concerns. Each demo builds on previous concepts while introducing new capabilities, making it easy for users to learn incrementally and for developers to maintain the codebase.
+These 5 progressive demos, underpinned by the preparatory Demo 1 indexing workflow, provide complete coverage of all conversational search nodes while maintaining clear separation of concerns. Each demo builds on previous concepts while introducing new capabilities, making it easy for users to learn incrementally and for developers to maintain the codebase.
 
 The design prioritizes:
 - **Minimal overlap**: Each node appears in exactly the demos where it's most relevant
 - **Progressive complexity**: Demos increase in sophistication from basic RAG to full evaluation pipelines
 - **Real-world scenarios**: Each demo maps to actual use cases teams would encounter
-- **Complete coverage**: 39 out of 40 nodes demonstrated across the five progressive workflows (only ConversationCompressorNode omitted as it's similar to MemorySummarizerNode); Demo 0 reuses the same ingestion nodes instead of expanding the matrix
+- **Complete coverage**: 39 out of 40 nodes demonstrated across the five progressive workflows (only ConversationCompressorNode omitted as it's similar to MemorySummarizerNode); Demo 1 reuses the same ingestion nodes instead of expanding the matrix
 - **Visual clarity**: Mermaid diagrams provide clear visual representation of workflow graphs
