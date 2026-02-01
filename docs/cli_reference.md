@@ -41,7 +41,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo workflow publish <workflow> [--require-login] [--chatkit-public-base-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
 | `orcheo workflow unpublish <workflow>` | Revoke public access and invalidate existing share links. |
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
-| `orcheo credential create <name> --provider <provider>` | Create a new credential with guided prompts. |
+| `orcheo credential create <name> --provider <provider> --secret <secret>` | Create a new credential with guided prompts. `--secret` is required. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
 | `orcheo auth login [--no-browser] [--port <port>]` | Authenticate via browser-based OAuth flow. |
 | `orcheo auth logout` | Clear stored OAuth tokens for the current profile. |
