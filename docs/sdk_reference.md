@@ -7,7 +7,7 @@ This guide covers the Orcheo Python SDK for programmatic workflow management and
 ```bash
 pip install orcheo-sdk
 # or with uv
-uv add orcheo-sdk
+uv tool install orcheo-sdk
 ```
 
 ## Quick Start

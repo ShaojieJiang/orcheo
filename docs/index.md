@@ -15,7 +15,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 ## Why Orcheo?
 
-- **Vibe-coding-first**: Built from the ground up for AI agents to operate. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) for your coding agent and let it handle setup, workflow creation, and deployment.
+- **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
@@ -28,6 +28,9 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 ## Quick Start
 
 The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
+
+!!! info "Subscription Required"
+    Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.
 
 ### 1. Install the Orcheo Agent Skill
 
@@ -50,16 +53,22 @@ Your AI agent will automatically:
 
 That's it! Your agent handles the complexity while you focus on describing what you want your workflows to do.
 
-## Documentation
+## Guides
 
-For users who prefer manual setup or need advanced configuration:
+- **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
+- **[Canvas](canvas.md)** — Visual workflow designer
+- **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
+- **[Conversational Search Examples](conversational_search_examples.md)** — Step-by-step demos from basic RAG to production-ready search
 
-- **[Manual Setup Guide](manual_setup.md)** — Complete guide for installation, CLI reference, authentication, MCP configuration, and Canvas setup
-- **[SDK Reference](sdk_reference.md)** — Python SDK for programmatic workflow execution and management
+## Reference
+
+- **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
+- **[SDK Reference](sdk_reference.md)** — Python SDK for programmatic workflow execution
+- **[Authentication Guide](authentication_guide.md)** — Service tokens, OAuth, and JWT configuration
 - **[Environment Variables](environment_variables.md)** — Complete configuration reference
 
-For developers contributing to Orcheo:
+## For Developers
 
-- **[Developer Guide](manual_setup.md#developer-guide)** — Repository layout, development environment, custom nodes, and configuration
-- **[Deployment Guide](deployment.md)** — Docker Compose and managed PostgreSQL deployment recipes
+- **[Developer Guide](developer_guide.md)** — Repository layout, development environment, and testing
+- **[Deployment Guide](deployment.md)** — Docker Compose and PostgreSQL deployment recipes
 - **[Custom Nodes and Tools](custom_nodes_and_tools.md)** — Extend Orcheo with your own integrations
