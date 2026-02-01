@@ -27,7 +27,6 @@ from orcheo.nodes.conversational_search.vector_store import (
     InMemoryVectorStore,
     PineconeVectorStore,
 )
-from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -333,60 +332,3 @@ def build_generator_node(cfg: dict[str, Any]) -> GroundedGeneratorNode:
         model_kwargs=cfg.get("model_kwargs", {}),
         citation_style="inline",
     )
-
-
-def setup_credentials() -> CredentialResolver:
-    """Set up the credential resolver."""
-    from orcheo_backend.app.dependencies import get_vault
-
-    vault = get_vault()
-    return CredentialResolver(vault)
-
-
-async def run_demo_2(
-    config: dict[str, Any] | None = None,
-    resolver: CredentialResolver | None = None,
-) -> None:
-    """Execute the compiled hybrid search workflow using provided credentials."""
-    print("=== Demo 2.2: Hybrid Search ===")
-    print(
-        "This run assumes document indexes already exist in Pinecone and only "
-        "exercises retrieval, fusion, and generation.\n"
-    )
-
-    resolver = resolver or setup_credentials()
-    workflow = await build_graph(config)
-    app = workflow.compile()
-
-    query = "Find cases mentioning 'reasonable doubt' and mens rea"
-    payload = {"inputs": {"message": query}}
-
-    with credential_resolution(resolver):
-        result = await app.ainvoke(payload)  # type: ignore[arg-type]
-
-    generator_output = result.get("results", {}).get("generator", {})
-    citations_payload = result.get("results", {}).get("citations", {})
-    reply = citations_payload.get("reply") or generator_output.get("reply", "")
-
-    print("Query:", query)
-    print("\n--- Grounded Answer ---")
-    print(reply[:500] + ("..." if len(reply) > 500 else ""))
-
-    formatted = citations_payload.get("formatted", [])
-    if formatted:
-        print("\n--- Citations ---")
-        for entry in formatted:
-            print(f"- {entry}")
-    print("\n=== End ===")
-
-
-async def main() -> None:
-    """Entrypoint used when invoking this demo as a standalone script."""
-    resolver = setup_credentials()
-    await run_demo_2(resolver=resolver)
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(main())
