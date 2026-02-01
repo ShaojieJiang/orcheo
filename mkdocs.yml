@@ -30,6 +30,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Manual Setup: manual_setup.md
+      - Canvas: canvas.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
   - Deployment:
@@ -41,10 +42,16 @@ nav:
       - Chat Bubble: chatkit_integration/canvas_chat_bubble_guide.md
       - Webpage Embedding: chatkit_integration/webpage_embedding_guide.md
   - Development:
+      - Developer Guide: developer_guide.md
       - Developer Tooling: developer_tooling.md
       - Custom Nodes & Tools: custom_nodes_and_tools.md
+      - MCP Integration: mcp_integration.md
       - Releasing: releasing.md
+  - Examples:
+      - Conversational Search: conversational_search_examples.md
   - Reference:
+      - CLI Reference: cli_reference.md
+      - SDK Reference: sdk_reference.md
       - OpenTelemetry Tracing: otel_tracing/README.md
       - Agentensor Runbook: agentensor/runbook.md
 
