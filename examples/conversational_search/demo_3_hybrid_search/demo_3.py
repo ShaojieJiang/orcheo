@@ -1,4 +1,4 @@
-"""Hybrid search Demo 2.2: retrieve + fuse over prebuilt Pinecone indexes."""
+"""Hybrid search demo: retrieve + fuse over prebuilt Pinecone indexes."""
 
 from typing import Any
 from langchain_core.runnables import RunnableConfig

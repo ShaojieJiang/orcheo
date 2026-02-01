@@ -1,4 +1,4 @@
-"""Conversational Search Demo 3: stateful chat with query routing."""
+"""Conversational Search Demo 4: stateful chat with query routing."""
 
 from typing import Any
 from langchain_core.runnables import RunnableConfig
@@ -25,10 +25,9 @@ from orcheo.nodes.conversational_search.query_processing import (
 )
 from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
-from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-SKIP_USER_MESSAGE_KEY = "__demo3_skip_user_message"
+SKIP_USER_MESSAGE_KEY = "__demo4_skip_user_message"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "conversation": {
@@ -58,15 +57,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
 }
-
-CONVERSATION_TURNS = [
-    "How do I rotate API keys?",
-    "Where do I find that setting?",
-    "Could you clarify which option to focus on?",
-    "What about troubleshooting slow retrieval?",
-    "Thanks, that helps!",
-]
-SESSION_ID = "demo-3-session"
 
 DEFAULT_EMBEDDING_METHOD = OPENAI_TEXT_EMBEDDING_3_SMALL
 
@@ -295,155 +285,3 @@ async def build_graph(
     workflow.add_edge(summarizer.name, END)
 
     return workflow
-
-
-def print_demo_introduction(vector_store_cfg: dict[str, Any]) -> None:
-    """Print vector store info for the demo."""
-    print("Conversation controls:", DEFAULT_CONFIG["conversation"])
-    print(
-        "This demo relies on Pinecone index "
-        f"{vector_store_cfg['index_name']} in namespace "
-        f"{vector_store_cfg['namespace']}."
-    )
-
-
-def print_classification_info(branch: str, classifier: dict[str, Any]) -> None:
-    """Emit classification results for the current turn."""
-    print(
-        " Classification:",
-        branch,
-        f"(confidence={classifier.get('confidence', 0):.2f})",
-    )
-
-
-def print_clarification_requests(clarifications: list[str]) -> None:
-    """Print any clarification questions returned by the graph."""
-    if not clarifications:
-        return
-    print(" Clarification requests:")
-    for question in clarifications:
-        print(f"  - {question}")
-
-
-async def handle_finalize_branch(
-    results: dict[str, Any], memory_store: InMemoryMemoryStore
-) -> None:
-    """Emit summary information and fetch the stored summary."""
-    summary = results.get("memory_summarizer", {}).get("summary")
-    print(" Final summary persisted:", summary)
-    saved = await memory_store.get_summary(SESSION_ID)
-    print(" Stored summary:", saved)
-
-
-def print_search_branch_details(results: dict[str, Any]) -> None:
-    """Print retrieval-related outputs for a search classification."""
-    coref = results.get("coreference_resolver", {})
-    if coref.get("resolved"):
-        print(" Coreference resolved to:", coref.get("query"))
-
-    rewrite = results.get("query_rewrite", {})
-    if rewrite:
-        used_history = rewrite.get("used_history", False)
-        print(
-            " Rewritten query:",
-            rewrite.get("query"),
-            f"(used_history={used_history})",
-        )
-
-    hits = results.get("dense_search", {}).get("results", [])
-    if hits:
-        print(" Retrieved passages:")
-        for rank, hit in enumerate(hits[:3], start=1):
-            title = hit.get("metadata", {}).get("title") or hit.get("id")
-            score = hit.get("score", 0.0)
-            print(f"  {rank}. {title} (score={score:.2f})")
-
-    generator = results.get("generator", {})
-    print(" Reply:", generator.get("reply", "<no reply>"))
-    citations = generator.get("citations", [])
-    print(" Citations:", len(citations))
-
-    topic = results.get("topic_shift", {})
-    if topic:
-        route = topic.get("route")
-        similarity = topic.get("similarity", 0.0) * 100
-        reason = topic.get("reason")
-        print(
-            " Topic shift:",
-            route,
-            f"(similarity={similarity:.1f}%, reason={reason})",
-        )
-
-
-async def process_demo_turn(
-    app: Any,
-    memory_store: InMemoryMemoryStore,
-    turn_index: int,
-    message: str,
-) -> None:
-    """Invoke the graph for a single turn and print the outputs."""
-    print(f"\n--- Turn {turn_index}: {message}")
-    payload = {
-        "inputs": {
-            "session_id": SESSION_ID,
-            "user_message": message,
-            "message": message,
-        }
-    }
-    result = await app.ainvoke(payload)  # type: ignore[arg-type]
-    results = result.get("results", {})
-    classifier = results.get("query_classifier", {})
-    branch = classifier.get("classification", "search")
-    print_classification_info(branch, classifier)
-
-    if branch == "clarification":
-        clarifications = results.get("query_clarification", {}).get(
-            "clarifications", []
-        )
-        print_clarification_requests(clarifications)
-        return
-
-    if branch == "finalize":
-        await handle_finalize_branch(results, memory_store)
-        return
-
-    print_search_branch_details(results)
-
-
-async def run_demo() -> None:
-    """Run the conversational demo turn loop using the compiled workflow."""
-    vector_store_cfg = DEFAULT_CONFIG["vector_store"]
-    vector_store = build_vector_store_from_config(vector_store_cfg)
-
-    print_demo_introduction(vector_store_cfg)
-
-    memory_store = InMemoryMemoryStore(
-        max_sessions=DEFAULT_CONFIG["conversation"]["max_sessions"],
-        max_total_turns=DEFAULT_CONFIG["conversation"]["max_total_turns"],
-    )
-    workflow = await build_graph(
-        vector_store=vector_store,
-        memory_store=memory_store,
-    )
-    app = workflow.compile()
-    resolver = setup_credentials()
-
-    with credential_resolution(resolver):
-        for turn_index, message in enumerate(CONVERSATION_TURNS, start=1):
-            await process_demo_turn(app, memory_store, turn_index, message)
-
-    print("\nDemo complete.")
-
-
-def setup_credentials() -> CredentialResolver:
-    """Return the resolver that exposes the Pinecone credential."""
-    from orcheo_backend.app.dependencies import get_vault
-
-    vault = get_vault()
-    return CredentialResolver(vault)
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(run_demo())
