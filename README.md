@@ -80,7 +80,7 @@ python examples/conversational_search/demo_1_basic_rag/demo_1.py
 We welcome contributions from the community:
 
 - **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools guide](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/) for how to create and load custom extensions.
-- **How to contribute**: Submit a pull request to the main repository, or publish and share your extensions independently for others to install.
+- **How to contribute**: Open an [issue](https://github.com/ShaojieJiang/orcheo/issues), submit a [pull request](https://github.com/ShaojieJiang/orcheo/pulls), or start a [discussion](https://github.com/ShaojieJiang/orcheo/discussions). You can also publish and share your extensions independently for others to install.
 
 ## Citation
 
