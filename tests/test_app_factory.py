@@ -127,3 +127,14 @@ def test_load_allowed_origins_defaults_when_empty(
     origins = _load_allowed_origins()
     assert origins == list(_DEFAULT_ALLOWED_ORIGINS)
     assert origins is not _DEFAULT_ALLOWED_ORIGINS
+
+
+def test_load_allowed_origins_defaults_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the env var is unset, the defaults should be returned."""
+    monkeypatch.delenv("ORCHEO_CORS_ALLOW_ORIGINS", raising=False)
+
+    origins = _load_allowed_origins()
+    assert origins == list(_DEFAULT_ALLOWED_ORIGINS)
+    assert origins is not _DEFAULT_ALLOWED_ORIGINS

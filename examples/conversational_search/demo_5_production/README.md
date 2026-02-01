@@ -1,4 +1,4 @@
-# Demo 4: Production-Ready Pipeline
+# Demo 5: Production-Ready Pipeline
 
 Production-focused scaffold with caching, guardrails, streaming, and incremental indexing hooks. The config is tuned for server-side execution against the shared sample corpus.
 

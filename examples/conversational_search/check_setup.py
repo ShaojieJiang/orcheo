@@ -100,8 +100,8 @@ def check_demo_credentials() -> tuple[bool, list[str]]:
     """Check which demo credentials are configured."""
     credentials = {
         "openai_api_key": "Required for all demos",
-        "tavily_api_key": "Required for Demo 2",
-        "pinecone_api_key": "Required for Demos 3, 4, 5",
+        "tavily_api_key": "Required for Demo 3",
+        "pinecone_api_key": "Required for Demos 1, 4, 5, 6",
     }
 
     missing = []
@@ -145,8 +145,8 @@ def print_quickstart_guide(missing_creds: list[str]) -> None:
             print(f"   orcheo credential create {cred} --secret <your-key>")
         print()
 
-    print("2. Run Demo 1 (works locally, no external DB):")
-    print("   python examples/conversational_search/demo_1_basic_rag/demo_1.py")
+    print("2. Run Demo 2 (works locally, no external DB):")
+    print("   python examples/conversational_search/demo_2_basic_rag/demo_2.py")
     print()
     print("3. For other demos, see individual README files:")
     print("   examples/conversational_search/demo_<N>_*/README.md")

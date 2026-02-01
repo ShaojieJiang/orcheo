@@ -3,14 +3,26 @@
 from __future__ import annotations
 import logging
 import pytest
+from dynaconf import Dynaconf
+from orcheo.config import loader as config_loader
 from orcheo_backend.app.authentication import AuthSettings, load_auth_settings
 from tests.backend.authentication_test_utils import reset_auth_state
+
+
+def _build_loader_without_dotenv() -> Dynaconf:
+    """Create a Dynaconf loader that doesn't load from .env files."""
+    return Dynaconf(
+        envvar_prefix="ORCHEO",
+        settings_files=[],
+        load_dotenv=False,
+        environments=False,
+    )
 
 
 @pytest.fixture(autouse=True)
 def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure authentication state is cleared between tests."""
-
+    monkeypatch.setattr(config_loader, "_build_loader", _build_loader_without_dotenv)
     yield from reset_auth_state(monkeypatch)
 
 

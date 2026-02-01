@@ -1,4 +1,4 @@
-# Demo 3: Conversational Search
+# Demo 4: Conversational Search
 
 Stateful, multi-turn chat that wires conversation memory, query routing, coreference
 resolution, and topic-shift detection into a single flow.
@@ -11,7 +11,7 @@ resolution, and topic-shift detection into a single flow.
 - **CoreferenceResolverNode / QueryRewriteNode** rewrite pronouns using the
   most recent context so retrieval keeps pace with the user.
 - **DenseSearchNode + GroundedGeneratorNode** answer questions with grounded
-  responses retrieved from the Pinecone index that Demo 0 populated.
+  responses retrieved from the Pinecone index that Demo 1 populated.
 - **TopicShiftDetectorNode** flags divergence from the prior subject.
 - **QueryClarificationNode** emits clarifying questions when the classifier
   picks the `clarification` branch.
@@ -37,12 +37,12 @@ DEFAULT_CONFIG = {
 ```
 
 ## Running locally
-1. Run Demo 0 (`examples/conversational_search/demo_0_hybrid_indexing/demo_0.py`)
+1. Run Demo 1 (`examples/conversational_search/demo_1_hybrid_indexing/demo_1.py`)
    to populate the Pinecone indexes from `examples/conversational_search/data/docs`
    (authentication, product overview, troubleshooting).
 2. Ensure the Pinecone credentials (`pinecone_api_key`) are available to the demo
    via the Orcheo vault.
-3. Run `python examples/conversational_search/demo_3_conversational/demo_3.py`.
+3. Run `python examples/conversational_search/demo_4_conversational/demo_4.py`.
 4. The script prints the conversation controls from `DEFAULT_CONFIG`, confirms
    the Pinecone index it will query, and then steps through five scripted turns:
    - Query classification and coreference resolution for follow-ups

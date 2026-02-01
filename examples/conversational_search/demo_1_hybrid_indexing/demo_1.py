@@ -1,4 +1,4 @@
-"""Hybrid search Demo 2.1: construct the ingestion graph."""
+"""Build a hybrid indexing pipeline with dense and sparse embeddings for Pinecone."""
 
 from langgraph.graph import END, StateGraph
 from orcheo.graph.state import State
@@ -9,19 +9,21 @@ from orcheo.nodes.conversational_search.embedding_registry import (
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
-    DocumentLoaderNode,
     MetadataExtractorNode,
-    RawDocumentInput,
     VectorStoreUpsertNode,
+    WebDocumentInput,
+    WebDocumentLoaderNode,
 )
 from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
     PineconeVectorStore,
 )
-from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-DEFAULT_DOCS_PATH = "path/to/your/docs"
+DEFAULT_DOC_URLS = [
+    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/docs/index.md",
+    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/docs/manual_setup.md",
+]
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_CHUNK_OVERLAP = 64
@@ -55,9 +57,9 @@ async def build_graph(
             namespace=DEFAULT_VECTOR_STORE_NAMESPACE,
             client_kwargs=DEFAULT_VECTOR_STORE_KWARGS,
         )
-    document_loader = DocumentLoaderNode(
+    document_loader = WebDocumentLoaderNode(
         name="document_loader",
-        documents=[RawDocumentInput(storage_path=DEFAULT_DOCS_PATH)],
+        urls=[WebDocumentInput(url=url) for url in DEFAULT_DOC_URLS],
         default_metadata={"demo": "hybrid_search"},
     )
     metadata_extractor = MetadataExtractorNode(
@@ -109,40 +111,3 @@ async def build_graph(
     workflow.add_edge("vector_upsert_sparse", END)
 
     return workflow
-
-
-async def _run_manual_test() -> None:
-    """Run a lightweight manual ingestion pass using deterministic embeddings."""
-    graph = await build_graph()
-    workflow = graph.compile()
-    resolver = setup_credentials()
-    print("Running Demo 2.1 manual smoke test with Pinecone")
-    with credential_resolution(resolver):
-        result = await workflow.ainvoke({"inputs": {}})
-    results = result.get("results", {})
-    dense_summary = results.get("vector_upsert_dense", {})
-    sparse_summary = results.get("vector_upsert_sparse", {})
-
-    print("Manual test results:")
-    print("  Dense index:")
-    print(f"    Indexed: {dense_summary.get('indexed', 'n/a')}")
-    print(f"    Embeddings persisted: {dense_summary.get('embedding_names', [])}")
-    print(f"    Namespace: {dense_summary.get('namespace')}")
-    print("  Sparse index:")
-    print(f"    Indexed: {sparse_summary.get('indexed', 'n/a')}")
-    print(f"    Embeddings persisted: {sparse_summary.get('embedding_names', [])}")
-    print(f"    Namespace: {sparse_summary.get('namespace')}")
-
-
-def setup_credentials() -> CredentialResolver:
-    """Return an active credential resolver for running the demo."""
-    from orcheo_backend.app.dependencies import get_vault
-
-    vault = get_vault()
-    return CredentialResolver(vault)
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(_run_manual_test())

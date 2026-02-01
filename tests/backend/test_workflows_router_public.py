@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from orcheo.models.workflow import Workflow
 from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows
+from orcheo_backend.app.routers.workflows import _resolve_chatkit_public_base_url
 
 
 class _WorkflowRepo:
@@ -62,3 +63,17 @@ async def test_get_public_workflow_includes_share_url(
     response = await workflows.get_public_workflow(workflow.id, repo)
 
     assert response.share_url == f"https://canvas.example/chat/{workflow.id}"
+
+
+def test_resolve_chatkit_public_base_url_returns_none_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _resolve_chatkit_public_base_url returns None when setting is empty."""
+    monkeypatch.setattr(
+        workflows,
+        "get_settings",
+        lambda: {"CHATKIT_PUBLIC_BASE_URL": ""},
+    )
+
+    result = _resolve_chatkit_public_base_url()
+    assert result is None

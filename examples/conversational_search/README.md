@@ -26,11 +26,11 @@ This will check your Python version, dependencies, credentials, and data files, 
    ```
    The demos use the Orcheo vault (`~/.orcheo/vault.sqlite`) for secure credential storage.
 
-### Run Demo 1 (Recommended First Demo)
-Demo 1 works entirely locally with no external vector database required:
+### Run Demo 2 (Recommended First Demo)
+Demo 2 works entirely locally with no external vector database required:
 
 ```bash
-python examples/conversational_search/demo_1_basic_rag/demo_1.py
+python examples/conversational_search/demo_2_basic_rag/demo_2.py
 ```
 
 **What to expect:**
@@ -39,14 +39,15 @@ python examples/conversational_search/demo_1_basic_rag/demo_1.py
 - Output shows routing decisions, retrieval results, and generated responses with citations
 
 ### Other Demos
-- **Demo 2, 3, 4, 5** require Pinecone credentials and indexed data
+- **Demo 3, 4, 5, 6** require Pinecone credentials and indexed data
 - See individual demo READMEs for specific requirements
 - Most demos are designed for deployment to Orcheo server
 
 ### Quick Credential Reference
-- **Demo 1**: `openai_api_key`
-- **Demo 2**: `openai_api_key`, `tavily_api_key`
-- **Demo 3, 4, 5**: `openai_api_key`, `pinecone_api_key`
+- **Demo 1**: `openai_api_key`, `pinecone_api_key`
+- **Demo 2**: `openai_api_key`
+- **Demo 3**: `openai_api_key`, `tavily_api_key`
+- **Demo 4, 5, 6**: `openai_api_key`, `pinecone_api_key`
 
 Create credentials with: `orcheo credential create <name> --secret <value>`
 
@@ -61,10 +62,11 @@ Create credentials with: `orcheo credential create <name> --secret <value>`
 - `utils.py` with helpers for loading configs and datasets across demos.
 
 ## Demos
-- **Demo 1: Basic RAG** – minimal ingestion and retrieval pipeline.
-- **Demo 2: Hybrid Search** – dense + sparse retrieval with fusion.
-- **Demo 3: Conversational Search** – stateful chat and query rewriting.
-- **Demo 4: Production** – caching, guardrails, and streaming hooks.
-- **Demo 5: Evaluation** – golden datasets, metrics, and feedback loops.
+- **Demo 1: Hybrid Indexing** – index corpus into Pinecone for hybrid search.
+- **Demo 2: Basic RAG** – minimal ingestion and retrieval pipeline.
+- **Demo 3: Hybrid Search** – dense + sparse retrieval with fusion.
+- **Demo 4: Conversational Search** – stateful chat and query rewriting.
+- **Demo 5: Production** – caching, guardrails, and streaming hooks.
+- **Demo 6: Evaluation** – golden datasets, metrics, and feedback loops.
 
 Each demo reads from the shared sample data by default. Replace the corpus or queries with your own domain content to experiment.

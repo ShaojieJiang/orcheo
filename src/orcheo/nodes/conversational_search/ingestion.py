@@ -8,8 +8,10 @@ import inspect
 import os
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from orcheo.graph.state import State
@@ -301,6 +303,155 @@ class DocumentLoaderNode(TaskNode):
             else:
                 expanded.append(raw)
         return expanded
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Simple HTML parser that extracts text content."""
+
+    SKIP_TAGS = frozenset({"script", "style", "head", "meta", "link", "noscript"})
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._text_parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in self.SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in self.SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0:
+            stripped = data.strip()
+            if stripped:
+                self._text_parts.append(stripped)
+
+    def get_text(self) -> str:
+        return "\n".join(self._text_parts)
+
+
+def _html_to_text(html: str) -> str:
+    """Extract plain text from HTML content."""
+    parser = _HTMLTextExtractor()
+    parser.feed(html)
+    return parser.get_text()
+
+
+class WebDocumentInput(BaseModel):
+    """URL-based document input for web page ingestion."""
+
+    url: str = Field(description="URL of the web page to fetch")
+    id: str | None = Field(
+        default=None, description="Optional caller-provided identifier"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Optional metadata"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@registry.register(
+    NodeMetadata(
+        name="WebDocumentLoaderNode",
+        description="Fetch web pages and convert them to normalized Document objects.",
+        category="conversational_search",
+    )
+)
+class WebDocumentLoaderNode(TaskNode):
+    """Node that fetches web pages and converts them to documents."""
+
+    input_key: str = Field(
+        default="urls",
+        description="Key within ``state.inputs`` that may contain URLs to fetch.",
+    )
+    urls: list[WebDocumentInput] = Field(
+        default_factory=list, description="Inline URLs configured on the node"
+    )
+    default_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata applied to every document unless overridden",
+    )
+    timeout: float = Field(
+        default=30.0, ge=0.0, description="Timeout in seconds for HTTP requests"
+    )
+    follow_redirects: bool = Field(default=True, description="Follow HTTP redirects")
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Fetch web pages and convert them to normalized documents."""
+        payloads = self._collect_url_payloads(state)
+        if not payloads:
+            msg = "No URLs provided to WebDocumentLoaderNode"
+            raise ValueError(msg)
+
+        documents: list[Document] = []
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            follow_redirects=self.follow_redirects,
+        ) as client:
+            for index, web_input in enumerate(payloads):
+                document = await self._fetch_document(client, web_input, index)
+                documents.append(document)
+
+        serialized_documents = [document.model_dump() for document in documents]
+        return {"documents": serialized_documents}
+
+    def _collect_url_payloads(self, state: State) -> list[WebDocumentInput]:
+        """Collect URL payloads from inline config and state inputs."""
+        payloads = list(self.urls)
+        state_urls = state.get("inputs", {}).get(self.input_key)
+        if not state_urls:
+            return payloads
+        if not isinstance(state_urls, list):
+            msg = "state.inputs urls must be a list"
+            raise ValueError(msg)
+        for item in state_urls:
+            payloads.append(self._coerce_url_input(item))
+        return payloads
+
+    def _coerce_url_input(self, item: Any) -> WebDocumentInput:
+        """Coerce an item into a WebDocumentInput."""
+        if isinstance(item, str):
+            return WebDocumentInput(url=item)
+        if isinstance(item, dict):
+            return WebDocumentInput(**item)
+        if isinstance(item, WebDocumentInput):
+            return item
+        msg = f"Unsupported URL payload type: {type(item).__name__}"
+        raise TypeError(msg)
+
+    async def _fetch_document(
+        self,
+        client: httpx.AsyncClient,
+        web_input: WebDocumentInput,
+        index: int,
+    ) -> Document:
+        """Fetch a single URL and convert it to a Document."""
+        try:
+            response = await client.get(web_input.url)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            msg = f"Failed to fetch URL {web_input.url}: {exc!s}"
+            raise ValueError(msg) from exc
+
+        text_content = _html_to_text(response.text)
+        if not text_content.strip():
+            msg = f"No text content extracted from URL: {web_input.url}"
+            raise ValueError(msg)
+
+        document_id = web_input.id or f"{self.name}-doc-{index}"
+        metadata = {**self.default_metadata, **web_input.metadata}
+        metadata["url"] = web_input.url
+
+        return Document(
+            id=document_id,
+            content=text_content,
+            metadata=metadata,
+            source=web_input.url,
+        )
 
 
 @registry.register(

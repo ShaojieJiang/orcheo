@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
@@ -54,6 +55,9 @@ class DatasetNode(TaskNode):
     docs_path: str | None = Field(
         default=None, description="Path to knowledge base docs."
     )
+    http_timeout: float = Field(
+        default=30.0, ge=0.0, description="Timeout in seconds for URL-based datasets."
+    )
     split: str | None = Field(
         default=None, description="Optional dataset split when loading from files."
     )
@@ -74,7 +78,7 @@ class DatasetNode(TaskNode):
         references = self._references_from_inputs(inputs)
         keyword_corpus = self._keyword_corpus_from_inputs(inputs)
 
-        dataset, references, keyword_corpus = self._load_if_needed(
+        dataset, references, keyword_corpus = await self._load_if_needed(
             dataset, references, keyword_corpus, requested_split, requested_limit
         )
         dataset, references, keyword_corpus = self._validate_inputs(
@@ -121,7 +125,7 @@ class DatasetNode(TaskNode):
             return keyword_corpus
         return self.keyword_corpus or None
 
-    def _load_if_needed(
+    async def _load_if_needed(
         self,
         dataset: Any,
         references: dict[str, str] | None,
@@ -134,7 +138,9 @@ class DatasetNode(TaskNode):
         if not self._should_load_from_files(dataset):
             return dataset, references, keyword_corpus
 
-        dataset, loaded_references, loaded_corpus = self._load_from_files(split, limit)
+        dataset, loaded_references, loaded_corpus = await self._load_from_files(
+            split, limit
+        )
         references = references if references is not None else loaded_references
         keyword_corpus = keyword_corpus if keyword_corpus is not None else loaded_corpus
         return dataset, references, keyword_corpus
@@ -208,7 +214,7 @@ class DatasetNode(TaskNode):
             ]
         )
 
-    def _load_from_files(
+    async def _load_from_files(
         self,
         split: str | None,
         limit: int | None,
@@ -227,9 +233,9 @@ class DatasetNode(TaskNode):
             msg = f"DatasetNode requires {', '.join(missing)} to load from files"
             raise ValueError(msg)
 
-        golden_data = self._load_json(self.golden_path)
-        queries_data = self._load_json(self.queries_path)
-        labels_data = self._load_json(self.labels_path)
+        golden_data = await self._load_json(self.golden_path)
+        queries_data = await self._load_json(self.queries_path)
+        labels_data = await self._load_json(self.labels_path)
 
         label_map: dict[str, list[str]] = {}
         for entry in labels_data:
@@ -273,12 +279,20 @@ class DatasetNode(TaskNode):
 
         return dataset, references, keyword_corpus
 
-    def _load_json(self, path: str | None) -> Any:
+    async def _load_json(self, path: str | None) -> Any:
         if path is None:
             msg = "JSON path must be provided."
             raise ValueError(msg)
+        if self._is_url(path):
+            async with httpx.AsyncClient(timeout=self.http_timeout) as client:
+                response = await client.get(path)
+                response.raise_for_status()
+                return response.json()
         with Path(path).open("r", encoding="utf-8") as file:
             return json.load(file)
+
+    def _is_url(self, path: str) -> bool:
+        return path.startswith(("http://", "https://"))
 
     def _build_keyword_corpus(self) -> list[dict[str, str]]:
         if self.docs_path is None:

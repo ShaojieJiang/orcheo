@@ -1,4 +1,4 @@
-# Demo 1: Basic RAG Pipeline
+# Demo 2: Basic RAG Pipeline
 
 A LangGraph workflow that can answer questions with or without uploaded documents. The graph conditionally routes through ingestion (load → metadata → chunk → embed) when files are present, performs semantic search when chunks exist in the shared `InMemoryVectorStore`, and otherwise falls back to direct generation.
 
@@ -18,7 +18,7 @@ A LangGraph workflow that can answer questions with or without uploaded document
 
 ## Running Locally
 ```bash
-python examples/conversational_search/demo_1_basic_rag/demo.py
+python examples/conversational_search/demo_2_basic_rag/demo.py
 ```
 The script automatically executes two passes:
 1. **Non-RAG phase** – Runs the compiled graph before any documents are indexed to show direct answering.

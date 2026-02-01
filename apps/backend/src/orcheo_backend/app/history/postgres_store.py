@@ -90,7 +90,8 @@ class PostgresRunHistoryStore:
         self._pool_max_idle = pool_max_idle
         self._pool: Any | None = None
         self._lock = asyncio.Lock()
-        self._init_lock = asyncio.Lock()
+        self._pool_lock = asyncio.Lock()
+        self._schema_lock = asyncio.Lock()
         self._initialized = False
 
     async def _get_pool(self) -> Any:
@@ -98,7 +99,7 @@ class PostgresRunHistoryStore:
         if self._pool is not None:
             return self._pool
 
-        async with self._init_lock:
+        async with self._pool_lock:
             if self._pool is not None:
                 return self._pool
 
@@ -135,15 +136,21 @@ class PostgresRunHistoryStore:
         if self._initialized:
             return
 
-        async with self._init_lock:
+        async with self._schema_lock:
             if self._initialized:
                 return
 
-            async with self._connection() as conn:
-                for raw_stmt in POSTGRES_HISTORY_SCHEMA.strip().split(";"):
-                    stmt = raw_stmt.strip()
-                    if stmt:
-                        await conn.execute(stmt)
+            pool = await self._get_pool()
+            async with pool.connection() as conn:
+                try:
+                    for raw_stmt in POSTGRES_HISTORY_SCHEMA.strip().split(";"):
+                        stmt = raw_stmt.strip()
+                        if stmt:
+                            await conn.execute(stmt)
+                    await conn.commit()
+                except Exception:
+                    await conn.rollback()
+                    raise
 
             self._initialized = True
 

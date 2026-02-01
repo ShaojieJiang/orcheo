@@ -8,6 +8,40 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services import get_latest_workflow_version_data
 
 
+def _resolve_ws_headers(state: CLIState) -> dict[str, str] | None:
+    """Return websocket auth headers if a token is available."""
+    token = state.client.get_active_token()
+    if not token:
+        return None
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _connect_websocket(
+    websockets: Any,
+    websocket_url: str,
+    *,
+    open_timeout: float,
+    close_timeout: float,
+    headers: dict[str, str] | None,
+) -> Any:
+    """Connect to the workflow websocket with compatible header arguments."""
+    kwargs = {"open_timeout": open_timeout, "close_timeout": close_timeout}
+    if not headers:
+        return websockets.connect(websocket_url, **kwargs)
+    try:
+        return websockets.connect(
+            websocket_url,
+            additional_headers=headers,
+            **kwargs,
+        )
+    except TypeError:
+        return websockets.connect(
+            websocket_url,
+            extra_headers=headers,
+            **kwargs,
+        )
+
+
 async def _stream_workflow_run(
     state: CLIState,
     workflow_id: str,
@@ -47,8 +81,13 @@ async def _stream_workflow_run(
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
 
     try:
-        async with websockets.connect(
-            websocket_url, open_timeout=5, close_timeout=5
+        headers = _resolve_ws_headers(state)
+        async with _connect_websocket(
+            websockets,
+            websocket_url,
+            open_timeout=5,
+            close_timeout=5,
+            headers=headers,
         ) as websocket:
             await websocket.send(json.dumps(payload))
             process_messages = getattr(
@@ -122,8 +161,13 @@ async def _stream_workflow_evaluation(
     state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
 
     try:
-        async with websockets.connect(
-            websocket_url, open_timeout=5, close_timeout=5
+        headers = _resolve_ws_headers(state)
+        async with _connect_websocket(
+            websockets,
+            websocket_url,
+            open_timeout=5,
+            close_timeout=5,
+            headers=headers,
         ) as websocket:
             await websocket.send(json.dumps(payload))
             process_messages = getattr(
@@ -171,9 +215,23 @@ async def _process_stream_messages(state: CLIState, websocket: Any) -> str:
         "_handle_node_event",
         _handle_node_event,
     )
+    handle_trace_update = getattr(
+        workflow_module,
+        "_handle_trace_update",
+        _handle_trace_update,
+    )
+    handle_generic_update = getattr(
+        workflow_module,
+        "_handle_generic_update",
+        _handle_generic_update,
+    )
 
     async for message in websocket:
         update = json.loads(message)
+        message_type = update.get("type")
+        if message_type == "trace:update":
+            handle_trace_update(state, update)
+            continue
         status = update.get("status")
 
         if status:
@@ -183,6 +241,10 @@ async def _process_stream_messages(state: CLIState, websocket: Any) -> str:
             continue
 
         handle_node_event(state, update)
+        if isinstance(update, dict) and not (
+            update.get("node") and update.get("event")
+        ):
+            handle_generic_update(state, update)
 
     return "completed"
 
@@ -234,6 +296,59 @@ def _handle_node_event(state: CLIState, update: dict[str, Any]) -> None:
         state.console.print(f"[red]✗ {node}[/red] [dim]{error_msg}[/dim]")
     else:
         state.console.print(f"[dim][{event}] {node}: {payload_data}[/dim]")
+
+
+def _handle_trace_update(state: CLIState, update: dict[str, Any]) -> None:
+    """Handle trace update messages emitted by the backend."""
+    spans = update.get("spans")
+    if not isinstance(spans, list) or not spans:
+        if update.get("complete"):
+            state.console.print("[dim]Trace update: complete[/dim]")
+        return
+
+    last_span = spans[-1]
+    if not isinstance(last_span, dict):
+        return
+
+    name = last_span.get("name") or "workflow"
+    status = last_span.get("status")
+    status_code = None
+    status_message = None
+    if isinstance(status, dict):
+        status_code = status.get("code")
+        status_message = status.get("message")
+
+    status_text = f" ({status_code})" if status_code else ""
+    if status_message:
+        status_text = f"{status_text} {status_message}".strip()
+    if status_text:
+        state.console.print(f"[dim]Trace update: {name}{status_text}[/dim]")
+    else:
+        state.console.print(f"[dim]Trace update: {name}[/dim]")
+
+
+def _handle_generic_update(state: CLIState, update: dict[str, Any]) -> None:
+    """Handle generic update payloads without explicit node metadata."""
+    if not update:
+        return
+    if len(update) == 1:
+        node, payload = next(iter(update.items()))
+        detail = ""
+        if isinstance(payload, dict):
+            keys = sorted(payload.keys())
+            if keys:
+                detail = f" ({', '.join(keys[:4])})"
+                if len(keys) > 4:
+                    detail = f"{detail[:-1]}, …)"
+        state.console.print(f"[dim]• {node}{detail}[/dim]")
+        return
+
+    keys = sorted(update.keys())
+    if keys:  # pragma: no branch
+        preview = ", ".join(keys[:4])
+        if len(keys) > 4:
+            preview = f"{preview}, …"
+        state.console.print(f"[dim]Update keys: {preview}[/dim]")
 
 
 def _render_node_output(state: CLIState, data: Any) -> None:

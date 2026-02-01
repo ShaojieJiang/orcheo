@@ -56,6 +56,10 @@ class ApiClient:
                 return provided
         return self._token
 
+    def get_active_token(self) -> str | None:
+        """Return the active bearer token for non-HTTP clients."""
+        return self._get_active_token()
+
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}
         token = self._get_active_token()

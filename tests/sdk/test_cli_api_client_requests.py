@@ -191,3 +191,9 @@ def test_api_client_delete_with_json_body() -> None:
     assert result == {"deleted": True}
     body = json.loads(route.calls[0].request.content)
     assert body == {"foo": "bar"}
+
+
+def test_api_client_get_active_token_returns_token() -> None:
+    """Test that get_active_token exposes the active bearer token."""
+    client = ApiClient(base_url="http://test.com", token="static-token")
+    assert client.get_active_token() == "static-token"

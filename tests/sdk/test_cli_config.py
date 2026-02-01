@@ -126,10 +126,12 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
     original_config = os.environ.get(CONFIG_DIR_ENV)
     original_url = os.environ.get(API_URL_ENV)
     original_token = os.environ.get(SERVICE_TOKEN_ENV)
+    original_chatkit = os.environ.get(CHATKIT_PUBLIC_BASE_URL_ENV)
     try:
         os.environ[CONFIG_DIR_ENV] = str(config_dir)
         os.environ[API_URL_ENV] = "http://env.test"
         os.environ[SERVICE_TOKEN_ENV] = "env-token"
+        os.environ.pop(CHATKIT_PUBLIC_BASE_URL_ENV, None)
         settings = resolve_settings(
             profile=None,
             api_url=None,
@@ -152,6 +154,10 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
             os.environ[SERVICE_TOKEN_ENV] = original_token
         else:
             os.environ.pop(SERVICE_TOKEN_ENV, None)
+        if original_chatkit:
+            os.environ[CHATKIT_PUBLIC_BASE_URL_ENV] = original_chatkit
+        else:
+            os.environ.pop(CHATKIT_PUBLIC_BASE_URL_ENV, None)
 
 
 def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:

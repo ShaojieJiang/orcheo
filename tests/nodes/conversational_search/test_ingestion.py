@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 from typing import Any
+import httpx
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
@@ -1140,4 +1141,217 @@ async def test_document_loader_raises_on_no_content() -> None:
     state = State(inputs={}, results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="has no content"):
+        await node.run(state, {})
+
+
+# --- WebDocumentLoaderNode tests ---
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_fetches_and_extracts_text(respx_mock) -> None:
+    """Test WebDocumentLoaderNode fetches URLs and extracts text from HTML."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    html_content = """
+    <html>
+    <head><title>Test Page</title></head>
+    <body>
+        <h1>Hello World</h1>
+        <p>This is a test paragraph.</p>
+        <script>alert('ignored');</script>
+    </body>
+    </html>
+    """
+    respx_mock.get("https://example.com/doc").mock(
+        return_value=httpx.Response(200, text=html_content)
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[WebDocumentInput(url="https://example.com/doc")],
+        default_metadata={"source_type": "web"},
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    assert len(result["documents"]) == 1
+    doc = result["documents"][0]
+    assert "Hello World" in doc["content"]
+    assert "This is a test paragraph" in doc["content"]
+    assert "alert" not in doc["content"]
+    assert doc["metadata"]["url"] == "https://example.com/doc"
+    assert doc["metadata"]["source_type"] == "web"
+    assert doc["source"] == "https://example.com/doc"
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_accepts_state_urls(respx_mock) -> None:
+    """Test WebDocumentLoaderNode accepts URLs from state inputs."""
+    from orcheo.nodes.conversational_search.ingestion import WebDocumentLoaderNode
+
+    respx_mock.get("https://example.com/state-doc").mock(
+        return_value=httpx.Response(200, text="<html><body>State doc</body></html>")
+    )
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(
+        inputs={"urls": ["https://example.com/state-doc"]},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert len(result["documents"]) == 1
+    assert "State doc" in result["documents"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_combines_inline_and_state_urls(respx_mock) -> None:
+    """Test WebDocumentLoaderNode combines inline and state URLs."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    respx_mock.get("https://example.com/inline").mock(
+        return_value=httpx.Response(200, text="<html><body>Inline</body></html>")
+    )
+    respx_mock.get("https://example.com/state").mock(
+        return_value=httpx.Response(200, text="<html><body>State</body></html>")
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[WebDocumentInput(url="https://example.com/inline")],
+    )
+    state = State(
+        inputs={"urls": [{"url": "https://example.com/state"}]},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert len(result["documents"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_requires_urls() -> None:
+    """Test WebDocumentLoaderNode raises error when no URLs provided."""
+    from orcheo.nodes.conversational_search.ingestion import WebDocumentLoaderNode
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="No URLs provided"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_rejects_non_list_state_urls() -> None:
+    """Test WebDocumentLoaderNode rejects non-list state URLs."""
+    from orcheo.nodes.conversational_search.ingestion import WebDocumentLoaderNode
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(
+        inputs={"urls": "not-a-list"},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(ValueError, match="state.inputs urls must be a list"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_rejects_invalid_url_type() -> None:
+    """Test WebDocumentLoaderNode rejects invalid URL payload types."""
+    from orcheo.nodes.conversational_search.ingestion import WebDocumentLoaderNode
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(
+        inputs={"urls": [123]},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(TypeError, match="Unsupported URL payload type"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_accepts_web_document_input_in_state(
+    respx_mock,
+) -> None:
+    """Test WebDocumentLoaderNode accepts WebDocumentInput instances in state inputs."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    respx_mock.get("https://example.com/passthrough").mock(
+        return_value=httpx.Response(200, text="<html><body>Passthrough</body></html>")
+    )
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(
+        inputs={"urls": [WebDocumentInput(url="https://example.com/passthrough")]},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert len(result["documents"]) == 1
+    assert "Passthrough" in result["documents"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_raises_on_http_error(respx_mock) -> None:
+    """Test WebDocumentLoaderNode raises error on HTTP failure."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    respx_mock.get("https://example.com/error").mock(
+        return_value=httpx.Response(404, text="Not Found")
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[WebDocumentInput(url="https://example.com/error")],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="Failed to fetch URL"):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_raises_on_empty_content(respx_mock) -> None:
+    """Test WebDocumentLoaderNode raises error when no text extracted."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    respx_mock.get("https://example.com/empty").mock(
+        return_value=httpx.Response(
+            200, text="<html><script>only script</script></html>"
+        )
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[WebDocumentInput(url="https://example.com/empty")],
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    with pytest.raises(ValueError, match="No text content extracted"):
         await node.run(state, {})

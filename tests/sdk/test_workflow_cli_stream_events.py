@@ -84,6 +84,66 @@ async def test_process_stream_messages_handles_node_events(
     assert any(event.get("event") == "custom" for event in handled_events)
 
 
+@pytest.mark.asyncio()
+async def test_process_stream_messages_handles_trace_updates() -> None:
+    state = make_state()
+
+    messages = [
+        json.dumps(
+            {
+                "type": "trace:update",
+                "spans": [{"name": "document_loader", "status": {"code": "OK"}}],
+                "complete": False,
+            }
+        ),
+        json.dumps({"status": "completed"}),
+    ]
+
+    class FakeWebSocket:
+        def __init__(self, payloads: list[str]) -> None:
+            self._payloads = iter(payloads)
+
+        def __aiter__(self) -> FakeWebSocket:
+            return self
+
+        async def __anext__(self) -> str:
+            try:
+                return next(self._payloads)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    result = await _process_stream_messages(state, FakeWebSocket(messages))
+    assert result == "completed"
+    assert any("Trace update" in msg for msg in state.console.messages)
+
+
+@pytest.mark.asyncio()
+async def test_process_stream_messages_handles_generic_updates() -> None:
+    state = make_state()
+
+    messages = [
+        json.dumps({"document_loader": {"results": {"document_loader": {"ok": True}}}}),
+        json.dumps({"status": "completed"}),
+    ]
+
+    class FakeWebSocket:
+        def __init__(self, payloads: list[str]) -> None:
+            self._payloads = iter(payloads)
+
+        def __aiter__(self) -> FakeWebSocket:
+            return self
+
+        async def __anext__(self) -> str:
+            try:
+                return next(self._payloads)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    result = await _process_stream_messages(state, FakeWebSocket(messages))
+    assert result == "completed"
+    assert any("document_loader" in msg for msg in state.console.messages)
+
+
 @pytest.mark.parametrize(
     ("status", "expected", "fragment"),
     [
