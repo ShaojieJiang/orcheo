@@ -1,0 +1,6 @@
+# MkDocs dependencies for ReadTheDocs
+mkdocs
+mkdocs-gen-files
+mkdocs-jupyter
+mkdocs-material
+mkdocstrings[python]>=0.28.1

@@ -1,0 +1,63 @@
+# Orcheo
+
+[![CI](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage](https://coverage-badge.samuelcolvin.workers.dev/ShaojieJiang/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/ShaojieJiang/orcheo)
+[![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?logo=python&label=core)](https://pypi.org/project/orcheo/)
+[![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
+[![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
+[![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
+[![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
+
+Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically.
+
+!!! note
+    This project is currently in Beta. Expect breaking changes as we iterate rapidly towards 1.0.
+
+## Why Orcheo?
+
+- **Vibe-coding-first**: Built from the ground up for AI agents to operate. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) for your coding agent and let it handle setup, workflow creation, and deployment.
+- **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
+- **Backend-first**: Run headless in production; the UI is optional.
+
+## Prerequisites
+
+- **Docker** — for running Redis and other services
+- **Python 3.12+** — required for the backend
+- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
+
+## Quick Start
+
+The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
+
+### 1. Install the Orcheo Agent Skill
+
+Add the [Orcheo agent skill](https://github.com/ShaojieJiang/agent-skills) to your AI coding agent (Claude Code, Cursor, etc.) by following the installation instructions in the repo.
+
+### 2. Let Your Agent Do the Work
+
+Once installed, simply ask your agent to:
+
+- **Set up Orcheo**: "Set up Orcheo for local development"
+- **Create workflows**: "Create a workflow that monitors RSS feeds and sends Slack notifications"
+- **Deploy workflows**: "Deploy and schedule my workflow to run every hour"
+
+Your AI agent will automatically:
+
+- Install dependencies
+- Start the backend server
+- Create and configure workflows
+- Handle authentication and deployment
+
+That's it! Your agent handles the complexity while you focus on describing what you want your workflows to do.
+
+## Documentation
+
+For users who prefer manual setup or need advanced configuration:
+
+- **[Manual Setup Guide](manual_setup.md)** — Complete guide for installation, CLI reference, authentication, MCP configuration, and Canvas setup
+
+For developers contributing to Orcheo:
+
+- **[Developer Guide](manual_setup.md#developer-guide)** — Repository layout, development environment, custom nodes, and configuration
+- **[Deployment Guide](deployment.md)** — Docker Compose and managed PostgreSQL deployment recipes
+- **[Custom Nodes and Tools](custom_nodes_and_tools.md)** — Extend Orcheo with your own integrations

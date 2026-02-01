@@ -1,1 +1,74 @@
-site_name: Example Docs
+site_name: Orcheo
+site_description: Workflow orchestration platform designed for vibe coding
+site_url: https://orcheo.readthedocs.io
+repo_url: https://github.com/ShaojieJiang/orcheo
+repo_name: ShaojieJiang/orcheo
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Manual Setup: manual_setup.md
+      - Environment Variables: environment_variables.md
+      - Authentication: authentication_guide.md
+  - Deployment:
+      - Overview: deployment.md
+      - Execution Worker: execution_worker/deployment.md
+      - PostgreSQL Migration: production/postgresql_migration_plan.md
+  - Chatkit Integration:
+      - Workflow Publishing: chatkit_integration/workflow_publish_guide.md
+      - Chat Bubble: chatkit_integration/canvas_chat_bubble_guide.md
+      - Webpage Embedding: chatkit_integration/webpage_embedding_guide.md
+  - Development:
+      - Developer Tooling: developer_tooling.md
+      - Custom Nodes & Tools: custom_nodes_and_tools.md
+      - Releasing: releasing.md
+  - Reference:
+      - OpenTelemetry Tracing: otel_tracing/README.md
+      - Agentensor Runbook: agentensor/runbook.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+  - mkdocs-jupyter:
+      include_source: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+  - tables
