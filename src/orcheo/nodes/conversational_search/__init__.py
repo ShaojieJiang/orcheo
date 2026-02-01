@@ -50,6 +50,8 @@ from orcheo.nodes.conversational_search.ingestion import (
     IncrementalIndexerNode,
     MetadataExtractorNode,
     VectorStoreUpsertNode,
+    WebDocumentInput,
+    WebDocumentLoaderNode,
 )
 from orcheo.nodes.conversational_search.query_processing import (
     ContextCompressorNode,
@@ -125,6 +127,8 @@ __all__ = [
     "TopicShiftDetectorNode",
     "TurnAnnotationNode",
     "UserFeedbackCollectionNode",
+    "WebDocumentInput",
+    "WebDocumentLoaderNode",
     "WebSearchNode",
     "DenseSearchNode",
 ]
