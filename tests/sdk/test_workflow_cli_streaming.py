@@ -40,6 +40,155 @@ def fake_websockets(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 
 @pytest.mark.asyncio()
+async def test_stream_workflow_run_includes_additional_headers(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state()
+
+    class DummyConnection:
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, _: str) -> None:
+            return None
+
+    connection = DummyConnection()
+
+    def fake_connect(
+        uri: str,
+        *,
+        open_timeout: float,
+        close_timeout: float,
+        additional_headers: dict[str, str] | None = None,
+    ) -> DummyConnection:
+        assert uri.endswith("/ws/workflow/wf-1")
+        assert open_timeout == 5
+        assert close_timeout == 5
+        assert additional_headers == {"Authorization": "Bearer token"}
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    async def fake_process(_: CLIState, __: Any) -> str:
+        return "completed"
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+    )
+    assert result == "completed"
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_run_falls_back_to_extra_headers(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state()
+
+    class DummyConnection:
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, _: str) -> None:
+            return None
+
+    connection = DummyConnection()
+
+    def fake_connect(
+        uri: str,
+        *,
+        open_timeout: float,
+        close_timeout: float,
+        additional_headers: dict[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> DummyConnection:
+        assert uri.endswith("/ws/workflow/wf-1")
+        assert open_timeout == 5
+        assert close_timeout == 5
+        if additional_headers is not None:
+            raise TypeError("unexpected keyword argument 'additional_headers'")
+        assert extra_headers == {"Authorization": "Bearer token"}
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    async def fake_process(_: CLIState, __: Any) -> str:
+        return "completed"
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+    )
+    assert result == "completed"
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_run_without_headers(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state()
+    monkeypatch.setattr(state.client, "get_active_token", lambda: None)
+
+    class DummyConnection:
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, _: str) -> None:
+            return None
+
+    connection = DummyConnection()
+
+    def fake_connect(
+        uri: str,
+        *,
+        open_timeout: float,
+        close_timeout: float,
+    ) -> DummyConnection:
+        assert uri.endswith("/ws/workflow/wf-1")
+        assert open_timeout == 5
+        assert close_timeout == 5
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    async def fake_process(_: CLIState, __: Any) -> str:
+        return "completed"
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+    )
+    assert result == "completed"
+
+
+@pytest.mark.asyncio()
 async def test_stream_workflow_run_succeeds(
     fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:

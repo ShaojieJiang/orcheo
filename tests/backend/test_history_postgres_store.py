@@ -826,7 +826,7 @@ async def test_postgres_store_get_pool_race_condition(
         async def __aexit__(self, *args: Any) -> None:
             pass
 
-    store._init_lock = SideEffectLock()  # type: ignore[assignment]
+    store._pool_lock = SideEffectLock()  # type: ignore[assignment]
     store._pool = None
 
     pool = await store._get_pool()
@@ -850,7 +850,7 @@ async def test_postgres_store_ensure_initialized_race_condition(
         async def __aexit__(self, *args: Any) -> None:
             pass
 
-    store._init_lock = SideEffectLock()  # type: ignore[assignment]
+    store._schema_lock = SideEffectLock()  # type: ignore[assignment]
     store._initialized = False
 
     await store._ensure_initialized()

@@ -32,6 +32,9 @@ class StubClient:
     def delete(self, url: str) -> None:  # pragma: no cover - convenience helper
         self.calls.append(("DELETE", url))
 
+    def get_active_token(self) -> str | None:
+        return "token"
+
 
 class DummyCtx:
     def __init__(self, state: CLIState) -> None:
