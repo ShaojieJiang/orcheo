@@ -280,7 +280,8 @@ def test_dataset_node_input_helpers_and_update() -> None:
     assert container["limit"] == 2
 
 
-def test_dataset_node_validation_and_loading_helpers() -> None:
+@pytest.mark.asyncio
+async def test_dataset_node_validation_and_loading_helpers() -> None:
     node = DatasetNode(name="dataset")
     with pytest.raises(ValueError, match="references to be a dict"):
         node._validate_inputs([{}], references="bad", keyword_corpus=[])
@@ -290,7 +291,7 @@ def test_dataset_node_validation_and_loading_helpers() -> None:
 
     assert node._build_keyword_corpus() == []
     with pytest.raises(ValueError, match="JSON path must be provided"):
-        node._load_json(None)
+        await node._load_json(None)
 
     node.golden_path = "golden"
     assert node._should_load_from_files(None) is True
@@ -298,10 +299,13 @@ def test_dataset_node_validation_and_loading_helpers() -> None:
 
     node = DatasetNode(name="dataset")
     with pytest.raises(ValueError, match="golden_path"):
-        node._load_from_files(None, None)
+        await node._load_from_files(None, None)
 
 
-def test_dataset_node_loads_json_from_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_dataset_node_loads_json_from_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     node = DatasetNode(name="dataset", http_timeout=5.0)
     payload = [{"id": "q1"}]
     checked: dict[str, bool] = {"status": False}
@@ -313,16 +317,31 @@ def test_dataset_node_loads_json_from_url(monkeypatch: pytest.MonkeyPatch) -> No
         def json(self) -> list[dict[str, str]]:
             return payload
 
-    def fake_get(url: str, *, timeout: float) -> DummyResponse:
-        assert url == "https://example.com/data.json"
-        assert timeout == 5.0
-        return DummyResponse()
+    class DummyClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 5.0
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
+            return None
+
+        async def get(self, url: str) -> DummyResponse:
+            assert url == "https://example.com/data.json"
+            return DummyResponse()
 
     monkeypatch.setattr(
-        "orcheo.nodes.conversational_search.evaluation.httpx.get", fake_get
+        "orcheo.nodes.conversational_search.evaluation.httpx.AsyncClient",
+        DummyClient,
     )
 
-    result = node._load_json("https://example.com/data.json")
+    result = await node._load_json("https://example.com/data.json")
     assert checked["status"] is True
     assert result == payload
 
