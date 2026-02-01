@@ -1,6 +1,6 @@
 # Conversational Search Examples
 
-!!! note "Prerequisites"
+!!! warning "Prerequisites"
     Working with these examples requires at least finishing the [Quick Start](manual_setup.md#quick-start) section first.
 
 This guide walks you through a progressive demo suite for building conversational search applications with Orcheo. Each demo builds on the previous one, taking you from basic RAG to production-ready evaluation pipelines.

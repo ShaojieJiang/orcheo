@@ -72,3 +72,10 @@ That's it! Your agent handles the complexity while you focus on describing what 
 - **[Developer Guide](developer_guide.md)** — Repository layout, development environment, and testing
 - **[Deployment Guide](deployment.md)** — Docker Compose and PostgreSQL deployment recipes
 - **[Custom Nodes and Tools](custom_nodes_and_tools.md)** — Extend Orcheo with your own integrations
+
+## Contributing
+
+We welcome contributions from the community:
+
+- **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools](custom_nodes_and_tools.md) guide for how to create and load custom extensions.
+- **How to contribute**: Submit a pull request to the main repository, or publish and share your extensions independently for others to install.

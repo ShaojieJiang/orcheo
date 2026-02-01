@@ -75,6 +75,13 @@ python examples/conversational_search/demo_1_basic_rag/demo_1.py
 - **[Deployment Guide](https://orcheo.readthedocs.io/en/latest/deployment/)** — Docker Compose and PostgreSQL deployment recipes
 - **[Custom Nodes and Tools](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/)** — Extend Orcheo with your own integrations
 
+## Contributing
+
+We welcome contributions from the community:
+
+- **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools guide](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/) for how to create and load custom extensions.
+- **How to contribute**: Submit a pull request to the main repository, or publish and share your extensions independently for others to install.
+
 ## Citation
 
 If you use Orcheo in your research, please cite it as:
