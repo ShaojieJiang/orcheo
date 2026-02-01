@@ -10,9 +10,8 @@
 
 Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically.
 
-> **Note:** This project is currently in Beta. Expect breaking changes as we iterate rapidly towards 1.0.
-
-> **SIGIR Reviewers:** See the **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/conversational_search_examples/)** for step-by-step demos from basic RAG to production-ready search.
+!!! note
+    This project is currently in Beta. Expect breaking changes as we iterate rapidly towards 1.0.
 
 ## Why Orcheo?
 
@@ -30,7 +29,8 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
 
-> **Note:** Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.
+!!! info "Subscription Required"
+    Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.
 
 ### 1. Install the Orcheo Agent Skill
 
@@ -45,6 +45,7 @@ Once installed, simply ask your agent to:
 - **Deploy workflows**: "Deploy and schedule my workflow to run every hour"
 
 Your AI agent will automatically:
+
 - Install dependencies
 - Start the backend server
 - Create and configure workflows
@@ -54,44 +55,27 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 ## Guides
 
-- **[Manual Setup Guide](https://orcheo.readthedocs.io/en/latest/manual_setup/)** — Installation, CLI reference, authentication, and Canvas setup
-- **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/conversational_search_examples/)** — Step-by-step demos from basic RAG to production-ready search
-
-```bash
-# Quick start: Run Demo 1 (no external services required)
-uv sync --group examples
-orcheo credential create openai_api_key --secret sk-your-key
-python examples/conversational_search/demo_1_basic_rag/demo_1.py
-```
+- **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
+- **[Canvas](canvas.md)** — Visual workflow designer
+- **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
+- **[Conversational Search Examples](conversational_search_examples.md)** — Step-by-step demos from basic RAG to production-ready search
 
 ## Reference
 
-- **[SDK Reference](https://orcheo.readthedocs.io/en/latest/sdk_reference/)** — Python SDK for programmatic workflow execution
-- **[Environment Variables](https://orcheo.readthedocs.io/en/latest/environment_variables/)** — Complete configuration reference
+- **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
+- **[SDK Reference](sdk_reference.md)** — Python SDK for programmatic workflow execution
+- **[Authentication Guide](authentication_guide.md)** — Service tokens, OAuth, and JWT configuration
+- **[Environment Variables](environment_variables.md)** — Complete configuration reference
 
 ## For Developers
 
-- **[Developer Guide](https://orcheo.readthedocs.io/en/latest/manual_setup/#developer-guide)** — Repository layout, development environment, and custom nodes
-- **[Deployment Guide](https://orcheo.readthedocs.io/en/latest/deployment/)** — Docker Compose and PostgreSQL deployment recipes
-- **[Custom Nodes and Tools](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/)** — Extend Orcheo with your own integrations
+- **[Developer Guide](developer_guide.md)** — Repository layout, development environment, and testing
+- **[Deployment Guide](deployment.md)** — Docker Compose and PostgreSQL deployment recipes
+- **[Custom Nodes and Tools](custom_nodes_and_tools.md)** — Extend Orcheo with your own integrations
 
 ## Contributing
 
 We welcome contributions from the community:
 
-- **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools guide](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/) for how to create and load custom extensions.
+- **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools](custom_nodes_and_tools.md) guide for how to create and load custom extensions.
 - **How to contribute**: Open an [issue](https://github.com/ShaojieJiang/orcheo/issues), submit a [pull request](https://github.com/ShaojieJiang/orcheo/pulls), or start a [discussion](https://github.com/ShaojieJiang/orcheo/discussions). You can also publish and share your extensions independently for others to install.
-
-## Citation
-
-If you use Orcheo in your research, please cite it as:
-
-```bibtex
-@software{jiang2025orcheo,
-  author       = {Jiang, Shaojie},
-  title        = {Orcheo: A Workflow Orchestration Platform for Vibe Coding},
-  year         = {2025},
-  publisher    = {GitHub},
-  url          = {https://github.com/ShaojieJiang/orcheo}
-}
-```
