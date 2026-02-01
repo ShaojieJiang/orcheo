@@ -55,6 +55,8 @@ That's it! Your agent handles the complexity while you focus on describing what 
 For users who prefer manual setup or need advanced configuration:
 
 - **[Manual Setup Guide](manual_setup.md)** — Complete guide for installation, CLI reference, authentication, MCP configuration, and Canvas setup
+- **[SDK Reference](sdk_reference.md)** — Python SDK for programmatic workflow execution and management
+- **[Environment Variables](environment_variables.md)** — Complete configuration reference
 
 For developers contributing to Orcheo:
 
