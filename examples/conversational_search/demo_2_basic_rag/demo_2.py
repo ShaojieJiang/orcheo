@@ -16,18 +16,17 @@ from orcheo.nodes.conversational_search.ingestion import (
 )
 from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-DEFAULT_DEMO_1_EMBEDDING = "demo1-embedding"
+DEFAULT_DEMO_2_EMBEDDING = "demo2-embedding"
 
 
-def demo1_embedder(texts: list[str]) -> list[list[float]]:
-    """Embedding function for demo 1."""
+def demo2_embedder(texts: list[str]) -> list[list[float]]:
+    """Embedding function for demo 2."""
     return [[float(len(text))] for text in texts]
 
 
-register_embedding_method(DEFAULT_DEMO_1_EMBEDDING, demo1_embedder)
+register_embedding_method(DEFAULT_DEMO_2_EMBEDDING, demo2_embedder)
 
 
 # Default configuration inlined for server execution
@@ -91,7 +90,7 @@ def create_ingestion_nodes(
     chunk_embedding = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key="chunking",
-        embedding_methods={"default": DEFAULT_DEMO_1_EMBEDDING},
+        embedding_methods={"default": DEFAULT_DEMO_2_EMBEDDING},
         credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     vector_upsert = VectorStoreUpsertNode(
@@ -119,7 +118,7 @@ def create_search_nodes(
         vector_store=vector_store,
         top_k=retrieval_config.get("top_k", 5),
         score_threshold=retrieval_config.get("similarity_threshold", 0.0),
-        embedding_method=DEFAULT_DEMO_1_EMBEDDING,
+        embedding_method=DEFAULT_DEMO_2_EMBEDDING,
     )
 
     # generation_config was unused, so we just instantiate the node
@@ -242,110 +241,3 @@ async def build_graph() -> StateGraph:
     routing_edges = create_routing_edges(vector_store)
     workflow = define_workflow(ingestion_nodes, search_nodes, routing_edges)
     return workflow
-
-
-def setup_credentials() -> CredentialResolver:
-    """Set up credential resolver for the demo.
-
-    Note: This demo uses credentials from the Orcheo vault (created via
-    `orcheo credential create openai_api_key`). The vault is typically stored
-    at ~/.orcheo/vault.sqlite by default.
-    """
-    vault = get_vault()
-    return CredentialResolver(vault)
-
-
-async def run_demo() -> None:
-    """Run the demo workflow manually.
-
-    This demo demonstrates both RAG and non-RAG modes:
-    - RAG mode: Documents are provided and used for grounded generation
-    - Non-RAG mode: No documents provided, generates general responses
-
-    Prerequisites:
-    Create the openai_api_key credential before running this demo:
-        orcheo credential create openai_api_key --secret sk-your-key-here
-    """
-    import tempfile
-    from pathlib import Path
-
-    print("=== Starting Demo 1: Basic RAG Pipeline ===\n")
-
-    # Set up credential resolver for the demo
-    resolver = setup_credentials()
-
-    # ========== NON-RAG MODE: Without Documents ==========
-    # Test non-RAG mode first (before any documents are indexed)
-    print("--- Non-RAG Mode: Direct Generation Phase ---")
-    print("(Testing without any documents indexed)\n")
-
-    app_non_rag = build_graph().compile()
-    non_rag_input = {
-        "inputs": {
-            "message": "What is the capital of France?",
-        }
-    }
-
-    with credential_resolution(resolver):
-        result = await app_non_rag.ainvoke(non_rag_input)  # type: ignore[arg-type]
-    print("Non-RAG Mode Results:", result.get("results", {}).keys())
-
-    if "results" in result and "generator" in result["results"]:
-        gen_result = result["results"]["generator"]
-        print("\nNon-RAG Mode Generator Output:")
-        print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
-        print(f"  Mode: {gen_result.get('mode', 'N/A')}")
-        print(f"  Citations: {len(gen_result.get('citations', []))} found")
-
-    # ========== RAG MODE: With Documents ==========
-    print("\n--- RAG Mode: Ingestion and Search Phase ---")
-
-    # Create a new app instance for RAG mode
-    app_rag = build_graph().compile()
-
-    # Phase 0: Simulate file upload (ChatKit behavior)
-    # Create a temporary file to simulate uploaded document
-    temp_dir = Path(tempfile.mkdtemp())
-    doc_file = temp_dir / "atc_demo1234_document.txt"
-    doc_content = "Orcheo is a powerful workflow orchestration platform built on LangGraph. It allows users to create, manage, and execute complex workflows combining AI nodes, task nodes, and external integrations."  # noqa: E501
-    doc_file.write_text(doc_content, encoding="utf-8")
-
-    # Phase 1: Workflow invocation with storage_path (not content)
-    rag_input = {
-        "inputs": {
-            "documents": [
-                {
-                    "storage_path": str(doc_file),  # Path to file on disk
-                    "source": "document.txt",
-                    "metadata": {"category": "tech"},
-                }
-            ],
-            "message": "What is Orcheo?",
-        }
-    }
-
-    try:
-        with credential_resolution(resolver):
-            result = await app_rag.ainvoke(rag_input)  # type: ignore[arg-type]
-        print("RAG Mode Results:", result.get("results", {}).keys())
-
-        if "results" in result and "generator" in result["results"]:
-            gen_result = result["results"]["generator"]
-            print("\nRAG Mode Generator Output:")
-            print(f"  Reply: {gen_result.get('reply', 'N/A')[:100]}...")
-            print(f"  Mode: {gen_result.get('mode', 'N/A')}")
-            print(f"  Citations: {len(gen_result.get('citations', []))} found")
-
-    finally:
-        # Cleanup temporary file
-        doc_file.unlink()
-        temp_dir.rmdir()
-
-    print("\n=== Demo Complete ===")
-
-
-if __name__ == "__main__":
-    import asyncio
-    from orcheo_backend.app.dependencies import get_vault
-
-    asyncio.run(run_demo())
