@@ -234,7 +234,7 @@ def define_workflow(
     return workflow
 
 
-def build_graph() -> StateGraph:
+async def build_graph() -> StateGraph:
     """Entrypoint for the Orcheo server to load the graph."""
     vector_store = InMemoryVectorStore()
     ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
