@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
@@ -53,6 +54,9 @@ class DatasetNode(TaskNode):
     )
     docs_path: str | None = Field(
         default=None, description="Path to knowledge base docs."
+    )
+    http_timeout: float = Field(
+        default=30.0, ge=0.0, description="Timeout in seconds for URL-based datasets."
     )
     split: str | None = Field(
         default=None, description="Optional dataset split when loading from files."
@@ -277,8 +281,15 @@ class DatasetNode(TaskNode):
         if path is None:
             msg = "JSON path must be provided."
             raise ValueError(msg)
+        if self._is_url(path):
+            response = httpx.get(path, timeout=self.http_timeout)
+            response.raise_for_status()
+            return response.json()
         with Path(path).open("r", encoding="utf-8") as file:
             return json.load(file)
+
+    def _is_url(self, path: str) -> bool:
+        return path.startswith(("http://", "https://"))
 
     def _build_keyword_corpus(self) -> list[dict[str, str]]:
         if self.docs_path is None:

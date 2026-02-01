@@ -301,6 +301,32 @@ def test_dataset_node_validation_and_loading_helpers() -> None:
         node._load_from_files(None, None)
 
 
+def test_dataset_node_loads_json_from_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = DatasetNode(name="dataset", http_timeout=5.0)
+    payload = [{"id": "q1"}]
+    checked: dict[str, bool] = {"status": False}
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            checked["status"] = True
+
+        def json(self) -> list[dict[str, str]]:
+            return payload
+
+    def fake_get(url: str, *, timeout: float) -> DummyResponse:
+        assert url == "https://example.com/data.json"
+        assert timeout == 5.0
+        return DummyResponse()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.evaluation.httpx.get", fake_get
+    )
+
+    result = node._load_json("https://example.com/data.json")
+    assert checked["status"] is True
+    assert result == payload
+
+
 @pytest.mark.asyncio
 async def test_retrieval_node_requires_list_inputs() -> None:
     node = RetrievalEvaluationNode(name="retrieval")

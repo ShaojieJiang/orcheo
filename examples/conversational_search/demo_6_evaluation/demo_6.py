@@ -34,11 +34,13 @@ from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
     PineconeVectorStore,
 )
-from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 
 
-SESSION_ID = "demo-5-evaluation-session"
-DATA_DIR = "path/to/your/data"
+SESSION_ID = "demo-6-evaluation-session"
+DATA_DIR = (
+    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/"
+    "refs/heads/main/examples/conversational_search/data"
+)
 RECURSION_LIMIT = 250
 
 
@@ -47,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "golden_path": DATA_DIR + "/golden/golden_dataset.json",
         "queries_path": DATA_DIR + "/queries.json",
         "labels_path": DATA_DIR + "/labels/relevance_labels.json",
-        "docs_path": DATA_DIR + "/docs",
+        "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
         "split": "test",
         "limit": None,
     },
@@ -111,7 +113,7 @@ def build_vector_store_from_config(
     """Instantiate the Pinecone vector store populated by Demo 0."""
     store_type = str(cfg.get("type", "pinecone")).lower()
     if store_type != "pinecone":
-        msg = f"Demo 5 expects a Pinecone {store_kind} vector store seeded by Demo 0."
+        msg = f"Demo 6 expects a Pinecone {store_kind} vector store seeded by Demo 1."
         raise ValueError(msg)
 
     pinecone_cfg = dict(cfg.get("pinecone") or cfg)
@@ -418,6 +420,156 @@ class VariantScoringNode(TaskNode):
         return round(0.5 * recall + 0.3 * ndcg + 0.2 * faithfulness, 3)
 
 
+class EvaluationReplyNode(TaskNode):
+    """Format evaluation results into a ChatKit-friendly reply."""
+
+    analytics_result_key: str = Field(
+        default="analytics_export",
+        description="Result entry containing the analytics export payload.",
+    )
+    ab_testing_result_key: str = Field(
+        default="ab_testing",
+        description="Result entry containing the A/B testing summary.",
+    )
+    failure_analysis_result_key: str = Field(
+        default="failure_analysis",
+        description="Result entry containing failure categories.",
+    )
+    llm_judge_result_key: str = Field(
+        default="llm_judge",
+        description="Result entry containing LLM judge results.",
+    )
+    precision: int = Field(
+        default=3,
+        ge=0,
+        description="Decimal precision for numeric metrics.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Build a summary reply from evaluation results."""
+        del config
+        results = state.get("results", {}) or {}
+
+        analytics_payload = self.extract_mapping(results, self.analytics_result_key)
+        export_payload = self.extract_mapping(analytics_payload, "export")
+        metrics_payload = self.extract_mapping(export_payload, "metrics")
+        vector_metrics = self.extract_mapping(metrics_payload, "vector_only")
+        hybrid_metrics = self.extract_mapping(metrics_payload, "hybrid_fusion")
+        answer_metrics = self.extract_mapping(metrics_payload, "answer_quality")
+
+        llm_judge_payload = self.extract_mapping(results, self.llm_judge_result_key)
+        ab_testing_payload = self.extract_mapping(results, self.ab_testing_result_key)
+        failure_payload = self.extract_mapping(
+            results, self.failure_analysis_result_key
+        )
+
+        lines = ["Evaluation Results"]
+        lines.append(
+            f"- Retrieval (vector_only): {self.format_retrieval(vector_metrics)}"
+        )
+        lines.append(
+            f"- Retrieval (hybrid_fusion): {self.format_retrieval(hybrid_metrics)}"
+        )
+        lines.append(f"- Answer quality: {self.format_answer(answer_metrics)}")
+        lines.append(f"- LLM judge: {self.format_llm_judge(llm_judge_payload)}")
+        lines.append(f"- A/B test: {self.format_ab_test(ab_testing_payload)}")
+        lines.append(
+            f"- Failures: {self.format_categories(failure_payload.get('categories'))}"
+        )
+        feedback_line = self.format_feedback(export_payload)
+        if feedback_line:
+            lines.append(f"- Feedback: {feedback_line}")
+
+        return {"reply": "\n".join(lines)}
+
+    def extract_mapping(self, payload: Any, key: str) -> dict[str, Any]:
+        """Return the nested mapping stored under ``key`` when available."""
+        if isinstance(payload, dict):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                return value
+        return {}
+
+    def format_retrieval(self, metrics: dict[str, Any]) -> str:
+        """Format retrieval metric summaries for display."""
+        entries = [
+            ("Recall@k", metrics.get("recall_at_k")),
+            ("MRR", metrics.get("mrr")),
+            ("NDCG", metrics.get("ndcg", metrics.get("ndcg@10"))),
+            ("MAP", metrics.get("map")),
+        ]
+        return self.format_pairs(entries)
+
+    def format_answer(self, metrics: dict[str, Any]) -> str:
+        """Format answer-quality metric summaries for display."""
+        entries = [
+            ("Faithfulness", metrics.get("faithfulness")),
+            ("Relevance", metrics.get("relevance")),
+        ]
+        return self.format_pairs(entries)
+
+    def format_llm_judge(self, payload: dict[str, Any]) -> str:
+        """Summarize LLM-judge results from the evaluation payload."""
+        approved_ratio = payload.get("approved_ratio")
+        if isinstance(approved_ratio, int | float):
+            return f"approved_ratio={self.format_number(approved_ratio)}"
+        return "approved_ratio=n/a"
+
+    def format_ab_test(self, payload: dict[str, Any]) -> str:
+        """Summarize A/B test results from the evaluation payload."""
+        winner = payload.get("winner")
+        rollout_allowed = payload.get("rollout_allowed")
+        name = "n/a"
+        score_text = "n/a"
+        if isinstance(winner, dict):
+            if isinstance(winner.get("name"), str):
+                name = winner["name"]
+            score = winner.get("score")
+            if isinstance(score, int | float):
+                score_text = self.format_number(score)
+        rollout_text = (
+            "true"
+            if rollout_allowed is True
+            else "false"
+            if rollout_allowed is False
+            else "n/a"
+        )
+        return f"winner={name}, score={score_text}, rollout_allowed={rollout_text}"
+
+    def format_categories(self, categories: Any) -> str:
+        """Format failure categories into a comma-separated list."""
+        if isinstance(categories, list):
+            values = [str(value) for value in categories if str(value).strip()]
+            if values:
+                return ", ".join(values)
+        return "none"
+
+    def format_feedback(self, payload: dict[str, Any]) -> str | None:
+        """Format feedback counts and ratings for display."""
+        feedback_count = payload.get("feedback_count")
+        average_rating = payload.get("average_rating")
+        parts: list[str] = []
+        if isinstance(feedback_count, int | float):
+            parts.append(f"count={int(feedback_count)}")
+        if isinstance(average_rating, int | float):
+            parts.append(f"average_rating={self.format_number(average_rating)}")
+        if not parts:
+            return None
+        return ", ".join(parts)
+
+    def format_pairs(self, entries: list[tuple[str, Any]]) -> str:
+        """Render numeric label/value pairs in a compact form."""
+        parts = []
+        for label, value in entries:
+            if isinstance(value, int | float):
+                parts.append(f"{label}={self.format_number(value)}")
+        return ", ".join(parts) if parts else "n/a"
+
+    def format_number(self, value: float) -> str:
+        """Format a float using the configured decimal precision."""
+        return f"{value:.{self.precision}f}"
+
+
 def prepare_config_and_stores(
     config: dict[str, Any] | None,
     vector_store: BaseVectorStore | None,
@@ -621,6 +773,7 @@ def build_feedback_and_analysis_nodes(
     turn_annotation = TurnAnnotationNode(
         name="turn_annotation", history_key="conversation_history"
     )
+    evaluation_reply = EvaluationReplyNode(name="evaluation_reply")
     return {
         "answer_quality": answer_quality,
         "answer_metrics_to_inputs": answer_metrics_to_inputs,
@@ -639,6 +792,7 @@ def build_feedback_and_analysis_nodes(
         "analytics_export": analytics_export,
         "data_augmentation": data_augmentation,
         "turn_annotation": turn_annotation,
+        "evaluation_reply": evaluation_reply,
     }
 
 
@@ -650,7 +804,7 @@ async def build_graph(
 ) -> StateGraph:
     """Assemble the evaluation workflow graph described in the design doc.
 
-    Requires the Pinecone index seeded by Demo 0; no in-memory fallback is provided.
+    Requires the Pinecone index seeded by Demo 1; no in-memory fallback is provided.
     """
     merged_config, vector_store, sparse_vector_store = prepare_config_and_stores(
         config, vector_store, sparse_vector_store
@@ -699,127 +853,10 @@ async def build_graph(
         evaluation_nodes["analytics_export"],
         evaluation_nodes["data_augmentation"],
         evaluation_nodes["turn_annotation"],
+        evaluation_nodes["evaluation_reply"],
     ]
     for current, nxt in zip(chain, chain[1:], strict=False):
         workflow.add_edge(current.name, nxt.name)
     workflow.add_edge(chain[-1].name, END)
 
     return workflow
-
-
-def print_intro(config: dict[str, Any]) -> None:
-    """Emit configuration cues for the demo run."""
-    dataset_cfg = config["dataset"]
-    vector_cfg = config["vector_store"]
-    sparse_cfg = config.get("sparse_vector_store") or vector_cfg
-    pinecone_cfg = dict(vector_cfg.get("pinecone") or vector_cfg)
-    sparse_pinecone_cfg = dict(sparse_cfg.get("pinecone") or sparse_cfg)
-    print("Evaluation & Research pipeline")
-    print(
-        " Dataset:",
-        dataset_cfg["golden_path"],
-        "|",
-        dataset_cfg["queries_path"],
-    )
-    print(" Vector store type:", vector_cfg.get("type", "pinecone"))
-    print(
-        " Pinecone dense index:",
-        pinecone_cfg.get("index_name"),
-        "| namespace:",
-        pinecone_cfg.get("namespace"),
-        "| seeded by Demo 0",
-    )
-    print(
-        " Pinecone sparse index:",
-        sparse_pinecone_cfg.get("index_name"),
-        "| namespace:",
-        sparse_pinecone_cfg.get("namespace"),
-        "| seeded by Demo 0",
-    )
-    print(" Experiment:", config["ab_testing"]["experiment_id"])
-
-
-def print_retrieval_metrics(results: dict[str, Any]) -> None:
-    """Pretty-print retrieval metrics for both variants."""
-    vector_metrics = results.get("retrieval_eval_vector", {}).get("metrics", {})
-    hybrid_metrics = results.get("retrieval_eval_hybrid", {}).get("metrics", {})
-    if vector_metrics or hybrid_metrics:
-        print("Retrieval metrics:")
-        print("  Vector-only:", vector_metrics)
-        print("  Hybrid fusion:", hybrid_metrics)
-
-
-def print_winner(results: dict[str, Any]) -> None:
-    """Display A/B testing winner details."""
-    ab = results.get("ab_testing", {})
-    winner = ab.get("winner") or {}
-    allowed = ab.get("rollout_allowed")
-    print("A/B winner:", winner.get("name"), "| rollout allowed:", allowed)
-
-
-def print_answer_metrics(results: dict[str, Any]) -> None:
-    """Display answer quality and judge verdicts."""
-    answer = results.get("answer_quality", {}).get("metrics", {})
-    judge = results.get("llm_judge", {})
-    print("Answer quality:", answer)
-    if judge:
-        print("LLM judge approvals:", judge.get("approved_ratio"))
-
-
-def print_feedback_summary(results: dict[str, Any]) -> None:
-    """Display feedback ingestion stats and failure analysis."""
-    feedback = results.get("user_feedback", {}).get("feedback", {})
-    failure = results.get("failure_analysis", {})
-    export = results.get("analytics_export", {})
-    if feedback:
-        print("Feedback rating:", feedback.get("rating"))
-        print("Feedback comment:", feedback.get("comment"))
-    print("Failure categories:", failure.get("categories"))
-    if export:
-        print("Analytics export payload keys:", list(export.keys()))
-
-
-async def run_demo() -> None:
-    """Execute the evaluation demo end-to-end."""
-    print_intro(DEFAULT_CONFIG)
-    workflow = await build_graph()
-    app = workflow.compile().with_config({"recursion_limit": RECURSION_LIMIT})
-    resolver = setup_credentials()
-
-    payload = {
-        "inputs": {
-            "session_id": SESSION_ID,
-            "split": DEFAULT_CONFIG["dataset"]["split"],
-        }
-    }
-    with credential_resolution(resolver):
-        result = await app.ainvoke(payload)  # type: ignore[arg-type]
-    results = result.get("results", {})
-
-    print_retrieval_metrics(results)
-    print_winner(results)
-    print_answer_metrics(results)
-    print_feedback_summary(results)
-    print(
-        "Data augmentation count:",
-        results.get("data_augmentation", {}).get("augmented_count"),
-    )
-    print(
-        "Turn annotations:",
-        len(results.get("turn_annotation", {}).get("annotations", [])),
-    )
-    print("\nDemo run complete.")
-
-
-def setup_credentials() -> CredentialResolver:
-    """Return the resolver that exposes the Pinecone credential."""
-    from orcheo_backend.app.dependencies import get_vault
-
-    vault = get_vault()
-    return CredentialResolver(vault)
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(run_demo())

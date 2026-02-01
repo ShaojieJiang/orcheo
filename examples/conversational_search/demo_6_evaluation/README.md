@@ -5,9 +5,11 @@ Evaluation-focused scaffold with golden datasets, relevance labels, and variant 
 ## Usage
 This demo is designed to be uploaded and executed on the Orcheo server.
 
-1. Upload `demo.py` to your Orcheo workspace.
-2. The server will detect the `graph` entrypoint and `DEFAULT_CONFIG`.
-3. Execute the workflow via the Orcheo Console or API.
+1. Upload `demo_6.py` to your Orcheo workspace.
+2. (Optional) Store runnable defaults during upload:
+   `orcheo workflow upload demo_6.py --config-file config.json`
+3. The server will detect the `graph` entrypoint and `DEFAULT_CONFIG`.
+4. Execute the workflow via the Orcheo Console or API.
 
 ## What to Expect
 - Golden queries live in `../data/golden/golden_dataset.json` with paired relevance labels in `../data/labels/relevance_labels.json`.
