@@ -344,7 +344,7 @@ def _handle_generic_update(state: CLIState, update: dict[str, Any]) -> None:
         return
 
     keys = sorted(update.keys())
-    if keys:
+    if keys:  # pragma: no branch
         preview = ", ".join(keys[:4])
         if len(keys) > 4:
             preview = f"{preview}, …"

@@ -23,6 +23,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_SERVICE_TOKEN": "token",
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
         "NO_COLOR": "1",
     }
 

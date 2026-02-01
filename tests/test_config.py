@@ -1,25 +1,36 @@
 """Tests for configuration helpers."""
 
+from collections.abc import Generator
 import pytest
 from dynaconf import Dynaconf
 from orcheo import config
+from orcheo.config import loader as config_loader
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 
 
-def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def _build_loader_without_dotenv() -> Dynaconf:
+    """Create a Dynaconf loader that doesn't load from .env files."""
+    return Dynaconf(
+        envvar_prefix="ORCHEO",
+        settings_files=[],
+        load_dotenv=False,
+        environments=False,
+    )
+
+
+@pytest.fixture()
+def no_dotenv_loader(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Patch the config loader to not load .env files."""
+    monkeypatch.setattr(config_loader, "_build_loader", _build_loader_without_dotenv)
+    yield
+
+
+def test_settings_defaults(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Default settings fall back to SQLite and localhost server."""
-
-    def _build_loader_without_dotenv() -> Dynaconf:
-        return Dynaconf(
-            envvar_prefix="ORCHEO",
-            settings_files=[],
-            load_dotenv=False,
-            environments=False,
-        )
-
-    monkeypatch.setattr(config, "_build_loader", _build_loader_without_dotenv)
 
     monkeypatch.delenv("ORCHEO_CHECKPOINT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_SQLITE_PATH", raising=False)
@@ -186,7 +197,7 @@ def test_postgres_vault_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_postgres_vault_requires_encryption_key(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
 ) -> None:
     """Postgres vaults require an encryption key."""
 
@@ -216,7 +227,7 @@ def test_postgres_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_file_vault_allows_missing_encryption_key(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
 ) -> None:
     """File-based vaults fall back to automatic key management."""
 
@@ -279,7 +290,9 @@ def test_vault_token_ttl_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.vault_token_ttl_seconds == 900
 
 
-def test_aws_vault_requires_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_aws_vault_requires_encryption_key(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """AWS KMS vaults must provide an encryption key."""
 
     monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "aws_kms")

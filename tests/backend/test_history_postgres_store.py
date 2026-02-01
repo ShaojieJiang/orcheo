@@ -919,3 +919,28 @@ async def test_postgres_store_row_to_record_parse_json_with_non_string(
     assert record.inputs == {"key": "value"}
     assert record.runnable_config == {"config": "data"}
     assert record.tags == ["tag1"]
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_ensure_initialized_rollback_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that _ensure_initialized rolls back and re-raises on schema error."""
+
+    class ErrorConnection(FakeConnection):
+        async def execute(self, query: str, params: Any | None = None) -> FakeCursor:
+            raise RuntimeError("Schema creation failed")
+
+    monkeypatch.setattr(pg_store, "AsyncConnectionPool", object())
+    monkeypatch.setattr(pg_store, "DictRowFactory", object())
+    store = PostgresRunHistoryStore("postgresql://test")
+    error_conn = ErrorConnection([])
+    store._pool = FakePool(error_conn)
+    store._initialized = False
+
+    with pytest.raises(RuntimeError, match="Schema creation failed"):
+        await store._ensure_initialized()
+
+    assert error_conn.rollbacks == 1
+    assert error_conn.commits == 0
+    assert store._initialized is False

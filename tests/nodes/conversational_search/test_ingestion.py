@@ -1285,6 +1285,33 @@ async def test_web_document_loader_rejects_invalid_url_type() -> None:
 
 
 @pytest.mark.asyncio
+async def test_web_document_loader_accepts_web_document_input_in_state(
+    respx_mock,
+) -> None:
+    """Test WebDocumentLoaderNode accepts WebDocumentInput instances in state inputs."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    respx_mock.get("https://example.com/passthrough").mock(
+        return_value=httpx.Response(200, text="<html><body>Passthrough</body></html>")
+    )
+
+    node = WebDocumentLoaderNode(name="web_loader")
+    state = State(
+        inputs={"urls": [WebDocumentInput(url="https://example.com/passthrough")]},
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert len(result["documents"]) == 1
+    assert "Passthrough" in result["documents"][0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_web_document_loader_raises_on_http_error(respx_mock) -> None:
     """Test WebDocumentLoaderNode raises error on HTTP failure."""
     from orcheo.nodes.conversational_search.ingestion import (

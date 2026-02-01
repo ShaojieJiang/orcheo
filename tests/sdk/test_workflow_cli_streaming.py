@@ -506,3 +506,166 @@ async def test_stream_workflow_evaluation_handles_websocket_exception(
     )
     assert result == "websocket_error"
     assert any("WebSocket error" in msg for msg in state.console.messages)
+
+
+def test_handle_trace_update_with_empty_spans_and_complete_flag() -> None:
+    """Test _handle_trace_update with empty spans and complete=True (lines 305-307)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {"type": "trace:update", "spans": [], "complete": True}
+    _handle_trace_update(state, update)
+    assert any("Trace update: complete" in msg for msg in state.console.messages)
+
+
+def test_handle_trace_update_with_non_list_spans_and_complete_flag() -> None:
+    """Test _handle_trace_update with non-list spans and complete=True."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {"type": "trace:update", "spans": None, "complete": True}
+    _handle_trace_update(state, update)
+    assert any("Trace update: complete" in msg for msg in state.console.messages)
+
+
+def test_handle_trace_update_with_non_dict_last_span() -> None:
+    """Test _handle_trace_update when last_span is not a dict (line 311)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {"type": "trace:update", "spans": ["not-a-dict"]}
+    _handle_trace_update(state, update)
+    # Should return early without printing anything
+    assert not state.console.messages
+
+
+def test_handle_trace_update_with_non_dict_status() -> None:
+    """Test _handle_trace_update when status is not a dict (lines 317->321, 327)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    # status is a string, not a dict, so status_code and status_message remain None
+    update = {"type": "trace:update", "spans": [{"name": "test", "status": "ok"}]}
+    _handle_trace_update(state, update)
+    # Should print just the name without status info
+    assert any("Trace update: test" in msg for msg in state.console.messages)
+
+
+def test_handle_trace_update_with_status_message() -> None:
+    """Test _handle_trace_update with status_message (line 323)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {
+        "type": "trace:update",
+        "spans": [
+            {
+                "name": "workflow",
+                "status": {"code": "OK", "message": "Success!"},
+            }
+        ],
+    }
+    _handle_trace_update(state, update)
+    # Note: strip() removes the leading space from status_text
+    assert any(
+        "Trace update: workflow(OK) Success!" in msg for msg in state.console.messages
+    )
+
+
+def test_handle_trace_update_with_status_code_only() -> None:
+    """Test _handle_trace_update with status_code but no message."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {
+        "type": "trace:update",
+        "spans": [{"name": "workflow", "status": {"code": "ERROR"}}],
+    }
+    _handle_trace_update(state, update)
+    assert any(
+        "Trace update: workflow (ERROR)" in msg for msg in state.console.messages
+    )
+
+
+def test_handle_generic_update_with_empty_update() -> None:
+    """Test _handle_generic_update with empty update dict (line 333)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    _handle_generic_update(state, {})
+    # Should return early without printing
+    assert not state.console.messages
+
+
+def test_handle_generic_update_with_non_dict_payload() -> None:
+    """Test _handle_generic_update with single key and non-dict payload."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"node_name": "string_payload"}
+    _handle_generic_update(state, update)
+    assert any("• node_name" in msg for msg in state.console.messages)
+
+
+def test_handle_generic_update_with_empty_dict_payload() -> None:
+    """Test _handle_generic_update with single key and empty dict payload."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"node_name": {}}
+    _handle_generic_update(state, update)
+    # Empty dict has no keys, so detail should be empty
+    assert any("• node_name" in msg for msg in state.console.messages)
+
+
+def test_handle_generic_update_with_payload_more_than_four_keys() -> None:
+    """Test _handle_generic_update with >4 keys in payload (line 342)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"node_name": {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}}
+    _handle_generic_update(state, update)
+    # Should show first 4 keys with ellipsis
+    assert any("• node_name (a, b, c, d, …)" in msg for msg in state.console.messages)
+
+
+def test_handle_generic_update_with_multiple_update_keys() -> None:
+    """Test _handle_generic_update with multiple keys (lines 346-351)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"key1": "val1", "key2": "val2"}
+    _handle_generic_update(state, update)
+    assert any("Update keys: key1, key2" in msg for msg in state.console.messages)
+
+
+def test_handle_generic_update_with_more_than_four_update_keys() -> None:
+    """Test _handle_generic_update with >4 update keys (lines 349-350)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
+    _handle_generic_update(state, update)
+    assert any("Update keys: a, b, c, d, …" in msg for msg in state.console.messages)
+
+
+def test_handle_trace_update_empty_spans_without_complete() -> None:
+    """Test _handle_trace_update with empty spans and no complete flag."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_trace_update
+
+    state = make_state()
+    update = {"type": "trace:update", "spans": []}
+    _handle_trace_update(state, update)
+    # Should return early without printing anything (complete flag not set)
+    assert not state.console.messages
+
+
+def test_handle_generic_update_with_payload_few_keys() -> None:
+    """Test _handle_generic_update with 1-4 keys in payload (branch 341->343)."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state()
+    update = {"node_name": {"key1": 1, "key2": 2}}
+    _handle_generic_update(state, update)
+    # Should show keys without ellipsis since <= 4 keys
+    assert any("• node_name (key1, key2)" in msg for msg in state.console.messages)
