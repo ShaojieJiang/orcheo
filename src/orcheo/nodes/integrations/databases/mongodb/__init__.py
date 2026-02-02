@@ -1,13 +1,15 @@
-"""Compatibility exports for MongoDB nodes."""
+"""MongoDB integration nodes."""
 
-from orcheo.nodes.integrations.databases.mongodb import (
+from orcheo.nodes.integrations.databases.mongodb.base import (
     MongoDBAggregateNode,
-    MongoDBEnsureSearchIndexNode,
-    MongoDBEnsureVectorIndexNode,
     MongoDBFindNode,
-    MongoDBHybridSearchNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
+)
+from orcheo.nodes.integrations.databases.mongodb.search import (
+    MongoDBEnsureSearchIndexNode,
+    MongoDBEnsureVectorIndexNode,
+    MongoDBHybridSearchNode,
 )
 
 

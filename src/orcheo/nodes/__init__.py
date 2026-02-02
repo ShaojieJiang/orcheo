@@ -27,7 +27,10 @@ from orcheo.nodes.logic import (
 )
 from orcheo.nodes.mongodb import (
     MongoDBAggregateNode,
+    MongoDBEnsureSearchIndexNode,
+    MongoDBEnsureVectorIndexNode,
     MongoDBFindNode,
+    MongoDBHybridSearchNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
 )
@@ -68,6 +71,9 @@ __all__ = [
     "MongoDBAggregateNode",
     "MongoDBFindNode",
     "MongoDBUpdateManyNode",
+    "MongoDBEnsureSearchIndexNode",
+    "MongoDBEnsureVectorIndexNode",
+    "MongoDBHybridSearchNode",
     "PostgresNode",
     "SQLiteNode",
     "SlackNode",

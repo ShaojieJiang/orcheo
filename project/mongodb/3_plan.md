@@ -27,11 +27,11 @@ Plan to modularize MongoDB nodes under a shared integrations tree and introduce 
 
 #### Task Checklist
 
-- [ ] Task 1.1: Review and approve requirements document
+- [x] Task 1.1: Review and approve requirements document
   - Dependencies: None
-- [ ] Task 1.2: Review and approve design document
+- [x] Task 1.2: Review and approve design document
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Decide index comparison strategy (strict vs. lax)
+- [x] Task 1.3: Decide index comparison strategy (strict vs. lax)
   - Dependencies: Task 1.2
 
 ---
@@ -42,11 +42,11 @@ Plan to modularize MongoDB nodes under a shared integrations tree and introduce 
 
 #### Task Checklist
 
-- [ ] Task 2.1: Convert `src/orcheo/nodes/mongodb.py` into `src/orcheo/nodes/integrations/databases/mongodb/` with `base.py` and `__init__.py`
+- [x] Task 2.1: Convert `src/orcheo/nodes/mongodb.py` into `src/orcheo/nodes/integrations/databases/mongodb/` with `base.py` and `__init__.py`
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add search nodes in `src/orcheo/nodes/integrations/databases/mongodb/search.py`
+- [x] Task 2.2: Add search nodes in `src/orcheo/nodes/integrations/databases/mongodb/search.py`
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Add compatibility exports (`src/orcheo/nodes/mongodb.py`, `src/orcheo/nodes/__init__.py`) to keep imports stable
+- [x] Task 2.3: Add compatibility exports (`src/orcheo/nodes/mongodb.py`, `src/orcheo/nodes/__init__.py`) to keep imports stable
   - Dependencies: Task 2.1
 
 ---
@@ -57,11 +57,11 @@ Plan to modularize MongoDB nodes under a shared integrations tree and introduce 
 
 #### Task Checklist
 
-- [ ] Task 3.1: Add unit tests for index management and pipeline generation
+- [x] Task 3.1: Add unit tests for index management and pipeline generation
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Update `examples/mongodb.py` to show advanced usage
+- [x] Task 3.2: Update `examples/mongodb.py` to show advanced usage
   - Dependencies: Task 2.2
-- [ ] Task 3.3: Run lint and targeted tests
+- [x] Task 3.3: Run lint and targeted tests
   - Dependencies: Task 3.1, Task 3.2
 
 ---

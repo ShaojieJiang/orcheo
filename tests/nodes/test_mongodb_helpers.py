@@ -219,7 +219,10 @@ def test_shared_client_lifecycle() -> None:
     MongoDBNode._client_ref_counts.clear()
     client_mock = MagicMock()
 
-    with patch("orcheo.nodes.mongodb.MongoClient", return_value=client_mock):
+    with patch(
+        "orcheo.nodes.integrations.databases.mongodb.base.MongoClient",
+        return_value=client_mock,
+    ):
         first = MongoDBNode._get_shared_client("conn")
         second = MongoDBNode._get_shared_client("conn")
         assert first is client_mock
@@ -240,7 +243,8 @@ def test_shared_client_lifecycle() -> None:
     MongoDBNode._client_ref_counts.clear()
 
     with patch(
-        "orcheo.nodes.mongodb.MongoClient", side_effect=[client_one, client_two]
+        "orcheo.nodes.integrations.databases.mongodb.base.MongoClient",
+        side_effect=[client_one, client_two],
     ):
         MongoDBNode._get_shared_client("conn-one")
         MongoDBNode._get_shared_client("conn-two")

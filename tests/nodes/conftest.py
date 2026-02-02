@@ -76,7 +76,9 @@ def mongo_context() -> Generator[MongoTestContext, None, None]:
     client = MagicMock()
     client.__getitem__.return_value = database
 
-    with patch("orcheo.nodes.mongodb.MongoClient") as mongo_client_cls:
+    with patch(
+        "orcheo.nodes.integrations.databases.mongodb.base.MongoClient"
+    ) as mongo_client_cls:
         mongo_client_cls.return_value = client
         yield MongoTestContext(
             client=client,
