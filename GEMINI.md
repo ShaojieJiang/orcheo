@@ -65,6 +65,7 @@ The project also exposes CLI commands via `pyproject.toml` scripts (available wh
 -   `tests/`: Python test suite (mirrors `src/` structure).
 -   `docs/`: Project documentation (Markdown).
 -   `examples/`: Example scripts and Jupyter notebooks.
+-   `CONTRIBUTORS.md`: List of project contributors.
 -   `Makefile`: Automation for common dev tasks.
 -   `pyproject.toml`: Python configuration and dependencies.
 -   `uv.lock`: Locked Python dependencies.
@@ -87,3 +88,4 @@ The project also exposes CLI commands via `pyproject.toml` scripts (available wh
 2.  **Adhere to Style**: Use `make format` and `make canvas-format` to ensure changes match the project style.
 3.  **Test Updates**: When modifying logic, ensure existing tests pass and add new tests for new functionality; run the smallest relevant pytest target for your change (e.g., `uv run pytest tests/nodes/test_foo.py`) and document which test command you ran, ensuring it passes with all tests green before completion; for Canvas work run `make canvas-format`, `make canvas-lint`, and the smallest relevant Canvas test target (prefer targeted npm/vitest commands), document which Canvas test command you ran, ensure it passes with all tests green, and run all three Canvas commands after ANY TypeScript/JavaScript code modification.
 4.  **Dependency Awareness**: Do not assume global packages. Use `uv run` or `npm run` context.
+5.  **Document Ownership**: When writing documents, set the author to the person writing the document, and default the document owner to ShaojieJiang unless explicitly stated otherwise.
