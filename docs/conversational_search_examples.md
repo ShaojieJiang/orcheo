@@ -3,6 +3,9 @@
 !!! warning "Prerequisites"
     Working with these examples requires at least finishing the [Quick Start](index.md#quick-start) OR the [Manual Setup Quick Start](manual_setup.md#quick-start) first.
 
+!!! tip "AI Coding Assistants"
+    If you use [Claude Code](https://claude.ai/code), [Codex CLI](https://github.com/openai/codex), or [Cursor](https://cursor.com), we recommend installing the `orcheo-demos` skill from [agent-skills](https://github.com/ShaojieJiang/agent-skills) to streamline running and deploying these demos.
+
 This guide walks you through a progressive demo suite for building conversational search applications with Orcheo. Each demo builds on the previous one, taking you from basic RAG to production-ready evaluation pipelines.
 
 ## Overview
