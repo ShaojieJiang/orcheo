@@ -114,6 +114,31 @@ async def test_force_rebuild_drops_and_creates(mongo_context) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_search_index_uses_definition_name(mongo_context) -> None:
+    mongo_context.collection.list_search_indexes.return_value = []
+
+    node = MongoDBEnsureSearchIndexNode(
+        name="ensure_search",
+        database="test_db",
+        collection="test_coll",
+        definition={
+            "name": "custom_search",
+            "definition": {"mappings": {"dynamic": False}},
+        },
+    )
+
+    result = await node.run(_base_state(), RunnableConfig())
+
+    assert result == {"status": "created", "index_name": "custom_search"}
+    mongo_context.collection.create_search_index.assert_called_once_with(
+        {
+            "name": "custom_search",
+            "definition": {"mappings": {"dynamic": False}},
+        }
+    )
+
+
+@pytest.mark.asyncio
 async def test_vector_index_builds_definition_when_missing(mongo_context) -> None:
     mongo_context.collection.list_search_indexes.return_value = []
 
@@ -144,6 +169,31 @@ async def test_vector_index_builds_definition_when_missing(mongo_context) -> Non
                     },
                 }
             },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_vector_index_uses_definition_name(mongo_context) -> None:
+    mongo_context.collection.list_search_indexes.return_value = []
+
+    node = MongoDBEnsureVectorIndexNode(
+        name="ensure_vector",
+        database="test_db",
+        collection="test_coll",
+        definition={
+            "name": "custom_vector",
+            "definition": {"mappings": {"dynamic": False}},
+        },
+    )
+
+    result = await node.run(_base_state(), RunnableConfig())
+
+    assert result == {"status": "created", "index_name": "custom_vector"}
+    mongo_context.collection.create_search_index.assert_called_once_with(
+        {
+            "name": "custom_vector",
+            "definition": {"mappings": {"dynamic": False}},
         }
     )
 

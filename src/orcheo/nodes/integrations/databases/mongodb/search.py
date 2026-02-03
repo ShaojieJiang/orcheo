@@ -97,8 +97,14 @@ class MongoDBEnsureSearchIndexNode(MongoDBClientNode):
         return self
 
     def _resolve_index_definition(self) -> tuple[str, dict[str, Any]]:
-        name = self.index_name or _default_index_name(self.collection, "fts")
-        return _resolve_index_payload(self.definition, name)
+        if self.index_name:
+            return _resolve_index_payload(self.definition, self.index_name)
+        try:
+            return _resolve_index_payload(self.definition, None)
+        except ValueError:
+            return _resolve_index_payload(
+                self.definition, _default_index_name(self.collection, "fts")
+            )
 
     def _list_search_indexes(self) -> list[dict[str, Any]]:
         assert self._collection is not None
@@ -257,9 +263,15 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
         }
 
     def _resolve_index_definition(self) -> tuple[str, dict[str, Any]]:
-        name = self.index_name or _default_index_name(self.collection, "vec")
         definition = self.definition or self._build_default_definition()
-        return _resolve_index_payload(definition, name)
+        if self.index_name:
+            return _resolve_index_payload(definition, self.index_name)
+        try:
+            return _resolve_index_payload(definition, None)
+        except ValueError:
+            return _resolve_index_payload(
+                definition, _default_index_name(self.collection, "vec")
+            )
 
     def _list_search_indexes(self) -> list[dict[str, Any]]:
         assert self._collection is not None
