@@ -25,6 +25,11 @@ def test_config_command_writes_profiles_from_env_file(
                 "ORCHEO_API_URL=http://env-file.test",
                 "ORCHEO_SERVICE_TOKEN=env-token",
                 "ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://canvas.test",
+                "ORCHEO_AUTH_ISSUER=https://auth.env-file.test",
+                "ORCHEO_AUTH_CLIENT_ID=env-client-id",
+                "ORCHEO_AUTH_SCOPES=openid email",
+                "ORCHEO_AUTH_AUDIENCE=https://api.env-file.test",
+                "ORCHEO_AUTH_ORGANIZATION=org-env",
             ]
         ),
         encoding="utf-8",
@@ -47,6 +52,11 @@ def test_config_command_writes_profiles_from_env_file(
         assert profile["api_url"] == "http://env-file.test"
         assert profile["service_token"] == "env-token"
         assert profile["chatkit_public_base_url"] == "http://canvas.test"
+        assert profile["ORCHEO_AUTH_ISSUER"] == "https://auth.env-file.test"
+        assert profile["ORCHEO_AUTH_CLIENT_ID"] == "env-client-id"
+        assert profile["ORCHEO_AUTH_SCOPES"] == "openid email"
+        assert profile["ORCHEO_AUTH_AUDIENCE"] == "https://api.env-file.test"
+        assert profile["ORCHEO_AUTH_ORGANIZATION"] == "org-env"
 
 
 def test_config_command_uses_environment_defaults(
@@ -223,6 +233,7 @@ def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> No
     config_dir.mkdir()
     minimal_env = {
         "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_API_URL": "",
         "NO_COLOR": "1",
     }
 

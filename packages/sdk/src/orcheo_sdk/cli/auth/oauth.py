@@ -141,7 +141,7 @@ def start_oauth_login(
     port: int = DEFAULT_CALLBACK_PORT,
 ) -> None:
     """Execute browser-based OAuth login flow."""
-    config = get_oauth_config()
+    config = get_oauth_config(profile=profile)
     discovery = _load_discovery(config.issuer)
 
     # Generate PKCE parameters

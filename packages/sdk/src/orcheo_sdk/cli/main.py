@@ -5,6 +5,8 @@ import os
 import sys
 from collections.abc import Callable
 from datetime import timedelta
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from typing import Annotated
 import click
 import typer
@@ -31,6 +33,18 @@ def _is_completion_mode() -> bool:
         env_var.startswith("_TYPER_COMPLETE") or env_var.startswith("_ORCHEO_COMPLETE")
         for env_var in os.environ
     )
+
+
+def _version_callback(value: bool) -> None:
+    """Print CLI version and exit."""
+    if not value:
+        return
+    try:
+        version_value = package_version("orcheo-sdk")
+    except PackageNotFoundError:
+        version_value = "unknown"
+    typer.echo(f"orcheo {version_value}")
+    raise typer.Exit()
 
 
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
@@ -63,6 +77,15 @@ def main(
         str | None,
         typer.Option("--profile", help="Profile name from the CLI config."),
     ] = None,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the Orcheo CLI version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
     api_url: Annotated[
         str | None,
         typer.Option("--api-url", help="Override the API URL."),
