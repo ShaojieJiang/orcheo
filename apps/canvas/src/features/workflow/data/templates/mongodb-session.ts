@@ -7,7 +7,7 @@ export const MONGODB_SESSION_WORKFLOW: Workflow = {
   description: "Demonstrates MongoDB node reuse across runs.",
   createdAt: "2024-02-18T16:10:00Z",
   updatedAt: "2024-03-05T19:55:00Z",
-  sourceExample: "examples/mongodb.py",
+  sourceExample: "examples/mongodb/mongodb.py",
   owner: TEMPLATE_OWNER,
   tags: ["template", "database", "storage"],
   nodes: [
@@ -30,7 +30,7 @@ export const MONGODB_SESSION_WORKFLOW: Workflow = {
         type: "data",
         description:
           "MongoDB node performs a find operation using the configured session.",
-        examplePath: "examples/mongodb.py",
+        examplePath: "examples/mongodb/mongodb.py",
       },
     },
     {

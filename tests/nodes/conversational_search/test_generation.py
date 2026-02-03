@@ -3,6 +3,7 @@ import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.generation import (
     GroundedGeneratorNode,
+    SearchResultFormatterNode,
     StreamingGeneratorNode,
     _truncate_snippet,
 )
@@ -494,3 +495,267 @@ async def test_streaming_generator_handles_string_message_in_list(
 
     result = await node.run(state, {})
     assert result["reply"] == "string message"
+
+
+# SearchResultFormatterNode tests
+
+
+def _formatter_state(entries: list[SearchResult] | None = None) -> State:
+    payload = {"results": entries} if entries is not None else {}
+    return State(
+        inputs={},
+        results={"retriever": payload},
+        structured_response=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_formatter_returns_empty_message_when_no_entries() -> None:
+    node = SearchResultFormatterNode(name="formatter")
+    state = _formatter_state([])
+
+    result = await node.run(state, {})
+
+    assert result["markdown"] == "No results found."
+
+
+@pytest.mark.asyncio
+async def test_formatter_includes_header() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.9,
+            text="body",
+            metadata={"title": "First"},
+        )
+    ]
+    node = SearchResultFormatterNode(name="formatter", header="## Results")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert result["markdown"].startswith("## Results\n")
+
+
+@pytest.mark.asyncio
+async def test_formatter_omits_header_when_empty() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.5,
+            text="body",
+            metadata={"title": "First"},
+        )
+    ]
+    node = SearchResultFormatterNode(name="formatter", header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert not result["markdown"].startswith("\n")
+
+
+@pytest.mark.asyncio
+async def test_formatter_uses_title_fallback_when_no_title_in_metadata() -> None:
+    entries = [SearchResult(id="r1", score=0.5, text="body", metadata={})]
+    node = SearchResultFormatterNode(name="formatter", header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "Result 1" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_includes_score() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.123456,
+            text="body",
+            metadata={"title": "T"},
+        )
+    ]
+    node = SearchResultFormatterNode(
+        name="formatter", include_score=True, score_precision=2, header=""
+    )
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "(score: 0.12)" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_falls_back_to_text_for_snippet() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.5,
+            text="  The actual content  ",
+            metadata={"title": "T"},
+        )
+    ]
+    node = SearchResultFormatterNode(name="formatter", fallback_to_text=True, header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "Snippet: The actual content" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_shows_snippet_from_metadata() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.5,
+            text="body",
+            metadata={"title": "T", "snippet": "Meta snippet"},
+        )
+    ]
+    node = SearchResultFormatterNode(name="formatter", header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "Snippet: Meta snippet" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_shows_url_from_metadata() -> None:
+    entries = [
+        SearchResult(
+            id="r1",
+            score=0.5,
+            text="body",
+            metadata={"title": "T", "url": "https://example.com"},
+        )
+    ]
+    node = SearchResultFormatterNode(name="formatter", header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "Source: https://example.com" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_strips_trailing_blank_line() -> None:
+    entries = [SearchResult(id="r1", score=0.5, text="body", metadata={"title": "T"})]
+    node = SearchResultFormatterNode(name="formatter", header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert not result["markdown"].endswith("\n")
+
+
+@pytest.mark.asyncio
+async def test_formatter_resolve_results_payload_not_dict() -> None:
+    """Covers _resolve_results when payload is not a dict with results_field."""
+    state = State(
+        inputs={},
+        results={"retriever": [{"id": "r1", "score": 0.5, "text": "t"}]},
+        structured_response=None,
+    )
+    node = SearchResultFormatterNode(name="formatter", header="")
+
+    result = await node.run(state, {})
+
+    assert "1. Result 1" in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_resolve_results_none_entries() -> None:
+    state = State(
+        inputs={},
+        results={"retriever": {"results": None}},
+        structured_response=None,
+    )
+    node = SearchResultFormatterNode(name="formatter")
+
+    result = await node.run(state, {})
+
+    assert result["markdown"] == "No results found."
+
+
+@pytest.mark.asyncio
+async def test_formatter_resolve_results_rejects_non_list() -> None:
+    state = State(
+        inputs={},
+        results={"retriever": {"results": "invalid"}},
+        structured_response=None,
+    )
+    node = SearchResultFormatterNode(name="formatter")
+
+    with pytest.raises(
+        ValueError,
+        match="SearchResultFormatterNode requires a list of retrieval results",
+    ):
+        await node.run(state, {})
+
+
+def test_formatter_format_title_fallback_handles_format_error() -> None:
+    node = SearchResultFormatterNode(name="formatter", title_fallback="{bad_key}")
+    entry = SearchResult(id="r1", score=0.5, text="t", metadata={})
+
+    result = node._format_title_fallback(entry, 1)
+
+    assert result == "Result 1"
+
+
+def test_formatter_pick_field_returns_none_for_empty_metadata() -> None:
+    result = SearchResultFormatterNode._pick_field({}, ["title", "name"])
+
+    assert result is None
+
+
+def test_formatter_pick_field_skips_non_string_values() -> None:
+    result = SearchResultFormatterNode._pick_field(
+        {"title": 123, "name": "Valid"}, ["title", "name"]
+    )
+
+    assert result == "Valid"
+
+
+def test_formatter_pick_field_skips_blank_strings() -> None:
+    result = SearchResultFormatterNode._pick_field(
+        {"title": "   ", "name": "Valid"}, ["title", "name"]
+    )
+
+    assert result == "Valid"
+
+
+def test_formatter_format_score_returns_na_for_non_numeric() -> None:
+    node = SearchResultFormatterNode(name="formatter")
+
+    assert node._format_score("not-a-number") == "n/a"
+    assert node._format_score(None) == "n/a"
+
+
+@pytest.mark.asyncio
+async def test_formatter_excludes_score_when_disabled() -> None:
+    entries = [SearchResult(id="r1", score=0.5, text="body", metadata={"title": "T"})]
+    node = SearchResultFormatterNode(name="formatter", include_score=False, header="")
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "score" not in result["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_formatter_no_snippet_and_no_fallback() -> None:
+    """Covers the branch where snippet is empty and fallback_to_text is False."""
+    entries = [
+        SearchResult(id="r1", score=0.5, text="body text", metadata={"title": "T"})
+    ]
+    node = SearchResultFormatterNode(
+        name="formatter", fallback_to_text=False, header=""
+    )
+    state = _formatter_state(entries)
+
+    result = await node.run(state, {})
+
+    assert "Snippet" not in result["markdown"]

@@ -327,20 +327,66 @@ def _handle_trace_update(state: CLIState, update: dict[str, Any]) -> None:
         state.console.print(f"[dim]Trace update: {name}[/dim]")
 
 
+def _render_results_payload(
+    state: CLIState,
+    payload: Any,
+    *,
+    title: str,
+    node: str | None = None,
+) -> bool:
+    """Render results payloads when present."""
+    if not isinstance(payload, dict):
+        return False
+
+    results = payload.get(node, payload) if node else payload
+    from orcheo_sdk.cli import workflow as workflow_module
+
+    render_json_fn = getattr(
+        workflow_module,
+        "render_json",
+        render_json,
+    )
+    render_json_fn(state.console, results, title=title)
+    return True
+
+
+def _handle_single_update(state: CLIState, node: str, payload: Any) -> None:
+    """Handle a single node update payload."""
+    if state.verbose_results and isinstance(payload, dict):
+        if _render_results_payload(  # pragma: no branch
+            state, payload.get("results"), title=f"{node} results", node=node
+        ):
+            return
+
+    detail = ""
+    if isinstance(payload, dict):
+        keys = sorted(payload.keys())
+        if keys:
+            detail = f" ({', '.join(keys[:4])})"
+            if len(keys) > 4:
+                detail = f"{detail[:-1]}, …)"
+    state.console.print(f"[dim]• {node}{detail}[/dim]")
+
+
 def _handle_generic_update(state: CLIState, update: dict[str, Any]) -> None:
     """Handle generic update payloads without explicit node metadata."""
     if not update:
         return
+    if state.verbose_results and _render_results_payload(
+        state, update.get("results"), title="Results"
+    ):
+        return
     if len(update) == 1:
         node, payload = next(iter(update.items()))
-        detail = ""
-        if isinstance(payload, dict):
-            keys = sorted(payload.keys())
-            if keys:
-                detail = f" ({', '.join(keys[:4])})"
-                if len(keys) > 4:
-                    detail = f"{detail[:-1]}, …)"
-        state.console.print(f"[dim]• {node}{detail}[/dim]")
+        if (
+            state.verbose_results
+            and isinstance(payload, dict)
+            and _render_results_payload(
+                state, payload.get("results"), title=f"{node} results", node=node
+            )
+        ):
+            return
+        _handle_single_update(state, node, payload)
         return
 
     keys = sorted(update.keys())

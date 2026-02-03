@@ -17,13 +17,52 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.json_schema import SkipJsonSchema
 from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
-from orcheo.nodes.agent_tools.context import tool_execution_context
+from orcheo.nodes.agent_tools.context import (
+    get_active_tool_config,
+    get_active_tool_progress_callback,
+    tool_execution_context,
+)
 from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
 logger = logging.getLogger(__name__)
+
+
+async def _run_tool_graph(
+    compiled_graph: Runnable,
+    payload: dict[str, Any],
+) -> Any:
+    """Execute a compiled graph, streaming updates when configured."""
+    config = get_active_tool_config()
+    progress_callback = get_active_tool_progress_callback()
+
+    if progress_callback is None or config is None:
+        if config is None:
+            return await compiled_graph.ainvoke(payload)
+        return await compiled_graph.ainvoke(payload, config=config)
+
+    last_values: Any | None = None
+    async for event in compiled_graph.astream(
+        payload,
+        config=config,  # type: ignore[arg-type]
+        stream_mode=["updates", "values"],
+    ):
+        if isinstance(event, tuple) and len(event) == 2:
+            mode, data = event
+        else:  # pragma: no cover - defensive fallback
+            mode, data = "updates", event
+        if mode == "updates":
+            await progress_callback(data)
+        elif mode == "values":  # pragma: no branch
+            last_values = data
+
+    if last_values is not None:
+        return last_values
+
+    msg = "Tool graph streaming did not produce final values."
+    raise RuntimeError(msg)
 
 
 def _create_workflow_tool_func(
@@ -49,11 +88,13 @@ def _create_workflow_tool_func(
 
     async def workflow_coroutine(**kwargs: Any) -> Any:
         """Execute the workflow graph asynchronously."""
-        return await compiled_graph.ainvoke(kwargs)
+        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        return await _run_tool_graph(compiled_graph, payload)
 
     def workflow_sync(**kwargs: Any) -> Any:
         """Execute the workflow graph synchronously."""
-        return asyncio.run(compiled_graph.ainvoke(kwargs))
+        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        return asyncio.run(_run_tool_graph(compiled_graph, payload))
 
     return StructuredTool.from_function(
         func=workflow_sync,

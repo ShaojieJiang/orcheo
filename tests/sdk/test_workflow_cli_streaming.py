@@ -618,6 +618,26 @@ def test_handle_generic_update_with_empty_dict_payload() -> None:
     assert any("• node_name" in msg for msg in state.console.messages)
 
 
+def test_handle_generic_update_with_results_payload() -> None:
+    """Test _handle_generic_update with top-level results payload."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state(verbose_results=True)
+    update = {"results": {"node_name": {"value": 1}}}
+    _handle_generic_update(state, update)
+    assert any("Results" in msg for msg in state.console.messages)
+
+
+def test_handle_generic_update_with_node_results_payload() -> None:
+    """Test _handle_generic_update with node-scoped results payload."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
+
+    state = make_state(verbose_results=True)
+    update = {"node_name": {"results": {"node_name": {"value": 2}}}}
+    _handle_generic_update(state, update)
+    assert any("node_name results" in msg for msg in state.console.messages)
+
+
 def test_handle_generic_update_with_payload_more_than_four_keys() -> None:
     """Test _handle_generic_update with >4 keys in payload (line 342)."""
     from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
@@ -669,3 +689,17 @@ def test_handle_generic_update_with_payload_few_keys() -> None:
     _handle_generic_update(state, update)
     # Should show keys without ellipsis since <= 4 keys
     assert any("• node_name (key1, key2)" in msg for msg in state.console.messages)
+
+
+def test_handle_single_update_verbose_results_early_return() -> None:
+    """Test _handle_single_update returns early when verbose_results renders results."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_single_update
+
+    state = make_state(verbose_results=True)
+    payload = {"results": {"my_node": {"score": 0.95}}}
+    _handle_single_update(state, "my_node", payload)
+    # _render_results_payload renders JSON and returns True, so the
+    # "• my_node" fallback line should NOT appear.
+    assert not any("• my_node" in msg for msg in state.console.messages)
+    # But results should have been rendered
+    assert state.console.messages

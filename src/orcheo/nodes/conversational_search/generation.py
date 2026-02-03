@@ -1,6 +1,7 @@
 """Grounded generation node for conversational search pipelines."""
 
 from __future__ import annotations
+from collections.abc import Mapping
 from typing import Any, Literal
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
@@ -698,3 +699,155 @@ class CitationsFormatterNode(TaskNode):
             lines = [f"- {ref['line']}" for ref in references]
             sections.append("References:\n" + "\n".join(lines))
         return "\n\n".join(sections).strip()
+
+
+@registry.register(
+    NodeMetadata(
+        name="SearchResultFormatterNode",
+        description="Format SearchResult entries into markdown for tool responses.",
+        category="conversational_search",
+    )
+)
+class SearchResultFormatterNode(TaskNode):
+    """Node that renders search results as a readable markdown list."""
+
+    source_result_key: str = Field(
+        default="retriever",
+        description="Result entry containing retrieval output.",
+    )
+    results_field: str = Field(
+        default="results", description="Field containing SearchResult entries."
+    )
+    output_key: str = Field(
+        default="markdown", description="Key used to store formatted markdown."
+    )
+    header: str = Field(
+        default="Search results:",
+        description="Header text included before the formatted entries.",
+    )
+    empty_message: str = Field(
+        default="No results found.",
+        description="Message returned when no results are available.",
+    )
+    include_score: bool = Field(
+        default=True, description="Include scores in the formatted output."
+    )
+    score_precision: int = Field(
+        default=3,
+        ge=0,
+        le=6,
+        description="Decimal precision for score rounding.",
+    )
+    max_results: int | None = Field(
+        default=None,
+        gt=0,
+        description="Optional maximum number of entries to include.",
+    )
+    title_fields: list[str] = Field(
+        default_factory=lambda: ["title", "name", "platform_name"],
+        description="Metadata fields to use for entry titles.",
+    )
+    snippet_fields: list[str] = Field(
+        default_factory=lambda: [
+            "snippet",
+            "summary",
+            "description",
+            "recommendation_reason",
+        ],
+        description="Metadata fields to use for entry snippets.",
+    )
+    url_fields: list[str] = Field(
+        default_factory=lambda: [
+            "url",
+            "link",
+            "source_url",
+            "permalink",
+            "href",
+            "source",
+        ],
+        description="Metadata fields to scan for source URLs.",
+    )
+    snippet_label: str = Field(
+        default="Snippet",
+        description="Label prefix applied to snippet lines.",
+    )
+    title_fallback: str = Field(
+        default="Result {index}",
+        description="Fallback format string when a title is missing.",
+    )
+    fallback_to_text: bool = Field(
+        default=True,
+        description="Use the SearchResult text when no snippet is found.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Render SearchResult entries into markdown."""
+        entries = self._resolve_results(state)
+        if not entries:
+            return {self.output_key: self.empty_message}
+
+        lines: list[str] = []
+        if self.header:
+            lines.append(self.header)
+
+        max_results = self.max_results or len(entries)
+        for index, entry in enumerate(entries[:max_results], start=1):
+            metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+            title = self._pick_field(metadata, self.title_fields)
+            if not title:
+                title = self._format_title_fallback(entry, index)
+            entry_line = f"{index}. {title}"
+            if self.include_score:
+                entry_line += f" (score: {self._format_score(entry.score)})"
+            lines.append(entry_line)
+
+            snippet = self._pick_field(metadata, self.snippet_fields)
+            if not snippet and self.fallback_to_text:
+                snippet = entry.text.strip()
+            if snippet:
+                lines.append(f"{self.snippet_label}: {snippet}")
+
+            url = self._pick_field(metadata, self.url_fields)
+            if url:
+                lines.append(f"Source: {url}")
+            lines.append("")
+
+        if lines and not lines[-1]:  # pragma: no branch
+            lines.pop()
+        return {self.output_key: "\n".join(lines)}
+
+    def _resolve_results(self, state: State) -> list[SearchResult]:
+        results = state.get("results", {})
+        payload = results.get(self.source_result_key, {})
+        if isinstance(payload, dict) and self.results_field in payload:
+            entries = payload[self.results_field]
+        else:
+            entries = payload
+        if entries is None:
+            return []
+        if not isinstance(entries, list):
+            msg = "SearchResultFormatterNode requires a list of retrieval results"
+            raise ValueError(msg)
+        return [
+            SearchResult.model_validate(item) for item in entries if item is not None
+        ]
+
+    def _format_title_fallback(self, entry: SearchResult, index: int) -> str:
+        try:
+            return self.title_fallback.format(index=index, id=entry.id)
+        except (KeyError, IndexError, ValueError):
+            return f"Result {index}"
+
+    @staticmethod
+    def _pick_field(metadata: Mapping[str, Any], fields: list[str]) -> str | None:
+        for field in fields:
+            value = metadata.get(field)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _format_score(self, score: Any) -> str:
+        if isinstance(score, int | float):
+            precision = self.score_precision
+            return f"{score:.{precision}f}"
+        return "n/a"

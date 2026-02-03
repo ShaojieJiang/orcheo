@@ -11,6 +11,7 @@ from orcheo.nodes.conversational_search import (
     InMemoryVectorStore,
     MetadataExtractorNode,
     PineconeVectorStore,
+    TextEmbeddingNode,
     VectorStoreUpsertNode,
 )
 from orcheo.nodes.data import (
@@ -27,7 +28,11 @@ from orcheo.nodes.logic import (
 )
 from orcheo.nodes.mongodb import (
     MongoDBAggregateNode,
+    MongoDBEnsureSearchIndexNode,
+    MongoDBEnsureVectorIndexNode,
     MongoDBFindNode,
+    MongoDBHybridSearchNode,
+    MongoDBInsertManyNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
 )
@@ -67,7 +72,11 @@ __all__ = [
     "MongoDBNode",
     "MongoDBAggregateNode",
     "MongoDBFindNode",
+    "MongoDBInsertManyNode",
     "MongoDBUpdateManyNode",
+    "MongoDBEnsureSearchIndexNode",
+    "MongoDBEnsureVectorIndexNode",
+    "MongoDBHybridSearchNode",
     "PostgresNode",
     "SQLiteNode",
     "SlackNode",
@@ -87,6 +96,7 @@ __all__ = [
     "ChunkEmbeddingNode",
     "ChunkingStrategyNode",
     "MetadataExtractorNode",
+    "TextEmbeddingNode",
     "VectorStoreUpsertNode",
     "InMemoryVectorStore",
     "PineconeVectorStore",

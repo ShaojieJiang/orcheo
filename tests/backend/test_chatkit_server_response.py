@@ -9,6 +9,7 @@ from chatkit.types import (
     AssistantMessageContent,
     AssistantMessageItem,
     InferenceOptions,
+    ProgressUpdateEvent,
     ThreadMetadata,
     UserMessageItem,
     UserMessageTextContent,
@@ -60,10 +61,76 @@ async def test_chatkit_server_emits_assistant_reply() -> None:
     await server.store.add_thread_item(thread.id, user_item, context)
 
     events = [event async for event in server.respond(thread, user_item, context)]
-    assert len(events) == 1
-    event = events[0]
+    non_progress = [e for e in events if not isinstance(e, ProgressUpdateEvent)]
+    assert len(non_progress) == 1
+    event = non_progress[0]
     assert isinstance(event.item, AssistantMessageItem)
     assert "Ping" in event.item.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_emits_progress_updates() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+
+    async def fake_run(_workflow_uuid, _inputs, progress_callback=None, **_kwargs):
+        if progress_callback is not None:
+            await progress_callback({})
+            await progress_callback({"node_a": {"value": 1}})
+        return ("Reply", {}, None)
+
+    server._run_workflow = AsyncMock(side_effect=fake_run)  # type: ignore[attr-defined]
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Ping")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    events = [event async for event in server.respond(thread, user_item, context)]
+
+    progress_events = [
+        event for event in events if isinstance(event, ProgressUpdateEvent)
+    ]
+    assert len(progress_events) == 2
+    assert progress_events[0].text == "Agent is working..."
+    assert progress_events[1].text == "Running node_a"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_emits_node_event_progress_updates() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+
+    async def fake_run(_workflow_uuid, _inputs, progress_callback=None, **_kwargs):
+        if progress_callback is not None:
+            await progress_callback({"node": "indexer", "event": "on_chain_start"})
+            await progress_callback({"node": "indexer", "event": "on_chain_end"})
+        return ("Reply", {}, None)
+
+    server._run_workflow = AsyncMock(side_effect=fake_run)  # type: ignore[attr-defined]
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Ping")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    events = [event async for event in server.respond(thread, user_item, context)]
+
+    progress_texts = [
+        event.text for event in events if isinstance(event, ProgressUpdateEvent)
+    ]
+    assert any("indexer" in text and "starting" in text for text in progress_texts)
+    assert any("indexer" in text and "completed" in text for text in progress_texts)
 
 
 @pytest.mark.asyncio
@@ -115,7 +182,8 @@ async def test_chatkit_server_resolve_user_item_from_history() -> None:
     await server.store.add_thread_item(thread.id, user_item, context)
 
     events = [event async for event in server.respond(thread, None, context)]
-    assert len(events) == 1
+    non_progress = [e for e in events if not isinstance(e, ProgressUpdateEvent)]
+    assert len(non_progress) == 1
 
 
 @pytest.mark.asyncio
@@ -144,7 +212,7 @@ async def test_chatkit_server_builds_history() -> None:
 
     captured_inputs: dict[str, object] = {}
 
-    async def mock_run(workflow_uuid, inputs, actor="chatkit"):
+    async def mock_run(_workflow_uuid, inputs, _actor="chatkit", **_: object):
         captured_inputs.update(inputs)
         return ("Reply", {}, None)
 
@@ -231,3 +299,45 @@ async def test_chatkit_server_resolve_user_item_with_assistant_as_most_recent() 
 
     with pytest.raises(CustomStreamError, match="Unable to locate"):
         await server._resolve_user_item(thread, None, context)
+
+
+def test_format_node_event_update_on_chain_error_with_message() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "on_chain_error", {"error": "boom"})
+    assert result == "! indexer error: boom"
+
+
+def test_format_node_event_update_on_chain_error_without_message() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "on_chain_error", {})
+    assert result == "! indexer error"
+
+
+def test_format_node_event_update_on_chain_error_non_mapping_payload() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "on_chain_error", "not a dict")
+    assert result == "! indexer error"
+
+
+def test_format_node_event_update_unknown_event() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "on_tool_start", None)
+    assert result == "[on_tool_start] indexer"
+
+
+def test_progress_texts_for_step_skips_none_key() -> None:
+    from orcheo_backend.app.chatkit.server import _progress_texts_for_step
+
+    texts = _progress_texts_for_step({None: "value", "node_a": "data"})  # type: ignore[dict-item]
+    assert texts == ["Running node_a"]
+
+
+def test_progress_texts_for_step_skips_empty_key() -> None:
+    from orcheo_backend.app.chatkit.server import _progress_texts_for_step
+
+    texts = _progress_texts_for_step({"  ": "value", "node_a": "data"})
+    assert texts == ["Running node_a"]

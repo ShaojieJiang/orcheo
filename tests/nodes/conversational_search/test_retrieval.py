@@ -17,6 +17,7 @@ from orcheo.nodes.conversational_search.retrieval import (
     DenseSearchNode,
     HybridFusionNode,
     PineconeRerankNode,
+    SearchResultAdapterNode,
     SparseSearchNode,
     _resolve_retrieval_results,
 )
@@ -661,3 +662,406 @@ def test_resolve_retrieval_results_skips_null_items() -> None:
     resolved = _resolve_retrieval_results(state, "fusion", "results")
 
     assert len(resolved) == 1
+
+
+# --- SearchResultAdapterNode tests ---
+
+
+@pytest.mark.asyncio
+async def test_adapter_converts_mapping_entries() -> None:
+    entries = [
+        {
+            "id": "doc-1",
+            "score": 0.9,
+            "text": "passage",
+            "metadata": {"topic": "test"},
+            "source": "api",
+            "sources": ["api"],
+        }
+    ]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert len(result["results"]) == 1
+    assert result["results"][0].id == "doc-1"
+    assert result["results"][0].metadata == {"topic": "test"}
+
+
+@pytest.mark.asyncio
+async def test_adapter_payload_not_dict_with_results_field() -> None:
+    """Covers entries = payload when payload is not a dict with results_field."""
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "metadata": {}, "source": "s"}]
+    state = State(
+        inputs={},
+        results={"retriever": entries},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert len(result["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_adapter_returns_empty_for_none_entries() -> None:
+    state = State(
+        inputs={},
+        results={"retriever": {"results": None}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_non_list_entries() -> None:
+    state = State(
+        inputs={},
+        results={"retriever": {"results": "invalid"}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    with pytest.raises(
+        ValueError, match="SearchResultAdapterNode requires a list of results"
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_adapter_skips_none_entries() -> None:
+    entries = [
+        {"id": "r1", "score": 1.0, "text": "t", "metadata": {}},
+        None,
+    ]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert len(result["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_adapter_passes_through_search_result_instances() -> None:
+    sr = SearchResult(
+        id="sr-1",
+        score=0.8,
+        text="passage",
+        metadata={"k": "v"},
+        source="orig",
+    )
+    state = State(
+        inputs={},
+        results={"retriever": {"results": [sr]}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].id == "sr-1"
+    assert result["results"][0].source == "orig"
+
+
+@pytest.mark.asyncio
+async def test_adapter_applies_source_override_to_search_result() -> None:
+    sr = SearchResult(
+        id="sr-1",
+        score=0.8,
+        text="passage",
+        metadata={},
+        source="orig",
+        sources=["orig"],
+    )
+    state = State(
+        inputs={},
+        results={"retriever": {"results": [sr]}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", source_name="override")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].source == "override"
+    assert "override" in result["results"][0].sources
+    assert "orig" in result["results"][0].sources
+
+
+@pytest.mark.asyncio
+async def test_adapter_applies_source_override_when_already_present() -> None:
+    """source_name already in sources list should not duplicate."""
+    sr = SearchResult(
+        id="sr-1",
+        score=0.8,
+        text="passage",
+        metadata={},
+        source="mine",
+        sources=["mine"],
+    )
+    state = State(
+        inputs={},
+        results={"retriever": {"results": [sr]}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", source_name="mine")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].sources.count("mine") == 1
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_non_mapping_entry() -> None:
+    state = State(
+        inputs={},
+        results={"retriever": {"results": [42]}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    with pytest.raises(
+        ValueError,
+        match="SearchResultAdapterNode entries must be mappings",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_adapter_extracts_metadata_from_raw_field() -> None:
+    entries = [
+        {
+            "id": "r1",
+            "score": 1.0,
+            "text": "t",
+            "raw": {"nested_key": "nested_val"},
+        }
+    ]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field="raw")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].metadata == {"nested_key": "nested_val"}
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_metadata_returns_empty_when_not_found() -> None:
+    entries = [{"id": "r1", "score": 1.0, "text": "t"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field=None)
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_source_from_entry() -> None:
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "my_source"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].source == "my_source"
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_source_returns_none_for_blank() -> None:
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "   "}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].source is None
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_sources_from_list() -> None:
+    entries = [
+        {
+            "id": "r1",
+            "score": 1.0,
+            "text": "t",
+            "sources": ["a", "b"],
+        }
+    ]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].sources == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_sources_from_string() -> None:
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "sources": "single"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].sources == ["single"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_sources_falls_back_to_source() -> None:
+    """When sources field is missing, falls back to source."""
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "fallback"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].sources == ["fallback"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_coerce_score_from_string() -> None:
+    entries = [{"id": "r1", "score": "0.75", "text": "t"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].score == 0.75
+
+
+@pytest.mark.asyncio
+async def test_adapter_coerce_score_invalid_string_uses_default() -> None:
+    entries = [{"id": "r1", "score": "bad", "text": "t"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", default_score=0.5)
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].score == 0.5
+
+
+@pytest.mark.asyncio
+async def test_adapter_coerce_score_none_uses_default() -> None:
+    entries = [{"id": "r1", "text": "t"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", default_score=0.1)
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].score == 0.1
+
+
+def test_adapter_extract_empty_path_returns_false() -> None:
+    node = SearchResultAdapterNode(name="adapter")
+
+    found, value = node._extract({"key": "val"}, "")
+
+    assert found is False
+    assert value is None
+
+
+def test_adapter_extract_handles_value_error() -> None:
+    """Covers _extract catching ValueError from _extract_value."""
+    node = SearchResultAdapterNode(name="adapter")
+
+    # A path with no valid segments triggers ValueError from _split_path
+    found, value = node._extract({"key": "val"}, ".")
+
+    assert found is False
+    assert value is None
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_metadata_raw_field_not_mapping() -> None:
+    """Covers raw_field found but value is not a Mapping."""
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "raw": "not-a-dict"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field="raw")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_adapter_extract_sources_neither_list_nor_string() -> None:
+    """Covers sources_value that is neither list nor string."""
+    entries = [
+        {
+            "id": "r1",
+            "score": 1.0,
+            "text": "t",
+            "source": "src",
+            "sources": 42,
+        }
+    ]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter")
+
+    result = await node.run(state, {})
+
+    # sources is 42 (not list/str), so falls back to source
+    assert result["results"][0].sources == ["src"]
