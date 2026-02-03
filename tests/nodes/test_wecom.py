@@ -867,7 +867,7 @@ class TestWeComAccessTokenNode:
         node = WeComAccessTokenNode(
             name="get_token",
             corp_id="corp123",
-            corp_secret="secret456",
+            app_secret="secret456",
         )
 
         mock_response = MagicMock()
@@ -900,7 +900,7 @@ class TestWeComAccessTokenNode:
         node = WeComAccessTokenNode(
             name="get_token",
             corp_id="corp123",
-            corp_secret="bad_secret",
+            app_secret="bad_secret",
         )
 
         mock_response = MagicMock()

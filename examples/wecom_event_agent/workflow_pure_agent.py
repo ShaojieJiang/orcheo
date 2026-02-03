@@ -12,7 +12,7 @@ Configurable inputs (workflow_config.json):
 - rsvps_collection (MongoDB collection for RSVPs)
 
 Orcheo vault secrets required:
-- wecom_corp_secret: WeCom app secret for access token
+- wecom_app_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
 - mdb_connection_string: MongoDB connection string

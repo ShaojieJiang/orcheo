@@ -8,7 +8,7 @@ Configurable inputs (workflow_config.json):
 - corp_id (WeCom corp ID)
 
 Orcheo vault secrets required:
-- wecom_corp_secret: WeCom app secret for access token
+- wecom_app_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
 """
@@ -100,6 +100,7 @@ async def build_graph() -> StateGraph:
         "get_cs_access_token",
         WeComAccessTokenNode(
             name="get_cs_access_token",
+            app_secret="[[wecom_app_secret_eventually]]",
             corp_id="{{config.configurable.corp_id}}",
         ),
     )

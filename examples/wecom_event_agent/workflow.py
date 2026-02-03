@@ -12,7 +12,7 @@ Configurable inputs (workflow_config.json):
 - rsvps_collection (MongoDB collection for RSVPs)
 
 Orcheo vault secrets required:
-- wecom_corp_secret: WeCom app secret for access token
+- wecom_app_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
 - mdb_connection_string: MongoDB connection string
@@ -740,6 +740,7 @@ def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
         "get_access_token",
         WeComAccessTokenNode(
             name="get_access_token",
+            app_secret="[[wecom_app_secret_orcheo]]",
             corp_id="{{config.configurable.corp_id}}",
         ),
     )
@@ -748,6 +749,7 @@ def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
         "get_cs_access_token",
         WeComAccessTokenNode(
             name="get_cs_access_token",
+            app_secret="[[wecom_app_secret_orcheo]]",
             corp_id="{{config.configurable.corp_id}}",
         ),
     )
