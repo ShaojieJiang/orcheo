@@ -91,7 +91,7 @@ async def test_message_delivery_integration() -> None:
     access_token_node = WeComAccessTokenNode(
         name="get_access_token",
         corp_id=corp_id,
-        corp_secret="secret456",
+        app_secret="secret456",
     )
     send_node = WeComSendMessageNode(
         name="send_message",

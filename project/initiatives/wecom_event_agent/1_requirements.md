@@ -77,7 +77,7 @@ The workflow receives WeCom Customer Service callbacks, validates the signature,
 - Customer Service sync using access tokens from corp ID and secret.
 - MongoDB collections for events and RSVPs with upsert semantics.
 - Timestamp handling (created_at/updated_at) for event and RSVP updates.
-- Secrets stored in Orcheo vault: `wecom_corp_secret`, `wecom_token`, `wecom_encoding_aes_key`, `mdb_connection_string`.
+- Secrets stored in Orcheo vault: `wecom_app_secret`, `wecom_token`, `wecom_encoding_aes_key`, `mdb_connection_string`.
 
 ### AI/ML Considerations (if applicable)
 #### Data Requirements
