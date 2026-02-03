@@ -6,6 +6,7 @@ from orcheo.nodes.integrations.databases.mongodb import (
     MongoDBEnsureVectorIndexNode,
     MongoDBFindNode,
     MongoDBHybridSearchNode,
+    MongoDBInsertManyNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
 )
@@ -14,6 +15,7 @@ from orcheo.nodes.integrations.databases.mongodb import (
 __all__ = [
     "MongoDBAggregateNode",
     "MongoDBFindNode",
+    "MongoDBInsertManyNode",
     "MongoDBNode",
     "MongoDBUpdateManyNode",
     "MongoDBEnsureSearchIndexNode",

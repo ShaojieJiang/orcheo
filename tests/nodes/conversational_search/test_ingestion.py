@@ -1264,8 +1264,8 @@ async def test_web_document_loader_fetches_and_extracts_text(respx_mock) -> None
     assert "Hello World" in doc["content"]
     assert "This is a test paragraph" in doc["content"]
     assert "alert" not in doc["content"]
-    assert doc["metadata"]["url"] == "https://example.com/doc"
     assert doc["metadata"]["source_type"] == "web"
+    assert doc["metadata"]["title"] == "Test Page"
     assert doc["source"] == "https://example.com/doc"
 
 

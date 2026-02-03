@@ -191,9 +191,8 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
         default=None,
         description="Optional full index definition to use as-is.",
     )
-    dimensions: int | None = Field(
+    dimensions: int | str | None = Field(
         default=None,
-        gt=0,
         description="Vector dimensions required when definition is omitted.",
     )
     similarity: Literal["cosine", "dotProduct", "euclidean"] | None = Field(
@@ -219,9 +218,30 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
             raise ValueError(msg)
         return self
 
+    @field_validator("dimensions", mode="before")
+    @classmethod
+    def _validate_dimensions(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "dimensions must be an integer"
+                raise ValueError(msg) from exc
+        if isinstance(value, int) and value <= 0:
+            msg = "dimensions must be > 0"
+            raise ValueError(msg)
+        return value
+
     def _build_default_definition(self) -> dict[str, Any]:
         if self.dimensions is None or self.similarity is None:
             msg = "definition, dimensions, and similarity must be provided"
+            raise ValueError(msg)
+        if isinstance(self.dimensions, str):
+            msg = "dimensions must resolve to an integer before execution"
             raise ValueError(msg)
         return {
             "mappings": {

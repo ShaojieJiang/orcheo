@@ -308,7 +308,7 @@ class DocumentLoaderNode(TaskNode):
 class _HTMLTextExtractor(HTMLParser):
     """Simple HTML parser that extracts text content."""
 
-    SKIP_TAGS = frozenset({"script", "style", "head", "meta", "link", "noscript"})
+    SKIP_TAGS = frozenset({"script", "style", "head", "noscript"})
 
     def __init__(self) -> None:
         super().__init__()
@@ -333,11 +333,44 @@ class _HTMLTextExtractor(HTMLParser):
         return "\n".join(self._text_parts)
 
 
+class _HTMLTitleExtractor(HTMLParser):
+    """HTML parser that extracts the document title."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._title_parts: list[str] = []
+        self._in_title = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "title":
+            self._in_title = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            stripped = data.strip()
+            if stripped:
+                self._title_parts.append(stripped)
+
+    def get_title(self) -> str:
+        return " ".join(self._title_parts).strip()
+
+
 def _html_to_text(html: str) -> str:
     """Extract plain text from HTML content."""
     parser = _HTMLTextExtractor()
     parser.feed(html)
     return parser.get_text()
+
+
+def _html_to_title(html: str) -> str:
+    """Extract the title text from HTML content."""
+    parser = _HTMLTitleExtractor()
+    parser.feed(html)
+    return parser.get_title()
 
 
 class WebDocumentInput(BaseModel):
@@ -368,7 +401,7 @@ class WebDocumentLoaderNode(TaskNode):
         default="urls",
         description="Key within ``state.inputs`` that may contain URLs to fetch.",
     )
-    urls: list[WebDocumentInput] = Field(
+    urls: list[WebDocumentInput] | str = Field(
         default_factory=list, description="Inline URLs configured on the node"
     )
     default_metadata: dict[str, Any] = Field(
@@ -379,6 +412,10 @@ class WebDocumentLoaderNode(TaskNode):
         default=30.0, ge=0.0, description="Timeout in seconds for HTTP requests"
     )
     follow_redirects: bool = Field(default=True, description="Follow HTTP redirects")
+    extract_title: bool = Field(
+        default=True,
+        description="Extract and store the HTML <title> as metadata when missing.",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Fetch web pages and convert them to normalized documents."""
@@ -401,7 +438,8 @@ class WebDocumentLoaderNode(TaskNode):
 
     def _collect_url_payloads(self, state: State) -> list[WebDocumentInput]:
         """Collect URL payloads from inline config and state inputs."""
-        payloads = list(self.urls)
+        inline = self.urls if isinstance(self.urls, list) else []
+        payloads = [self._coerce_url_input(item) for item in inline]
         state_urls = state.get("inputs", {}).get(self.input_key)
         if not state_urls:
             return payloads
@@ -444,7 +482,10 @@ class WebDocumentLoaderNode(TaskNode):
 
         document_id = web_input.id or f"{self.name}-doc-{index}"
         metadata = {**self.default_metadata, **web_input.metadata}
-        metadata["url"] = web_input.url
+        if self.extract_title and "title" not in metadata:
+            title = _html_to_title(response.text)
+            if title:
+                metadata["title"] = title
 
         return Document(
             id=document_id,

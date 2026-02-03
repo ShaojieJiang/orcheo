@@ -49,11 +49,13 @@ def _create_workflow_tool_func(
 
     async def workflow_coroutine(**kwargs: Any) -> Any:
         """Execute the workflow graph asynchronously."""
-        return await compiled_graph.ainvoke(kwargs)
+        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        return await compiled_graph.ainvoke(payload)
 
     def workflow_sync(**kwargs: Any) -> Any:
         """Execute the workflow graph synchronously."""
-        return asyncio.run(compiled_graph.ainvoke(kwargs))
+        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        return asyncio.run(compiled_graph.ainvoke(payload))
 
     return StructuredTool.from_function(
         func=workflow_sync,

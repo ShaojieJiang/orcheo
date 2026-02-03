@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import atexit
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from threading import Lock
 from typing import Any, ClassVar, Literal
 from bson import ObjectId
@@ -529,9 +529,134 @@ class MongoDBUpdateManyNode(MongoDBNode):
         return dict(self.update)
 
 
+@registry.register(
+    NodeMetadata(
+        name="MongoDBInsertManyNode",
+        description="Insert documents into MongoDB with optional vectors",
+        category="mongodb",
+    )
+)
+class MongoDBInsertManyNode(MongoDBClientNode):
+    """Insert upstream records into a MongoDB collection.
+
+    Resolves records from workflow state produced by an upstream node.
+    Each record is transformed into a MongoDB document with configurable
+    field mapping. When ``vector_field`` is provided, vector data from
+    each record is included in the document.
+
+    Args:
+        source_result_key: Upstream result entry containing records.
+        embeddings_field: Field within the upstream result storing records.
+        embedding_name: Key within the embeddings mapping to read records
+            from.  When ``None``, reads a list directly from
+            ``embeddings_field``.
+        vector_field: MongoDB document field for the embedding vector.
+            When ``None``, vector data is omitted.
+        text_field: MongoDB document field for the chunk text.
+        include_metadata: Whether to include record metadata in documents.
+        metadata_field: If set, nest metadata under this key instead of
+            flattening it into the top-level document.
+    """
+
+    source_result_key: str = Field(
+        description="Upstream result entry containing records to insert.",
+    )
+    embeddings_field: str = Field(
+        default="chunk_embeddings",
+        description="Field within the upstream result storing vector records.",
+    )
+    embedding_name: str | None = Field(
+        default=None,
+        description=(
+            "Key within the embeddings mapping to read records from. "
+            "When None, records are read directly from the embeddings_field."
+        ),
+    )
+    vector_field: str | None = Field(
+        default=None,
+        description=(
+            "MongoDB document field name for the embedding vector. "
+            "When None, vector data is omitted from documents."
+        ),
+    )
+    text_field: str = Field(
+        default="text",
+        description="MongoDB document field name for the record text.",
+    )
+    include_metadata: bool = Field(
+        default=True,
+        description="Whether to include record metadata in each document.",
+    )
+    metadata_field: str | None = Field(
+        default=None,
+        description=(
+            "If set, nest metadata under this key. "
+            "Otherwise flatten metadata into the top-level document."
+        ),
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Read records from state and insert into MongoDB."""
+        records = self._resolve_records(state)
+        if not records:
+            msg = "No records available to insert"
+            raise ValueError(msg)
+
+        documents = [self._record_to_document(record) for record in records]
+
+        self._ensure_collection()
+        assert self._collection is not None
+        collection = self._collection
+
+        result = self._execute_operation(
+            context=f"insert_many into {self.database}.{self.collection}",
+            operation=lambda: collection.insert_many(documents),
+        )
+
+        return {
+            "inserted_count": len(result.inserted_ids),
+            "inserted_ids": [str(id_) for id_ in result.inserted_ids],
+        }
+
+    def _resolve_records(self, state: State) -> list[dict[str, Any]]:
+        """Extract records from workflow state."""
+        results = state.get("results", {})
+        if not isinstance(results, Mapping):
+            return []
+        source = results.get(self.source_result_key)
+        if not isinstance(source, Mapping):
+            return []
+        payload = source.get(self.embeddings_field)
+        if self.embedding_name is not None:
+            if not isinstance(payload, Mapping):
+                return []
+            records = payload.get(self.embedding_name)
+        else:
+            records = payload
+        if not isinstance(records, list):
+            return []
+        return records
+
+    def _record_to_document(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Convert a record dict into a MongoDB document."""
+        document: dict[str, Any] = {
+            self.text_field: record.get("text", ""),
+        }
+        if self.vector_field is not None:
+            document[self.vector_field] = record.get("values", [])
+        if self.include_metadata:
+            metadata = record.get("metadata", {})
+            if self.metadata_field is not None:
+                document[self.metadata_field] = metadata
+            else:
+                document.update(metadata)
+        return document
+
+
 __all__ = [
     "MongoDBAggregateNode",
     "MongoDBFindNode",
+    "MongoDBInsertManyNode",
     "MongoDBNode",
     "MongoDBUpdateManyNode",
 ]

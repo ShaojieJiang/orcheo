@@ -5,7 +5,7 @@ import inspect
 import math
 import os
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 import httpx
 from langchain_core.runnables import RunnableConfig
@@ -27,6 +27,7 @@ from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
     InMemoryVectorStore,
 )
+from orcheo.nodes.data.utils import _extract_value
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -735,6 +736,173 @@ class SourceRouterNode(TaskNode):
             msg = "SourceRouterNode requires a list of retrieval results"
             raise ValueError(msg)
         return [SearchResult.model_validate(item) for item in entries]
+
+
+@registry.register(
+    NodeMetadata(
+        name="SearchResultAdapterNode",
+        description="Normalize arbitrary retrieval payloads into SearchResult items.",
+        category="conversational_search",
+    )
+)
+class SearchResultAdapterNode(TaskNode):
+    """Node that maps structured result dictionaries into SearchResult objects."""
+
+    source_result_key: str = Field(
+        default="retriever",
+        description="Result entry containing the raw retrieval payload.",
+    )
+    results_field: str = Field(
+        default="results",
+        description="Field name containing raw result entries.",
+    )
+    id_field: str = Field(
+        default="id",
+        description="Dotted path to the identifier field in each result entry.",
+    )
+    score_field: str = Field(
+        default="score",
+        description="Dotted path to the score field in each result entry.",
+    )
+    text_field: str = Field(
+        default="text",
+        description="Dotted path to the text field in each result entry.",
+    )
+    metadata_field: str | None = Field(
+        default="metadata",
+        description="Dotted path to metadata mapping stored in each result entry.",
+    )
+    raw_field: str | None = Field(
+        default=None,
+        description="Fallback dotted path to raw payload metadata.",
+    )
+    source_field: str = Field(
+        default="source",
+        description="Dotted path to the source label in each result entry.",
+    )
+    sources_field: str = Field(
+        default="sources",
+        description="Dotted path to the list of source labels in each result entry.",
+    )
+    source_name: str | None = Field(
+        default=None,
+        description="Optional source label to apply to all normalized results.",
+    )
+    default_score: float = Field(
+        default=0.0, description="Score assigned when the payload omits one."
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Convert raw result mappings into SearchResult items."""
+        results = state.get("results", {})
+        payload = results.get(self.source_result_key, {})
+        if isinstance(payload, dict) and self.results_field in payload:
+            entries = payload[self.results_field]
+        else:
+            entries = payload
+        if entries is None:
+            return {"results": []}
+        if not isinstance(entries, list):
+            msg = "SearchResultAdapterNode requires a list of results"
+            raise ValueError(msg)
+
+        normalized: list[SearchResult] = []
+        for entry in entries:
+            if entry is None:
+                continue
+            if isinstance(entry, SearchResult):
+                normalized.append(self._apply_source_override(entry))
+                continue
+            if not isinstance(entry, Mapping):
+                msg = "SearchResultAdapterNode entries must be mappings"
+                raise ValueError(msg)
+            normalized.append(self._convert_mapping(entry))
+
+        return {"results": normalized}
+
+    def _apply_source_override(self, entry: SearchResult) -> SearchResult:
+        if not self.source_name:
+            return entry
+        sources = entry.sources or []
+        if self.source_name not in sources:
+            sources = [self.source_name, *sources] if sources else [self.source_name]
+        return SearchResult(
+            id=entry.id,
+            score=entry.score,
+            text=entry.text,
+            metadata=entry.metadata,
+            source=self.source_name,
+            sources=sources,
+        )
+
+    def _convert_mapping(self, entry: Mapping[str, Any]) -> SearchResult:
+        _, id_value = self._extract(entry, self.id_field)
+        _, score_value = self._extract(entry, self.score_field)
+        _, text_value = self._extract(entry, self.text_field)
+
+        metadata = self._extract_metadata(entry)
+        source = self._extract_source(entry)
+        sources = self._extract_sources(entry, source)
+
+        return SearchResult(
+            id=str(id_value) if id_value is not None else "",
+            score=self._coerce_score(score_value),
+            text=str(text_value) if text_value is not None else "",
+            metadata=metadata,
+            source=source,
+            sources=sources,
+        )
+
+    def _extract_metadata(self, entry: Mapping[str, Any]) -> dict[str, Any]:
+        if self.metadata_field:
+            found, metadata_value = self._extract(entry, self.metadata_field)
+            if found and isinstance(metadata_value, Mapping):
+                return dict(metadata_value)
+        if self.raw_field:
+            found, raw_value = self._extract(entry, self.raw_field)
+            if found and isinstance(raw_value, Mapping):
+                return dict(raw_value)
+        return {}
+
+    def _extract_source(self, entry: Mapping[str, Any]) -> str | None:
+        if self.source_name:
+            return self.source_name
+        found, source_value = self._extract(entry, self.source_field)
+        if found and isinstance(source_value, str) and source_value.strip():
+            return source_value.strip()
+        return None
+
+    def _extract_sources(
+        self, entry: Mapping[str, Any], source: str | None
+    ) -> list[str]:
+        sources: list[str] = []
+        found, sources_value = self._extract(entry, self.sources_field)
+        if found:
+            if isinstance(sources_value, list):
+                sources = [str(item) for item in sources_value if item is not None]
+            elif isinstance(sources_value, str):
+                sources = [sources_value]
+        if not sources and source:
+            sources = [source]
+        return sources
+
+    def _coerce_score(self, value: Any) -> float:
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return self.default_score
+        return self.default_score
+
+    def _extract(self, entry: Mapping[str, Any], path: str) -> tuple[bool, Any]:
+        if not path:
+            return False, None
+        try:
+            return _extract_value(entry, path)
+        except ValueError:
+            return False, None
 
 
 @registry.register(

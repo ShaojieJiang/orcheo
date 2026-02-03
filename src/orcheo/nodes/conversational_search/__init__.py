@@ -41,6 +41,7 @@ from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     GroundedGeneratorNode,
     HallucinationGuardNode,
+    SearchResultFormatterNode,
     StreamingGeneratorNode,
 )
 from orcheo.nodes.conversational_search.ingestion import (
@@ -66,6 +67,7 @@ from orcheo.nodes.conversational_search.retrieval import (
     HybridFusionNode,
     PineconeRerankNode,
     ReRankerNode,
+    SearchResultAdapterNode,
     SourceRouterNode,
     SparseSearchNode,
     WebSearchNode,
@@ -126,6 +128,7 @@ __all__ = [
     "SessionManagementNode",
     "SourceRouterNode",
     "StreamingGeneratorNode",
+    "SearchResultFormatterNode",
     "TopicShiftDetectorNode",
     "TurnAnnotationNode",
     "UserFeedbackCollectionNode",
@@ -133,4 +136,5 @@ __all__ = [
     "WebDocumentLoaderNode",
     "WebSearchNode",
     "DenseSearchNode",
+    "SearchResultAdapterNode",
 ]

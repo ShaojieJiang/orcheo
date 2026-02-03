@@ -32,6 +32,7 @@ from orcheo.nodes.mongodb import (
     MongoDBEnsureVectorIndexNode,
     MongoDBFindNode,
     MongoDBHybridSearchNode,
+    MongoDBInsertManyNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "MongoDBNode",
     "MongoDBAggregateNode",
     "MongoDBFindNode",
+    "MongoDBInsertManyNode",
     "MongoDBUpdateManyNode",
     "MongoDBEnsureSearchIndexNode",
     "MongoDBEnsureVectorIndexNode",
