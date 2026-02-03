@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import warnings
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -30,6 +30,7 @@ with warnings.catch_warnings():
         Action,
         AssistantMessageItem,
         NoticeEvent,
+        ProgressUpdateEvent,
         ThreadItemDoneEvent,
         ThreadItemUpdatedEvent,
         ThreadMetadata,
@@ -229,6 +230,56 @@ def _content_text(content: Any) -> str | None:
     return None
 
 
+def _format_node_event_update(node: str, event: str, payload: Any) -> str:
+    """Format node event payloads into a progress update string."""
+    normalized_event = event.strip().lower()
+    if normalized_event == "on_chain_start":
+        return f"-> {node} starting..."
+    if normalized_event == "on_chain_end":
+        return f"- {node} completed"
+    if normalized_event == "on_chain_error":
+        error_message = None
+        if isinstance(payload, Mapping):
+            error_message = payload.get("error")
+        if error_message:
+            return f"! {node} error: {error_message}"
+        return f"! {node} error"
+    return f"[{event}] {node}"
+
+
+def _progress_texts_for_step(step: Mapping[str, Any]) -> list[str]:
+    """Generate progress text updates for a workflow step payload."""
+    if not step:
+        return []
+
+    node_value = step.get("node")
+    event_value = step.get("event")
+    if node_value and event_value:
+        payload = step.get("payload") or step.get("data")
+        return [
+            _format_node_event_update(str(node_value), str(event_value), payload),
+        ]
+
+    texts: list[str] = []
+    for node_key, _ in step.items():
+        if node_key is None:
+            continue
+        node_name = str(node_key).strip()
+        if not node_name:
+            continue
+        texts.append(node_name)
+    return texts
+
+
+async def _enqueue_progress_updates(
+    progress_queue: asyncio.Queue[ThreadStreamEvent | None],
+    step: Mapping[str, Any],
+) -> None:
+    """Queue progress events for the provided step payload."""
+    for text in _progress_texts_for_step(step):
+        await progress_queue.put(ProgressUpdateEvent(text=text))
+
+
 def _candidate_from_artifact(
     artifact: Mapping[str, Any] | None,
 ) -> _WidgetCandidate | None:
@@ -388,6 +439,17 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Delegate to the metadata helper."""
         record_run_metadata(thread, run)
 
+    @staticmethod
+    async def _drain_progress_queue(
+        progress_queue: asyncio.Queue[ThreadStreamEvent | None],
+    ) -> AsyncIterator[ThreadStreamEvent]:
+        """Yield progress events until the queue signals completion."""
+        while True:
+            event = await progress_queue.get()
+            if event is None:
+                break
+            yield event
+
     def _build_assistant_item(
         self,
         thread: ThreadMetadata,
@@ -473,9 +535,15 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         inputs: Mapping[str, Any],
         *,
         actor: str = "chatkit",
+        progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Delegate execution to the workflow executor."""
-        return await self._workflow_executor.run(workflow_id, inputs, actor=actor)
+        return await self._workflow_executor.run(
+            workflow_id,
+            inputs,
+            actor=actor,
+            progress_callback=progress_callback,
+        )
 
     async def respond(
         self,
@@ -492,10 +560,27 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         inputs = self._build_inputs_payload(thread, message_text, history, user_item)
 
         actor = str(context.get("actor") or "chatkit")
+        progress_queue: asyncio.Queue[ThreadStreamEvent | None] = asyncio.Queue()
+
+        async def on_progress(step: Mapping[str, Any]) -> None:
+            await _enqueue_progress_updates(progress_queue, step)
+
         try:
-            reply, state_view, run = await self._run_workflow(
-                workflow_id, inputs, actor=actor
+            yield ProgressUpdateEvent(text="Agent is working...")
+            run_task = asyncio.create_task(
+                self._run_workflow(
+                    workflow_id,
+                    inputs,
+                    actor=actor,
+                    progress_callback=on_progress,
+                )
             )
+            run_task.add_done_callback(lambda _: progress_queue.put_nowait(None))
+
+            async for event in self._drain_progress_queue(progress_queue):
+                yield event
+
+            reply, state_view, run = await run_task
         except WorkflowNotFoundError as exc:
             raise CustomStreamError(str(exc), allow_retry=False) from exc
         except WorkflowVersionNotFoundError as exc:
@@ -601,10 +686,26 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         inputs = build_action_inputs_payload(thread, action, history, sender)
 
         actor = str(context.get("actor") or "chatkit")
+        progress_queue: asyncio.Queue[ThreadStreamEvent | None] = asyncio.Queue()
+
+        async def on_progress(step: Mapping[str, Any]) -> None:
+            await _enqueue_progress_updates(progress_queue, step)
+
         try:
-            reply, state_view, run = await self._run_workflow(
-                workflow_id, inputs, actor=actor
+            run_task = asyncio.create_task(
+                self._run_workflow(
+                    workflow_id,
+                    inputs,
+                    actor=actor,
+                    progress_callback=on_progress,
+                )
             )
+            run_task.add_done_callback(lambda _: progress_queue.put_nowait(None))
+
+            async for event in self._drain_progress_queue(progress_queue):
+                yield event
+
+            reply, state_view, run = await run_task
         except WorkflowNotFoundError as exc:
             self._log_action_failure(thread, action, exc)
             raise CustomStreamError(str(exc), allow_retry=False) from exc
