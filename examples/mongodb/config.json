@@ -1,0 +1,8 @@
+{
+  "configurable": {
+    "database": "AIC",
+    "collection": "remit_recomm",
+    "text_query": "panda",
+    "vector_path": "embedding"
+  }
+}

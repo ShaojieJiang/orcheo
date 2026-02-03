@@ -229,7 +229,7 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
                 "fields": {
                     self.path: {
                         "type": "vector",
-                        "dimensions": self.dimensions,
+                        "numDimensions": self.dimensions,
                         "similarity": self.similarity,
                     }
                 },

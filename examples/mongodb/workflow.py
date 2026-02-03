@@ -1,7 +1,12 @@
-"""MongoDB Atlas Search example."""
+"""MongoDB Atlas Search example workflow.
 
-import asyncio
-from dotenv import load_dotenv
+Configurable inputs (config.json):
+- database: MongoDB database name
+- collection: MongoDB collection name
+- text_query: Full-text search query
+- vector_path: Document field containing vector embeddings
+"""
+
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.mongodb import (
@@ -11,20 +16,18 @@ from orcheo.nodes.mongodb import (
 )
 
 
-async def main() -> None:
-    """Build a simple workflow for index setup + hybrid search."""
-    load_dotenv()
-
+async def build_graph() -> StateGraph:
+    """Build a workflow for index setup and hybrid search."""
     text_index = MongoDBEnsureSearchIndexNode(
         name="ensure_text_index",
-        database="Orcheo",
-        collection="documents",
+        database="{{config.configurable.database}}",
+        collection="{{config.configurable.collection}}",
         definition={
             "mappings": {
                 "dynamic": False,
                 "fields": {
-                    "title": {"type": "string"},
-                    "body": {"type": "string"},
+                    "platform_name": {"type": "string"},
+                    "recommendation_reason": {"type": "string"},
                 },
             }
         },
@@ -33,22 +36,22 @@ async def main() -> None:
 
     vector_index = MongoDBEnsureVectorIndexNode(
         name="ensure_vector_index",
-        database="Orcheo",
-        collection="documents",
+        database="{{config.configurable.database}}",
+        collection="{{config.configurable.collection}}",
         dimensions=3,
         similarity="cosine",
-        path="embedding",
+        path="{{config.configurable.vector_path}}",
         mode="ensure_or_update",
     )
 
     hybrid_search = MongoDBHybridSearchNode(
         name="hybrid_search",
-        database="Orcheo",
-        collection="documents",
-        text_query="orcheo",
+        database="{{config.configurable.database}}",
+        collection="{{config.configurable.collection}}",
+        text_query="{{config.configurable.text_query}}",
         vector=[0.1, 0.2, 0.3],
-        text_paths=["title", "body"],
-        vector_path="embedding",
+        text_paths=["platform_name", "recommendation_reason"],
+        vector_path="{{config.configurable.vector_path}}",
         top_k=5,
     )
 
@@ -61,10 +64,4 @@ async def main() -> None:
     graph.add_edge("ensure_vector_index", "hybrid_search")
     graph.add_edge("hybrid_search", END)
 
-    compiled_graph = graph.compile()
-    result = await compiled_graph.ainvoke({})
-    print(result)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    return graph

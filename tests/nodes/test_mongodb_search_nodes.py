@@ -138,7 +138,7 @@ async def test_vector_index_builds_definition_when_missing(mongo_context) -> Non
                     "fields": {
                         "embedding": {
                             "type": "vector",
-                            "dimensions": 3,
+                            "numDimensions": 3,
                             "similarity": "cosine",
                         }
                     },
