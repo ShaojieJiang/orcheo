@@ -22,7 +22,9 @@ def configure_logging() -> None:
     ]
 
     if log_format == "console":
-        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer()
+        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer(
+            exception_formatter=structlog.dev.plain_traceback,
+        )
     else:
         renderer = structlog.processors.JSONRenderer()
 
