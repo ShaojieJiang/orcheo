@@ -44,7 +44,7 @@ class DummyCtx:
         return self._state
 
 
-def make_state() -> CLIState:
+def make_state(*, verbose_results: bool = False) -> CLIState:
     return CLIState(
         settings=CLISettings(
             api_url="http://api.test",
@@ -55,6 +55,7 @@ def make_state() -> CLIState:
         client=StubClient(),
         cache=object(),
         console=StubConsole(),
+        verbose_results=verbose_results,
     )
 
 

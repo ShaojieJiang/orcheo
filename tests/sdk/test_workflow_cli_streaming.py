@@ -622,7 +622,7 @@ def test_handle_generic_update_with_results_payload() -> None:
     """Test _handle_generic_update with top-level results payload."""
     from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
 
-    state = make_state()
+    state = make_state(verbose_results=True)
     update = {"results": {"node_name": {"value": 1}}}
     _handle_generic_update(state, update)
     assert any("Results" in msg for msg in state.console.messages)
@@ -632,7 +632,7 @@ def test_handle_generic_update_with_node_results_payload() -> None:
     """Test _handle_generic_update with node-scoped results payload."""
     from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
 
-    state = make_state()
+    state = make_state(verbose_results=True)
     update = {"node_name": {"results": {"node_name": {"value": 2}}}}
     _handle_generic_update(state, update)
     assert any("node_name results" in msg for msg in state.console.messages)

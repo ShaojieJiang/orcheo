@@ -34,6 +34,11 @@ def run_workflow(
     inputs_file: InputsFileOption = None,
     config: RunnableConfigOption = None,
     config_file: RunnableConfigFileOption = None,
+    verbose: bool = typer.Option(
+        False,
+        "--verbose/--no-verbose",
+        help="Print full results payloads in streaming output.",
+    ),
     stream: bool = typer.Option(
         True,
         "--stream/--no-stream",
@@ -42,6 +47,7 @@ def run_workflow(
 ) -> None:
     """Trigger a workflow run using the latest version."""
     state = _state(ctx)
+    state.verbose_results = verbose
     if state.settings.offline:
         raise CLIError("Workflow executions require network connectivity.")
     input_payload = _resolve_run_inputs(inputs, inputs_file)
@@ -91,6 +97,11 @@ def evaluate_workflow(
     config_file: RunnableConfigFileOption = None,
     evaluation: EvaluationOption = None,
     evaluation_file: EvaluationFileOption = None,
+    verbose: bool = typer.Option(
+        False,
+        "--verbose/--no-verbose",
+        help="Print full results payloads in streaming output.",
+    ),
     stream: bool = typer.Option(
         True,
         "--stream/--no-stream",
@@ -99,6 +110,7 @@ def evaluate_workflow(
 ) -> None:
     """Trigger an evaluation run using Agentensor evaluation mode."""
     state = _state(ctx)
+    state.verbose_results = verbose
     if state.settings.offline:
         raise CLIError("Workflow evaluations require network connectivity.")
     input_payload = _resolve_run_inputs(inputs, inputs_file)

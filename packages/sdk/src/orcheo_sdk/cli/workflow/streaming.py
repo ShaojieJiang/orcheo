@@ -352,7 +352,7 @@ def _render_results_payload(
 
 def _handle_single_update(state: CLIState, node: str, payload: Any) -> None:
     """Handle a single node update payload."""
-    if isinstance(payload, dict):
+    if state.verbose_results and isinstance(payload, dict):
         if _render_results_payload(
             state, payload.get("results"), title=f"{node} results", node=node
         ):
@@ -372,10 +372,20 @@ def _handle_generic_update(state: CLIState, update: dict[str, Any]) -> None:
     """Handle generic update payloads without explicit node metadata."""
     if not update:
         return
-    if _render_results_payload(state, update.get("results"), title="Results"):
+    if state.verbose_results and _render_results_payload(
+        state, update.get("results"), title="Results"
+    ):
         return
     if len(update) == 1:
         node, payload = next(iter(update.items()))
+        if (
+            state.verbose_results
+            and isinstance(payload, dict)
+            and _render_results_payload(
+                state, payload.get("results"), title=f"{node} results", node=node
+            )
+        ):
+            return
         _handle_single_update(state, node, payload)
         return
 
