@@ -14,6 +14,7 @@ from orcheo.nodes.conversational_search.ingestion import (
     MetadataExtractorNode,
     RawDocumentInput,
     SparseValues,
+    TextEmbeddingNode,
     VectorStoreUpsertNode,
     _coerce_float_list,
     _coerce_sparse_values,
@@ -817,6 +818,86 @@ def test_chunk_embedding_node_rejects_unknown_method() -> None:
         ChunkEmbeddingNode(
             name="chunk_embedding", embedding_methods={"default": "not-registered"}
         )
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_embeds_single_text() -> None:
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        dense_output_key="vector",
+        text_output_key="text",
+        unwrap_single=True,
+    )
+
+    result = await node.run(state, {})
+
+    embedding = result["embeddings"]
+    assert isinstance(embedding, EmbeddingVector)
+    assert embedding.values == [float(len("hello"))]
+    assert result["vector"] == [float(len("hello"))]
+    assert result["text"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_embeds_list() -> None:
+    state = State(
+        inputs={"texts": ["hi", "there"]},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="texts",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        dense_output_key="vectors",
+    )
+
+    result = await node.run(state, {})
+
+    assert [vector.values for vector in result["embeddings"]] == [
+        [float(len("hi"))],
+        [float(len("there"))],
+    ]
+    assert result["vectors"] == [[float(len("hi"))], [float(len("there"))]]
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_allows_empty_inputs() -> None:
+    state = State(inputs={}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        dense_output_key="vectors",
+        allow_empty=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["embeddings"] == []
+    assert result["vectors"] == []
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_rejects_invalid_input() -> None:
+    state = State(inputs={"text": 123}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+    )
+
+    with pytest.raises(
+        ValueError, match="TextEmbeddingNode requires a string or list of strings"
+    ):
+        await node.run(state, {})
 
 
 @pytest.mark.asyncio

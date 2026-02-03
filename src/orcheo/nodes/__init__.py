@@ -11,6 +11,7 @@ from orcheo.nodes.conversational_search import (
     InMemoryVectorStore,
     MetadataExtractorNode,
     PineconeVectorStore,
+    TextEmbeddingNode,
     VectorStoreUpsertNode,
 )
 from orcheo.nodes.data import (
@@ -93,6 +94,7 @@ __all__ = [
     "ChunkEmbeddingNode",
     "ChunkingStrategyNode",
     "MetadataExtractorNode",
+    "TextEmbeddingNode",
     "VectorStoreUpsertNode",
     "InMemoryVectorStore",
     "PineconeVectorStore",

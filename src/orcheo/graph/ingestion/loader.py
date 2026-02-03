@@ -34,14 +34,12 @@ def _format_syntax_error_message(exc: SyntaxError) -> str:
     return f"Compilation error: {exc}"
 
 
-def load_graph_from_script(
+def _execute_langgraph_script(
     source: str,
-    *,
-    entrypoint: str | None = None,
-    max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
-    execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
-) -> StateGraph:
-    """Execute a LangGraph Python script and return the discovered ``StateGraph``."""
+    max_script_bytes: int | None,
+    execution_timeout_seconds: float | None,
+) -> dict[str, Any]:
+    """Execute the LangGraph script inside the sandbox and return its namespace."""
     validate_script_size(source, max_script_bytes)
     namespace = create_sandbox_namespace()
 
@@ -63,22 +61,58 @@ def load_graph_from_script(
         message = f"Runtime error during script execution: {type(exc).__name__}: {exc}"
         raise ScriptIngestionError(message) from exc
 
-    module_name = namespace["__name__"]
+    return namespace
 
+
+def _resolve_default_workflow(namespace: dict[str, Any]) -> StateGraph | None:
+    """Return the default workflow entrypoint graph when the symbol is defined."""
+    workflow_candidate = namespace.get("orcheo_workflow")
+    if workflow_candidate is None:
+        return None
+    return _resolve_graph(workflow_candidate)
+
+
+def _collect_graph_candidates(
+    namespace: dict[str, Any],
+    module_name: str,
+    entrypoint: str | None,
+) -> list[Any]:
+    """Collect potential graph entrypoints from the execution namespace."""
     if entrypoint is not None:
         if entrypoint not in namespace:
             msg = f"Entrypoint '{entrypoint}' not found in script"
             raise ScriptIngestionError(msg)
-        candidates = [namespace[entrypoint]]
-    else:
-        candidates = [
-            value
-            for value in namespace.values()
-            if _is_graph_candidate(value, module_name)
-        ]
-        if not candidates:
-            msg = "Script did not produce a LangGraph StateGraph"
-            raise ScriptIngestionError(msg)
+        return [namespace[entrypoint]]
+
+    candidates = [
+        value for value in namespace.values() if _is_graph_candidate(value, module_name)
+    ]
+    if not candidates:
+        msg = "Script did not produce a LangGraph StateGraph"
+        raise ScriptIngestionError(msg)
+    return candidates
+
+
+def load_graph_from_script(
+    source: str,
+    *,
+    entrypoint: str | None = None,
+    max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
+    execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+) -> StateGraph:
+    """Execute a LangGraph Python script and return the discovered ``StateGraph``."""
+    namespace = _execute_langgraph_script(
+        source, max_script_bytes, execution_timeout_seconds
+    )
+
+    module_name = namespace["__name__"]
+
+    if entrypoint is None:
+        resolved = _resolve_default_workflow(namespace)
+        if resolved is not None:
+            return resolved
+
+    candidates = _collect_graph_candidates(namespace, module_name, entrypoint)
 
     resolved_graphs = [
         graph for candidate in candidates if (graph := _resolve_graph(candidate))

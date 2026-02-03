@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Any
 from langgraph.graph import StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 from orcheo.nodes.registry import registry
 
@@ -36,11 +37,29 @@ def _serialise_node(name: str, runnable: Any) -> dict[str, Any]:
     payload = {"name": name, "type": node_type}
 
     if isinstance(runnable_obj, BaseModel):
-        node_config = runnable_obj.model_dump(mode="json")
+        node_config = runnable_obj.model_dump(
+            mode="json",
+            fallback=_serialise_fallback,
+        )
         node_config.pop("name", None)
         payload.update(node_config)
 
     return payload
+
+
+def _serialise_fallback(value: Any) -> Any:
+    """Return a JSON-safe representation for unsupported Pydantic values."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", fallback=_serialise_fallback)
+    if isinstance(value, StateGraph):
+        return {"type": "StateGraph", "nodes": sorted(value.nodes.keys())}
+    if isinstance(value, CompiledStateGraph):
+        return {"type": "CompiledStateGraph"}
+    if isinstance(value, type):
+        return f"{value.__module__}.{value.__name__}"
+    if isinstance(value, set):
+        return [_serialise_fallback(item) for item in value]
+    return repr(value)
 
 
 def _unwrap_runnable(runnable: Any) -> Any:

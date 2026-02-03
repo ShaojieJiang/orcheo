@@ -5,7 +5,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pymongo.command_cursor import CommandCursor
 from orcheo.graph.state import State
 from orcheo.nodes.integrations.databases.mongodb.base import MongoDBClientNode
@@ -327,12 +327,19 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
     text_query: str | None = Field(
         default=None, description="Full-text query string for Atlas Search."
     )
-    vector: list[float] | None = Field(
-        default=None, description="Query embedding vector for vector search."
+    vector: list[float] | str | None = Field(
+        default=None,
+        description=(
+            "Query embedding vector for vector search. "
+            "Template strings resolve at runtime."
+        ),
     )
-    text_paths: list[str] = Field(
+    text_paths: list[str] | str = Field(
         min_length=1,
-        description="Document fields to query for full-text search.",
+        description=(
+            "Document fields to query for full-text search. "
+            "Template strings resolve at runtime."
+        ),
     )
     vector_path: str = Field(
         default="embedding", description="Document field containing vectors."
@@ -354,6 +361,20 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
         default=None, description="Optional MongoDB filter applied post-search."
     )
 
+    @field_validator("vector", mode="before")
+    @classmethod
+    def _allow_template_vector(cls, value: Any) -> Any:
+        if isinstance(value, str) and "{{" in value and "}}" in value:
+            return value
+        return value
+
+    @field_validator("text_paths", mode="before")
+    @classmethod
+    def _allow_template_text_paths(cls, value: Any) -> Any:
+        if isinstance(value, str) and "{{" in value and "}}" in value:
+            return value
+        return value
+
     def _resolve_text_index_name(self) -> str:
         return self.text_index_name or _default_index_name(self.collection, "fts")
 
@@ -363,6 +384,9 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
     def _build_text_pipeline(self, *, include_rrf: bool) -> list[dict[str, Any]]:
         if self.text_query is None:
             return []
+        if isinstance(self.text_paths, str):
+            msg = "text_paths must resolve to a list before execution"
+            raise ValueError(msg)
         pipeline: list[dict[str, Any]] = [
             {
                 "$search": {
@@ -400,6 +424,9 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
     def _build_vector_pipeline(self, *, include_rrf: bool) -> list[dict[str, Any]]:
         if self.vector is None:
             return []
+        if isinstance(self.vector, str):
+            msg = "vector must resolve to a list before execution"
+            raise ValueError(msg)
         pipeline: list[dict[str, Any]] = [
             {
                 "$vectorSearch": {

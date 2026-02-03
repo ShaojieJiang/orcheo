@@ -6,7 +6,7 @@ import contextlib
 import hashlib
 import inspect
 import os
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -771,6 +771,165 @@ class ChunkEmbeddingNode(TaskNode):
             return normalize_embedding_output(result)
         except ValueError as exc:
             raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+
+
+@registry.register(
+    NodeMetadata(
+        name="TextEmbeddingNode",
+        description=(
+            "Embed one or more text inputs using a configurable embedding method."
+        ),
+        category="conversational_search",
+    )
+)
+class TextEmbeddingNode(TaskNode):
+    """Embed one or more text inputs from state or inputs."""
+
+    input_key: str = Field(
+        default="text",
+        description="Key within state or state.inputs containing the text payload.",
+    )
+    embedding_method: str = Field(
+        ...,
+        description="Embedding method identifier applied to the text inputs.",
+    )
+    embedding_method_key: str = Field(
+        default="embedding_method",
+        description=(
+            "Optional configurable key used to override the embedding method."
+        ),
+    )
+    output_key: str = Field(
+        default="embeddings",
+        description="Key used to store normalized embedding outputs.",
+    )
+    dense_output_key: str | None = Field(
+        default=None,
+        description="Optional key used to store dense vector outputs.",
+    )
+    text_output_key: str | None = Field(
+        default=None,
+        description="Optional key used to store the original text payload.",
+    )
+    allow_empty: bool = Field(
+        default=False,
+        description="Whether empty or missing inputs should return empty outputs.",
+    )
+    unwrap_single: bool = Field(
+        default=False,
+        description="Return a single embedding when the input was a string.",
+    )
+    credential_env_vars: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Environment variables applied during embedding execution.",
+    )
+
+    @field_validator("embedding_method")
+    @classmethod
+    def _validate_embedding_method(cls, value: str) -> str:
+        if not value:
+            raise ValueError("embedding_method must be a non-empty string")
+        if value not in _EMBEDDING_METHODS:
+            raise ValueError(f"Unknown embedding method '{value}'")
+        return value
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Embed configured text input and return normalized vectors."""
+        texts, is_single = self._resolve_texts(state)
+        if not texts:
+            if self.allow_empty:
+                return self._empty_payload(is_single)
+            msg = "TextEmbeddingNode requires at least one non-empty text input"
+            raise ValueError(msg)
+
+        method = self._resolve_embedding_method(config)
+        embedder = resolve_embedding_method(method)
+
+        with _temporary_env_vars(self.credential_env_vars):
+            output = embedder(texts)
+            if inspect.isawaitable(output):
+                output = await output  # type: ignore[assignment]
+        try:
+            vectors = normalize_embedding_output(output)
+        except ValueError as exc:
+            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+
+        payload: dict[str, Any] = {}
+        payload[self.output_key] = self._maybe_unwrap(vectors, is_single)
+
+        if self.dense_output_key:
+            dense_vectors = require_dense_embeddings(vectors)
+            payload[self.dense_output_key] = self._maybe_unwrap(
+                dense_vectors, is_single
+            )
+
+        if self.text_output_key:
+            payload[self.text_output_key] = self._maybe_unwrap(texts, is_single)
+
+        return payload
+
+    def _resolve_texts(self, state: State) -> tuple[list[str], bool]:
+        value = self._extract_input_value(state)
+        if value is None:
+            return [], False
+        if isinstance(value, str):
+            return self._coerce_string(value)
+        if isinstance(value, list):
+            return self._coerce_list(value)
+        msg = "TextEmbeddingNode requires a string or list of strings"
+        raise ValueError(msg)
+
+    def _extract_input_value(self, state: State) -> Any | None:
+        if not isinstance(state, Mapping):
+            return None
+        if self.input_key in state:
+            return state.get(self.input_key)
+        inputs = state.get("inputs")
+        if isinstance(inputs, Mapping) and self.input_key in inputs:
+            return inputs.get(self.input_key)
+        return None
+
+    @staticmethod
+    def _coerce_string(value: str) -> tuple[list[str], bool]:
+        if not value.strip():
+            return [], True
+        return [value], True
+
+    def _coerce_list(self, value: list[Any]) -> tuple[list[str], bool]:
+        if not value:
+            return [], False
+        return [self._validate_text_item(item) for item in value], False
+
+    @staticmethod
+    def _validate_text_item(item: Any) -> str:
+        if not isinstance(item, str):
+            msg = "TextEmbeddingNode requires a string or list of strings"
+            raise ValueError(msg)
+        if not item.strip():
+            msg = "TextEmbeddingNode requires non-empty text strings"
+            raise ValueError(msg)
+        return item
+
+    def _resolve_embedding_method(self, config: RunnableConfig) -> str:
+        configurable = config.get("configurable", {})
+        if isinstance(configurable, Mapping) and self.embedding_method_key:
+            override = configurable.get(self.embedding_method_key)
+            if isinstance(override, str) and override.strip():
+                return override
+        return self.embedding_method
+
+    def _empty_payload(self, is_single: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {self.output_key: []}
+        if self.dense_output_key:
+            payload[self.dense_output_key] = []
+        if self.text_output_key:
+            payload[self.text_output_key] = [] if not is_single else ""
+        return payload
+
+    def _maybe_unwrap(self, value: list[Any], is_single: bool) -> Any:
+        if self.unwrap_single and is_single:
+            return value[0]
+        return value
 
 
 @registry.register(
