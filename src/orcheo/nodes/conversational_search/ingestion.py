@@ -922,7 +922,7 @@ class TextEmbeddingNode(TaskNode):
 
     def _extract_input_value(self, state: State) -> Any | None:
         if not isinstance(state, Mapping):
-            return None
+            return None  # pragma: no cover - defensive
         if self.input_key in state:
             return state.get(self.input_key)
         inputs = state.get("inputs")

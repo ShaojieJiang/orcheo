@@ -812,7 +812,7 @@ class SearchResultFormatterNode(TaskNode):
                 lines.append(f"Source: {url}")
             lines.append("")
 
-        if lines and not lines[-1]:
+        if lines and not lines[-1]:  # pragma: no branch
             lines.pop()
         return {self.output_key: "\n".join(lines)}
 

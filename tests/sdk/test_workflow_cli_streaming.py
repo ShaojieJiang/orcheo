@@ -689,3 +689,17 @@ def test_handle_generic_update_with_payload_few_keys() -> None:
     _handle_generic_update(state, update)
     # Should show keys without ellipsis since <= 4 keys
     assert any("• node_name (key1, key2)" in msg for msg in state.console.messages)
+
+
+def test_handle_single_update_verbose_results_early_return() -> None:
+    """Test _handle_single_update returns early when verbose_results renders results."""
+    from orcheo_sdk.cli.workflow.streaming import _handle_single_update
+
+    state = make_state(verbose_results=True)
+    payload = {"results": {"my_node": {"score": 0.95}}}
+    _handle_single_update(state, "my_node", payload)
+    # _render_results_payload renders JSON and returns True, so the
+    # "• my_node" fallback line should NOT appear.
+    assert not any("• my_node" in msg for msg in state.console.messages)
+    # But results should have been rendered
+    assert state.console.messages

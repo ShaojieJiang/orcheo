@@ -48,3 +48,44 @@ def test_summarise_state_graph_handles_workflow_tools_graph() -> None:
     agent_node = next(node for node in summary["nodes"] if node["name"] == "agent")
     workflow_tools = agent_node["workflow_tools"]
     assert workflow_tools[0]["graph"]["type"] == "StateGraph"
+
+
+def test_serialise_fallback_nested_basemodel() -> None:
+    from orcheo.graph.ingestion.summary import _serialise_fallback
+
+    class Inner(BaseModel):
+        value: int = 1
+
+    result = _serialise_fallback(Inner())
+    assert result == {"value": 1}
+
+
+def test_serialise_fallback_compiled_state_graph() -> None:
+    from orcheo.graph.ingestion.summary import _serialise_fallback
+
+    graph = StateGraph(State)
+    graph.add_node("noop", lambda state: state)
+    graph.add_edge(START, "noop")
+    graph.add_edge("noop", END)
+    compiled = graph.compile()
+    result = _serialise_fallback(compiled)
+    assert result == {"type": "CompiledStateGraph"}
+
+
+def test_serialise_fallback_set() -> None:
+    from orcheo.graph.ingestion.summary import _serialise_fallback
+
+    result = _serialise_fallback({1, 2})
+    assert isinstance(result, list)
+    assert sorted(result) == ["1", "2"]
+
+
+def test_serialise_fallback_unknown_type() -> None:
+    from orcheo.graph.ingestion.summary import _serialise_fallback
+
+    class Custom:
+        pass
+
+    obj = Custom()
+    result = _serialise_fallback(obj)
+    assert "Custom" in result

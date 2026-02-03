@@ -60,3 +60,43 @@ async def test_workflow_tool_emits_progress_updates() -> None:
     assert updates
     assert any("node_a" in step for step in updates)
     assert any("node_b" in step for step in updates)
+
+
+@pytest.mark.asyncio
+async def test_run_tool_graph_without_progress_but_with_config() -> None:
+    """Cover _run_tool_graph when progress_callback is None but config is set."""
+    from orcheo.nodes.ai import _run_tool_graph
+
+    tool_graph = _build_tool_graph()
+    compiled = tool_graph.compile()
+
+    config: RunnableConfig = {"configurable": {"thread_id": "cfg-only"}}
+
+    with tool_execution_context(config):
+        result = await _run_tool_graph(compiled, {})
+
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_run_tool_graph_streaming_no_values_raises() -> None:
+    """Cover _run_tool_graph RuntimeError when streaming yields no values."""
+    from unittest.mock import AsyncMock
+    from orcheo.nodes.ai import _run_tool_graph
+
+    # Create a fake compiled graph whose astream yields updates but no values
+    fake_graph = AsyncMock()
+
+    async def fake_astream(*_args, **_kwargs):
+        yield ("updates", {"node_a": {"ok": True}})
+
+    fake_graph.astream = fake_astream
+
+    config: RunnableConfig = {"configurable": {"thread_id": "no-values"}}
+
+    async def noop_progress(step: dict[str, Any]) -> None:
+        pass
+
+    with tool_execution_context(config), tool_progress_context(noop_progress):
+        with pytest.raises(RuntimeError, match="did not produce final values"):
+            await _run_tool_graph(fake_graph, {})

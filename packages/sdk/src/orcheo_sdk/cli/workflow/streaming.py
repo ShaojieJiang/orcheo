@@ -353,7 +353,7 @@ def _render_results_payload(
 def _handle_single_update(state: CLIState, node: str, payload: Any) -> None:
     """Handle a single node update payload."""
     if state.verbose_results and isinstance(payload, dict):
-        if _render_results_payload(
+        if _render_results_payload(  # pragma: no branch
             state, payload.get("results"), title=f"{node} results", node=node
         ):
             return

@@ -55,7 +55,7 @@ async def _run_tool_graph(
             mode, data = "updates", event
         if mode == "updates":
             await progress_callback(data)
-        elif mode == "values":
+        elif mode == "values":  # pragma: no branch
             last_values = data
 
     if last_values is not None:

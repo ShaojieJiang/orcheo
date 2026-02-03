@@ -1436,3 +1436,390 @@ async def test_web_document_loader_raises_on_empty_content(respx_mock) -> None:
 
     with pytest.raises(ValueError, match="No text content extracted"):
         await node.run(state, {})
+
+
+# --- TextEmbeddingNode additional coverage tests ---
+
+
+def test_text_embedding_node_rejects_empty_method() -> None:
+    with pytest.raises(ValueError, match="embedding_method must be a non-empty string"):
+        TextEmbeddingNode(
+            name="text_embedding",
+            input_key="text",
+            embedding_method="",
+        )
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_rejects_empty_text_without_allow_empty() -> None:
+    state = State(inputs={}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        allow_empty=False,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TextEmbeddingNode requires at least one non-empty text input",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_async_embedder() -> None:
+    async def async_embed(texts: list[str]) -> list[list[float]]:
+        return [[float(len(text))] for text in texts]
+
+    register_embedding_method("text-async-embed", async_embed)
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method="text-async-embed",
+        unwrap_single=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert isinstance(result["embeddings"], EmbeddingVector)
+    assert result["embeddings"].values == [float(len("hello"))]
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_rejects_invalid_embedding_output() -> None:
+    def bad_embed(texts: list[str]) -> str:
+        return "invalid"
+
+    register_embedding_method("text-bad-embed", bad_embed)
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method="text-bad-embed",
+    )
+
+    with pytest.raises(ValueError):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_dense_output_key() -> None:
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        dense_output_key="dense_vec",
+        unwrap_single=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["dense_vec"] == [float(len("hello"))]
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_reads_from_state_directly() -> None:
+    """Covers _extract_input_value when input_key is in state root."""
+    state = State(
+        inputs={},
+        results={},
+        structured_response=None,
+    )
+    state["text"] = "direct"
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        unwrap_single=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert isinstance(result["embeddings"], EmbeddingVector)
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_reads_from_inputs() -> None:
+    """Covers _extract_input_value when input_key is in state.inputs."""
+    state = State(
+        inputs={"query": "from inputs"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="query",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        unwrap_single=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert isinstance(result["embeddings"], EmbeddingVector)
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_blank_string_returns_empty() -> None:
+    """Covers _coerce_string returning empty for whitespace-only string."""
+    state = State(
+        inputs={"text": "   "},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        allow_empty=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["embeddings"] == []
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_empty_list_returns_empty() -> None:
+    """Covers _coerce_list returning empty for empty list."""
+    state = State(
+        inputs={"texts": []},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="texts",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        allow_empty=True,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["embeddings"] == []
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_rejects_non_string_in_list() -> None:
+    """Covers _validate_text_item rejecting non-string."""
+    state = State(
+        inputs={"texts": ["valid", 123]},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="texts",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TextEmbeddingNode requires a string or list of strings",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_rejects_empty_string_in_list() -> None:
+    """Covers _validate_text_item rejecting whitespace-only string."""
+    state = State(
+        inputs={"texts": ["valid", "   "]},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="texts",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TextEmbeddingNode requires non-empty text strings",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_config_override() -> None:
+    """Covers _resolve_embedding_method reading override from config."""
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        embedding_method_key="custom_method",
+        unwrap_single=True,
+    )
+
+    def alt_embed(texts: list[str]) -> list[list[float]]:
+        return [[99.0] for _ in texts]
+
+    register_embedding_method("alt-text-embed", alt_embed)
+
+    config = {"configurable": {"custom_method": "alt-text-embed"}}
+    result = await node.run(state, config)
+
+    assert result["embeddings"].values == [99.0]
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_empty_payload_with_keys() -> None:
+    """Covers _empty_payload with dense_output_key and text_output_key (single)."""
+    state = State(inputs={"text": "   "}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        allow_empty=True,
+        dense_output_key="dense",
+        text_output_key="text_out",
+    )
+
+    result = await node.run(state, {})
+
+    assert result["embeddings"] == []
+    assert result["dense"] == []
+    assert result["text_out"] == ""
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_empty_payload_list_text_key() -> None:
+    """Covers _empty_payload text_output_key with list (not single) input."""
+    state = State(inputs={"texts": []}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="texts",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        allow_empty=True,
+        text_output_key="text_out",
+    )
+
+    result = await node.run(state, {})
+
+    assert result["text_out"] == []
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_extracts_title_when_not_in_metadata(
+    respx_mock,
+) -> None:
+    """Covers extract_title branch in WebDocumentLoaderNode."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    html_content = (
+        "<html><head><title>Extracted Title</title></head>"
+        "<body><p>Body content</p></body></html>"
+    )
+    respx_mock.get("https://example.com/titled").mock(
+        return_value=httpx.Response(200, text=html_content)
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[WebDocumentInput(url="https://example.com/titled")],
+        extract_title=True,
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    assert result["documents"][0]["metadata"]["title"] == "Extracted Title"
+
+
+def test_html_title_extractor_returns_empty_for_empty_title() -> None:
+    """Covers handle_data branch where stripped data is empty."""
+    from orcheo.nodes.conversational_search.ingestion import _html_to_title
+
+    title = _html_to_title("<html><head><title>   </title></head><body></body></html>")
+
+    assert title == ""
+
+
+def test_text_embedding_node_rejects_unknown_method() -> None:
+    with pytest.raises(ValueError, match="Unknown embedding method 'no-such-method'"):
+        TextEmbeddingNode(
+            name="text_embedding",
+            input_key="text",
+            embedding_method="no-such-method",
+        )
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_config_override_no_key() -> None:
+    """Covers _resolve_embedding_method when embedding_method_key is empty."""
+    state = State(
+        inputs={"text": "hello"},
+        results={},
+        structured_response=None,
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embedding_method=DEFAULT_TEST_EMBEDDING_NAME,
+        embedding_method_key="",
+        unwrap_single=True,
+    )
+
+    config: dict[str, Any] = {"configurable": {"": "should-be-ignored"}}
+    result = await node.run(state, config)
+
+    # Should use default embedding method since key is empty
+    assert isinstance(result["embeddings"], EmbeddingVector)
+
+
+@pytest.mark.asyncio
+async def test_web_document_loader_skips_title_when_already_in_metadata(
+    respx_mock,
+) -> None:
+    """Covers extract_title branch when title is already in metadata."""
+    from orcheo.nodes.conversational_search.ingestion import (
+        WebDocumentInput,
+        WebDocumentLoaderNode,
+    )
+
+    html_content = (
+        "<html><head><title>HTML Title</title></head>"
+        "<body><p>Body content</p></body></html>"
+    )
+    respx_mock.get("https://example.com/with-title").mock(
+        return_value=httpx.Response(200, text=html_content)
+    )
+
+    node = WebDocumentLoaderNode(
+        name="web_loader",
+        urls=[
+            WebDocumentInput(
+                url="https://example.com/with-title",
+                metadata={"title": "Pre-existing"},
+            )
+        ],
+        extract_title=True,
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node.run(state, {})
+
+    assert result["documents"][0]["metadata"]["title"] == "Pre-existing"

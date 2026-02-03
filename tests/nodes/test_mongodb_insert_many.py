@@ -209,3 +209,35 @@ async def test_insert_many_custom_text_field(
     assert "content" in docs[0]
     assert "text" not in docs[0]
     assert docs[0]["content"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_insert_many_non_mapping_results_raises(
+    mongo_context: MongoTestContext,
+) -> None:
+    """Line 625: results is not a Mapping → returns [] → raises."""
+    state = State(messages=[], inputs={}, results="not-a-mapping")  # type: ignore[arg-type]
+    node = _build_node(embedding_name="dense")
+
+    with pytest.raises(ValueError, match="No records available to insert"):
+        await node.run(state, RunnableConfig())
+
+
+@pytest.mark.asyncio
+async def test_insert_many_records_not_list_raises(
+    mongo_context: MongoTestContext,
+) -> None:
+    """Line 637: records is not a list → returns [] → raises."""
+    state = State(
+        messages=[],
+        inputs={},
+        results={
+            "chunk_embedding": {
+                "chunk_embeddings": {"dense": "not-a-list"},
+            },
+        },
+    )
+    node = _build_node(embedding_name="dense")
+
+    with pytest.raises(ValueError, match="No records available to insert"):
+        await node.run(state, RunnableConfig())
