@@ -35,6 +35,7 @@ def build_hybrid_search_tool_graph() -> StateGraph:
             embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
             dense_output_key="vector",
             unwrap_single=True,
+            credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
         ),
     )
     graph.add_node(
