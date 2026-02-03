@@ -4,6 +4,7 @@
 - Source: `src/orcheo/` — core package. Key areas: `graph/` (state, builder), `nodes/` (task/AI/integrations), `main.py` (FastAPI app/WebSocket).
 - Tests: `tests/` — mirrors package layout (e.g., `tests/graph/`, `tests/nodes/`).
 - Docs & examples: `docs/`, `examples/`, experimental `playground/`.
+- Contributors: `CONTRIBUTORS.md` — list of project contributors.
 - Config: `pyproject.toml` (tooling), `.pre-commit-config.yaml`, `.env` (local secrets), `Makefile` (common tasks).
 
 ## Build, Test, and Development Commands
@@ -54,3 +55,5 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 ## Security & Configuration Tips
 - Load secrets from `.env` (via `python-dotenv`); never commit secrets.
 - Prefer `uv run` for tooling parity with CI; ensure `uv.lock` stays updated when adding deps.
+- When writing documents, set the author to the person writing the document.
+- Default document owner is ShaojieJiang unless explicitly stated otherwise.

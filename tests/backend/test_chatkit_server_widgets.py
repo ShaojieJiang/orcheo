@@ -426,7 +426,7 @@ async def test_action_routes_widget_payload_to_workflow() -> None:
 
     captured_inputs: dict[str, object] = {}
 
-    async def fake_run(workflow_id, inputs, actor="chatkit"):
+    async def fake_run(workflow_id, inputs, actor="chatkit", **_kwargs):
         captured_inputs.update(inputs)
         return ("Action reply", {"messages": []}, None)
 
@@ -450,3 +450,47 @@ async def test_action_routes_widget_payload_to_workflow() -> None:
         and isinstance(event.item, AssistantMessageItem)
     ]
     assert assistant_events, "Assistant reply should still be emitted"
+
+
+@pytest.mark.asyncio
+async def test_action_emits_progress_updates() -> None:
+    from chatkit.types import ProgressUpdateEvent
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_action_progress",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    widget_item = WidgetItem(
+        id="widget_progress",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    async def fake_run(_workflow_id, _inputs, progress_callback=None, **_kwargs):
+        if progress_callback is not None:
+            await progress_callback({"node_a": {"value": 1}})
+        return ("Action reply", {"messages": []}, None)
+
+    server._run_workflow = AsyncMock(side_effect=fake_run)  # type: ignore[attr-defined]
+
+    action: dict[str, object] = {"type": "submit", "payload": {"value": "ok"}}
+
+    events = [
+        event async for event in server.action(thread, action, widget_item, context)
+    ]
+
+    progress_events = [
+        event for event in events if isinstance(event, ProgressUpdateEvent)
+    ]
+    assert progress_events
+    assert any("node_a" in e.text for e in progress_events)

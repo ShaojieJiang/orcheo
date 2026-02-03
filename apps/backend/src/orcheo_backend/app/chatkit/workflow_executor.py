@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
+from orcheo.nodes.agent_tools.context import tool_progress_context
 from orcheo.persistence import create_checkpointer
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
@@ -44,6 +45,7 @@ class WorkflowExecutor:
         inputs: Mapping[str, Any],
         *,
         actor: str = "chatkit",
+        progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Execute the workflow and return the reply, state view, and run."""
         version = await self._repository.get_latest_version(workflow_id)
@@ -75,7 +77,20 @@ class WorkflowExecutor:
             merged_config = merge_runnable_configs(version.runnable_config, None)
             config: RunnableConfig = merged_config.to_runnable_config(execution_id)
             with credential_resolution(credential_resolver):
-                final_state = await compiled.ainvoke(payload, config=config)
+                if progress_callback is None:
+                    final_state = await compiled.ainvoke(payload, config=config)
+                else:
+                    with tool_progress_context(progress_callback):
+                        async for step in compiled.astream(
+                            payload,
+                            config=config,  # type: ignore[arg-type]
+                            stream_mode="updates",
+                        ):
+                            await progress_callback(step)
+                        final_state = await compiled.aget_state(  # type: ignore[arg-type]
+                            config
+                        )
+                        final_state = getattr(final_state, "values", final_state)
 
         raw_messages = self._extract_messages(final_state)
 
@@ -86,9 +101,8 @@ class WorkflowExecutor:
         else:  # pragma: no cover - defensive
             state_view = dict(final_state or {})
 
+        state_view = dict(state_view)
         if raw_messages:
-            if not isinstance(state_view, dict):  # pragma: no branch
-                state_view = dict(state_view)
             state_view["_messages"] = raw_messages
 
         reply = extract_reply_from_state(state_view)

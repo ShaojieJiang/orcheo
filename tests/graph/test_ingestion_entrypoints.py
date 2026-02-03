@@ -96,6 +96,37 @@ def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
         ingest_langgraph_script(script)
 
 
+def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph() -> StateGraph:
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+
+        def extra_graph() -> StateGraph:
+            graph = StateGraph(State)
+            graph.add_node("second", lambda state: state)
+            graph.set_entry_point("second")
+            graph.set_finish_point("second")
+            return graph
+
+        orcheo_workflow = build_graph
+        """
+    )
+
+    payload = ingest_langgraph_script(script)
+
+    assert payload["entrypoint"] is None
+    summary = payload["summary"]
+    assert summary["edges"] == [("START", "first"), ("first", "END")]
+
+
 def test_ingest_script_rejects_forbidden_imports() -> None:
     script = textwrap.dedent(
         """
