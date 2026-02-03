@@ -267,7 +267,7 @@ def _progress_texts_for_step(step: Mapping[str, Any]) -> list[str]:
         node_name = str(node_key).strip()
         if not node_name:
             continue
-        texts.append(node_name)
+        texts.append(f"Running {node_name}")
     return texts
 
 
