@@ -27,6 +27,9 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.workflow import workflow_app
 
 
+PACKAGE_NAME = "orcheo-sdk"
+
+
 def _is_completion_mode() -> bool:
     """Check if we're in shell completion mode."""
     return any(
@@ -50,7 +53,7 @@ def _version_callback(value: bool) -> None:
     if not value:
         return
     try:
-        version_value = package_version("orcheo-sdk")
+        version_value = package_version(PACKAGE_NAME)
     except PackageNotFoundError:
         version_value = "unknown"
     typer.echo(f"orcheo {version_value}")
@@ -116,7 +119,7 @@ def main(
         bool,
         typer.Option(
             "--human",
-            help="Use human-friendly Rich output instead of machine-readable format.",
+            help="Use human-friendly Rich output instead of machine-readable JSON.",
         ),
     ] = False,
 ) -> None:

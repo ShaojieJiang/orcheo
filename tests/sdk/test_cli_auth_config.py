@@ -217,6 +217,14 @@ def test_coerce_str_returns_none_for_non_string() -> None:
     assert _coerce_str("hello") == "hello"
 
 
+def test_coerce_scopes_unsupported_type() -> None:
+    """Test _coerce_scopes raises for unsupported type (not str/list/None)."""
+    from orcheo_sdk.cli.auth.config import _coerce_scopes
+
+    with pytest.raises(CLIConfigurationError, match="auth_scopes must be a string"):
+        _coerce_scopes(42)
+
+
 def test_is_oauth_configured_invalid_toml_returns_false(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

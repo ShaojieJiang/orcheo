@@ -6,8 +6,8 @@ import typer
 from rich.table import Table
 from orcheo_sdk.cli.output import (
     format_datetime,
-    machine_success,
     print_json,
+    print_machine_success,
     print_markdown_table,
     success,
     warning,
@@ -266,7 +266,7 @@ def revoke_token(
     revoke_service_token_data(state.client, token_id, reason)
 
     if not state.human:
-        machine_success(f"Service token '{token_id}' revoked successfully")
+        print_machine_success(f"Service token '{token_id}' revoked successfully")
         return
 
     success(f"Service token '{token_id}' revoked successfully")

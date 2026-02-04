@@ -373,6 +373,106 @@ def test_config_command_invalid_toml(
     assert "Invalid TOML" in str(exc_info.value)
 
 
+def test_config_command_incomplete_oauth_issuer_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test that providing auth_issuer without auth_client_id raises CLIError."""
+    from unittest.mock import MagicMock
+    from rich.console import Console
+    from typer import Context
+    from orcheo_sdk.cli.auth.config import (
+        AUTH_AUDIENCE_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_ISSUER_ENV,
+        AUTH_ORGANIZATION_ENV,
+        AUTH_SCOPES_ENV,
+    )
+    from orcheo_sdk.cli.config_command import configure
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
+    for key in [
+        AUTH_ISSUER_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_SCOPES_ENV,
+        AUTH_AUDIENCE_ENV,
+        AUTH_ORGANIZATION_ENV,
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    mock_state = MagicMock()
+    mock_state.console = Console()
+    mock_ctx = MagicMock(spec=Context)
+    mock_ctx.ensure_object.return_value = mock_state
+
+    with pytest.raises(CLIError, match="auth_client_id"):
+        configure(
+            ctx=mock_ctx,
+            profile=None,
+            api_url="http://api.test",
+            service_token=None,
+            chatkit_public_base_url=None,
+            auth_issuer="https://auth.example.com",
+            auth_client_id=None,
+            auth_scopes=None,
+            auth_audience=None,
+            auth_organization=None,
+            env_file=None,
+        )
+
+
+def test_config_command_incomplete_oauth_client_id_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test that providing auth_client_id without auth_issuer raises CLIError."""
+    from unittest.mock import MagicMock
+    from rich.console import Console
+    from typer import Context
+    from orcheo_sdk.cli.auth.config import (
+        AUTH_AUDIENCE_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_ISSUER_ENV,
+        AUTH_ORGANIZATION_ENV,
+        AUTH_SCOPES_ENV,
+    )
+    from orcheo_sdk.cli.config_command import configure
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
+    for key in [
+        AUTH_ISSUER_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_SCOPES_ENV,
+        AUTH_AUDIENCE_ENV,
+        AUTH_ORGANIZATION_ENV,
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    mock_state = MagicMock()
+    mock_state.console = Console()
+    mock_ctx = MagicMock(spec=Context)
+    mock_ctx.ensure_object.return_value = mock_state
+
+    with pytest.raises(CLIError, match="auth_issuer"):
+        configure(
+            ctx=mock_ctx,
+            profile=None,
+            api_url="http://api.test",
+            service_token=None,
+            chatkit_public_base_url=None,
+            auth_issuer=None,
+            auth_client_id="my-client",
+            auth_scopes=None,
+            auth_audience=None,
+            auth_organization=None,
+            env_file=None,
+        )
+
+
 def test_resolve_oauth_values_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Cover false branches when no OAuth values resolve."""
     from orcheo_sdk.cli.auth.config import (

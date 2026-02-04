@@ -75,6 +75,19 @@ def _coerce_scopes(value: Any) -> str | None:
     )
 
 
+def _resolve_oauth_required(
+    profile_data: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    """Resolve issuer and client_id from profile data and environment."""
+    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
+        AUTH_ISSUER_ENV
+    )
+    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
+        AUTH_CLIENT_ID_ENV
+    )
+    return issuer, client_id
+
+
 def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
     """Load OAuth configuration from CLI config and environment variables.
 
@@ -83,19 +96,16 @@ def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
     """
     profile_data = _load_profile_oauth_settings(profile)
 
-    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
-        AUTH_ISSUER_ENV
-    )
-    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
-        AUTH_CLIENT_ID_ENV
-    )
+    issuer, client_id = _resolve_oauth_required(profile_data)
     profile_scopes = _coerce_scopes(profile_data.get(AUTH_SCOPES_KEY))
     profile_audience = _coerce_str(profile_data.get(AUTH_AUDIENCE_KEY))
     profile_organization = _coerce_str(profile_data.get(AUTH_ORGANIZATION_KEY))
 
     if not issuer or not client_id:
         raise CLIConfigurationError(
-            f"OAuth not configured. Set {AUTH_ISSUER_ENV} and {AUTH_CLIENT_ID_ENV}."
+            f"OAuth not configured. Set '{AUTH_ISSUER_KEY}' and"
+            f" '{AUTH_CLIENT_ID_KEY}' in your CLI profile or set environment"
+            f" variables {AUTH_ISSUER_ENV} and {AUTH_CLIENT_ID_ENV}."
         )
 
     scopes = profile_scopes or os.getenv(AUTH_SCOPES_ENV) or DEFAULT_SCOPES
@@ -115,10 +125,5 @@ def is_oauth_configured(*, profile: str | None = None) -> bool:
         profile_data = _load_profile_oauth_settings(profile)
     except CLIConfigurationError:
         return False
-    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
-        AUTH_ISSUER_ENV
-    )
-    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
-        AUTH_CLIENT_ID_ENV
-    )
+    issuer, client_id = _resolve_oauth_required(profile_data)
     return bool(issuer and client_id)
