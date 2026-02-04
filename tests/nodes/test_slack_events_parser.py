@@ -436,3 +436,70 @@ async def test_slack_events_parser_filters_disallowed_event_types() -> None:
     result = await node.run(_build_state(raw_body, headers), RunnableConfig())
     assert result["should_process"] is False
     assert result["event_type"] == "reaction_added"
+
+
+@pytest.mark.asyncio
+async def test_slack_events_parser_rejects_retry_requests() -> None:
+    secret = "slack-secret"
+    timestamp = int(time.time())
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C123",
+            "user": "U123",
+            "text": "hello",
+        },
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    headers = {
+        "x-slack-signature": _sign_slack(secret, timestamp, raw_body),
+        "x-slack-request-timestamp": str(timestamp),
+        "X-Slack-Retry-Num": "1",
+        "X-Slack-Retry-Reason": "http_timeout",
+    }
+
+    node = SlackEventsParserNode(
+        name="slack_events_parser",
+        signing_secret=secret,
+        channel_id="C123",
+        allowed_event_types=["app_mention"],
+    )
+    result = await node.run(_build_state(raw_body, headers), RunnableConfig())
+
+    assert result["should_process"] is False
+    assert result["event_type"] is None
+    assert result["event"] is None
+
+
+@pytest.mark.asyncio
+async def test_slack_events_parser_accepts_first_delivery_without_retry_header() -> (
+    None
+):
+    secret = "slack-secret"
+    timestamp = int(time.time())
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C123",
+            "user": "U123",
+            "text": "hello",
+        },
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    headers = {
+        "x-slack-signature": _sign_slack(secret, timestamp, raw_body),
+        "x-slack-request-timestamp": str(timestamp),
+    }
+
+    node = SlackEventsParserNode(
+        name="slack_events_parser",
+        signing_secret=secret,
+        channel_id="C123",
+        allowed_event_types=["app_mention"],
+    )
+    result = await node.run(_build_state(raw_body, headers), RunnableConfig())
+
+    assert result["should_process"] is True
+    assert result["event_type"] == "app_mention"

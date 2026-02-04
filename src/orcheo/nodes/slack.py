@@ -222,6 +222,16 @@ class SlackEventsParserNode(TaskNode):
                 raise ValueError("Slack signature verification requires raw payload")
             self._verify_signature(raw_body, normalized_headers)
 
+        # Reject Slack retries to prevent duplicate processing.  Slack sets
+        # the x-slack-retry-num header on every retry attempt.
+        if normalized_headers.get("x-slack-retry-num") is not None:
+            return {
+                "is_verification": False,
+                "event_type": None,
+                "event": None,
+                "should_process": False,
+            }
+
         payload_type = payload.get("type")
         if payload_type == "url_verification":
             return {
