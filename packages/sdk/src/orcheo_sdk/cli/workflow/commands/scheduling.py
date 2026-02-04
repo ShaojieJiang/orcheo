@@ -3,7 +3,7 @@
 from __future__ import annotations
 import typer
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.workflow.app import WorkflowIdArgument, _state, workflow_app
 from orcheo_sdk.services import schedule_workflow_cron, unschedule_workflow_cron
 
@@ -19,6 +19,9 @@ def schedule_workflow(
         raise CLIError("Scheduling workflows requires network connectivity.")
 
     result = schedule_workflow_cron(state.client, workflow_id)
+    if not state.human:
+        print_json(result)
+        return
     status = result.get("status")
     if status == "noop":
         state.console.print(f"[yellow]{result['message']}[/yellow]")
@@ -39,6 +42,9 @@ def unschedule_workflow(
         raise CLIError("Unscheduling workflows requires network connectivity.")
 
     result = unschedule_workflow_cron(state.client, workflow_id)
+    if not state.human:
+        print_json(result)
+        return
     state.console.print(f"[green]{result['message']}[/green]")
 
 

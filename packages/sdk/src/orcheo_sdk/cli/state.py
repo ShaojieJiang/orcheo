@@ -17,3 +17,4 @@ class CLIState:
     cache: CacheManager
     console: Console
     verbose_results: bool = False
+    human: bool = False

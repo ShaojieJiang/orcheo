@@ -35,6 +35,7 @@ def _make_state(*, offline: bool = False) -> CLIState:
         client=SimpleNamespace(),
         cache=SimpleNamespace(),
         console=_FakeConsole(),
+        human=True,
     )
 
 

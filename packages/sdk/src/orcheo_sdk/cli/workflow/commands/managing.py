@@ -3,7 +3,7 @@
 from __future__ import annotations
 import typer
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import (
     EntrypointOption,
@@ -43,6 +43,9 @@ def delete_workflow(
     if state.settings.offline:
         raise CLIError("Deleting workflows requires network connectivity.")
 
+    if not state.human and not force:
+        print_json({"error": "Use --force to confirm deletion in machine mode."})
+        raise typer.Exit(code=1)
     if not force:
         typer.confirm(
             f"Are you sure you want to delete workflow '{workflow_id}'?",
@@ -50,6 +53,9 @@ def delete_workflow(
         )
 
     result = delete_workflow_data(state.client, workflow_id)
+    if not state.human:
+        print_json(result)
+        return
     raw_message = result.get("message", "")
     if raw_message and "deleted successfully" in raw_message.lower():
         success_message = raw_message
@@ -83,6 +89,9 @@ def upload_workflow(
         runnable_config=runnable_config,
         console=state.console,
     )
+    if not state.human:
+        print_json(result)
+        return
     identifier = workflow_id or result.get("id") or "workflow"
     action = "updated" if workflow_id else "uploaded"
     success_message = f"[green]Workflow '{identifier}' {action} successfully.[/green]"
@@ -116,6 +125,10 @@ def download_workflow(
         _cache_notice(state, f"workflow {workflow_id}", stale)
 
     content = payload["content"]
+
+    if not state.human and not output_path:
+        print_json(payload)
+        return
 
     if output_path:
         output_file = _validate_local_path(

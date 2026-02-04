@@ -84,6 +84,7 @@ def test_config_command_without_service_token(
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
         "ORCHEO_API_URL": "http://api.test",
+        "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }
 
@@ -234,6 +235,7 @@ def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> No
     minimal_env = {
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }
 

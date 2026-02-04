@@ -6,7 +6,6 @@ import tomllib
 from pathlib import Path
 from typing import Annotated, Any
 import typer
-from rich.console import Console
 from orcheo_sdk.cli.auth.config import (
     AUTH_AUDIENCE_ENV,
     AUTH_CLIENT_ID_ENV,
@@ -47,9 +46,8 @@ EnvFileOption = Annotated[
 ]
 
 
-def _get_console(ctx: typer.Context) -> Console:
-    state: CLIState = ctx.ensure_object(CLIState)
-    return state.console
+def _state(ctx: typer.Context) -> CLIState:
+    return ctx.ensure_object(CLIState)
 
 
 def _read_env_file(env_file: Path) -> dict[str, str]:
@@ -208,7 +206,7 @@ def configure(
     env_file: EnvFileOption = None,
 ) -> None:
     """Write CLI profile configuration to ``cli.toml``."""
-    console = _get_console(ctx)
+    state = _state(ctx)
 
     env_data = _read_env_file(env_file) if env_file else None
     env_profile = None
@@ -260,6 +258,17 @@ def configure(
         profiles[name] = profile_data
 
     _write_profiles(config_path, profiles)
-    console.print(
+    if not state.human:
+        from orcheo_sdk.cli.output import print_json
+
+        print_json(
+            {
+                "status": "success",
+                "profiles": profile_names,
+                "config_path": str(config_path),
+            }
+        )
+        return
+    state.console.print(
         f"[green]Updated {len(profile_names)} profile(s) in {config_path}.[/green]"
     )

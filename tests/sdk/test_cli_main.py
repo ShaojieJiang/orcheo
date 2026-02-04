@@ -30,7 +30,9 @@ def test_main_config_error_handling(
         router.get(
             "http://localhost:8000/api/workflows/wf-1/triggers/cron/config"
         ).mock(return_value=httpx.Response(404))
-        result = runner.invoke(app, ["workflow", "list"], env={"NO_COLOR": "1"})
+        result = runner.invoke(
+            app, ["workflow", "list"], env={"NO_COLOR": "1", "ORCHEO_HUMAN": "1"}
+        )
     assert result.exit_code == 0
     assert "Demo" in result.stdout
 
@@ -42,6 +44,7 @@ def test_run_cli_error_handling(
         raise CLIError("Test error")
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()
@@ -67,6 +70,7 @@ def test_run_usage_error_handling(
         raise click.UsageError("Missing command.", ctx=ctx)
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()
@@ -89,6 +93,7 @@ def test_run_usage_error_without_context(
         raise click.UsageError("Invalid option.")
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()
@@ -109,6 +114,7 @@ def test_run_authentication_error_401(
         raise APICallError("Invalid bearer token", status_code=401)
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()
@@ -129,6 +135,7 @@ def test_run_authentication_error_403(
         raise APICallError("Missing required scopes: workflows:write", status_code=403)
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()
@@ -149,6 +156,7 @@ def test_run_api_error_without_hint(
         raise APICallError("Server error", status_code=500)
 
     monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
         run()

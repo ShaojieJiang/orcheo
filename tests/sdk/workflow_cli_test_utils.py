@@ -56,6 +56,7 @@ def make_state(*, verbose_results: bool = False) -> CLIState:
         cache=object(),
         console=StubConsole(),
         verbose_results=verbose_results,
+        human=True,
     )
 
 
