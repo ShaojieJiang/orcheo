@@ -127,6 +127,67 @@ def test_get_oauth_config_from_profile_keys(
     assert config.organization == "org_profile"
 
 
+def test_get_oauth_config_from_profile_scopes_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from orcheo_sdk.cli.config import CONFIG_FILENAME
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_file = config_dir / CONFIG_FILENAME
+    config_file.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'auth_issuer = "https://profile.example.com/"',
+                'auth_client_id = "profile-client"',
+                'auth_scopes = ["openid", "profile", "custom"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
+    monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
+    monkeypatch.delenv(AUTH_SCOPES_ENV, raising=False)
+
+    config = get_oauth_config()
+
+    assert config.scopes == "openid profile custom"
+
+
+def test_get_oauth_config_invalid_profile_scopes_type(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from orcheo_sdk.cli.config import CONFIG_FILENAME
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_file = config_dir / CONFIG_FILENAME
+    config_file.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'auth_issuer = "https://profile.example.com/"',
+                'auth_client_id = "profile-client"',
+                'auth_scopes = ["openid", 123]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
+    monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
+    monkeypatch.delenv(AUTH_SCOPES_ENV, raising=False)
+
+    with pytest.raises(CLIConfigurationError, match="auth_scopes must be a string"):
+        get_oauth_config()
+
+
 def test_load_profile_invalid_toml(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

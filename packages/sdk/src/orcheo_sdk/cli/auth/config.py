@@ -59,6 +59,22 @@ def _coerce_str(value: Any) -> str | None:
     return None
 
 
+def _coerce_scopes(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        if not all(isinstance(scope, str) for scope in value):
+            raise CLIConfigurationError(
+                f"{AUTH_SCOPES_KEY} must be a string or list of strings."
+            )
+        return " ".join(value)
+    raise CLIConfigurationError(
+        f"{AUTH_SCOPES_KEY} must be a string or list of strings."
+    )
+
+
 def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
     """Load OAuth configuration from CLI config and environment variables.
 
@@ -73,7 +89,7 @@ def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
     client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
         AUTH_CLIENT_ID_ENV
     )
-    profile_scopes = _coerce_str(profile_data.get(AUTH_SCOPES_KEY))
+    profile_scopes = _coerce_scopes(profile_data.get(AUTH_SCOPES_KEY))
     profile_audience = _coerce_str(profile_data.get(AUTH_AUDIENCE_KEY))
     profile_organization = _coerce_str(profile_data.get(AUTH_ORGANIZATION_KEY))
 
