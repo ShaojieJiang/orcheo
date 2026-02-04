@@ -93,6 +93,25 @@ def test_auth_login_missing_config(
     assert "OAuth not configured" in error_text
 
 
+def test_auth_login_machine_error(
+    runner: CliRunner, auth_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Machine mode login errors should output JSON."""
+    import json
+    from orcheo_sdk.cli.errors import CLIError
+
+    def _raise(*_args: object, **_kwargs: object) -> None:
+        raise CLIError("OAuth not configured.")
+
+    monkeypatch.setattr("orcheo_sdk.cli.auth.commands.start_oauth_login", _raise)
+
+    machine_env = {k: v for k, v in auth_env.items() if k != "ORCHEO_HUMAN"}
+    result = runner.invoke(app, ["auth", "login"], env=machine_env)
+    assert result.exit_code == 1
+    data = json.loads(result.output)
+    assert data["error"] == "OAuth not configured."
+
+
 def test_auth_logout_machine_output(
     runner: CliRunner, auth_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

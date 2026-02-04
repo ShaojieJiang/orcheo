@@ -46,7 +46,10 @@ def login(
             port=port,
         )
     except CLIError as exc:
-        state.console.print(f"[red]{exc}[/red]")
+        if state.human:
+            state.console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1) from exc
+        print_json({"error": str(exc)})
         raise typer.Exit(code=1) from exc
 
 

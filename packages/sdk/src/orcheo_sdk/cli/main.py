@@ -185,6 +185,7 @@ def _print_cli_error_machine(exc: CLIError) -> None:
 def run() -> None:
     """Entry point used by console scripts."""
     human_mode = bool(os.getenv("ORCHEO_HUMAN")) or "--human" in sys.argv
+    original_rich_markup = app.rich_markup_mode
     if not human_mode:
         app.rich_markup_mode = None
     console = Console()
@@ -210,3 +211,5 @@ def run() -> None:
         else:
             _print_cli_error_machine(exc)
         sys.exit(1)
+    finally:
+        app.rich_markup_mode = original_rich_markup
