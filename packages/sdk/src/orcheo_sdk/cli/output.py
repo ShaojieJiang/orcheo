@@ -88,8 +88,3 @@ def print_json(data: Any) -> None:
 def machine_success(message: str) -> None:
     """Print a success message as JSON for machine consumption."""
     print_json({"status": "success", "message": message})
-
-
-def machine_warning(message: str) -> None:
-    """Print a warning message as JSON for machine consumption."""
-    print_json({"status": "warning", "message": message})

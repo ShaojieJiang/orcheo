@@ -29,6 +29,7 @@ from orcheo_sdk.cli.config import (
     load_profiles,
 )
 from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.output import print_json
 from orcheo_sdk.cli.state import CLIState
 
 
@@ -267,8 +268,6 @@ def configure(
 
     _write_profiles(config_path, profiles)
     if not state.human:
-        from orcheo_sdk.cli.output import print_json
-
         print_json(
             {
                 "status": "success",

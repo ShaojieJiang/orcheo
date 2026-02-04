@@ -48,8 +48,8 @@ def login(
     except CLIError as exc:
         if state.human:
             state.console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(code=1) from exc
-        print_json({"error": str(exc)})
+        else:
+            print_json({"error": str(exc)})
         raise typer.Exit(code=1) from exc
 
 

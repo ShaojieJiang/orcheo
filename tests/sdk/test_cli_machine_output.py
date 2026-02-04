@@ -12,7 +12,6 @@ from orcheo_sdk.cli.main import app, run
 from orcheo_sdk.cli.output import (
     _escape_md_cell,
     machine_success,
-    machine_warning,
     print_json,
     print_markdown_table,
 )
@@ -85,34 +84,9 @@ class TestMachineSuccess:
         assert parsed == {"status": "success", "message": "Done"}
 
 
-class TestMachineWarning:
-    def test_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        machine_warning("Careful")
-        out = capsys.readouterr().out
-        parsed = json.loads(out)
-        assert parsed == {"status": "warning", "message": "Careful"}
-
-
 # ---------------------------------------------------------------------------
 # CLI integration: machine mode (no ORCHEO_HUMAN)
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def machine_env(tmp_path: Path) -> dict[str, str]:
-    """Environment without ORCHEO_HUMAN — triggers machine output."""
-    config_dir = tmp_path / "config"
-    cache_dir = tmp_path / "cache"
-    config_dir.mkdir()
-    cache_dir.mkdir()
-    return {
-        "ORCHEO_API_URL": "http://api.test",
-        "ORCHEO_SERVICE_TOKEN": "token",
-        "ORCHEO_CONFIG_DIR": str(config_dir),
-        "ORCHEO_CACHE_DIR": str(cache_dir),
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
-        "NO_COLOR": "1",
-    }
 
 
 class TestNodeListMachineMode:
