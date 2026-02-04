@@ -25,6 +25,11 @@ def test_config_command_writes_profiles_from_env_file(
                 "ORCHEO_API_URL=http://env-file.test",
                 "ORCHEO_SERVICE_TOKEN=env-token",
                 "ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://canvas.test",
+                "ORCHEO_AUTH_ISSUER=https://auth.env-file.test",
+                "ORCHEO_AUTH_CLIENT_ID=env-client-id",
+                "ORCHEO_AUTH_SCOPES=openid email",
+                "ORCHEO_AUTH_AUDIENCE=https://api.env-file.test",
+                "ORCHEO_AUTH_ORGANIZATION=org-env",
             ]
         ),
         encoding="utf-8",
@@ -47,6 +52,11 @@ def test_config_command_writes_profiles_from_env_file(
         assert profile["api_url"] == "http://env-file.test"
         assert profile["service_token"] == "env-token"
         assert profile["chatkit_public_base_url"] == "http://canvas.test"
+        assert profile["auth_issuer"] == "https://auth.env-file.test"
+        assert profile["auth_client_id"] == "env-client-id"
+        assert profile["auth_scopes"] == "openid email"
+        assert profile["auth_audience"] == "https://api.env-file.test"
+        assert profile["auth_organization"] == "org-env"
 
 
 def test_config_command_uses_environment_defaults(
@@ -74,6 +84,7 @@ def test_config_command_without_service_token(
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
         "ORCHEO_API_URL": "http://api.test",
+        "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }
 
@@ -217,12 +228,95 @@ def test_config_command_uses_profile_from_env_file(
     assert data["profiles"]["custom-profile"]["api_url"] == "http://custom.test"
 
 
+def test_config_command_falls_back_to_existing_profile_api_url(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Test that api_url is read from the existing profile when not provided."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / CONFIG_FILENAME
+    config_path.write_text(
+        '[profiles.default]\napi_url = "http://existing.test"\n',
+        encoding="utf-8",
+    )
+    minimal_env = {
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
+        "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+    result = runner.invoke(
+        app,
+        ["config", "--auth-issuer", "https://auth.example.com/"],
+        env=minimal_env,
+    )
+
+    assert result.exit_code == 0
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    profile = data["profiles"]["default"]
+    assert profile["api_url"] == "http://existing.test"
+    assert profile["auth_issuer"] == "https://auth.example.com/"
+
+
+def test_config_command_preserves_api_url_per_profile(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Test api_url is preserved for each profile when not provided."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.alpha]",
+                'api_url = "http://alpha.test"',
+                "",
+                "[profiles.beta]",
+                'api_url = "http://beta.test"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    minimal_env = {
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
+        "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "--profile",
+            "alpha",
+            "--profile",
+            "beta",
+            "--auth-issuer",
+            "https://auth.example.com/",
+        ],
+        env=minimal_env,
+    )
+
+    assert result.exit_code == 0
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    profiles = data["profiles"]
+    assert profiles["alpha"]["api_url"] == "http://alpha.test"
+    assert profiles["beta"]["api_url"] == "http://beta.test"
+
+
 def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> None:
     """Test that missing API URL raises CLIError."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     minimal_env = {
         "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }
 
@@ -277,3 +371,34 @@ def test_config_command_invalid_toml(
         )
 
     assert "Invalid TOML" in str(exc_info.value)
+
+
+def test_resolve_oauth_values_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cover false branches when no OAuth values resolve."""
+    from orcheo_sdk.cli.auth.config import (
+        AUTH_AUDIENCE_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_ISSUER_ENV,
+        AUTH_ORGANIZATION_ENV,
+        AUTH_SCOPES_ENV,
+    )
+    from orcheo_sdk.cli.config_command import _resolve_oauth_values
+
+    for key in [
+        AUTH_ISSUER_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_SCOPES_ENV,
+        AUTH_AUDIENCE_ENV,
+        AUTH_ORGANIZATION_ENV,
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    result = _resolve_oauth_values(
+        env_data=None,
+        auth_issuer=None,
+        auth_client_id=None,
+        auth_scopes=None,
+        auth_audience=None,
+        auth_organization=None,
+    )
+    assert result == {}

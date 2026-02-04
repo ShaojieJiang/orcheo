@@ -3353,7 +3353,7 @@ wheels = [
 
 [[package]]
 name = "orcheo"
-version = "0.18.1"
+version = "0.19.1"
 source = { editable = "." }
 dependencies = [
     { name = "agentensor" },
@@ -3494,7 +3494,7 @@ examples = [{ name = "orcheo-backend", editable = "apps/backend" }]
 
 [[package]]
 name = "orcheo-backend"
-version = "0.17.3"
+version = "0.17.4"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "celery", extra = ["redis"] },
@@ -3532,7 +3532,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "orcheo-sdk"
-version = "0.14.1"
+version = "0.14.2"
 source = { editable = "packages/sdk" }
 dependencies = [
     { name = "fastmcp" },

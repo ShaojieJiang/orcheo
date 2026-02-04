@@ -290,7 +290,7 @@ def test_start_oauth_login_no_browser_success(
         token_endpoint="https://auth.example.com/token",
     )
 
-    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda: config)
+    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda **_: config)
     monkeypatch.setattr(oauth_module, "_load_discovery", lambda _: discovery)
     monkeypatch.setattr(
         oauth_module,
@@ -377,7 +377,7 @@ def test_start_oauth_login_error(monkeypatch: pytest.MonkeyPatch) -> None:
         token_endpoint="https://auth.example.com/token",
     )
 
-    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda: config)
+    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda **_: config)
     monkeypatch.setattr(oauth_module, "_load_discovery", lambda _: discovery)
     monkeypatch.setattr(
         oauth_module,
@@ -417,7 +417,7 @@ def test_start_oauth_login_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         token_endpoint="https://auth.example.com/token",
     )
 
-    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda: config)
+    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda **_: config)
     monkeypatch.setattr(oauth_module, "_load_discovery", lambda _: discovery)
     monkeypatch.setattr(
         oauth_module,
@@ -462,7 +462,7 @@ def test_start_oauth_login_state_mismatch(
     )
     opened: dict[str, str] = {}
 
-    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda: config)
+    monkeypatch.setattr(oauth_module, "get_oauth_config", lambda **_: config)
     monkeypatch.setattr(oauth_module, "_load_discovery", lambda _: discovery)
     monkeypatch.setattr(
         oauth_module,

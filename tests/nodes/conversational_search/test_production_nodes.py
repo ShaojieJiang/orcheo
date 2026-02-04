@@ -14,6 +14,7 @@ from orcheo.nodes.conversational_search.conversation import (
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     HallucinationGuardNode,
+    SearchResultFormatterNode,
     StreamingGeneratorNode,
 )
 from orcheo.nodes.conversational_search.ingestion import (
@@ -25,6 +26,7 @@ from orcheo.nodes.conversational_search.query_processing import MultiHopPlannerN
 from orcheo.nodes.conversational_search.retrieval import (
     PineconeRerankNode,
     ReRankerNode,
+    SearchResultAdapterNode,
     SourceRouterNode,
 )
 from orcheo.nodes.conversational_search.vector_store import (
@@ -876,3 +878,81 @@ async def test_streaming_generator_validates_prompt_and_llm_output(
     bad_node = StreamingGeneratorNode(name="stream-ai-model", ai_model="gpt-4")
     with pytest.raises(ValueError, match="Agent must return"):
         await bad_node._invoke_ai_model("prompt")
+
+
+@pytest.mark.asyncio
+async def test_search_result_adapter_maps_raw_payloads() -> None:
+    node = SearchResultAdapterNode(
+        name="adapter",
+        source_result_key="hybrid_search",
+        results_field="results",
+        text_field="raw.recommendation_reason",
+        metadata_field="raw",
+        source_name="mongodb",
+    )
+    state = State(
+        inputs={},
+        results={
+            "hybrid_search": {
+                "results": [
+                    {
+                        "id": "doc-1",
+                        "score": 0.42,
+                        "raw": {
+                            "platform_name": "Atlas",
+                            "recommendation_reason": "Strong overlap with query",
+                        },
+                    }
+                ]
+            }
+        },
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    entries = result["results"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.text == "Strong overlap with query"
+    assert entry.metadata["platform_name"] == "Atlas"
+    assert entry.source == "mongodb"
+    assert entry.sources == ["mongodb"]
+
+
+@pytest.mark.asyncio
+async def test_search_result_formatter_renders_markdown() -> None:
+    node = SearchResultFormatterNode(
+        name="formatter",
+        source_result_key="adapt_results",
+        results_field="results",
+        title_fields=["platform_name"],
+        snippet_fields=["recommendation_reason"],
+        url_fields=["source_url"],
+        snippet_label="Reason",
+    )
+    entry = SearchResult(
+        id="doc-1",
+        score=0.9,
+        text="Fallback text",
+        metadata={
+            "platform_name": "Atlas",
+            "recommendation_reason": "Strong overlap with query",
+            "source_url": "https://example.com",
+        },
+        source="mongodb",
+        sources=["mongodb"],
+    )
+    state = State(
+        inputs={},
+        results={"adapt_results": {"results": [entry]}},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    markdown = result["markdown"]
+    assert "Search results:" in markdown
+    assert "1. Atlas" in markdown
+    assert "Reason: Strong overlap with query" in markdown
+    assert "Source: https://example.com" in markdown

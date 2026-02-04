@@ -1050,13 +1050,13 @@ class WeComAccessTokenNode(TaskNode):
     """Fetch and cache WeCom access token."""
 
     corp_id: str = Field(description="WeCom corp ID")
-    corp_secret: str = "[[wecom_corp_secret]]"
+    app_secret: str = "[[wecom_app_secret]]"
     """WeCom app secret (from Orcheo vault)."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Fetch access token from WeCom API."""
         url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
-        params = {"corpid": self.corp_id, "corpsecret": self.corp_secret}
+        params = {"corpid": self.corp_id, "corpsecret": self.app_secret}
 
         client = httpx.AsyncClient(timeout=10.0)
         try:

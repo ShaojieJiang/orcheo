@@ -80,7 +80,7 @@ The Orcheo workflow receives WeCom webhook requests, validates/decrypts the payl
 ### Technical Requirements
 - WeCom callback verification and decryption using `msg_signature`, `timestamp`, `nonce`, plus `Token` and `EncodingAESKey` configured in the WeCom app.
 - Access token retrieval and caching using corp ID + corp secret; refresh before message send.
-- Secrets sourced from Orcheo vault: `WECOM_CORP_ID`, `WECOM_CORP_SECRET`, `WECOM_TOKEN`, `WECOM_ENCODING_AES_KEY`, `WECOM_AGENT_ID`.
+- Secrets sourced from Orcheo vault: `WECOM_CORP_ID`, `WECOM_APP_SECRET`, `WECOM_TOKEN`, `WECOM_ENCODING_AES_KEY`, `WECOM_AGENT_ID`.
 - AI bot callback verification and decryption using `msg_signature`, `timestamp`, `nonce`, plus AI bot `Token` and `EncodingAESKey` (ReceiveId is empty for internal AI bots).
 - AI bot replies must support encrypted passive reply payloads and active reply POSTs to `response_url`.
 - WeCom Message Push webhook key stored in Orcheo vault; keep the webhook URL private and rotate if exposed.

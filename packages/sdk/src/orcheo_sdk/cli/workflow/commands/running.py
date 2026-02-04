@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import typer
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.workflow.app import (
     ActorOption,
     EvaluationFileOption,
@@ -34,6 +34,11 @@ def run_workflow(
     inputs_file: InputsFileOption = None,
     config: RunnableConfigOption = None,
     config_file: RunnableConfigFileOption = None,
+    verbose: bool = typer.Option(
+        False,
+        "--verbose/--no-verbose",
+        help="Print full results payloads in streaming output.",
+    ),
     stream: bool = typer.Option(
         True,
         "--stream/--no-stream",
@@ -42,6 +47,7 @@ def run_workflow(
 ) -> None:
     """Trigger a workflow run using the latest version."""
     state = _state(ctx)
+    state.verbose_results = verbose
     if state.settings.offline:
         raise CLIError("Workflow executions require network connectivity.")
     input_payload = _resolve_run_inputs(inputs, inputs_file)
@@ -77,6 +83,9 @@ def run_workflow(
         triggered_by=triggered_by,
         runnable_config=runnable_config,
     )
+    if not state.human:
+        print_json(result)
+        return
     render_json(state.console, result, title="Run created")
 
 
@@ -91,6 +100,11 @@ def evaluate_workflow(
     config_file: RunnableConfigFileOption = None,
     evaluation: EvaluationOption = None,
     evaluation_file: EvaluationFileOption = None,
+    verbose: bool = typer.Option(
+        False,
+        "--verbose/--no-verbose",
+        help="Print full results payloads in streaming output.",
+    ),
     stream: bool = typer.Option(
         True,
         "--stream/--no-stream",
@@ -99,6 +113,7 @@ def evaluate_workflow(
 ) -> None:
     """Trigger an evaluation run using Agentensor evaluation mode."""
     state = _state(ctx)
+    state.verbose_results = verbose
     if state.settings.offline:
         raise CLIError("Workflow evaluations require network connectivity.")
     input_payload = _resolve_run_inputs(inputs, inputs_file)

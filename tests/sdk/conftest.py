@@ -24,6 +24,25 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+
+@pytest.fixture()
+def machine_env(tmp_path: Path) -> dict[str, str]:
+    """Environment with ORCHEO_HUMAN unset — triggers machine (JSON) output."""
+    config_dir = tmp_path / "config"
+    cache_dir = tmp_path / "cache"
+    config_dir.mkdir()
+    cache_dir.mkdir()
+    return {
+        "ORCHEO_API_URL": "http://api.test",
+        "ORCHEO_SERVICE_TOKEN": "token",
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(cache_dir),
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_HUMAN": "",
         "NO_COLOR": "1",
     }
 
@@ -36,6 +55,7 @@ def mock_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
     monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")
+    monkeypatch.setenv("ORCHEO_HUMAN", "1")
     monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
 
 

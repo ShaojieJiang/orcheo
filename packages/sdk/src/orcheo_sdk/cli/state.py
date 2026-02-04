@@ -16,3 +16,5 @@ class CLIState:
     client: ApiClient
     cache: CacheManager
     console: Console
+    verbose_results: bool = False
+    human: bool = False

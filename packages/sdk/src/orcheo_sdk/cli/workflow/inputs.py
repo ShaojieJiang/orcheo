@@ -133,6 +133,8 @@ def _resolve_evaluation_payload(
 
 def _cache_notice(state: CLIState, subject: str, stale: bool) -> None:
     """Display cache usage notice in the console."""
+    if not state.human:
+        return
     note = "[yellow]Using cached data[/yellow]"
     if stale:
         note += " (older than TTL)"

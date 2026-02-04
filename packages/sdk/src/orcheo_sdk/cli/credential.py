@@ -3,7 +3,12 @@
 from __future__ import annotations
 from typing import Annotated
 import typer
-from orcheo_sdk.cli.output import render_json, render_table
+from orcheo_sdk.cli.output import (
+    print_json,
+    print_markdown_table,
+    render_json,
+    render_table,
+)
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services import (
     create_credential_data,
@@ -52,6 +57,9 @@ def list_credentials(
     """List credentials visible to the caller."""
     state = _state(ctx)
     credentials = list_credentials_data(state.client, workflow_id=workflow_id)
+    if not state.human:
+        print_markdown_table(credentials)
+        return
     rows = [
         [
             item.get("id"),
@@ -103,6 +111,9 @@ def create_credential(
         scopes=scopes,
         kind=kind,
     )
+    if not state.human:
+        print_json(response)
+        return
     render_json(state.console, response, title="Credential created")
 
 
@@ -118,6 +129,9 @@ def delete_credential(
 ) -> None:
     """Delete a credential from the vault."""
     state = _state(ctx)
+    if not state.human and not force:
+        print_json({"error": "Use --force to confirm deletion in machine mode."})
+        raise typer.Exit(code=1)
     if not force:
         typer.confirm(
             "Are you sure you want to delete this credential?",
@@ -128,6 +142,9 @@ def delete_credential(
         credential_id,
         workflow_id=workflow_id,
     )
+    if not state.human:
+        print_json(result)
+        return
     state.console.print(result.get("message", "Credential deleted."))
 
 
@@ -145,6 +162,11 @@ def update_credential(
 ) -> None:
     """Update credential metadata when supported by the backend."""
     state = _state(ctx)
+    if not state.human:
+        print_json(
+            {"error": "Credential updates are not yet supported by the backend API."}
+        )
+        raise typer.Exit(code=1)
     state.console.print(
         "Credential updates are not yet supported by the backend API. "
         "Rotate credentials via templates or recreate them."

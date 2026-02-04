@@ -99,3 +99,34 @@ def test_workflow_delete_with_success_message(
         )
     assert result.exit_code == 0
     assert success_message in result.stdout
+
+
+def test_workflow_delete_machine_mode_without_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode delete without --force prints JSON error and exits 1."""
+    result = runner.invoke(
+        app,
+        ["workflow", "delete", "wf-1"],
+        env=machine_env,
+    )
+    assert result.exit_code == 1
+    assert '"error"' in result.stdout
+    assert "--force" in result.stdout
+
+
+def test_workflow_delete_machine_mode_with_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode delete with --force prints JSON result."""
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-1", "--force"],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    assert "{" in result.stdout

@@ -83,6 +83,37 @@ class DummyGraph:
         return DummyCompiledGraph(self._final_state)
 
 
+class DummyStateSnapshot:
+    def __init__(self, values: CustomState) -> None:
+        self.values = values
+
+
+class DummyStreamingCompiledGraph:
+    def __init__(
+        self, steps: list[dict[str, object]], final_state: CustomState
+    ) -> None:
+        self._steps = steps
+        self._final_state = final_state
+
+    async def astream(self, *_args: object, **_kwargs: object):
+        for step in self._steps:
+            yield step
+
+    async def aget_state(self, *_args: object, **_kwargs: object) -> DummyStateSnapshot:
+        return DummyStateSnapshot(self._final_state)
+
+
+class DummyStreamingGraph:
+    def __init__(
+        self, steps: list[dict[str, object]], final_state: CustomState
+    ) -> None:
+        self._steps = steps
+        self._final_state = final_state
+
+    def compile(self, checkpointer: object) -> DummyStreamingCompiledGraph:
+        return DummyStreamingCompiledGraph(self._steps, self._final_state)
+
+
 @pytest.mark.asyncio
 async def test_run_inserts_raw_messages_and_records_state(
     monkeypatch: pytest.MonkeyPatch,
@@ -141,3 +172,63 @@ async def test_run_inserts_raw_messages_and_records_state(
     repository.mark_run_succeeded.assert_awaited_once_with(
         run_record.id, actor="chatkit", output={"reply": "final reply"}
     )
+
+
+@pytest.mark.asyncio
+async def test_run_streams_progress_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = Mock(
+        id="version",
+        graph={"format": "standard"},
+        runnable_config=None,
+    )
+    repository = AsyncMock()
+    repository.get_latest_version.return_value = version
+    repository.create_run.return_value = Mock(id="run-id")
+    repository.mark_run_started = AsyncMock()
+    repository.mark_run_succeeded = AsyncMock()
+
+    steps = [{"node_a": {"value": 1}}, {"node_b": {"value": 2}}]
+    final_state = CustomState(
+        reply="final reply", messages=[HumanMessage(content="payload")]
+    )
+    graph = DummyStreamingGraph(steps, final_state)
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        fake_checkpointer,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_graph",
+        lambda config: graph,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda _: nullcontext(),  # type: ignore[assignment]
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context: Mock(),
+    )
+
+    captured_steps: list[dict[str, object]] = []
+
+    async def progress_callback(step: Mapping[str, object]) -> None:
+        captured_steps.append(dict(step))
+
+    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
+    reply, state_view, run = await executor.run(
+        uuid4(), {"input": "value"}, progress_callback=progress_callback
+    )
+
+    assert captured_steps == steps
+    assert reply == "final reply"
+    assert "_messages" in state_view
+    assert run is not None
+    repository.mark_run_succeeded.assert_awaited_once()

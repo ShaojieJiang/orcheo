@@ -139,3 +139,90 @@ def test_credential_delete_without_force_prompts(
         )
     # Typer.confirm with abort=True will exit with code 1 when user says no
     assert result.exit_code == 1
+
+
+def test_credential_list_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode outputs markdown table for credential list."""
+    credentials = [{"id": "cred-1", "name": "Canvas", "provider": "api"}]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/credentials").mock(
+            return_value=httpx.Response(200, json=credentials)
+        )
+        result = runner.invoke(app, ["credential", "list"], env=machine_env)
+    assert result.exit_code == 0
+    assert "| id |" in result.stdout or "cred-1" in result.stdout
+
+
+def test_credential_create_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode outputs JSON for credential create."""
+    created = {"id": "cred-1", "name": "Canvas", "provider": "api"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/credentials").mock(
+            return_value=httpx.Response(201, json=created)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "credential",
+                "create",
+                "Canvas",
+                "--provider",
+                "api",
+                "--secret",
+                "secret",
+            ],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["id"] == "cred-1"
+
+
+def test_credential_delete_machine_no_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode without --force prints error JSON and exits 1."""
+    result = runner.invoke(
+        app,
+        ["credential", "delete", "cred-1"],
+        env=machine_env,
+    )
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert "error" in data
+    assert "--force" in data["error"]
+
+
+def test_credential_delete_machine_with_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode with --force outputs JSON result."""
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/credentials/cred-1").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["credential", "delete", "cred-1", "--force"],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+
+
+def test_credential_update_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode prints unsupported JSON for update."""
+    result = runner.invoke(
+        app,
+        ["credential", "update", "cred-1", "--secret", "new"],
+        env=machine_env,
+    )
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert "error" in data
+    assert "not yet supported" in data["error"]

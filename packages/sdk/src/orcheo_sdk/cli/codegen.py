@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 import typer
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.services import (
@@ -56,6 +56,9 @@ def scaffold_workflow(
         workflow=workflow,
         versions=versions,
     )
+    if not state.human:
+        print_json(data)
+        return
     state.console.print(data["code"])
 
     render_json(state.console, data["workflow"], title="Workflow metadata")
@@ -125,6 +128,9 @@ def generate_template(
     except OSError as exc:  # pragma: no cover - filesystem error
         msg = f"Unable to write workflow template to {output_path}: {exc}".rstrip()
         raise CLIError(msg) from exc
+    if not state.human:
+        print_json({"status": "success", "path": str(output_path)})
+        return
     state.console.print(f"[green]Created workflow template: {output_path}[/green]")
     state.console.print("\nNext steps:")
     state.console.print(

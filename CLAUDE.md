@@ -73,6 +73,7 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - `tests/` - Test files mirroring src structure
 - `examples/` - Usage examples and notebooks
 - `docs/` - Documentation and architecture diagrams
+- `CONTRIBUTORS.md` - List of project contributors
 - `deploy/systemd/` - systemd unit files for production deployment
 
 ## Code Standards
@@ -99,3 +100,5 @@ Orcheo is a workflow orchestration platform built on LangGraph with a node-based
 - State flows through nodes via decode_variables() method
 - WebSocket support for real-time workflow monitoring
 - MCP (Model Context Protocol) adapters for tool integration
+- When writing documents, set the author to the person writing the document
+- Default document owner is ShaojieJiang unless explicitly stated otherwise
