@@ -166,7 +166,7 @@ def update_credential(
         print_json(
             {"error": "Credential updates are not yet supported by the backend API."}
         )
-        raise typer.Exit(code=0)
+        raise typer.Exit(code=1)
     state.console.print(
         "Credential updates are not yet supported by the backend API. "
         "Rotate credentials via templates or recreate them."

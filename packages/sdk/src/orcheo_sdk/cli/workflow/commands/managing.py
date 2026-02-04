@@ -138,6 +138,9 @@ def download_workflow(
             require_file=True,
         )
         output_file.write_text(content, encoding="utf-8")
+        if not state.human:
+            print_json({"status": "success", "path": str(output_path)})
+            return
         state.console.print(f"[green]Workflow downloaded to '{output_path}'.[/green]")
     else:
         state.console.print(content)

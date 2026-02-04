@@ -222,7 +222,7 @@ def test_credential_update_machine_mode(
         ["credential", "update", "cred-1", "--secret", "new"],
         env=machine_env,
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     data = json.loads(result.stdout)
     assert "error" in data
     assert "not yet supported" in data["error"]
