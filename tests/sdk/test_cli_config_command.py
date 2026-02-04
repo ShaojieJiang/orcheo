@@ -260,6 +260,55 @@ def test_config_command_falls_back_to_existing_profile_api_url(
     assert profile["auth_issuer"] == "https://auth.example.com/"
 
 
+def test_config_command_preserves_api_url_per_profile(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Test api_url is preserved for each profile when not provided."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.alpha]",
+                'api_url = "http://alpha.test"',
+                "",
+                "[profiles.beta]",
+                'api_url = "http://beta.test"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    minimal_env = {
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
+        "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "--profile",
+            "alpha",
+            "--profile",
+            "beta",
+            "--auth-issuer",
+            "https://auth.example.com/",
+        ],
+        env=minimal_env,
+    )
+
+    assert result.exit_code == 0
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    profiles = data["profiles"]
+    assert profiles["alpha"]["api_url"] == "http://alpha.test"
+    assert profiles["beta"]["api_url"] == "http://beta.test"
+
+
 def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> None:
     """Test that missing API URL raises CLIError."""
     config_dir = tmp_path / "config"

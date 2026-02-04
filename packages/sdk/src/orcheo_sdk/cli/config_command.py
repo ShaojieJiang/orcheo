@@ -228,15 +228,9 @@ def configure(
     except tomllib.TOMLDecodeError as exc:
         raise CLIError(f"Invalid TOML in {config_path}.") from exc
 
-    existing_profile = profiles.get(profile_names[0], {})
-
-    resolved_api_url = _resolve_value(
+    resolved_api_url_override = _resolve_value(
         API_URL_ENV, env_data=env_data, override=api_url
-    ) or existing_profile.get("api_url")
-    if not resolved_api_url:
-        raise CLIError(
-            "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
-        )
+    )
     resolved_service_token = _resolve_value(
         SERVICE_TOKEN_ENV,
         env_data=env_data,
@@ -258,6 +252,11 @@ def configure(
 
     for name in profile_names:
         profile_data = dict(profiles.get(name, {}))
+        resolved_api_url = resolved_api_url_override or profile_data.get("api_url")
+        if not resolved_api_url:
+            raise CLIError(
+                "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
+            )
         profile_data["api_url"] = resolved_api_url
         if resolved_service_token:
             profile_data["service_token"] = resolved_service_token
