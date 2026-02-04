@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import typer
-from orcheo_sdk.cli.output import format_datetime, render_table
+from orcheo_sdk.cli.output import format_datetime, print_markdown_table, render_table
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import _state, workflow_app
 from orcheo_sdk.cli.workflow.inputs import _cache_notice
@@ -27,6 +27,9 @@ def list_workflows(
     )
     if from_cache:
         _cache_notice(state, "workflow catalog", stale)
+    if not state.human:
+        print_markdown_table(payload)
+        return
     rows = []
     for item in payload:
         published_at = item.get("published_at")

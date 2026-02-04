@@ -154,3 +154,26 @@ def test_token_create_with_all_options(runner: CliRunner, env: dict[str, str]) -
     assert "secret-123" in result.stdout
     assert "read:all" in result.stdout
     assert "ws-1" in result.stdout
+
+
+def test_token_create_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode outputs JSON for token create."""
+    import json
+
+    response_data = {
+        "identifier": "token-123",
+        "secret": "secret-abc-xyz",
+    }
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/admin/service-tokens").mock(
+            return_value=httpx.Response(200, json=response_data)
+        )
+        result = runner.invoke(app, ["token", "create"], env=machine_env)
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["identifier"] == "token-123"
+    assert data["secret"] == "secret-abc-xyz"

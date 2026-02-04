@@ -11,6 +11,7 @@ from orcheo_sdk.cli.auth.tokens import (
     is_oauth_token_valid,
 )
 from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.output import print_json, print_machine_success
 from orcheo_sdk.cli.state import CLIState
 
 
@@ -45,7 +46,10 @@ def login(
             port=port,
         )
     except CLIError as exc:
-        state.console.print(f"[red]{exc}[/red]")
+        if state.human:
+            state.console.print(f"[red]{exc}[/red]")
+        else:
+            print_json({"error": str(exc)})
         raise typer.Exit(code=1) from exc
 
 
@@ -54,6 +58,9 @@ def logout(ctx: typer.Context) -> None:
     """Clear stored OAuth tokens for the current profile."""
     state = _state(ctx)
     logout_oauth(profile=state.settings.profile)
+    if not state.human:
+        print_machine_success("Logged out successfully.")
+        return
     state.console.print("[green]Logged out successfully.[/green]")
 
 
@@ -62,6 +69,23 @@ def status(ctx: typer.Context) -> None:
     """Show current authentication status."""
     state = _state(ctx)
     tokens = get_oauth_tokens(profile=state.settings.profile)
+
+    if not state.human:
+        status_data: dict[str, str | None] = {
+            "profile": state.settings.profile or "default",
+            "api_url": state.settings.api_url,
+        }
+        if tokens and is_oauth_token_valid(tokens):
+            status_data["status"] = "authenticated"
+            status_data["method"] = "oauth"
+            status_data["expires"] = get_token_expiry_display(tokens)
+        elif state.settings.service_token:
+            status_data["status"] = "authenticated"
+            status_data["method"] = "service_token"
+        else:
+            status_data["status"] = "not_authenticated"
+        print_json(status_data)
+        return
 
     table = Table(title="Authentication Status", show_header=False, box=None)
     table.add_column("Field", style="bold")

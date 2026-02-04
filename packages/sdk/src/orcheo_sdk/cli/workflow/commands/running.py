@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import typer
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.workflow.app import (
     ActorOption,
     EvaluationFileOption,
@@ -83,6 +83,9 @@ def run_workflow(
         triggered_by=triggered_by,
         runnable_config=runnable_config,
     )
+    if not state.human:
+        print_json(result)
+        return
     render_json(state.console, result, title="Run created")
 
 

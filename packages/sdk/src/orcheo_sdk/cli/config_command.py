@@ -6,7 +6,18 @@ import tomllib
 from pathlib import Path
 from typing import Annotated, Any
 import typer
-from rich.console import Console
+from orcheo_sdk.cli.auth.config import (
+    AUTH_AUDIENCE_ENV,
+    AUTH_AUDIENCE_KEY,
+    AUTH_CLIENT_ID_ENV,
+    AUTH_CLIENT_ID_KEY,
+    AUTH_ISSUER_ENV,
+    AUTH_ISSUER_KEY,
+    AUTH_ORGANIZATION_ENV,
+    AUTH_ORGANIZATION_KEY,
+    AUTH_SCOPES_ENV,
+    AUTH_SCOPES_KEY,
+)
 from orcheo_sdk.cli.config import (
     API_URL_ENV,
     CHATKIT_PUBLIC_BASE_URL_ENV,
@@ -18,6 +29,7 @@ from orcheo_sdk.cli.config import (
     load_profiles,
 )
 from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.output import print_json
 from orcheo_sdk.cli.state import CLIState
 
 
@@ -40,9 +52,8 @@ EnvFileOption = Annotated[
 ]
 
 
-def _get_console(ctx: typer.Context) -> Console:
-    state: CLIState = ctx.ensure_object(CLIState)
-    return state.console
+def _state(ctx: typer.Context) -> CLIState:
+    return ctx.ensure_object(CLIState)
 
 
 def _read_env_file(env_file: Path) -> dict[str, str]:
@@ -91,6 +102,60 @@ def _format_toml_value(value: Any) -> str:
     raise CLIError(f"Unsupported config value type: {type(value).__name__}")
 
 
+def _resolve_oauth_values(
+    *,
+    env_data: dict[str, str] | None,
+    auth_issuer: str | None,
+    auth_client_id: str | None,
+    auth_scopes: str | None,
+    auth_audience: str | None,
+    auth_organization: str | None,
+) -> dict[str, str]:
+    resolved: dict[str, str] = {}
+
+    resolved_auth_issuer = _resolve_value(
+        AUTH_ISSUER_ENV,
+        env_data=env_data,
+        override=auth_issuer,
+    )
+    if resolved_auth_issuer:
+        resolved[AUTH_ISSUER_KEY] = resolved_auth_issuer
+
+    resolved_auth_client_id = _resolve_value(
+        AUTH_CLIENT_ID_ENV,
+        env_data=env_data,
+        override=auth_client_id,
+    )
+    if resolved_auth_client_id:
+        resolved[AUTH_CLIENT_ID_KEY] = resolved_auth_client_id
+
+    resolved_auth_scopes = _resolve_value(
+        AUTH_SCOPES_ENV,
+        env_data=env_data,
+        override=auth_scopes,
+    )
+    if resolved_auth_scopes:
+        resolved[AUTH_SCOPES_KEY] = resolved_auth_scopes
+
+    resolved_auth_audience = _resolve_value(
+        AUTH_AUDIENCE_ENV,
+        env_data=env_data,
+        override=auth_audience,
+    )
+    if resolved_auth_audience:
+        resolved[AUTH_AUDIENCE_KEY] = resolved_auth_audience
+
+    resolved_auth_organization = _resolve_value(
+        AUTH_ORGANIZATION_ENV,
+        env_data=env_data,
+        override=auth_organization,
+    )
+    if resolved_auth_organization:
+        resolved[AUTH_ORGANIZATION_KEY] = resolved_auth_organization
+
+    return resolved
+
+
 def _write_profiles(config_path: Path, profiles: dict[str, dict[str, Any]]) -> None:
     lines: list[str] = []
     for profile_name in sorted(profiles):
@@ -124,10 +189,30 @@ def configure(
             help="ChatKit public base URL to write.",
         ),
     ] = None,
+    auth_issuer: Annotated[
+        str | None,
+        typer.Option("--auth-issuer", help="OAuth issuer URL to write."),
+    ] = None,
+    auth_client_id: Annotated[
+        str | None,
+        typer.Option("--auth-client-id", help="OAuth client ID to write."),
+    ] = None,
+    auth_scopes: Annotated[
+        str | None,
+        typer.Option("--auth-scopes", help="OAuth scopes to write."),
+    ] = None,
+    auth_audience: Annotated[
+        str | None,
+        typer.Option("--auth-audience", help="OAuth audience to write."),
+    ] = None,
+    auth_organization: Annotated[
+        str | None,
+        typer.Option("--auth-organization", help="OAuth organization to write."),
+    ] = None,
     env_file: EnvFileOption = None,
 ) -> None:
     """Write CLI profile configuration to ``cli.toml``."""
-    console = _get_console(ctx)
+    state = _state(ctx)
 
     env_data = _read_env_file(env_file) if env_file else None
     env_profile = None
@@ -138,11 +223,15 @@ def configure(
 
     profile_names = profile or [env_profile or DEFAULT_PROFILE]
 
-    resolved_api_url = _resolve_value(API_URL_ENV, env_data=env_data, override=api_url)
-    if not resolved_api_url:
-        raise CLIError(
-            "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
-        )
+    config_path = get_config_dir() / CONFIG_FILENAME
+    try:
+        profiles = load_profiles(config_path)
+    except tomllib.TOMLDecodeError as exc:
+        raise CLIError(f"Invalid TOML in {config_path}.") from exc
+
+    resolved_api_url_override = _resolve_value(
+        API_URL_ENV, env_data=env_data, override=api_url
+    )
     resolved_service_token = _resolve_value(
         SERVICE_TOKEN_ENV,
         env_data=env_data,
@@ -153,23 +242,49 @@ def configure(
         env_data=env_data,
         override=chatkit_public_base_url,
     )
+    oauth_values = _resolve_oauth_values(
+        env_data=env_data,
+        auth_issuer=auth_issuer,
+        auth_client_id=auth_client_id,
+        auth_scopes=auth_scopes,
+        auth_audience=auth_audience,
+        auth_organization=auth_organization,
+    )
 
-    config_path = get_config_dir() / CONFIG_FILENAME
-    try:
-        profiles = load_profiles(config_path)
-    except tomllib.TOMLDecodeError as exc:
-        raise CLIError(f"Invalid TOML in {config_path}.") from exc
+    has_issuer = AUTH_ISSUER_KEY in oauth_values
+    has_client_id = AUTH_CLIENT_ID_KEY in oauth_values
+    if has_issuer != has_client_id:
+        missing = AUTH_CLIENT_ID_KEY if has_issuer else AUTH_ISSUER_KEY
+        raise CLIError(
+            f"Incomplete OAuth configuration: '{missing}' is required when"
+            f" '{AUTH_ISSUER_KEY if has_issuer else AUTH_CLIENT_ID_KEY}' is set."
+        )
 
     for name in profile_names:
         profile_data = dict(profiles.get(name, {}))
+        resolved_api_url = resolved_api_url_override or profile_data.get("api_url")
+        if not resolved_api_url:
+            raise CLIError(
+                "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
+            )
         profile_data["api_url"] = resolved_api_url
         if resolved_service_token:
             profile_data["service_token"] = resolved_service_token
         if resolved_public_base_url:
             profile_data["chatkit_public_base_url"] = resolved_public_base_url
+        profile_data.update(oauth_values)
         profiles[name] = profile_data
 
     _write_profiles(config_path, profiles)
-    console.print(
+    if not state.human:
+        print_json(
+            {
+                "status": "success",
+                "profiles": profile_names,
+                "config_path": str(config_path),
+            }
+        )
+        return
+    state.console.print(
         f"[green]Updated {len(profile_names)} profile(s) in {config_path}.[/green]"
     )

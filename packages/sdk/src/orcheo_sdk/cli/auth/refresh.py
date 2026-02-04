@@ -40,7 +40,7 @@ def refresh_oauth_tokens(*, profile: str | None) -> AuthTokens | None:
 
     Returns refreshed tokens if successful, None if refresh not possible.
     """
-    if not is_oauth_configured():
+    if not is_oauth_configured(profile=profile):
         return None
 
     tokens = get_oauth_tokens(profile=profile)
@@ -48,7 +48,7 @@ def refresh_oauth_tokens(*, profile: str | None) -> AuthTokens | None:
         return None
 
     try:
-        config = get_oauth_config()
+        config = get_oauth_config(profile=profile)
         token_endpoint = _load_discovery_token_endpoint(config.issuer)
         if not token_endpoint:
             return None

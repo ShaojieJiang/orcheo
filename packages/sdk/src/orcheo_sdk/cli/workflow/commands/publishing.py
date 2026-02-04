@@ -8,7 +8,7 @@ from rich.console import Console
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.config import CLISettings
 from orcheo_sdk.cli.errors import APICallError, CLIError
-from orcheo_sdk.cli.output import format_datetime
+from orcheo_sdk.cli.output import format_datetime, print_json
 from orcheo_sdk.cli.workflow.app import (
     ForceOption,
     WorkflowIdArgument,
@@ -136,6 +136,9 @@ def publish_workflow(
     state = _state(ctx)
     _require_online(state.settings)
 
+    if not state.human and not force:
+        print_json({"error": "Use --force to confirm publish in machine mode."})
+        raise typer.Exit(code=1)
     if not force:
         prompt = (
             f"Publish workflow '{workflow_id}' as public"
@@ -159,6 +162,10 @@ def publish_workflow(
     workflow = result["workflow"]
     _update_workflow_cache(state.cache, workflow)
 
+    if not state.human:
+        print_json(result)
+        return
+
     _print_publish_summary(
         state.console,
         workflow=workflow,
@@ -177,6 +184,9 @@ def unpublish_workflow(
     state = _state(ctx)
     _require_online(state.settings)
 
+    if not state.human and not force:
+        print_json({"error": "Use --force to confirm unpublish in machine mode."})
+        raise typer.Exit(code=1)
     if not force:
         prompt = f"Unpublish workflow '{workflow_id}'? This revokes public access."
         typer.confirm(prompt, abort=True)
@@ -192,6 +202,10 @@ def unpublish_workflow(
 
     workflow = result["workflow"]
     _update_workflow_cache(state.cache, workflow)
+
+    if not state.human:
+        print_json(result)
+        return
 
     _print_publish_summary(
         state.console,

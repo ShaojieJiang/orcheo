@@ -57,6 +57,31 @@ def test_workflow_upload_json_file_update_existing(
     assert "updated successfully" in result.stdout
 
 
+def test_workflow_upload_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Machine mode upload prints raw JSON result."""
+    json_file = tmp_path / "workflow.json"
+    json_file.write_text(
+        json.dumps({"name": "TestWorkflow", "graph": {"nodes": [], "edges": []}}),
+        encoding="utf-8",
+    )
+
+    created = {"id": "wf-new", "name": "TestWorkflow"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(json_file)],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    assert '"id"' in result.stdout
+    assert '"wf-new"' in result.stdout
+
+
 def test_workflow_upload_json_file_with_runnable_config(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:

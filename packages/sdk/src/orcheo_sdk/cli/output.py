@@ -1,6 +1,7 @@
 """Output helpers for rendering data in the CLI."""
 
 from __future__ import annotations
+import json
 from datetime import datetime
 from typing import Any, Literal
 from rich.console import Console
@@ -57,3 +58,33 @@ def warning(message: str) -> None:
     """Print a warning message."""
     console = Console()
     console.print(f"[yellow]⚠ {message}[/yellow]")
+
+
+def _escape_md_cell(value: str) -> str:
+    """Escape pipe characters in a Markdown table cell."""
+    return value.replace("|", "\\|")
+
+
+def print_markdown_table(data: list[dict[str, Any]]) -> None:
+    """Render a list of dicts as a Markdown table to stdout."""
+    if not data:
+        print("(empty)")
+        return
+    keys = list(data[0].keys())
+    header = "| " + " | ".join(keys) + " |"
+    separator = "| " + " | ".join("---" for _ in keys) + " |"
+    rows: list[str] = []
+    for item in data:
+        cells = [_escape_md_cell(str(item.get(k, ""))) for k in keys]
+        rows.append("| " + " | ".join(cells) + " |")
+    print("\n".join([header, separator, *rows]))
+
+
+def print_json(data: Any) -> None:
+    """Print data as indented JSON to stdout."""
+    print(json.dumps(data, indent=2, default=str))
+
+
+def print_machine_success(message: str) -> None:
+    """Print a success message as JSON for machine consumption."""
+    print_json({"status": "success", "message": message})

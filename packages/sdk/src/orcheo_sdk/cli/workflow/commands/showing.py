@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Annotated
 import typer
-from orcheo_sdk.cli.output import format_datetime, render_json, render_table
+from orcheo_sdk.cli.output import format_datetime, print_json, render_json, render_table
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import WorkflowIdArgument, _state, workflow_app
 from orcheo_sdk.cli.workflow.inputs import _cache_notice
@@ -56,6 +56,10 @@ def show_workflow(
         runs=runs,
         target_version=version,
     )
+
+    if not state.human:
+        print_json(data)
+        return
 
     workflow_details = data["workflow"]
     selected_version = data.get("selected_version")

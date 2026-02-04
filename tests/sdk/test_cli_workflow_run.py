@@ -232,3 +232,26 @@ def test_workflow_run_inputs_invalid_json(
     )
     # Should fail due to invalid JSON
     assert result.exit_code != 0
+
+
+def test_workflow_run_machine_mode_no_stream(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode run with --no-stream prints raw JSON result."""
+    versions = [{"id": "ver-1", "version": 1}]
+    run_response = {"id": "run-1", "status": "pending"}
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.post("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(201, json=run_response)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "run", "wf-1", "--no-stream"],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    assert '"run-1"' in result.stdout

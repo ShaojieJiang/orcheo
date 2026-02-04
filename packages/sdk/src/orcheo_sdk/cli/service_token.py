@@ -4,7 +4,14 @@ from __future__ import annotations
 from typing import Annotated
 import typer
 from rich.table import Table
-from orcheo_sdk.cli.output import format_datetime, success, warning
+from orcheo_sdk.cli.output import (
+    format_datetime,
+    print_json,
+    print_machine_success,
+    print_markdown_table,
+    success,
+    warning,
+)
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
@@ -66,6 +73,10 @@ def create_token(
         expires_in_seconds=expires_in,
     )
 
+    if not state.human:
+        print_json(data)
+        return
+
     state.console.print()
     state.console.print(
         "[bold green]Service token created successfully![/]",
@@ -97,6 +108,10 @@ def list_tokens(ctx: typer.Context) -> None:
     data = list_service_tokens_data(state.client)
 
     tokens = data.get("tokens", [])
+
+    if not state.human:
+        print_markdown_table(tokens)
+        return
 
     table = Table(title=f"Service Tokens ({data['total']} total)")
     table.add_column("ID", style="cyan")
@@ -144,6 +159,10 @@ def show_token(
     state = _state(ctx)
 
     data = show_service_token_data(state.client, token_id)
+
+    if not state.human:
+        print_json(data)
+        return
 
     state.console.print()
     state.console.print(f"[bold]Service Token: {data['identifier']}[/]")
@@ -215,6 +234,10 @@ def rotate_token(
         expires_in_seconds=expires_in,
     )
 
+    if not state.human:
+        print_json(data)
+        return
+
     state.console.print()
     state.console.print("[bold green]Token rotated successfully![/]", style="green")
     state.console.print()
@@ -241,6 +264,10 @@ def revoke_token(
     state = _state(ctx)
 
     revoke_service_token_data(state.client, token_id, reason)
+
+    if not state.human:
+        print_machine_success(f"Service token '{token_id}' revoked successfully")
+        return
 
     success(f"Service token '{token_id}' revoked successfully")
     state.console.print(f"[dim]Reason: {reason}[/]")

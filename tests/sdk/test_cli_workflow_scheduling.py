@@ -35,6 +35,7 @@ def _make_state(*, offline: bool = False) -> CLIState:
         client=SimpleNamespace(),
         cache=SimpleNamespace(),
         console=_FakeConsole(),
+        human=True,
     )
 
 
@@ -129,3 +130,45 @@ def test_unschedule_workflow_prints_success(monkeypatch: pytest.MonkeyPatch) -> 
     scheduling.unschedule_workflow(ctx, "wf-123")
 
     assert state.console.messages == ["[green]Cron removed[/green]"]
+
+
+def test_schedule_workflow_machine_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Machine mode schedule prints raw JSON result."""
+
+    state = _make_state()
+    state.human = False
+    ctx = _context(state)
+
+    captured: list[object] = []
+    monkeypatch.setattr(
+        scheduling,
+        "schedule_workflow_cron",
+        lambda *_args, **_kwargs: {"status": "scheduled", "message": "OK"},
+    )
+    monkeypatch.setattr(scheduling, "print_json", lambda data: captured.append(data))
+
+    scheduling.schedule_workflow(ctx, "wf-123")
+
+    assert captured == [{"status": "scheduled", "message": "OK"}]
+    assert state.console.messages == []
+
+
+def test_unschedule_workflow_machine_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Machine mode unschedule prints raw JSON result."""
+
+    state = _make_state()
+    state.human = False
+    ctx = _context(state)
+
+    captured: list[object] = []
+    monkeypatch.setattr(
+        scheduling,
+        "unschedule_workflow_cron",
+        lambda *_args, **_kwargs: {"message": "Cron removed"},
+    )
+    monkeypatch.setattr(scheduling, "print_json", lambda data: captured.append(data))
+
+    scheduling.unschedule_workflow(ctx, "wf-123")
+
+    assert captured == [{"message": "Cron removed"}]
+    assert state.console.messages == []

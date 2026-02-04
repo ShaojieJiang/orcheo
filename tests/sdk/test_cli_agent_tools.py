@@ -201,3 +201,37 @@ def test_agent_tool_show_empty_annotations(
     assert "test_empty_annotations" in result.stdout
     # Should show "No schema information available" since there are no annotations
     assert "No schema information available" in result.stdout
+
+
+def test_agent_tool_list_machine_output(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test agent-tool list in machine mode outputs a markdown table."""
+    machine_env = {k: v for k, v in env.items() if k != "ORCHEO_HUMAN"}
+    result = runner.invoke(app, ["agent-tool", "list"], env=machine_env)
+    assert result.exit_code == 0
+    # Machine mode uses print_markdown_table which outputs pipe-delimited rows
+    # or "(empty)" if no tools match
+    assert "|" in result.stdout or "(empty)" in result.stdout
+
+
+def test_agent_tool_show_machine_output(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test agent-tool show in machine mode outputs JSON."""
+    import json
+    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+
+    test_meta = ToolMetadata(
+        name="test_machine_show_tool",
+        description="Tool for machine output test",
+        category="test",
+    )
+
+    @tool_registry.register(test_meta)
+    def machine_tool() -> str:
+        return "test"
+
+    machine_env = {k: v for k, v in env.items() if k != "ORCHEO_HUMAN"}
+    result = runner.invoke(
+        app, ["agent-tool", "show", "test_machine_show_tool"], env=machine_env
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["name"] == "test_machine_show_tool"
