@@ -16,6 +16,14 @@ from orcheo_sdk.cli.auth.config import (
 from orcheo_sdk.cli.errors import CLIConfigurationError
 
 
+@pytest.fixture(autouse=True)
+def isolated_config_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Ensure tests do not read user-level CLI config."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+
+
 def test_is_oauth_configured_false(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
     monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
@@ -80,6 +88,45 @@ def test_get_oauth_config_full(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.organization == "org_abc123"
 
 
+def test_get_oauth_config_from_profile_keys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from orcheo_sdk.cli.config import CONFIG_FILENAME
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_file = config_dir / CONFIG_FILENAME
+    config_file.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'auth_issuer = "https://profile.example.com/"',
+                'auth_client_id = "profile-client"',
+                'auth_scopes = "openid profile"',
+                'auth_audience = "https://api.profile.example.com"',
+                'auth_organization = "org_profile"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
+    monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
+    monkeypatch.delenv(AUTH_SCOPES_ENV, raising=False)
+    monkeypatch.delenv(AUTH_AUDIENCE_ENV, raising=False)
+    monkeypatch.delenv(AUTH_ORGANIZATION_ENV, raising=False)
+
+    config = get_oauth_config()
+
+    assert config.issuer == "https://profile.example.com"
+    assert config.client_id == "profile-client"
+    assert config.scopes == "openid profile"
+    assert config.audience == "https://api.profile.example.com"
+    assert config.organization == "org_profile"
+
+
 def test_load_profile_invalid_toml(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -87,7 +134,7 @@ def test_load_profile_invalid_toml(
     from orcheo_sdk.cli.config import CONFIG_FILENAME
 
     config_dir = tmp_path / "config"
-    config_dir.mkdir()
+    config_dir.mkdir(exist_ok=True)
     config_file = config_dir / CONFIG_FILENAME
     config_file.write_text("this is not valid toml [[[", encoding="utf-8")
 

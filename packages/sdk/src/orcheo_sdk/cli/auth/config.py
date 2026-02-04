@@ -22,6 +22,12 @@ AUTH_SCOPES_ENV = "ORCHEO_AUTH_SCOPES"
 AUTH_AUDIENCE_ENV = "ORCHEO_AUTH_AUDIENCE"
 AUTH_ORGANIZATION_ENV = "ORCHEO_AUTH_ORGANIZATION"
 
+AUTH_ISSUER_KEY = "auth_issuer"
+AUTH_CLIENT_ID_KEY = "auth_client_id"
+AUTH_SCOPES_KEY = "auth_scopes"
+AUTH_AUDIENCE_KEY = "auth_audience"
+AUTH_ORGANIZATION_KEY = "auth_organization"
+
 DEFAULT_SCOPES = "openid profile email"
 
 
@@ -61,15 +67,15 @@ def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
     """
     profile_data = _load_profile_oauth_settings(profile)
 
-    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_ENV)) or os.getenv(
+    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
         AUTH_ISSUER_ENV
     )
-    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_ENV)) or os.getenv(
+    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
         AUTH_CLIENT_ID_ENV
     )
-    profile_scopes = _coerce_str(profile_data.get(AUTH_SCOPES_ENV))
-    profile_audience = _coerce_str(profile_data.get(AUTH_AUDIENCE_ENV))
-    profile_organization = _coerce_str(profile_data.get(AUTH_ORGANIZATION_ENV))
+    profile_scopes = _coerce_str(profile_data.get(AUTH_SCOPES_KEY))
+    profile_audience = _coerce_str(profile_data.get(AUTH_AUDIENCE_KEY))
+    profile_organization = _coerce_str(profile_data.get(AUTH_ORGANIZATION_KEY))
 
     if not issuer or not client_id:
         raise CLIConfigurationError(
@@ -90,10 +96,10 @@ def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
 def is_oauth_configured(*, profile: str | None = None) -> bool:
     """Check if OAuth config is set via CLI config or environment."""
     profile_data = _load_profile_oauth_settings(profile)
-    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_ENV)) or os.getenv(
+    issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
         AUTH_ISSUER_ENV
     )
-    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_ENV)) or os.getenv(
+    client_id = _coerce_str(profile_data.get(AUTH_CLIENT_ID_KEY)) or os.getenv(
         AUTH_CLIENT_ID_ENV
     )
     return bool(issuer and client_id)

@@ -8,10 +8,15 @@ from typing import Annotated, Any
 import typer
 from orcheo_sdk.cli.auth.config import (
     AUTH_AUDIENCE_ENV,
+    AUTH_AUDIENCE_KEY,
     AUTH_CLIENT_ID_ENV,
+    AUTH_CLIENT_ID_KEY,
     AUTH_ISSUER_ENV,
+    AUTH_ISSUER_KEY,
     AUTH_ORGANIZATION_ENV,
+    AUTH_ORGANIZATION_KEY,
     AUTH_SCOPES_ENV,
+    AUTH_SCOPES_KEY,
 )
 from orcheo_sdk.cli.config import (
     API_URL_ENV,
@@ -113,7 +118,7 @@ def _resolve_oauth_values(
         override=auth_issuer,
     )
     if resolved_auth_issuer:
-        resolved[AUTH_ISSUER_ENV] = resolved_auth_issuer
+        resolved[AUTH_ISSUER_KEY] = resolved_auth_issuer
 
     resolved_auth_client_id = _resolve_value(
         AUTH_CLIENT_ID_ENV,
@@ -121,7 +126,7 @@ def _resolve_oauth_values(
         override=auth_client_id,
     )
     if resolved_auth_client_id:
-        resolved[AUTH_CLIENT_ID_ENV] = resolved_auth_client_id
+        resolved[AUTH_CLIENT_ID_KEY] = resolved_auth_client_id
 
     resolved_auth_scopes = _resolve_value(
         AUTH_SCOPES_ENV,
@@ -129,7 +134,7 @@ def _resolve_oauth_values(
         override=auth_scopes,
     )
     if resolved_auth_scopes:
-        resolved[AUTH_SCOPES_ENV] = resolved_auth_scopes
+        resolved[AUTH_SCOPES_KEY] = resolved_auth_scopes
 
     resolved_auth_audience = _resolve_value(
         AUTH_AUDIENCE_ENV,
@@ -137,7 +142,7 @@ def _resolve_oauth_values(
         override=auth_audience,
     )
     if resolved_auth_audience:
-        resolved[AUTH_AUDIENCE_ENV] = resolved_auth_audience
+        resolved[AUTH_AUDIENCE_KEY] = resolved_auth_audience
 
     resolved_auth_organization = _resolve_value(
         AUTH_ORGANIZATION_ENV,
@@ -145,7 +150,7 @@ def _resolve_oauth_values(
         override=auth_organization,
     )
     if resolved_auth_organization:
-        resolved[AUTH_ORGANIZATION_ENV] = resolved_auth_organization
+        resolved[AUTH_ORGANIZATION_KEY] = resolved_auth_organization
 
     return resolved
 
@@ -217,7 +222,17 @@ def configure(
 
     profile_names = profile or [env_profile or DEFAULT_PROFILE]
 
-    resolved_api_url = _resolve_value(API_URL_ENV, env_data=env_data, override=api_url)
+    config_path = get_config_dir() / CONFIG_FILENAME
+    try:
+        profiles = load_profiles(config_path)
+    except tomllib.TOMLDecodeError as exc:
+        raise CLIError(f"Invalid TOML in {config_path}.") from exc
+
+    existing_profile = profiles.get(profile_names[0], {})
+
+    resolved_api_url = _resolve_value(
+        API_URL_ENV, env_data=env_data, override=api_url
+    ) or existing_profile.get("api_url")
     if not resolved_api_url:
         raise CLIError(
             "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
@@ -240,12 +255,6 @@ def configure(
         auth_audience=auth_audience,
         auth_organization=auth_organization,
     )
-
-    config_path = get_config_dir() / CONFIG_FILENAME
-    try:
-        profiles = load_profiles(config_path)
-    except tomllib.TOMLDecodeError as exc:
-        raise CLIError(f"Invalid TOML in {config_path}.") from exc
 
     for name in profile_names:
         profile_data = dict(profiles.get(name, {}))

@@ -52,11 +52,11 @@ def test_config_command_writes_profiles_from_env_file(
         assert profile["api_url"] == "http://env-file.test"
         assert profile["service_token"] == "env-token"
         assert profile["chatkit_public_base_url"] == "http://canvas.test"
-        assert profile["ORCHEO_AUTH_ISSUER"] == "https://auth.env-file.test"
-        assert profile["ORCHEO_AUTH_CLIENT_ID"] == "env-client-id"
-        assert profile["ORCHEO_AUTH_SCOPES"] == "openid email"
-        assert profile["ORCHEO_AUTH_AUDIENCE"] == "https://api.env-file.test"
-        assert profile["ORCHEO_AUTH_ORGANIZATION"] == "org-env"
+        assert profile["auth_issuer"] == "https://auth.env-file.test"
+        assert profile["auth_client_id"] == "env-client-id"
+        assert profile["auth_scopes"] == "openid email"
+        assert profile["auth_audience"] == "https://api.env-file.test"
+        assert profile["auth_organization"] == "org-env"
 
 
 def test_config_command_uses_environment_defaults(
@@ -226,6 +226,38 @@ def test_config_command_uses_profile_from_env_file(
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert "custom-profile" in data["profiles"]
     assert data["profiles"]["custom-profile"]["api_url"] == "http://custom.test"
+
+
+def test_config_command_falls_back_to_existing_profile_api_url(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Test that api_url is read from the existing profile when not provided."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / CONFIG_FILENAME
+    config_path.write_text(
+        '[profiles.default]\napi_url = "http://existing.test"\n',
+        encoding="utf-8",
+    )
+    minimal_env = {
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
+        "ORCHEO_API_URL": "",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+    result = runner.invoke(
+        app,
+        ["config", "--auth-issuer", "https://auth.example.com/"],
+        env=minimal_env,
+    )
+
+    assert result.exit_code == 0
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    profile = data["profiles"]["default"]
+    assert profile["api_url"] == "http://existing.test"
+    assert profile["auth_issuer"] == "https://auth.example.com/"
 
 
 def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> None:
