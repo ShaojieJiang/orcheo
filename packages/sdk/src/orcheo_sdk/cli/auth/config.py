@@ -95,7 +95,10 @@ def get_oauth_config(*, profile: str | None = None) -> OAuthConfig:
 
 def is_oauth_configured(*, profile: str | None = None) -> bool:
     """Check if OAuth config is set via CLI config or environment."""
-    profile_data = _load_profile_oauth_settings(profile)
+    try:
+        profile_data = _load_profile_oauth_settings(profile)
+    except CLIConfigurationError:
+        return False
     issuer = _coerce_str(profile_data.get(AUTH_ISSUER_KEY)) or os.getenv(
         AUTH_ISSUER_ENV
     )

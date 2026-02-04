@@ -154,3 +154,21 @@ def test_coerce_str_returns_none_for_non_string() -> None:
     assert _coerce_str(None) is None
     assert _coerce_str(["a"]) is None
     assert _coerce_str("hello") == "hello"
+
+
+def test_is_oauth_configured_invalid_toml_returns_false(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Invalid TOML should cause is_oauth_configured to return False."""
+    from orcheo_sdk.cli.config import CONFIG_FILENAME
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_file = config_dir / CONFIG_FILENAME
+    config_file.write_text("this is not valid toml [[[", encoding="utf-8")
+
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
+    monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
+
+    assert not is_oauth_configured()

@@ -35,6 +35,16 @@ def _is_completion_mode() -> bool:
     )
 
 
+def _env_bool(name: str) -> bool:
+    """Return True if env var is set to a truthy value."""
+    value = os.getenv(name)
+    if value is None:
+        return False
+    if value.strip().lower() in {"0", "false", "no", "off", ""}:
+        return False
+    return True
+
+
 def _version_callback(value: bool) -> None:
     """Print CLI version and exit."""
     if not value:
@@ -115,7 +125,7 @@ def main(
     if _is_completion_mode():
         return  # pragma: no cover
 
-    resolved_human = human or bool(os.getenv("ORCHEO_HUMAN"))
+    resolved_human = human or _env_bool("ORCHEO_HUMAN")
     console = Console() if resolved_human else Console(no_color=True, highlight=False)
     try:
         settings = resolve_settings(
@@ -184,9 +194,9 @@ def _print_cli_error_machine(exc: CLIError) -> None:
 
 def run() -> None:
     """Entry point used by console scripts."""
-    human_mode = bool(os.getenv("ORCHEO_HUMAN")) or "--human" in sys.argv
-    original_rich_markup = app.rich_markup_mode
-    if not human_mode:
+    human_mode = _env_bool("ORCHEO_HUMAN") or "--human" in sys.argv
+    original_rich_markup = getattr(app, "rich_markup_mode", None)
+    if not human_mode and hasattr(app, "rich_markup_mode"):
         app.rich_markup_mode = None
     console = Console()
     try:
@@ -212,4 +222,5 @@ def run() -> None:
             _print_cli_error_machine(exc)
         sys.exit(1)
     finally:
-        app.rich_markup_mode = original_rich_markup
+        if hasattr(app, "rich_markup_mode"):
+            app.rich_markup_mode = original_rich_markup

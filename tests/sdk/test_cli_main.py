@@ -266,3 +266,31 @@ def test_run_usage_error_machine_mode_without_context(
     data = json.loads(captured.out)
     assert data["error"] == "No ctx."
     assert "help" not in data
+
+
+def test_run_disables_rich_markup_in_machine_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Machine mode should disable rich markup and restore it after run."""
+    import click
+    from orcheo_sdk.cli import main as main_mod
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.rich_markup_mode = "rich"
+            self.called_with_none = False
+
+        def __call__(self, *args: object, **kwargs: object) -> None:
+            self.called_with_none = self.rich_markup_mode is None
+            raise click.UsageError("Missing command.")
+
+    dummy = DummyApp()
+    monkeypatch.setattr(main_mod, "app", dummy)
+    monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_mod.run()
+    assert exc_info.value.code == 1
+    assert dummy.called_with_none
+    assert dummy.rich_markup_mode == "rich"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 import pytest
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.state import CLIState
@@ -171,14 +171,14 @@ def test_cache_notice_reports_staleness_flags() -> None:
         client=MagicMock(),
         cache=MagicMock(),
         console=console,
+        human=True,
     )
 
     _cache_notice(state, "workflow run", stale=False)
-    console.print.assert_called_with(
-        "[yellow]Using cached data[/yellow] for workflow run."
-    )
-
     _cache_notice(state, "evaluation", stale=True)
-    console.print.assert_called_with(
-        "[yellow]Using cached data[/yellow] (older than TTL) for evaluation."
+    console.print.assert_has_calls(
+        [
+            call("[yellow]Using cached data[/yellow] for workflow run."),
+            call("[yellow]Using cached data[/yellow] (older than TTL) for evaluation."),
+        ]
     )

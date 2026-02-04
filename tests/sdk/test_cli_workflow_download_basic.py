@@ -102,6 +102,39 @@ def test_workflow_download_json_to_file(
     assert content["name"] == "Test"
 
 
+def test_workflow_download_machine_mode_to_file(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Machine mode download with --output prints success JSON."""
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "a"}], "edges": []},
+        }
+    ]
+    output_file = tmp_path / "output.json"
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "download", "wf-1", "--output", str(output_file)],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "success"
+    assert payload["path"] == str(output_file)
+    assert output_file.exists()
+
+
 def test_workflow_download_python_to_stdout(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
