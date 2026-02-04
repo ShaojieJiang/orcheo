@@ -296,6 +296,75 @@ def test_update_workflow_cache_skips_when_id_missing(tmp_path: Path) -> None:
     assert not any(cache.directory.iterdir())
 
 
+def test_publish_machine_mode_without_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode publish without --force prints JSON error and exits 1."""
+    result = runner.invoke(
+        app,
+        ["workflow", "publish", "wf-1"],
+        env=machine_env,
+    )
+    assert result.exit_code == 1
+    assert '"error"' in result.stdout
+    assert "--force" in result.stdout
+
+
+def test_publish_machine_mode_with_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode publish with --force prints raw JSON result."""
+    payload = _publish_response()
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1/publish").mock(
+            return_value=httpx.Response(201, json=payload)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "publish", "wf-1", "--force"],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    assert '"workflow"' in result.stdout
+
+
+def test_unpublish_machine_mode_without_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode unpublish without --force prints JSON error and exits 1."""
+    result = runner.invoke(
+        app,
+        ["workflow", "unpublish", "wf-1"],
+        env=machine_env,
+    )
+    assert result.exit_code == 1
+    assert '"error"' in result.stdout
+    assert "--force" in result.stdout
+
+
+def test_unpublish_machine_mode_with_force(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode unpublish with --force prints raw JSON result."""
+    workflow = {
+        "id": "wf-1",
+        "name": "Demo",
+        "is_public": False,
+        "require_login": False,
+    }
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1/publish/revoke").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "unpublish", "wf-1", "--force"],
+            env=machine_env,
+        )
+    assert result.exit_code == 0
+    assert '"wf-1"' in result.stdout
+
+
 def test_publish_command_prompts_for_confirmation(
     runner: CliRunner, env: dict[str, str]
 ) -> None:

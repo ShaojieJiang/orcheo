@@ -102,6 +102,16 @@ def test_edge_show_with_attributes_only(runner: CliRunner, env: dict[str, str]) 
         edge_registry._metadata.pop("TestEdgeWithAttrs", None)
 
 
+def test_edge_show_machine_mode(runner: CliRunner, machine_env: dict[str, str]) -> None:
+    """Machine mode outputs JSON for edge show."""
+    import json
+
+    result = runner.invoke(app, ["edge", "show", "IfElse"], env=machine_env)
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["name"] == "IfElse"
+
+
 def test_edge_show_with_schema(runner: CliRunner, env: dict[str, str]) -> None:
     """Test edge show with edge that has a Pydantic schema."""
     from pydantic import BaseModel

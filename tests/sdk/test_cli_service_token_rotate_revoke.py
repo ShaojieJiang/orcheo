@@ -137,3 +137,48 @@ def test_revoke_service_token_data_with_message() -> None:
 
         assert result["status"] == "success"
         assert result["message"] == "Token revoked successfully"
+
+
+def test_token_rotate_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode outputs JSON for token rotate."""
+    import json
+
+    response_data = {
+        "identifier": "new-token-456",
+        "secret": "new-secret-xyz",
+    }
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/admin/service-tokens/token-123/rotate").mock(
+            return_value=httpx.Response(200, json=response_data)
+        )
+        result = runner.invoke(app, ["token", "rotate", "token-123"], env=machine_env)
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["identifier"] == "new-token-456"
+    assert data["secret"] == "new-secret-xyz"
+
+
+def test_token_revoke_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Machine mode outputs JSON success for token revoke."""
+    import json
+
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/admin/service-tokens/token-123").mock(
+            return_value=httpx.Response(204)
+        )
+        result = runner.invoke(
+            app,
+            ["token", "revoke", "token-123", "--reason", "Expired"],
+            env=machine_env,
+        )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["status"] == "success"
+    assert "revoked" in data["message"]

@@ -131,3 +131,24 @@ def test_code_scaffold_with_both_stale_caches(
     assert "Using cached data" in result.stdout
     # With stale cache entries, should show the TTL warning
     assert "older than TTL" in result.stdout
+
+
+def test_code_scaffold_machine_output(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test scaffold command in machine mode outputs JSON."""
+    import json
+
+    workflow = {"id": "wf-1", "name": "Test"}
+    versions = [{"id": "ver-1", "version": 1}]
+    machine_env = {k: v for k, v in env.items() if k != "ORCHEO_HUMAN"}
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        result = runner.invoke(app, ["code", "scaffold", "wf-1"], env=machine_env)
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert "code" in data
+    assert "workflow" in data

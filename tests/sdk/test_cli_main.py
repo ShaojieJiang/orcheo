@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+import typer
 from typer.testing import CliRunner
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run
@@ -165,3 +166,103 @@ def test_run_api_error_without_hint(
     captured = capsys.readouterr()
     assert "Error: Server error" in captured.out
     assert "Hint:" not in captured.out
+
+
+def test_version_callback(capsys: pytest.CaptureFixture[str]) -> None:
+    """Test _version_callback prints version and raises Exit."""
+    from orcheo_sdk.cli.main import _version_callback
+
+    with pytest.raises(typer.Exit):
+        _version_callback(True)
+    captured = capsys.readouterr()
+    assert "orcheo " in captured.out
+
+
+def test_version_callback_false() -> None:
+    """Test _version_callback returns early when value is False."""
+    from orcheo_sdk.cli.main import _version_callback
+
+    _version_callback(False)  # Should return without raising
+
+
+def test_version_callback_package_not_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test _version_callback prints 'unknown' when package is not installed."""
+    from importlib.metadata import PackageNotFoundError
+    from orcheo_sdk.cli import main as main_mod
+    from orcheo_sdk.cli.main import _version_callback
+
+    def _raise(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(main_mod, "package_version", _raise)
+
+    with pytest.raises(typer.Exit):
+        _version_callback(True)
+    captured = capsys.readouterr()
+    assert "orcheo unknown" in captured.out
+
+
+def test_print_cli_error_machine_with_status_code(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Test that machine error output includes status_code for APICallError."""
+    import json
+    from orcheo_sdk.cli.main import _print_cli_error_machine
+
+    exc = APICallError("Unauthorized", status_code=401)
+    _print_cli_error_machine(exc)
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["error"] == "Unauthorized"
+    assert data["status_code"] == 401
+
+
+def test_run_usage_error_machine_mode_with_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Machine mode UsageError with context includes help key."""
+    import json
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        cmd = click.Command("workflow")
+        parent_ctx = click.Context(click.Command("orcheo"), info_name="orcheo")
+        ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
+        raise click.UsageError("Bad arg.", ctx=ctx)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["error"] == "Bad arg."
+    assert "orcheo workflow --help" in data["help"]
+
+
+def test_run_usage_error_machine_mode_without_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Machine mode UsageError without context omits help key."""
+    import json
+    import click
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        raise click.UsageError("No ctx.")
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["error"] == "No ctx."
+    assert "help" not in data

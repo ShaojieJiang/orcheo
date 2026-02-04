@@ -290,3 +290,34 @@ def test_config_command_invalid_toml(
         )
 
     assert "Invalid TOML" in str(exc_info.value)
+
+
+def test_resolve_oauth_values_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cover false branches when no OAuth values resolve."""
+    from orcheo_sdk.cli.auth.config import (
+        AUTH_AUDIENCE_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_ISSUER_ENV,
+        AUTH_ORGANIZATION_ENV,
+        AUTH_SCOPES_ENV,
+    )
+    from orcheo_sdk.cli.config_command import _resolve_oauth_values
+
+    for key in [
+        AUTH_ISSUER_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_SCOPES_ENV,
+        AUTH_AUDIENCE_ENV,
+        AUTH_ORGANIZATION_ENV,
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    result = _resolve_oauth_values(
+        env_data=None,
+        auth_issuer=None,
+        auth_client_id=None,
+        auth_scopes=None,
+        auth_audience=None,
+        auth_organization=None,
+    )
+    assert result == {}

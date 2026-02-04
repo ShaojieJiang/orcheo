@@ -142,3 +142,23 @@ def test_code_template_creates_parent_directories(
     assert output_file.parent.is_dir()
     content = output_file.read_text()
     assert "from langgraph.graph import END, START, StateGraph" in content
+
+
+def test_code_template_machine_output(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Test template command in machine mode outputs JSON."""
+    import json
+
+    output_file = tmp_path / "machine_workflow.py"
+    machine_env = {k: v for k, v in env.items() if k != "ORCHEO_HUMAN"}
+    result = runner.invoke(
+        app,
+        ["code", "template", "--output", str(output_file)],
+        env=machine_env,
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["status"] == "success"
+    assert str(output_file) in data["path"]
+    assert output_file.exists()

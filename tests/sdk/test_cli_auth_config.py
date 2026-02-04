@@ -1,6 +1,7 @@
 """OAuth configuration tests for the CLI."""
 
 from __future__ import annotations
+from pathlib import Path
 import pytest
 from orcheo_sdk.cli.auth.config import (
     AUTH_AUDIENCE_ENV,
@@ -77,3 +78,32 @@ def test_get_oauth_config_full(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.scopes == "openid email custom:scope"
     assert config.audience == "https://api.example.com"
     assert config.organization == "org_abc123"
+
+
+def test_load_profile_invalid_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test that invalid TOML in config raises CLIConfigurationError."""
+    from orcheo_sdk.cli.config import CONFIG_FILENAME
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_file = config_dir / CONFIG_FILENAME
+    config_file.write_text("this is not valid toml [[[", encoding="utf-8")
+
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv(AUTH_ISSUER_ENV, raising=False)
+    monkeypatch.delenv(AUTH_CLIENT_ID_ENV, raising=False)
+
+    with pytest.raises(CLIConfigurationError, match="Invalid TOML"):
+        get_oauth_config()
+
+
+def test_coerce_str_returns_none_for_non_string() -> None:
+    """Test _coerce_str returns None for non-string values."""
+    from orcheo_sdk.cli.auth.config import _coerce_str
+
+    assert _coerce_str(123) is None
+    assert _coerce_str(None) is None
+    assert _coerce_str(["a"]) is None
+    assert _coerce_str("hello") == "hello"
