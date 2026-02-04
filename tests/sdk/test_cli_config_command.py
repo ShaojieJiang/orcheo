@@ -249,7 +249,13 @@ def test_config_command_falls_back_to_existing_profile_api_url(
 
     result = runner.invoke(
         app,
-        ["config", "--auth-issuer", "https://auth.example.com/"],
+        [
+            "config",
+            "--auth-issuer",
+            "https://auth.example.com/",
+            "--auth-client-id",
+            "test-client-id",
+        ],
         env=minimal_env,
     )
 
@@ -258,6 +264,7 @@ def test_config_command_falls_back_to_existing_profile_api_url(
     profile = data["profiles"]["default"]
     assert profile["api_url"] == "http://existing.test"
     assert profile["auth_issuer"] == "https://auth.example.com/"
+    assert profile["auth_client_id"] == "test-client-id"
 
 
 def test_config_command_preserves_api_url_per_profile(
@@ -298,6 +305,8 @@ def test_config_command_preserves_api_url_per_profile(
             "beta",
             "--auth-issuer",
             "https://auth.example.com/",
+            "--auth-client-id",
+            "test-client-id",
         ],
         env=minimal_env,
     )
