@@ -251,6 +251,15 @@ def configure(
         auth_organization=auth_organization,
     )
 
+    has_issuer = AUTH_ISSUER_KEY in oauth_values
+    has_client_id = AUTH_CLIENT_ID_KEY in oauth_values
+    if has_issuer != has_client_id:
+        missing = AUTH_CLIENT_ID_KEY if has_issuer else AUTH_ISSUER_KEY
+        raise CLIError(
+            f"Incomplete OAuth configuration: '{missing}' is required when"
+            f" '{AUTH_ISSUER_KEY if has_issuer else AUTH_CLIENT_ID_KEY}' is set."
+        )
+
     for name in profile_names:
         profile_data = dict(profiles.get(name, {}))
         resolved_api_url = resolved_api_url_override or profile_data.get("api_url")

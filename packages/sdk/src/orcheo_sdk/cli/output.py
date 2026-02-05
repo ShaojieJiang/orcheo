@@ -85,6 +85,6 @@ def print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, default=str))
 
 
-def machine_success(message: str) -> None:
+def print_machine_success(message: str) -> None:
     """Print a success message as JSON for machine consumption."""
     print_json({"status": "success", "message": message})

@@ -11,7 +11,7 @@ from orcheo_sdk.cli.auth.tokens import (
     is_oauth_token_valid,
 )
 from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.output import machine_success, print_json
+from orcheo_sdk.cli.output import print_json, print_machine_success
 from orcheo_sdk.cli.state import CLIState
 
 
@@ -59,7 +59,7 @@ def logout(ctx: typer.Context) -> None:
     state = _state(ctx)
     logout_oauth(profile=state.settings.profile)
     if not state.human:
-        machine_success("Logged out successfully.")
+        print_machine_success("Logged out successfully.")
         return
     state.console.print("[green]Logged out successfully.[/green]")
 

@@ -11,8 +11,8 @@ from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app, run
 from orcheo_sdk.cli.output import (
     _escape_md_cell,
-    machine_success,
     print_json,
+    print_machine_success,
     print_markdown_table,
 )
 
@@ -76,9 +76,9 @@ class TestEscapeMdCell:
         assert _escape_md_cell("a|b") == "a\\|b"
 
 
-class TestMachineSuccess:
+class TestPrintMachineSuccess:
     def test_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        machine_success("Done")
+        print_machine_success("Done")
         out = capsys.readouterr().out
         parsed = json.loads(out)
         assert parsed == {"status": "success", "message": "Done"}
