@@ -119,7 +119,13 @@ Then you can interact with the agent through the generated link.
 Alternatively, you can try the online demo directly:
 **[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373)**
 
-![MongoDB RAG Agent Demo](images/mongdb_rag_agent.png)
+<iframe
+  src="https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373"
+  width="100%"
+  height="700"
+  frameborder="0"
+  style="border: 1px solid #ddd; border-radius: 8px;">
+</iframe>
 
 ## Basic RAG Pipeline
 
