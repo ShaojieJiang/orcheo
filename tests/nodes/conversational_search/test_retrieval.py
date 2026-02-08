@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 from typing import Any
 import pytest
@@ -139,6 +140,29 @@ async def test_dense_search_node_requires_dense_values() -> None:
         ValueError, match="Dense embeddings must include dense vector values"
     ):
         await node._embed(["query"])
+
+
+@pytest.mark.asyncio
+async def test_dense_search_credential_env_vars_applied_during_embed() -> None:
+    captured: dict[str, str | None] = {}
+
+    def capturing_embedder(texts: list[str]) -> list[list[float]]:
+        captured["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY")
+        return [[1.0] for _ in texts]
+
+    register_embedding_method("dense-cred-test", capturing_embedder)
+    node = DenseSearchNode(
+        name="dense-cred",
+        vector_store=InMemoryVectorStore(),
+        embedding_method="dense-cred-test",
+        credential_env_vars={"OPENAI_API_KEY": "test-key-123"},
+    )
+
+    await node._embed(["test"])
+
+    assert captured["OPENAI_API_KEY"] == "test-key-123"
+    # Env var should be cleaned up after _embed returns
+    assert os.environ.get("OPENAI_API_KEY") != "test-key-123"
 
 
 @pytest.mark.asyncio
@@ -360,6 +384,27 @@ async def test_sparse_embed_requires_dense_values() -> None:
     assert vector.sparse_values is not None
     assert vector.sparse_values.indices == [0]
     assert vector.sparse_values.values == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_sparse_search_credential_env_vars_applied_during_embed() -> None:
+    captured: dict[str, str | None] = {}
+
+    def capturing_embedder(texts: list[str]) -> list[list[float]]:
+        captured["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY")
+        return [[1.0] for _ in texts]
+
+    register_embedding_method("sparse-cred-test", capturing_embedder)
+    node = SparseSearchNode(
+        name="sparse-cred",
+        embedding_method="sparse-cred-test",
+        credential_env_vars={"OPENAI_API_KEY": "sparse-key-456"},
+    )
+
+    await node._embed(["test"])
+
+    assert captured["OPENAI_API_KEY"] == "sparse-key-456"
+    assert os.environ.get("OPENAI_API_KEY") != "sparse-key-456"
 
 
 def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:

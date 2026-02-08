@@ -188,6 +188,7 @@ def build_demo_nodes(
         top_k=retrieval_cfg.get("top_k", 4),
         score_threshold=retrieval_cfg.get("score_threshold", 0.0),
         query_key="search_query",
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     nodes["source_router"] = SourceRouterNode(
         name="source_router",
@@ -200,6 +201,7 @@ def build_demo_nodes(
         context_result_key=nodes["dense_search"].name,
         ai_model="openai:gpt-4o-mini",
         citation_style="inline",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
 
     nodes["citations"] = CitationsFormatterNode(
@@ -252,6 +254,7 @@ def build_demo_nodes(
         chunk_size=streaming_cfg.get("chunk_size", 8),
         buffer_limit=streaming_cfg.get("buffer_limit", 64),
         ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     nodes["streaming_generator"] = streaming
 

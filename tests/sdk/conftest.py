@@ -24,6 +24,11 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_AUTH_ISSUER": "",
+        "ORCHEO_AUTH_CLIENT_ID": "",
+        "ORCHEO_AUTH_SCOPES": "",
+        "ORCHEO_AUTH_AUDIENCE": "",
+        "ORCHEO_AUTH_ORGANIZATION": "",
         "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }
@@ -42,6 +47,11 @@ def machine_env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_AUTH_ISSUER": "",
+        "ORCHEO_AUTH_CLIENT_ID": "",
+        "ORCHEO_AUTH_SCOPES": "",
+        "ORCHEO_AUTH_AUDIENCE": "",
+        "ORCHEO_AUTH_ORGANIZATION": "",
         "ORCHEO_HUMAN": "",
         "NO_COLOR": "1",
     }

@@ -15,6 +15,7 @@ from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.ingestion import (
     EMBEDDING_PAYLOAD_ERROR,
     EmbeddingVector,
+    _temporary_env_vars,
     normalize_embedding_output,
     require_dense_embeddings,
     resolve_embedding_method,
@@ -68,6 +69,10 @@ class DenseSearchNode(TaskNode):
         default="dense",
         description="Label used to annotate the originating retriever.",
     )
+    credential_env_vars: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Environment variables applied during embedding execution.",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Embed the query and perform similarity search."""
@@ -112,9 +117,10 @@ class DenseSearchNode(TaskNode):
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
         embedder = resolve_embedding_method(self.embedding_method)
-        output = embedder(texts)
-        if inspect.isawaitable(output):
-            output = await output  # type: ignore[assignment]
+        with _temporary_env_vars(self.credential_env_vars):
+            output = embedder(texts)
+            if inspect.isawaitable(output):
+                output = await output  # type: ignore[assignment]
         try:
             vectors = normalize_embedding_output(output)
         except ValueError as exc:
@@ -169,6 +175,10 @@ class SparseSearchNode(TaskNode):
     vector_store_candidate_k: int | str = Field(
         default=50,
         description="Number of candidates to fetch from the vector store.",
+    )
+    credential_env_vars: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Environment variables applied during embedding execution.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -262,9 +272,10 @@ class SparseSearchNode(TaskNode):
 
     async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
         embedder = resolve_embedding_method(self.embedding_method)
-        output = embedder(texts)
-        if inspect.isawaitable(output):
-            output = await output  # type: ignore[assignment]
+        with _temporary_env_vars(self.credential_env_vars):
+            output = embedder(texts)
+            if inspect.isawaitable(output):
+                output = await output  # type: ignore[assignment]
         try:
             vectors = normalize_embedding_output(output)
         except ValueError as exc:

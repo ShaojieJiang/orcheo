@@ -509,6 +509,7 @@ def build_retrieval_nodes(
         embedding_method="{{config.configurable.retrieval.embedding_method}}",
         top_k="{{config.configurable.retrieval.top_k}}",
         query_key="query",
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     sparse_search = SparseSearchNode(
         name="sparse_search",
@@ -518,6 +519,7 @@ def build_retrieval_nodes(
         vector_store_candidate_k="{{config.configurable.retrieval.sparse_candidate_k}}",
         score_threshold="{{config.configurable.retrieval.sparse_score_threshold}}",
         query_key="query",
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     hybrid_fusion = HybridFusionNode(
         name="hybrid_fusion",
@@ -574,6 +576,7 @@ def build_generation_nodes() -> dict[str, TaskNode]:
         context_result_key="generation_context",
         citation_style="{{config.configurable.generation.citation_style}}",
         ai_model="{{config.configurable.generation.model}}",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     batch_generator = BatchGenerationNode(
         name="batch_generator",
@@ -609,6 +612,7 @@ def build_feedback_and_analysis_nodes() -> dict[str, TaskNode]:
         answers_key="answers",
         min_score="{{config.configurable.llm_judge.min_score}}",
         ai_model="{{config.configurable.llm_judge.model}}",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     variant_scoring = VariantScoringNode(name="variant_scoring")
     variant_to_inputs = ResultToInputsNode(
