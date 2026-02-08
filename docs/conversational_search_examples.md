@@ -12,15 +12,15 @@ This guide walks you through a progressive demo suite for building conversationa
 
 | Demo | Description | Source | Credentials Required | External Services | Online Demo |
 |------|-------------|--------|---------------------|-------------------|-------------|
-| Web Scrape & Upload | Scrape web pages, chunk text, generate embeddings, upload to MongoDB | `examples/mongodb_agent/01_web_scrape_and_upload.py` | `openai_api_key`, `mongodb_uri` | MongoDB Atlas | — |
-| MongoDB Indexes | Create text and vector indexes for hybrid search | `examples/mongodb_agent/02_create_index_and_hybrid_search.py` | `mongodb_uri` | MongoDB Atlas | — |
-| MongoDB RAG Agent | AI agent with MongoDB hybrid search tool | `examples/mongodb_agent/03_qa_agent.py` | `openai_api_key`, `mongodb_uri` | MongoDB Atlas | [Try it](https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373) |
+| Web Scrape & Upload | Scrape web pages, chunk text, generate embeddings, upload to MongoDB | `examples/mongodb_agent/01_web_scrape_and_upload.py` | `openai_api_key`, `mdb_connection_string` | MongoDB Atlas | — |
+| MongoDB Indexes | Create text and vector indexes for hybrid search | `examples/mongodb_agent/02_create_index_and_hybrid_search.py` | `mdb_connection_string` | MongoDB Atlas | — |
+| MongoDB RAG Agent | AI agent with MongoDB hybrid search tool | `examples/mongodb_agent/03_qa_agent.py` | `openai_api_key`, `mdb_connection_string` | MongoDB Atlas | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373) |
 | Pinecone Indexes | Create dense & sparse Pinecone indexes from web pages | `examples/conversational_search/demo_1_hybrid_indexing/demo_1.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
 | Basic RAG | Basic RAG pipeline (in-memory store) | `examples/conversational_search/demo_2_basic_rag/demo_2.py` | `openai_api_key` | None | — |
-| Hybrid Search | Hybrid search + web search + rerank | `examples/conversational_search/demo_3_hybrid_search/demo_3.py` | `openai_api_key`, `pinecone_api_key`, `tavily_api_key` | Pinecone, Tavily | — |
-| Conversational Search | Conversational search | `examples/conversational_search/demo_4_conversational/demo_4.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
-| Production Pipeline | Production-ready pipeline with caching and guardrails | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
-| Evaluation & Research | Evaluation & research | `examples/conversational_search/demo_6_evaluation/demo_6.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
+| Hybrid Search | Hybrid search + web search + rerank | `examples/conversational_search/demo_3_hybrid_search/demo_3.py` | `openai_api_key`, `pinecone_api_key`, `tavily_api_key` | Pinecone, Tavily | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/b3787e4a-f11b-418c-b4ab-54863f6eafdb) |
+| Conversational Search | Conversational search | `examples/conversational_search/demo_4_conversational/demo_4.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/dc3534c7-1a48-4f52-b84d-d00a47678c6d) |
+| Production Pipeline | Production-ready pipeline with caching and guardrails | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/fceb4275-660d-418f-b4b7-d9afcd34a3b8) |
+| Evaluation & Research | Evaluation & research | `examples/conversational_search/demo_6_evaluation/demo_6.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/810f32dd-1796-4d6e-a6d6-29b6a3579fd6) |
 
 **Tip:** The example script paths are relative to the Orcheo source root or the GitHub repository root.
 
@@ -41,6 +41,9 @@ Store credentials securely in the Orcheo vault:
 ```bash
 # Required for all demos
 orcheo credential create openai_api_key --secret sk-your-openai-key
+
+# Required for MongoDB demos (Web Scrape & Upload, MongoDB Indexes, MongoDB RAG Agent)
+orcheo credential create mdb_connection_string --secret "mongodb+srv://..."
 
 # Required for Hybrid Search (web search)
 orcheo credential create tavily_api_key --secret tvly-your-tavily-key
@@ -309,9 +312,19 @@ orcheo workflow publish <workflow-id> --force
 
 Edit `config.json` to customise retrieval parameters, models, or index settings.
 
-**Tips**: Try asking questions about the indexed content, or ask open-domain questions — thanks to [Tavily](https://tavily.com/) web search integration, the system can answer general knowledge queries beyond the indexed documents.
+Alternatively, you can try the online demo directly:
+**[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/b3787e4a-f11b-418c-b4ab-54863f6eafdb)**
 
-<iframe src="https://orcheo-canvas.ai-colleagues.com/chat/b3787e4a-f11b-418c-b4ab-54863f6eafdb" width="100%" height="600" frameborder="0" allow="clipboard-write" style="border: 1px solid #e0e0e0; border-radius: 8px;"></iframe>
+!!! tip "Try open-domain questions too"
+    The indexed content contains UvA news articles, but thanks to [Tavily](https://tavily.com/) web search integration, the system can answer general knowledge queries beyond the indexed documents. E.g., try "What's Orcheo?"
+
+<iframe
+  src="https://orcheo-canvas.ai-colleagues.com/chat/b3787e4a-f11b-418c-b4ab-54863f6eafdb"
+  width="100%"
+  height="700"
+  frameborder="0"
+  style="border: 1px solid #ddd; border-radius: 8px;">
+</iframe>
 
 ## Conversational Search
 
@@ -382,6 +395,20 @@ Iterate across multiple turns to see:
 ```
 
 Edit `config.json` to customize conversation limits, retrieval parameters, or vector store settings.
+
+Alternatively, you can try the online demo directly:
+**[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/dc3534c7-1a48-4f52-b84d-d00a47678c6d)**
+
+!!! tip "Try multi-turn conversations"
+    Ask a question, then follow up with related questions to see coreference resolution, topic-shift detection, and memory summarization in action.
+
+<iframe
+  src="https://orcheo-canvas.ai-colleagues.com/chat/dc3534c7-1a48-4f52-b84d-d00a47678c6d"
+  width="100%"
+  height="700"
+  frameborder="0"
+  style="border: 1px solid #ddd; border-radius: 8px;">
+</iframe>
 
 ## Production Pipeline
 
@@ -463,6 +490,20 @@ Edit `config.json` to customize:
 - **Guardrails**: Blocked terms for policy compliance checks
 - **Streaming**: Chunk size and buffer limits for streaming generation
 
+Alternatively, you can try the online demo directly:
+**[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/fceb4275-660d-418f-b4b7-d9afcd34a3b8)**
+
+!!! tip "Production-grade features"
+    This demo includes caching, guardrails, multi-hop planning, and streaming. Try asking complex questions that require multiple search steps to see multi-hop planning in action.
+
+<iframe
+  src="https://orcheo-canvas.ai-colleagues.com/chat/fceb4275-660d-418f-b4b7-d9afcd34a3b8"
+  width="100%"
+  height="700"
+  frameborder="0"
+  style="border: 1px solid #ddd; border-radius: 8px;">
+</iframe>
+
 ## Evaluation & Research
 
 Evaluation-focused scaffold with golden datasets, retrieval A/B testing, and
@@ -520,20 +561,14 @@ Execute via the Orcheo Console or API to run evaluation sweeps.
       "type": "pinecone",
       "pinecone": {
         "index_name": "orcheo-demo-dense",
-        "namespace": "hybrid_search",
-        "client_kwargs": {
-          "api_key": "[[pinecone_api_key]]"
-        }
+        "namespace": "hybrid_search"
       }
     },
     "sparse_vector_store": {
       "type": "pinecone",
       "pinecone": {
         "index_name": "orcheo-demo-sparse",
-        "namespace": "hybrid_search",
-        "client_kwargs": {
-          "api_key": "[[pinecone_api_key]]"
-        }
+        "namespace": "hybrid_search"
       }
     },
     "generation": {
@@ -560,6 +595,20 @@ Edit `config.json` to customize:
 - **A/B testing**: Experiment ID and minimum metric threshold for rollout decisions
 - **LLM judge**: Minimum score threshold and model for quality evaluation
 
+Alternatively, you can try the online demo directly:
+**[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/810f32dd-1796-4d6e-a6d6-29b6a3579fd6)**
+
+!!! tip "Evaluation workflows"
+    This demo runs golden-dataset evaluation, retrieval A/B testing, and LLM-based judging. Try submitting queries to see how different retrieval strategies are compared and scored.
+
+<iframe
+  src="https://orcheo-canvas.ai-colleagues.com/chat/810f32dd-1796-4d6e-a6d6-29b6a3579fd6"
+  width="100%"
+  height="700"
+  frameborder="0"
+  style="border: 1px solid #ddd; border-radius: 8px;">
+</iframe>
+
 ## Deploying Demos to Orcheo
 
 All demos can be uploaded and run on the Orcheo server:
@@ -578,7 +627,7 @@ orcheo workflow list
 orcheo workflow run <workflow-id> --inputs '{"message": "What is Orcheo?"}'
 ```
 
-The server detects the `build_graph()` entrypoint automatically. Configuration can be provided via `--config-file` or through a `DEFAULT_CONFIG` variable in the workflow file.
+The server detects the `orcheo_workflow()` entrypoint automatically. Configuration can be provided via `--config-file`.
 
 ## Sample Data
 
