@@ -17,7 +17,10 @@ from orcheo.nodes.conversational_search.conversation import (
 from orcheo.nodes.conversational_search.embedding_registry import (
     OPENAI_TEXT_EMBEDDING_3_SMALL,
 )
-from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
+from orcheo.nodes.conversational_search.generation import (
+    CitationsFormatterNode,
+    GroundedGeneratorNode,
+)
 from orcheo.nodes.conversational_search.query_processing import (
     CoreferenceResolverNode,
     QueryClassifierNode,
@@ -141,9 +144,13 @@ async def orcheo_workflow() -> StateGraph:
         citation_style="{{config.configurable.generation.citation_style}}",
         ai_model="openai:gpt-4o-mini",
     )
+    citations = CitationsFormatterNode(
+        name="citations",
+        source_result_key=generator.name,
+    )
     assistant_sync = ResultToInputsNode(
         name="generator_to_inputs",
-        source_result_key=generator.name,
+        source_result_key=citations.name,
         mappings={"assistant_message": "reply"},
     )
     conversation_update = ConversationStateNode(
@@ -177,6 +184,7 @@ async def orcheo_workflow() -> StateGraph:
         rewrite_sync,
         dense_search,
         generator,
+        citations,
         assistant_sync,
         conversation_update,
         topic_shift,
@@ -216,7 +224,8 @@ async def orcheo_workflow() -> StateGraph:
     workflow.add_edge(own_query_rewrite.name, rewrite_sync.name)
     workflow.add_edge(rewrite_sync.name, dense_search.name)
     workflow.add_edge(dense_search.name, generator.name)
-    workflow.add_edge(generator.name, assistant_sync.name)
+    workflow.add_edge(generator.name, citations.name)
+    workflow.add_edge(citations.name, assistant_sync.name)
     workflow.add_edge(assistant_sync.name, conversation_update.name)
     workflow.add_edge(conversation_update.name, topic_shift.name)
     workflow.add_edge(topic_shift.name, END)

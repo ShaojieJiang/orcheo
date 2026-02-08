@@ -344,6 +344,7 @@ Iterate across multiple turns to see:
 - Clarification prompts when ambiguity is detected
 - Topic-shift detection
 - Memory summarization when the conversation is finalized
+- Grounded responses with properly formatted citations and references
 
 ### Configuration
 
@@ -390,6 +391,7 @@ Production-focused scaffold with caching, guardrails, streaming, and multi-hop p
 
 - **Caching**: Response caching for repeated queries
 - **Guardrails**: Hallucination detection and policy checks
+- **Citation formatting**: Properly formatted references with source details
 - **Streaming**: Streaming generator for fast iteration
 - **Multi-hop planning**: Plans chained search queries
 - **Session controls**: Conversation state and memory privacy hooks

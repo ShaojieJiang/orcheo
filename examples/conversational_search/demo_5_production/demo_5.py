@@ -22,6 +22,7 @@ from orcheo.nodes.conversational_search.evaluation import (
     PolicyComplianceNode,
 )
 from orcheo.nodes.conversational_search.generation import (
+    CitationsFormatterNode,
     GroundedGeneratorNode,
     HallucinationGuardNode,
     StreamingGeneratorNode,
@@ -201,9 +202,14 @@ def build_demo_nodes(
         citation_style="inline",
     )
 
+    nodes["citations"] = CitationsFormatterNode(
+        name="citations",
+        source_result_key=nodes["grounded_generator"].name,
+    )
+
     nodes["hallucination_guard"] = HallucinationGuardNode(
         name="hallucination_guard",
-        generator_result_key=nodes["grounded_generator"].name,
+        generator_result_key=nodes["citations"].name,
     )
 
     nodes["guard_to_policy"] = ResultToInputsNode(
@@ -312,7 +318,8 @@ def assemble_demo_workflow(nodes: dict[str, TaskNode]) -> StateGraph:
         ("plan_to_search_query", "dense_search"),
         ("dense_search", "source_router"),
         ("source_router", "grounded_generator"),
-        ("grounded_generator", "hallucination_guard"),
+        ("grounded_generator", "citations"),
+        ("citations", "hallucination_guard"),
         ("hallucination_guard", "guard_to_policy"),
         ("guard_to_policy", "policy_compliance"),
         ("policy_compliance", "memory_privacy"),
