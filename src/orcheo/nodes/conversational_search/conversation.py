@@ -82,14 +82,12 @@ class InMemoryMemoryStore(BaseMemoryStore):
     sessions: dict[str, list[MemoryTurn]] = Field(default_factory=dict)
     summaries: dict[str, tuple[str, float | None]] = Field(default_factory=dict)
     session_last_updated: dict[str, float] = Field(default_factory=dict)
-    max_sessions: int | None = Field(
+    max_sessions: int | str | None = Field(
         default=None,
-        gt=0,
         description="Maximum concurrent sessions before evicting the stalest one.",
     )
-    max_total_turns: int | None = Field(
+    max_total_turns: int | str | None = Field(
         default=None,
-        gt=0,
         description="Global cap on stored turns across all sessions.",
     )
 
@@ -179,20 +177,23 @@ class InMemoryMemoryStore(BaseMemoryStore):
         self.session_last_updated.setdefault(session_id, now)
 
         if self.max_sessions is not None and session_id not in self.sessions:
-            if len(self.sessions) >= self.max_sessions:
+            max_sessions_int = int(self.max_sessions)
+            if len(self.sessions) >= max_sessions_int:
                 self._evict_stalest_session_sync()
 
-        if self.max_total_turns is not None and self.max_total_turns > 0:
-            current_turns = sum(len(turns) for turns in self.sessions.values())
-            projected = current_turns + incoming_count
-            while projected > self.max_total_turns and self.session_last_updated:
-                stalest_session = min(
-                    self.session_last_updated,
-                    key=lambda key: self.session_last_updated.get(key, 0.0),
-                )
-                turns_removed = len(self.sessions.get(stalest_session, []))
-                self.clear_sync(stalest_session)
-                projected -= turns_removed
+        if self.max_total_turns is not None:
+            max_total_turns_int = int(self.max_total_turns)
+            if max_total_turns_int > 0:
+                current_turns = sum(len(turns) for turns in self.sessions.values())
+                projected = current_turns + incoming_count
+                while projected > max_total_turns_int and self.session_last_updated:
+                    stalest_session = min(
+                        self.session_last_updated,
+                        key=lambda key: self.session_last_updated.get(key, 0.0),
+                    )
+                    turns_removed = len(self.sessions.get(stalest_session, []))
+                    self.clear_sync(stalest_session)
+                    projected -= turns_removed
 
     def _evict_stalest_session_sync(self) -> None:
         if not self.session_last_updated:
@@ -209,15 +210,18 @@ class InMemoryMemoryStore(BaseMemoryStore):
         self.session_last_updated.setdefault(session_id, now)
 
         if self.max_sessions is not None and session_id not in self.sessions:
-            if len(self.sessions) >= self.max_sessions:
+            max_sessions_int = int(self.max_sessions)
+            if len(self.sessions) >= max_sessions_int:
                 await self._evict_stalest_session()
 
-        if self.max_total_turns is not None and self.max_total_turns > 0:
-            current_turns = sum(len(turns) for turns in self.sessions.values())
-            projected = current_turns + incoming_count
-            while projected > self.max_total_turns and self.session_last_updated:
-                await self._evict_stalest_session()
-                projected = sum(len(turns) for turns in self.sessions.values())
+        if self.max_total_turns is not None:
+            max_total_turns_int = int(self.max_total_turns)
+            if max_total_turns_int > 0:
+                current_turns = sum(len(turns) for turns in self.sessions.values())
+                projected = current_turns + incoming_count
+                while projected > max_total_turns_int and self.session_last_updated:
+                    await self._evict_stalest_session()
+                    projected = sum(len(turns) for turns in self.sessions.values())
 
     async def _evict_stalest_session(self) -> None:
         """Remove the least recently updated session to honor ``max_sessions``."""
@@ -255,8 +259,8 @@ class ConversationStateNode(TaskNode):
         default_factory=InMemoryMemoryStore,
         description="Backing store used to load and persist conversation turns.",
     )
-    max_turns: int = Field(
-        default=50, gt=0, description="Maximum number of turns retained per session."
+    max_turns: int | str = Field(
+        default=50, description="Maximum number of turns retained per session."
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -296,13 +300,13 @@ class ConversationStateNode(TaskNode):
         }
 
     @staticmethod
-    def _config_value(config: RunnableConfig, key: str, default: int) -> int:
+    def _config_value(config: RunnableConfig, key: str, default: int | str) -> int:
         if isinstance(config, dict):
             configurable = config.get("configurable") or {}
             override = configurable.get(key)
             if isinstance(override, int) and override > 0:
                 return override
-        return default
+        return int(default)
 
 
 @registry.register(
@@ -562,15 +566,12 @@ class TopicShiftDetectorNode(TaskNode):
         default="conversation_history",
         description="Field containing turns used for topic comparison.",
     )
-    similarity_threshold: float = Field(
+    similarity_threshold: float | str = Field(
         default=0.35,
-        ge=0.0,
-        le=1.0,
         description="Minimum token overlap required to avoid a topic shift flag.",
     )
-    recent_turns: int = Field(
+    recent_turns: int | str = Field(
         default=3,
-        ge=1,
         description="Number of turns to consider for similarity scoring.",
     )
 
@@ -634,22 +635,22 @@ class TopicShiftDetectorNode(TaskNode):
         }
 
     @staticmethod
-    def _config_value(config: RunnableConfig, key: str, default: float) -> float:
+    def _config_value(config: RunnableConfig, key: str, default: float | str) -> float:
         if isinstance(config, dict):
             configurable = config.get("configurable") or {}
             override = configurable.get(key)
             if isinstance(override, int | float):
-                return override
-        return default
+                return float(override)
+        return float(default)
 
     @staticmethod
-    def _config_int_value(config: RunnableConfig, key: str, default: int) -> int:
+    def _config_int_value(config: RunnableConfig, key: str, default: int | str) -> int:
         if isinstance(config, dict):
             configurable = config.get("configurable") or {}
             override = configurable.get(key)
             if isinstance(override, int) and override > 0:
                 return override
-        return default
+        return int(default)
 
     def _config_stopwords(self, config: RunnableConfig) -> set[str]:
         if isinstance(config, dict):

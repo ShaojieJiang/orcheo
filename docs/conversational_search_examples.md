@@ -332,7 +332,7 @@ Run Pinecone Indexes first to populate the Pinecone indexes.
 ### Run It
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_4_conversational/demo_4.py --name "Conversational Search"
+orcheo workflow upload examples/conversational_search/demo_4_conversational/demo_4.py --name "Conversational Search" --config-file examples/conversational_search/demo_4_conversational/config.json
 orcheo workflow run <workflow-id> --inputs '{"message": "How does authentication work?"}'
 ```
 
@@ -347,20 +347,40 @@ Iterate across multiple turns to see:
 
 ### Configuration
 
-```python
-DEFAULT_CONFIG = {
-    "conversation": {"max_turns": 20, "max_sessions": 8, "max_total_turns": 160},
-    "query_processing": {"topic_shift": {"similarity_threshold": 0.4, "recent_turns": 3}},
-    "retrieval": {"top_k": 3, "score_threshold": 0.0},
-    "generation": {"citation_style": "inline"},
-    "vector_store": {
-        "type": "pinecone",
-        "index_name": "orcheo-demo-dense",
-        "namespace": "hybrid_search",
-        "client_kwargs": {"api_key": "[[pinecone_api_key]]"},
+```json
+{
+  "configurable": {
+    "conversation": {
+      "max_turns": 20,
+      "max_sessions": 8,
+      "max_total_turns": 160
     },
+    "query_processing": {
+      "topic_shift": {
+        "similarity_threshold": 0.4,
+        "recent_turns": 3
+      }
+    },
+    "retrieval": {
+      "top_k": 3,
+      "score_threshold": 0.0
+    },
+    "generation": {
+      "citation_style": "inline"
+    },
+    "vector_store": {
+      "type": "pinecone",
+      "index_name": "orcheo-demo-dense",
+      "namespace": "hybrid_search",
+      "client_kwargs": {
+        "api_key": "[[pinecone_api_key]]"
+      }
+    }
+  }
 }
 ```
+
+Edit `config.json` to customize conversation limits, retrieval parameters, or vector store settings.
 
 ## Production Pipeline
 

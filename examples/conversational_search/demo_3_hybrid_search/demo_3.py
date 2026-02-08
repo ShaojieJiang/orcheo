@@ -71,7 +71,7 @@ class RetrievalCollectorNode(TaskNode):
         return collected
 
 
-async def build_graph() -> StateGraph:
+async def orcheo_workflow() -> StateGraph:
     """Assemble and return the hybrid search workflow graph."""
     dense_store = PineconeVectorStore(
         index_name="{{config.configurable.vector_store_index_dense}}",

@@ -63,7 +63,7 @@ class GroundedGeneratorNode(TaskNode):
         ),
         description="Instruction prefix prepended to the prompt.",
     )
-    citation_style: Literal["inline", "footnote", "endnote"] = Field(
+    citation_style: Literal["inline", "footnote", "endnote"] | str = Field(
         default="inline", description="Style hint for formatting citations."
     )
     ai_model: str | None = Field(

@@ -29,50 +29,6 @@ from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 
 SKIP_USER_MESSAGE_KEY = "__demo4_skip_user_message"
 
-DEFAULT_CONFIG: dict[str, Any] = {
-    "conversation": {
-        "max_turns": 20,
-        "max_sessions": 8,
-        "max_total_turns": 160,
-    },
-    "query_processing": {
-        "topic_shift": {
-            "similarity_threshold": 0.4,
-            "recent_turns": 3,
-        }
-    },
-    "retrieval": {
-        "top_k": 3,
-        "score_threshold": 0.0,
-    },
-    "generation": {
-        "citation_style": "inline",
-    },
-    "vector_store": {
-        "type": "pinecone",
-        "index_name": "orcheo-demo-dense",
-        "namespace": "hybrid_search",
-        "client_kwargs": {
-            "api_key": "[[pinecone_api_key]]",
-        },
-    },
-}
-
-DEFAULT_EMBEDDING_METHOD = OPENAI_TEXT_EMBEDDING_3_SMALL
-
-
-def build_vector_store_from_config(cfg: dict[str, Any]) -> PineconeVectorStore:
-    """Create a Pinecone vector store using the provided demo configuration."""
-    index_name = cfg.get("index_name")
-    if not index_name:
-        raise ValueError("Vector store config must include 'index_name'")
-    client_kwargs = dict(cfg.get("client_kwargs") or {})
-    return PineconeVectorStore(
-        index_name=index_name,
-        namespace=cfg.get("namespace"),
-        client_kwargs=client_kwargs,
-    )
-
 
 class ConversationContextNode(TaskNode):
     """Task node that feeds the current conversation context into downstream inputs."""
@@ -134,42 +90,26 @@ class ResultToInputsNode(TaskNode):
         return {"copied_keys": copied}
 
 
-def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Return a deep merge of `override` into `base`."""
-    merged = dict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = merge_dicts(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+async def orcheo_workflow() -> StateGraph:
+    """Build the conversational demo workflow graph.
 
-
-async def build_graph(
-    *,
-    config: dict[str, Any] | None = None,
-    vector_store: PineconeVectorStore | None = None,
-    memory_store: InMemoryMemoryStore | None = None,
-) -> StateGraph:
-    """Build the conversational demo workflow graph."""
-    merged_config = merge_dicts(DEFAULT_CONFIG, config or {})
-    conversation_cfg = merged_config["conversation"]
-    retrieval_cfg = merged_config["retrieval"]
-    generation_cfg = merged_config["generation"]
-    topic_cfg = merged_config["query_processing"]["topic_shift"]
-    vector_store_cfg = merged_config["vector_store"]
-
-    vector_store = vector_store or build_vector_store_from_config(vector_store_cfg)
-    if memory_store is None:
-        memory_store = InMemoryMemoryStore(
-            max_sessions=conversation_cfg.get("max_sessions"),
-            max_total_turns=conversation_cfg.get("max_total_turns"),
-        )
+    Configuration is loaded from config.json and accessed via template strings
+    like {{config.configurable.conversation.max_turns}}.
+    """
+    vector_store = PineconeVectorStore(
+        index_name="{{config.configurable.vector_store.index_name}}",
+        namespace="{{config.configurable.vector_store.namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
+    )
+    memory_store = InMemoryMemoryStore(
+        max_sessions="{{config.configurable.conversation.max_sessions}}",
+        max_total_turns="{{config.configurable.conversation.max_total_turns}}",
+    )
 
     conversation_start = ConversationStateNode(
         name="conversation_state_start",
         memory_store=memory_store,
-        max_turns=conversation_cfg.get("max_turns", 20),
+        max_turns="{{config.configurable.conversation.max_turns}}",
     )
     conversation_context = ConversationContextNode(
         name="conversation_context",
@@ -191,14 +131,14 @@ async def build_graph(
     dense_search = DenseSearchNode(
         name="dense_search",
         vector_store=vector_store,
-        top_k=retrieval_cfg.get("top_k", 3),
-        score_threshold=retrieval_cfg.get("score_threshold", 0.0),
-        embedding_method=DEFAULT_EMBEDDING_METHOD,
+        top_k="{{config.configurable.retrieval.top_k}}",
+        score_threshold="{{config.configurable.retrieval.score_threshold}}",
+        embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
     )
     generator = GroundedGeneratorNode(
         name="generator",
         context_result_key=dense_search.name,
-        citation_style=generation_cfg.get("citation_style", "inline"),
+        citation_style="{{config.configurable.generation.citation_style}}",
         ai_model="openai:gpt-4o-mini",
     )
     assistant_sync = ResultToInputsNode(
@@ -211,13 +151,13 @@ async def build_graph(
         memory_store=memory_store,
         user_message_key=SKIP_USER_MESSAGE_KEY,
         assistant_message_key="assistant_message",
-        max_turns=conversation_cfg.get("max_turns", 20),
+        max_turns="{{config.configurable.conversation.max_turns}}",
     )
     topic_shift = TopicShiftDetectorNode(
         name="topic_shift",
         source_result_key=conversation_update.name,
-        similarity_threshold=topic_cfg.get("similarity_threshold", 0.35),
-        recent_turns=topic_cfg.get("recent_turns", 2),
+        similarity_threshold="{{config.configurable.query_processing.topic_shift.similarity_threshold}}",
+        recent_turns="{{config.configurable.query_processing.topic_shift.recent_turns}}",
     )
     clarifier = QueryClarificationNode(name="query_clarification")
     summarizer = MemorySummarizerNode(
