@@ -273,9 +273,16 @@ class GroundedGeneratorNode(TaskNode):
     def _attach_citations(
         self, completion: str, citations: list[dict[str, Any]]
     ) -> str:
-        """Return completion unchanged; the LLM cites inline."""
-        del citations
-        return completion
+        """Attach citation markers for non-inline styles."""
+        if not citations:
+            return completion
+
+        style = str(self.citation_style).strip().lower()
+        if style == "inline":
+            return completion
+
+        markers = " ".join(f"[{citation['id']}]" for citation in citations)
+        return f"{completion.rstrip()} {markers}"
 
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
