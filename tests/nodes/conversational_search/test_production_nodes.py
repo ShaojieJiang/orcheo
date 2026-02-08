@@ -287,6 +287,8 @@ async def test_hallucination_guard_blocks_missing_markers() -> None:
 
     assert blocked["allowed"] is False
     assert "missing citation markers" in blocked["reason"]
+    assert "reply" in blocked
+    assert blocked["reply"] == "Unable to provide an answer with proper grounding."
 
 
 @pytest.mark.asyncio
@@ -327,6 +329,8 @@ async def test_hallucination_guard_validates_payload_and_citations() -> None:
     )
     blocked = await node.run(state_missing, {})
     assert blocked["allowed"] is False
+    assert "reply" in blocked
+    assert blocked["reply"] == "Unable to provide an answer with proper grounding."
 
     state_bad = State(
         inputs={},
@@ -358,6 +362,8 @@ async def test_hallucination_guard_blocks_empty_snippet() -> None:
 
     blocked = await node.run(state, {})
     assert blocked["allowed"] is False
+    assert "reply" in blocked
+    assert blocked["reply"] == "Unable to provide an answer with proper grounding."
 
 
 @pytest.mark.asyncio

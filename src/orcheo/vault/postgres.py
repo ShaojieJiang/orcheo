@@ -81,6 +81,7 @@ class PostgresCredentialVault(BaseCredentialVault):
             dsn,
             min_size=pool_min_size,
             max_size=pool_max_size,
+            open=True,
             kwargs={"row_factory": dict_row, "autocommit": True},
         )
         self._initialized = False

@@ -19,7 +19,7 @@ This guide walks you through a progressive demo suite for building conversationa
 | Basic RAG | Basic RAG pipeline (in-memory store) | `examples/conversational_search/demo_2_basic_rag/demo_2.py` | `openai_api_key` | None | — |
 | Hybrid Search | Hybrid search + web search + rerank | `examples/conversational_search/demo_3_hybrid_search/demo_3.py` | `openai_api_key`, `pinecone_api_key`, `tavily_api_key` | Pinecone, Tavily | — |
 | Conversational Search | Conversational search | `examples/conversational_search/demo_4_conversational/demo_4.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
-| Production Pipeline | Production-ready pipeline | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
+| Production Pipeline | Production-ready pipeline with caching and guardrails | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
 | Evaluation & Research | Evaluation & research | `examples/conversational_search/demo_6_evaluation/demo_6.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
 
 **Tip:** The example script paths are relative to the Orcheo source root or the GitHub repository root.
@@ -394,15 +394,72 @@ Production-focused scaffold with caching, guardrails, streaming, and multi-hop p
 - **Multi-hop planning**: Plans chained search queries
 - **Session controls**: Conversation state and memory privacy hooks
 
+### Prerequisites
+
+Run Pinecone Indexes first to populate the Pinecone indexes.
+
 ### Run It
 
 This demo is designed for the Orcheo server:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_5_production/demo_5.py --name "Production Pipeline"
+orcheo workflow upload examples/conversational_search/demo_5_production/demo_5.py --name "Production Pipeline" --config-file examples/conversational_search/demo_5_production/config.json
 ```
 
 Execute via the Orcheo Console or API.
+
+### Configuration
+
+```json
+{
+  "configurable": {
+    "retrieval": {
+      "vector_store": {
+        "type": "pinecone",
+        "index_name": "orcheo-demo-dense",
+        "namespace": "hybrid_search",
+        "client_kwargs": {
+          "api_key": "[[pinecone_api_key]]"
+        }
+      },
+      "top_k": 4,
+      "score_threshold": 0.0,
+      "embedding_method": "embedding:openai:text-embedding-3-small"
+    },
+    "session": {
+      "max_sessions": 8,
+      "max_turns": 20,
+      "max_total_turns": 200
+    },
+    "caching": {
+      "ttl_seconds": 3600,
+      "max_entries": 128
+    },
+    "multi_hop": {
+      "max_hops": 3
+    },
+    "memory_privacy": {
+      "retention_count": 32
+    },
+    "guardrails": {
+      "blocked_terms": ["password", "ssn"]
+    },
+    "streaming": {
+      "chunk_size": 8,
+      "buffer_limit": 64
+    }
+  }
+}
+```
+
+Edit `config.json` to customize:
+- **Retrieval**: Vector store settings, top-k results, and embedding method
+- **Session**: Conversation limits and turn constraints
+- **Caching**: TTL and cache size for response caching
+- **Multi-hop**: Maximum hops for multi-step query planning
+- **Memory Privacy**: Retention count for privacy-aware memory management
+- **Guardrails**: Blocked terms for policy compliance checks
+- **Streaming**: Chunk size and buffer limits for streaming generation
 
 ## Evaluation & Research
 

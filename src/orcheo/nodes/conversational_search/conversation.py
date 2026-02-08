@@ -325,9 +325,8 @@ class SessionManagementNode(TaskNode):
     turns_input_key: str = Field(
         default="turns", description="Optional new turns to append"
     )
-    max_turns: int | None = Field(
+    max_turns: int | str | None = Field(
         default=50,
-        ge=1,
         description="Maximum turns retained per session when provided",
     )
     memory_store: BaseMemoryStore = Field(
@@ -348,7 +347,8 @@ class SessionManagementNode(TaskNode):
         if turns:
             await self.memory_store.batch_append_turns(session_id, turns)
 
-        await self.memory_store.prune(session_id, self.max_turns)
+        max_turns_int = int(self.max_turns) if self.max_turns is not None else None
+        await self.memory_store.prune(session_id, max_turns_int)
         history = await self.memory_store.load_history(session_id, None)
         return {"history": history, "turn_count": len(history)}
 
@@ -371,8 +371,8 @@ class AnswerCachingNode(TaskNode):
         description="Result entry containing a new response to cache.",
     )
     response_field: str = Field(default="reply")
-    ttl_seconds: int | None = Field(default=300, gt=0)
-    max_entries: int = Field(default=256, gt=0)
+    ttl_seconds: int | str | None = Field(default=300)
+    max_entries: int | str = Field(default=256)
 
     cache: OrderedDict[str, tuple[str, float | None]] = Field(  # pragma: no mutate
         default_factory=OrderedDict,
@@ -427,9 +427,13 @@ class AnswerCachingNode(TaskNode):
         return response.strip()
 
     def _store(self, query: str, response: str) -> None:
-        if len(self.cache) >= self.max_entries:
+        max_entries_int = int(self.max_entries)
+        if len(self.cache) >= max_entries_int:
             self.cache.popitem(last=False)
-        expires_at = time.time() + self.ttl_seconds if self.ttl_seconds else None
+        ttl_seconds_int = (
+            int(self.ttl_seconds) if self.ttl_seconds is not None else None
+        )
+        expires_at = time.time() + ttl_seconds_int if ttl_seconds_int else None
         self.cache[query] = (response, expires_at)
 
 

@@ -693,7 +693,7 @@ async def test_policy_compliance_handles_invalid_input_and_detects_violations() 
 
 def test_policy_compliance_detects_nothing_for_clean_content() -> None:
     node = PolicyComplianceNode(name="policy")
-    assert node._detect_violations("Just chatting about cats") == []
+    assert node._detect_violations("Just chatting about cats", node.blocked_terms) == []
 
 
 @pytest.mark.asyncio

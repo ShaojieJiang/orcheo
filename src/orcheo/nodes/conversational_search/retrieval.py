@@ -60,7 +60,7 @@ class DenseSearchNode(TaskNode):
         default=0.0,
         description="Minimum score required for a result to be returned.",
     )
-    filter_metadata: dict[str, Any] = Field(
+    filter_metadata: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Optional metadata filters applied to the vector store query.",
     )
@@ -86,10 +86,13 @@ class DenseSearchNode(TaskNode):
         score_threshold = float(self.score_threshold)
 
         embeddings = await self._embed([query])
+        filter_meta = (
+            self.filter_metadata if isinstance(self.filter_metadata, dict) else None
+        )
         results = await self.vector_store.search(
             query=embeddings[0],
             top_k=top_k,
-            filter_metadata=self.filter_metadata or None,
+            filter_metadata=filter_meta,
         )
 
         normalized = [
@@ -709,18 +712,19 @@ class SourceRouterNode(TaskNode):
         default="retriever", description="Result entry containing retrieval items"
     )
     results_field: str = Field(default="results")
-    min_score: float = Field(
-        default=0.0, ge=0.0, description="Minimum score required to retain entries"
+    min_score: float | str = Field(
+        default=0.0, description="Minimum score required to retain entries"
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Group results into per-source buckets while filtering by score."""
         entries = self._resolve_results(state)
         routed: dict[str, list[SearchResult]] = {}
+        min_score = float(self.min_score)
         for entry in entries:
             source = entry.source or "unknown"
             bucket = routed.setdefault(source, [])
-            if entry.score < self.min_score:
+            if entry.score < min_score:
                 continue
             bucket.append(entry)
         return {"routed": routed}
@@ -944,13 +948,13 @@ class PineconeRerankNode(TaskNode):
         default=True,
         description="Whether the reranker should return document payloads.",
     )
-    parameters: dict[str, Any] = Field(
+    parameters: dict[str, Any] | str = Field(
         default_factory=dict,
         description=(
             "Optional parameters passed to the reranking request (e.g., truncate)."
         ),
     )
-    client_kwargs: dict[str, Any] = Field(
+    client_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Keyword arguments forwarded to Pinecone client.",
     )
@@ -993,7 +997,7 @@ class PineconeRerankNode(TaskNode):
             rank_fields=self.rank_fields,
             top_n=int(self.top_n),
             return_documents=self.return_documents,
-            parameters=self.parameters or None,
+            parameters=self.parameters if isinstance(self.parameters, dict) else None,
         )
         if inspect.isawaitable(rerank_result):
             rerank_result = await rerank_result
@@ -1070,7 +1074,9 @@ class PineconeRerankNode(TaskNode):
                 "Install it or provide a configured client."
             )
             raise ImportError(msg) from exc
-        client_kwargs = dict(self.client_kwargs or {})
+        client_kwargs = (
+            self.client_kwargs if isinstance(self.client_kwargs, dict) else {}
+        )
         self.client = Pinecone(**client_kwargs)
         return self.client
 

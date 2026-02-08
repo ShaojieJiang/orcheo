@@ -261,7 +261,7 @@ class ContextCompressorNode(TaskNode):
             "summarize the retrieved context."
         ),
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments supplied to ``init_chat_model``.",
     )
@@ -368,7 +368,8 @@ class ContextCompressorNode(TaskNode):
         if not self.ai_model:
             msg = "AI model identifier is required for model-based summarization"
             raise ValueError(msg)
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
 
         prompt = (
             "User Query: {query}\n\nRetrieved Context:\n{context}\n\n"
@@ -422,7 +423,7 @@ class MultiHopPlannerNode(TaskNode):
     query_key: str = Field(
         default="message", description="Key within inputs containing the user message"
     )
-    max_hops: int = Field(default=3, gt=0)
+    max_hops: int | str = Field(default=3)
     delimiter: str = Field(default=" and ", description="Delimiter used for splitting")
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -444,8 +445,9 @@ class MultiHopPlannerNode(TaskNode):
         if not raw_parts:
             raw_parts = [query.strip()]
 
+        max_hops_int = int(self.max_hops)
         hops: list[dict[str, Any]] = []
-        for index, part in enumerate(raw_parts[: self.max_hops]):
+        for index, part in enumerate(raw_parts[:max_hops_int]):
             hops.append(
                 {
                     "id": f"hop-{index + 1}",

@@ -495,7 +495,7 @@ class LLMJudgeNode(TaskNode):
     ai_model: str | None = Field(
         default=None, description="Optional model identifier for the judge."
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments passed to init_chat_model.",
     )
@@ -522,7 +522,8 @@ class LLMJudgeNode(TaskNode):
         from langchain.chat_models import init_chat_model
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
         verdicts: list[dict[str, Any]] = []
         passing = 0
 
@@ -876,7 +877,7 @@ class PolicyComplianceNode(TaskNode):
     """Detect basic policy violations and redact sensitive snippets."""
 
     text_key: str = Field(default="content")
-    blocked_terms: list[str] = Field(default_factory=lambda: ["password", "ssn"])
+    blocked_terms: list[str] | str = Field(default_factory=lambda: ["password", "ssn"])
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Apply policy checks and return sanitized content with audit metadata."""
@@ -885,8 +886,19 @@ class PolicyComplianceNode(TaskNode):
             msg = "PolicyComplianceNode expects content string"
             raise ValueError(msg)
 
-        violations = self._detect_violations(content)
-        sanitized = self._sanitize(content)
+        if isinstance(self.blocked_terms, list):
+            blocked_terms = self.blocked_terms
+        elif isinstance(self.blocked_terms, str):
+            try:
+                parsed = json.loads(self.blocked_terms)
+                blocked_terms = parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                blocked_terms = [self.blocked_terms]
+        else:
+            blocked_terms = []
+
+        violations = self._detect_violations(content, blocked_terms)
+        sanitized = self._sanitize(content, blocked_terms)
         return {
             "compliant": not violations,
             "violations": violations,
@@ -901,9 +913,9 @@ class PolicyComplianceNode(TaskNode):
             ],
         }
 
-    def _detect_violations(self, content: str) -> list[str]:
+    def _detect_violations(self, content: str, blocked_terms: list[str]) -> list[str]:
         violations: list[str] = []
-        for term in self.blocked_terms:
+        for term in blocked_terms:
             if re.search(rf"\b{re.escape(term)}\b", content, re.IGNORECASE):
                 violations.append(f"blocked_term:{term}")
         if re.search(r"\b\d{3}-\d{2}-\d{4}\b", content):
@@ -912,10 +924,10 @@ class PolicyComplianceNode(TaskNode):
             violations.append("pii:email")
         return violations
 
-    def _sanitize(self, content: str) -> str:
+    def _sanitize(self, content: str, blocked_terms: list[str]) -> str:
         sanitized = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED_SSN]", content)
         sanitized = re.sub(r"\b\S+@\S+\.[a-z]{2,}\b", "[REDACTED_EMAIL]", sanitized)
-        for term in self.blocked_terms:
+        for term in blocked_terms:
             sanitized = re.sub(
                 rf"\b{re.escape(term)}\b",
                 "[REDACTED_TERM]",
@@ -936,7 +948,7 @@ class MemoryPrivacyNode(TaskNode):
     """Redact sensitive details from stored conversation turns."""
 
     history_key: str = Field(default="conversation_history")
-    retention_count: int | None = Field(default=None, ge=1)
+    retention_count: int | str | None = Field(default=None)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Redact sensitive details and enforce retention limits."""
@@ -959,13 +971,16 @@ class MemoryPrivacyNode(TaskNode):
                 }
             )
 
-        if self.retention_count is not None:
-            sanitized_history = sanitized_history[-self.retention_count :]
+        retention_count_int = (
+            int(self.retention_count) if self.retention_count is not None else None
+        )
+        if retention_count_int is not None:
+            sanitized_history = sanitized_history[-retention_count_int:]
 
         return {
             "sanitized_history": sanitized_history,
             "redaction_count": redactions,
-            "truncated": self.retention_count is not None
+            "truncated": retention_count_int is not None
             and len(history_raw) > len(sanitized_history),
         }
 

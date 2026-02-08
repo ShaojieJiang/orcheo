@@ -36,41 +36,8 @@ from orcheo.nodes.conversational_search.retrieval import (
 )
 from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
-    InMemoryVectorStore,
     PineconeVectorStore,
 )
-
-
-DEFAULT_CONFIG: dict[str, Any] = {
-    "retrieval": {
-        "vector_store": {
-            "type": "pinecone",
-            "index_name": "orcheo-demo-dense",
-            "namespace": "hybrid_search",
-            "client_kwargs": {
-                "api_key": "[[pinecone_api_key]]",
-            },
-        },
-        "top_k": 4,
-        "score_threshold": 0.0,
-        "embedding_method": OPENAI_TEXT_EMBEDDING_3_SMALL,
-    },
-    "session": {
-        "max_sessions": 8,
-        "max_turns": 20,
-        "max_total_turns": 200,
-    },
-    "caching": {
-        "ttl_seconds": 3600,
-        "max_entries": 128,
-    },
-    "multi_hop": {"max_hops": 3},
-    "memory_privacy": {"retention_count": 32},
-    "guardrails": {
-        "blocked_terms": ["password", "ssn"],
-    },
-    "streaming": {"chunk_size": 8, "buffer_limit": 64},
-}
 
 
 class ResultToInputsNode(TaskNode):
@@ -149,35 +116,6 @@ class PlanToSearchQueryNode(TaskNode):
             inputs[self.query_key] = selected_query
 
         return {"selected_query": selected_query, "hop_count": len(normalized)}
-
-
-def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Return a deep merge of ``override`` into ``base`` without mutating."""
-    merged = dict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = merge_dicts(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def build_vector_store_from_config(cfg: dict[str, Any] | None) -> BaseVectorStore:
-    """Instantiate the requested vector store implementation."""
-    cfg = cfg or {}
-    store_type = str(cfg.get("type", "pinecone")).lower()
-    if store_type == "pinecone":
-        pinecone_cfg = dict(cfg.get("pinecone") or cfg)
-        index_name = pinecone_cfg.get("index_name")
-        if not index_name:
-            raise ValueError("Pinecone vector store config requires 'index_name'")
-        client_kwargs = dict(pinecone_cfg.get("client_kwargs") or {})
-        return PineconeVectorStore(
-            index_name=index_name,
-            namespace=pinecone_cfg.get("namespace"),
-            client_kwargs=client_kwargs,
-        )
-    return InMemoryVectorStore()
 
 
 def build_demo_nodes(
@@ -392,29 +330,46 @@ def assemble_demo_workflow(nodes: dict[str, TaskNode]) -> StateGraph:
     return workflow
 
 
-async def build_graph(
-    *,
-    config: dict[str, Any] | None = None,
-    vector_store: BaseVectorStore | None = None,
-    memory_store: InMemoryMemoryStore | None = None,
-) -> StateGraph:
-    """Assemble the production workflow graph described in the design doc."""
-    merged_config = merge_dicts(DEFAULT_CONFIG, config or {})
-    retrieval_cfg = merged_config["retrieval"]
-    vector_cfg = retrieval_cfg["vector_store"]
-    session_cfg = merged_config["session"]
-    caching_cfg = merged_config["caching"]
-    multi_hop_cfg = merged_config["multi_hop"]
-    privacy_cfg = merged_config["memory_privacy"]
-    streaming_cfg = merged_config["streaming"]
+async def orcheo_workflow() -> StateGraph:
+    """Assemble the production workflow graph described in the design doc.
 
-    vector_store = vector_store or build_vector_store_from_config(vector_cfg)
-    memory_store = memory_store or InMemoryMemoryStore(
-        max_sessions=session_cfg.get("max_sessions"),
-        max_total_turns=session_cfg.get("max_total_turns"),
+    Configuration is loaded from config.json and accessed via template strings
+    like {{config.configurable.session.max_turns}}.
+    """
+    vector_store = PineconeVectorStore(
+        index_name="{{config.configurable.retrieval.vector_store.index_name}}",
+        namespace="{{config.configurable.retrieval.vector_store.namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
+    )
+    memory_store = InMemoryMemoryStore(
+        max_sessions="{{config.configurable.session.max_sessions}}",
+        max_total_turns="{{config.configurable.session.max_total_turns}}",
     )
 
     shared_cache: OrderedDict[str, tuple[str, float | None]] = OrderedDict()
+
+    retrieval_cfg = {
+        "embedding_method": "{{config.configurable.retrieval.embedding_method}}",
+        "top_k": "{{config.configurable.retrieval.top_k}}",
+        "score_threshold": "{{config.configurable.retrieval.score_threshold}}",
+    }
+    session_cfg = {
+        "max_turns": "{{config.configurable.session.max_turns}}",
+    }
+    caching_cfg = {
+        "ttl_seconds": "{{config.configurable.caching.ttl_seconds}}",
+        "max_entries": "{{config.configurable.caching.max_entries}}",
+    }
+    multi_hop_cfg = {
+        "max_hops": "{{config.configurable.multi_hop.max_hops}}",
+    }
+    privacy_cfg = {
+        "retention_count": "{{config.configurable.memory_privacy.retention_count}}",
+    }
+    streaming_cfg = {
+        "chunk_size": "{{config.configurable.streaming.chunk_size}}",
+        "buffer_limit": "{{config.configurable.streaming.buffer_limit}}",
+    }
 
     nodes = build_demo_nodes(
         vector_store=vector_store,
@@ -426,7 +381,7 @@ async def build_graph(
         privacy_cfg=privacy_cfg,
         streaming_cfg=streaming_cfg,
         shared_cache=shared_cache,
-        guardrails=merged_config["guardrails"].get("blocked_terms", []),
+        guardrails="{{config.configurable.guardrails.blocked_terms}}",
     )
 
     return assemble_demo_workflow(nodes)
