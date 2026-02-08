@@ -22,7 +22,8 @@ This guide walks you through a progressive demo suite for building conversationa
 | Production Pipeline | Production-ready pipeline with caching and guardrails | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/fceb4275-660d-418f-b4b7-d9afcd34a3b8) |
 | Evaluation & Research | Evaluation & research | `examples/conversational_search/demo_6_evaluation/demo_6.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/810f32dd-1796-4d6e-a6d6-29b6a3579fd6) |
 
-**Tip:** The example script paths are relative to the Orcheo source root or the GitHub repository root.
+!!! tip
+    The example script paths are relative to the Orcheo source root or the GitHub repository root.
 
 ## Prerequisites
 
@@ -65,7 +66,7 @@ orcheo workflow upload examples/mongodb_agent/01_web_scrape_and_upload.py --name
 orcheo workflow run
 ```
 
-The running should produce output like:
+You should see output like:
 
 ```console
 Starting workflow execution...
@@ -92,7 +93,7 @@ orcheo workflow upload examples/mongodb_agent/02_create_index_and_hybrid_search.
 orcheo workflow run <workflow-id>
 ```
 
-The running should produce output like:
+You should see output like:
 
 ```console
 Starting workflow execution...
@@ -394,7 +395,7 @@ Iterate across multiple turns to see:
 }
 ```
 
-Edit `config.json` to customize conversation limits, retrieval parameters, or vector store settings.
+Edit `config.json` to customise conversation limits, retrieval parameters, or vector store settings.
 
 Alternatively, you can try the online demo directly:
 **[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/dc3534c7-1a48-4f52-b84d-d00a47678c6d)**
@@ -481,7 +482,7 @@ Execute via the Orcheo Console or API.
 }
 ```
 
-Edit `config.json` to customize:
+Edit `config.json` to customise:
 - **Retrieval**: Vector store settings, top-k results, and embedding method
 - **Session**: Conversation limits and turn constraints
 - **Caching**: TTL and cache size for response caching
@@ -513,7 +514,7 @@ LLM-based judging.
 
 - **Golden queries**: Defaults to GitHub raw data under
   `examples/conversational_search/data/golden/golden_dataset.json`
-- **Relevance labels**: Defaults to GitHub raw
+- **Relevance labels**: Defaults to GitHub raw data under
   `examples/conversational_search/data/labels/relevance_labels.json`
 - **Variant definitions**: Compare dense-only vs hybrid retrieval strategies
 
@@ -587,7 +588,7 @@ Execute via the Orcheo Console or API to run evaluation sweeps.
 }
 ```
 
-Edit `config.json` to customize:
+Edit `config.json` to customise:
 - **Dataset**: Paths to golden queries, relevance labels, and test documents
 - **Retrieval**: Top-k results, embedding methods, fusion strategy
 - **Vector store**: Pinecone index names and namespaces for dense and sparse indexes
@@ -638,7 +639,7 @@ The demos share sample data in `examples/conversational_search/data/`:
 - `golden/`: Golden datasets for evaluation
 - `labels/`: Relevance labels for metrics
 
-Pinecone Indexes reads URLs from its `config.json`. Evaluation & Research defaults to GitHub raw URLs.
+The Pinecone Indexes demo reads URLs from its `config.json`. Evaluation & Research defaults to GitHub raw URLs.
 You can point configs at these local files when running offline or customising the corpus.
 
 ## Next Steps
