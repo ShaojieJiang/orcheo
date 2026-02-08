@@ -871,6 +871,6 @@ class SearchResultFormatterNode(TaskNode):
 
     def _format_score(self, score: Any) -> str:
         if isinstance(score, int | float):
-            precision = self.score_precision
+            precision = int(self.score_precision)
             return f"{score:.{precision}f}"
         return "n/a"
