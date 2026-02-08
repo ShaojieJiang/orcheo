@@ -48,8 +48,8 @@ class QueryRewriteNode(TaskNode):
         default="history",
         description="Key within ``state.inputs`` containing conversation history.",
     )
-    max_history_messages: int = Field(
-        default=3, gt=0, description="Number of prior messages to consider."
+    max_history_messages: int | str = Field(
+        default=3, description="Number of prior messages to consider."
     )
 
     pronouns: set[str] = Field(
@@ -246,9 +246,8 @@ class ContextCompressorNode(TaskNode):
         default=400,
         description="Maximum whitespace token budget for fallback summaries.",
     )
-    max_passages: int = Field(
+    max_passages: int | str = Field(
         default=8,
-        gt=0,
         description="Maximum number of passages to feed into the summarizer.",
     )
     deduplicate: bool = Field(

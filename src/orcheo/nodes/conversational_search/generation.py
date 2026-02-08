@@ -748,10 +748,8 @@ class SearchResultFormatterNode(TaskNode):
     include_score: bool = Field(
         default=True, description="Include scores in the formatted output."
     )
-    score_precision: int = Field(
+    score_precision: int | str = Field(
         default=3,
-        ge=0,
-        le=6,
         description="Decimal precision for score rounding.",
     )
     max_results: int | None = Field(

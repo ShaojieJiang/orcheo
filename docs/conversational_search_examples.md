@@ -481,12 +481,82 @@ Run Pinecone Indexes first to populate the Pinecone indexes.
 ### Run It
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --name "Evaluation & Research"
-# Optional: include default recursion limit/tags
-orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --config-file examples/conversational_search/demo_6_evaluation/config.json
+orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --name "Evaluation & Research" --config-file examples/conversational_search/demo_6_evaluation/config.json
 ```
 
 Execute via the Orcheo Console or API to run evaluation sweeps.
+
+### Configuration
+
+```json
+{
+  "recursion_limit": 250,
+  "tags": ["conversational-search", "demo-6", "evaluation"],
+  "configurable": {
+    "dataset": {
+      "golden_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
+      "queries_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
+      "labels_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
+      "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
+      "split": "test",
+      "limit": null
+    },
+    "retrieval": {
+      "top_k": 4,
+      "embedding_method": "embedding:openai:text-embedding-3-small",
+      "sparse_embedding_method": "embedding:pinecone:bm25-default",
+      "sparse_top_k": 4,
+      "sparse_candidate_k": 50,
+      "sparse_score_threshold": 0.0,
+      "fusion": {
+        "strategy": "rrf",
+        "rrf_k": 30,
+        "top_k": 4
+      }
+    },
+    "vector_store": {
+      "type": "pinecone",
+      "pinecone": {
+        "index_name": "orcheo-demo-dense",
+        "namespace": "hybrid_search",
+        "client_kwargs": {
+          "api_key": "[[pinecone_api_key]]"
+        }
+      }
+    },
+    "sparse_vector_store": {
+      "type": "pinecone",
+      "pinecone": {
+        "index_name": "orcheo-demo-sparse",
+        "namespace": "hybrid_search",
+        "client_kwargs": {
+          "api_key": "[[pinecone_api_key]]"
+        }
+      }
+    },
+    "generation": {
+      "citation_style": "inline",
+      "model": "openai:gpt-4o-mini"
+    },
+    "ab_testing": {
+      "experiment_id": "retrieval_comparison_001",
+      "min_metric_threshold": 0.35
+    },
+    "llm_judge": {
+      "min_score": 0.5,
+      "model": "openai:gpt-4o-mini"
+    }
+  }
+}
+```
+
+Edit `config.json` to customize:
+- **Dataset**: Paths to golden queries, relevance labels, and test documents
+- **Retrieval**: Top-k results, embedding methods, fusion strategy
+- **Vector store**: Pinecone index names and namespaces for dense and sparse indexes
+- **Generation**: Citation style and model for answer generation
+- **A/B testing**: Experiment ID and minimum metric threshold for rollout decisions
+- **LLM judge**: Minimum score threshold and model for quality evaluation
 
 ## Deploying Demos to Orcheo
 
@@ -496,6 +566,9 @@ All demos can be uploaded and run on the Orcheo server:
 # Upload a demo
 orcheo workflow upload examples/conversational_search/demo_2_basic_rag/demo_2.py
 
+# Upload a demo with config
+orcheo workflow upload examples/conversational_search/demo_6_evaluation/demo_6.py --config-file examples/conversational_search/demo_6_evaluation/config.json
+
 # List workflows
 orcheo workflow list
 
@@ -503,7 +576,7 @@ orcheo workflow list
 orcheo workflow run <workflow-id> --inputs '{"message": "What is Orcheo?"}'
 ```
 
-The server detects the `build_graph()` entrypoint and `DEFAULT_CONFIG` automatically.
+The server detects the `build_graph()` entrypoint automatically. Configuration can be provided via `--config-file` or through a `DEFAULT_CONFIG` variable in the workflow file.
 
 ## Sample Data
 

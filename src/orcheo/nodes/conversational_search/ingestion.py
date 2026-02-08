@@ -408,8 +408,8 @@ class WebDocumentLoaderNode(TaskNode):
         default_factory=dict,
         description="Metadata applied to every document unless overridden",
     )
-    timeout: float = Field(
-        default=30.0, ge=0.0, description="Timeout in seconds for HTTP requests"
+    timeout: float | str = Field(
+        default=30.0, description="Timeout in seconds for HTTP requests"
     )
     follow_redirects: bool = Field(default=True, description="Follow HTTP redirects")
     extract_title: bool = Field(
@@ -1094,10 +1094,10 @@ class IncrementalIndexerNode(TaskNode):
         ...,
         description="Embedding method identifier applied to chunk content.",
     )
-    batch_size: int = Field(default=32, gt=0, description="Chunk batch size")
-    max_retries: int = Field(default=2, ge=0, description="Retry attempts")
-    backoff_seconds: float = Field(
-        default=0.05, ge=0.0, description="Base backoff for retry attempts"
+    batch_size: int | str = Field(default=32, description="Chunk batch size")
+    max_retries: int | str = Field(default=2, description="Retry attempts")
+    backoff_seconds: float | str = Field(
+        default=0.05, description="Base backoff for retry attempts"
     )
     skip_unchanged: bool = Field(
         default=True,

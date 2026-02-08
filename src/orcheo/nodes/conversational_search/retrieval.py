@@ -153,8 +153,8 @@ class SparseSearchNode(TaskNode):
         default=0.0,
         description="Minimum BM25 score required for inclusion",
     )
-    k1: float = Field(default=1.5, gt=0)
-    b: float = Field(default=0.75, ge=0.0, le=1.0)
+    k1: float | str = Field(default=1.5)
+    b: float | str = Field(default=0.75)
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
@@ -656,10 +656,9 @@ class ReRankerNode(TaskNode):
         default="results", description="Field containing SearchResult entries"
     )
     rerank_function: Callable[[SearchResult], float] | None = Field(default=None)
-    top_k: int = Field(default=10, gt=0)
-    length_penalty: float = Field(
+    top_k: int | str = Field(default=10)
+    length_penalty: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Penalty applied per token to discourage long passages.",
     )
 
@@ -792,7 +791,7 @@ class SearchResultAdapterNode(TaskNode):
         default=None,
         description="Optional source label to apply to all normalized results.",
     )
-    default_score: float = Field(
+    default_score: float | str = Field(
         default=0.0, description="Score assigned when the payload omits one."
     )
 

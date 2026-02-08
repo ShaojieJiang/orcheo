@@ -10,7 +10,7 @@ from orcheo.agentensor.prompts import TrainablePrompt, TrainablePrompts
 
 
 # Conservative limits to guard against runaway graphs.
-_MAX_RECURSION_LIMIT = 100
+_MAX_RECURSION_LIMIT = 250
 _MAX_CONCURRENCY = 32
 
 

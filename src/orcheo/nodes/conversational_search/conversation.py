@@ -455,14 +455,12 @@ class ConversationCompressorNode(TaskNode):
         default="conversation_history",
         description="Field holding turn dictionaries within ``source_result_key``.",
     )
-    max_tokens: int = Field(
+    max_tokens: int | str = Field(
         default=120,
-        gt=0,
         description="Maximum whitespace token budget for the compressed history.",
     )
-    preserve_recent: int = Field(
+    preserve_recent: int | str = Field(
         default=2,
-        ge=0,
         description="Number of most recent turns that should always be retained.",
     )
 
@@ -713,8 +711,8 @@ class QueryClarificationNode(TaskNode):
         default="conversation_history",
         description="Field used to retrieve conversation history if present.",
     )
-    max_questions: int = Field(
-        default=2, ge=1, description="Maximum number of clarification prompts to emit."
+    max_questions: int | str = Field(
+        default=2, description="Maximum number of clarification prompts to emit."
     )
 
     ambiguous_markers: set[str] = Field(
@@ -803,9 +801,8 @@ class MemorySummarizerNode(TaskNode):
         default=3600,
         description="TTL for persisted summaries; ``None`` disables expiration.",
     )
-    max_summary_tokens: int = Field(
+    max_summary_tokens: int | str = Field(
         default=180,
-        gt=0,
         description="Token budget when generating summaries from turns.",
     )
 

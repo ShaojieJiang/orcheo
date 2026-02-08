@@ -1,4 +1,53 @@
 {
-  "recursion_limit": 100,
-  "tags": ["conversational-search", "demo-6", "evaluation"]
+  "recursion_limit": 250,
+  "tags": ["conversational-search", "demo-6", "evaluation"],
+  "configurable": {
+    "dataset": {
+      "golden_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
+      "queries_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
+      "labels_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
+      "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
+      "split": "test",
+      "limit": null
+    },
+    "retrieval": {
+      "top_k": 4,
+      "embedding_method": "embedding:openai:text-embedding-3-small",
+      "sparse_embedding_method": "embedding:pinecone:bm25-default",
+      "sparse_top_k": 4,
+      "sparse_candidate_k": 50,
+      "sparse_score_threshold": 0.0,
+      "fusion": {
+        "strategy": "rrf",
+        "rrf_k": 30,
+        "top_k": 4
+      }
+    },
+    "vector_store": {
+      "type": "pinecone",
+      "pinecone": {
+        "index_name": "orcheo-demo-dense",
+        "namespace": "hybrid_search"
+      }
+    },
+    "sparse_vector_store": {
+      "type": "pinecone",
+      "pinecone": {
+        "index_name": "orcheo-demo-sparse",
+        "namespace": "hybrid_search"
+      }
+    },
+    "generation": {
+      "citation_style": "inline",
+      "model": "openai:gpt-4o-mini"
+    },
+    "ab_testing": {
+      "experiment_id": "retrieval_comparison_001",
+      "min_metric_threshold": 0.35
+    },
+    "llm_judge": {
+      "min_score": 0.5,
+      "model": "openai:gpt-4o-mini"
+    }
+  }
 }
