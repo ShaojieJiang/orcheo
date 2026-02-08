@@ -206,7 +206,7 @@ The simplest starting point. This demo works entirely locally with no external v
 Upload and run through Orcheo:
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_2_basic_rag/demo_2.py --name "Basic RAG"
+orcheo workflow upload examples/conversational_search/demo_2_basic_rag/demo_2.py --name "Basic RAG" --config-file examples/conversational_search/demo_2_basic_rag/config.json
 orcheo workflow run <workflow-id> --inputs '{"message": "What is this document about?"}'
 orcheo workflow run <workflow-id> --inputs '{"documents":[{"storage_path":"/abs/path/document.txt","source":"document.txt","metadata":{"category":"tech"}}],"message":"What is this document about?"}'
 ```
@@ -221,24 +221,18 @@ orcheo workflow run <workflow-id> --inputs '{"documents":[{"storage_path":"/abs/
 
 ### Configuration
 
-```python
-DEFAULT_CONFIG = {
-    "ingestion": {
-        "chunking": {
-            "chunk_size": 512,
-            "chunk_overlap": 64,
-        },
-    },
-    "retrieval": {
-        "search": {
-            "top_k": 5,
-            "similarity_threshold": 0.0,
-        },
-    },
+```json
+{
+  "configurable": {
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "top_k": 5,
+    "similarity_threshold": 0.0
+  }
 }
 ```
 
-Adjust `chunk_size`, `chunk_overlap`, `top_k`, and `similarity_threshold` to tune the pipeline.
+Adjust `chunk_size`, `chunk_overlap`, `top_k`, and `similarity_threshold` in `config.json` to tune the pipeline.
 
 ### Workflow Diagram
 

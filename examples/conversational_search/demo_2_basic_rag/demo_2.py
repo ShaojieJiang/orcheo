@@ -29,23 +29,6 @@ def demo2_embedder(texts: list[str]) -> list[list[float]]:
 register_embedding_method(DEFAULT_DEMO_2_EMBEDDING, demo2_embedder)
 
 
-# Default configuration inlined for server execution
-DEFAULT_CONFIG = {
-    "ingestion": {
-        "chunking": {
-            "chunk_size": 512,
-            "chunk_overlap": 64,
-        },
-    },
-    "retrieval": {
-        "search": {
-            "top_k": 5,
-            "similarity_threshold": 0.0,
-        },
-    },
-}
-
-
 class EntryRoutingNode(TaskNode):
     """Determines the entry routing mode based on inputs and vector store state."""
 
@@ -69,7 +52,7 @@ class EntryRoutingNode(TaskNode):
 
 
 def create_ingestion_nodes(
-    config: dict[str, Any], vector_store: InMemoryVectorStore
+    vector_store: InMemoryVectorStore,
 ) -> dict[str, Any]:
     """Create and configure ingestion nodes."""
     loader = DocumentLoaderNode(name="loader")
@@ -79,12 +62,11 @@ def create_ingestion_nodes(
         source_result_key="loader",
     )
 
-    chunking_config = config["ingestion"]["chunking"]
     chunking = ChunkingStrategyNode(
         name="chunking",
         source_result_key="metadata",
-        chunk_size=chunking_config.get("chunk_size", 800),
-        chunk_overlap=chunking_config.get("chunk_overlap", 80),
+        chunk_size="{{config.configurable.chunk_size}}",
+        chunk_overlap="{{config.configurable.chunk_overlap}}",
     )
 
     chunk_embedding = ChunkEmbeddingNode(
@@ -109,15 +91,14 @@ def create_ingestion_nodes(
 
 
 def create_search_nodes(
-    config: dict[str, Any], vector_store: InMemoryVectorStore
+    vector_store: InMemoryVectorStore,
 ) -> dict[str, Any]:
     """Create and configure search and generation nodes."""
-    retrieval_config = config["retrieval"]["search"]
     search = DenseSearchNode(
         name="search",
         vector_store=vector_store,
-        top_k=retrieval_config.get("top_k", 5),
-        score_threshold=retrieval_config.get("similarity_threshold", 0.0),
+        top_k="{{config.configurable.top_k}}",
+        score_threshold="{{config.configurable.similarity_threshold}}",
         embedding_method=DEFAULT_DEMO_2_EMBEDDING,
     )
 
@@ -236,8 +217,8 @@ def define_workflow(
 async def build_graph() -> StateGraph:
     """Entrypoint for the Orcheo server to load the graph."""
     vector_store = InMemoryVectorStore()
-    ingestion_nodes = create_ingestion_nodes(DEFAULT_CONFIG, vector_store)
-    search_nodes = create_search_nodes(DEFAULT_CONFIG, vector_store)
+    ingestion_nodes = create_ingestion_nodes(vector_store)
+    search_nodes = create_search_nodes(vector_store)
     routing_edges = create_routing_edges(vector_store)
     workflow = define_workflow(ingestion_nodes, search_nodes, routing_edges)
     return workflow

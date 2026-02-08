@@ -53,12 +53,11 @@ class DenseSearchNode(TaskNode):
         ...,
         description="Named embedding method used to transform the query.",
     )
-    top_k: int = Field(
-        default=5, gt=0, description="Maximum number of results to return"
+    top_k: int | str = Field(
+        default=5, description="Maximum number of results to return"
     )
-    score_threshold: float = Field(
+    score_threshold: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Minimum score required for a result to be returned.",
     )
     filter_metadata: dict[str, Any] = Field(
@@ -83,10 +82,13 @@ class DenseSearchNode(TaskNode):
             msg = "DenseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
+        top_k = int(self.top_k)
+        score_threshold = float(self.score_threshold)
+
         embeddings = await self._embed([query])
         results = await self.vector_store.search(
             query=embeddings[0],
-            top_k=self.top_k,
+            top_k=top_k,
             filter_metadata=self.filter_metadata or None,
         )
 
@@ -100,7 +102,7 @@ class DenseSearchNode(TaskNode):
                 sources=result.sources or [result.source or self.source_name],
             )
             for result in results
-            if result.score >= self.score_threshold
+            if result.score >= score_threshold
         ]
 
         return {"results": normalized}

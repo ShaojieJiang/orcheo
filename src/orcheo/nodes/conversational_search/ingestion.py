@@ -513,11 +513,11 @@ class ChunkingStrategyNode(TaskNode):
         default="documents",
         description="Field name within the upstream results that stores documents.",
     )
-    chunk_size: int = Field(
-        default=800, gt=0, description="Maximum characters per chunk"
+    chunk_size: int | str = Field(
+        default=800, description="Maximum characters per chunk"
     )
-    chunk_overlap: int = Field(
-        default=80, ge=0, description="Overlap between sequential chunks"
+    chunk_overlap: int | str = Field(
+        default=80, description="Overlap between sequential chunks"
     )
     preserve_metadata_keys: list[str] | None = Field(
         default=None,
@@ -526,9 +526,13 @@ class ChunkingStrategyNode(TaskNode):
 
     @field_validator("chunk_overlap")
     @classmethod
-    def _validate_overlap(cls, value: int, info: Any) -> int:  # type: ignore[override]
+    def _validate_overlap(cls, value: int | str, info: Any) -> int | str:  # type: ignore[override]
         chunk_size = info.data.get("chunk_size")
-        if chunk_size is not None and value >= chunk_size:
+        if (
+            isinstance(value, int)
+            and isinstance(chunk_size, int)
+            and value >= chunk_size
+        ):
             msg = "chunk_overlap must be smaller than chunk_size"
             raise ValueError(msg)
         return value
@@ -540,12 +544,15 @@ class ChunkingStrategyNode(TaskNode):
             msg = "ChunkingStrategyNode requires at least one document"
             raise ValueError(msg)
 
+        chunk_size = int(self.chunk_size)
+        chunk_overlap = int(self.chunk_overlap)
+
         chunks: list[DocumentChunk] = []
         for document in documents:
             start = 0
             chunk_index = 0
             while start < len(document.content):
-                end = min(start + self.chunk_size, len(document.content))
+                end = min(start + chunk_size, len(document.content))
                 content = document.content[start:end]
                 metadata = self._merge_metadata(document, chunk_index)
                 chunk_id = f"{document.id}-chunk-{chunk_index}"
@@ -560,7 +567,7 @@ class ChunkingStrategyNode(TaskNode):
                 )
                 if end == len(document.content):
                     break
-                start = end - self.chunk_overlap
+                start = end - chunk_overlap
                 chunk_index += 1
 
         return {"chunks": chunks}
