@@ -311,7 +311,7 @@ Edit `config.json` to customise retrieval parameters, models, or index settings.
 
 **Tips**: Try asking questions about the indexed content, or ask open-domain questions — thanks to [Tavily](https://tavily.com/) web search integration, the system can answer general knowledge queries beyond the indexed documents.
 
-<!-- TODO: Add an embedded online demo here -->
+<iframe src="https://orcheo-canvas.ai-colleagues.com/chat/b3787e4a-f11b-418c-b4ab-54863f6eafdb" width="100%" height="600" frameborder="0" allow="clipboard-write" style="border: 1px solid #e0e0e0; border-radius: 8px;"></iframe>
 
 ## Conversational Search
 
