@@ -697,6 +697,38 @@ def test_policy_compliance_detects_nothing_for_clean_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_policy_compliance_handles_string_blocked_terms_valid_json_list() -> None:
+    node = PolicyComplianceNode(
+        name="policy", blocked_terms='["secret", "confidential"]'
+    )
+    result = await node.run(
+        State(inputs={"content": "This contains a secret message"}), {}
+    )
+    assert "blocked_term:secret" in result["violations"]
+    assert "[REDACTED_TERM]" in result["sanitized"]
+
+
+@pytest.mark.asyncio
+async def test_policy_compliance_handles_string_blocked_terms_valid_json_non_list() -> (
+    None
+):
+    node = PolicyComplianceNode(name="policy", blocked_terms='"forbidden"')
+    result = await node.run(
+        State(inputs={"content": "This contains forbidden content"}), {}
+    )
+    assert "blocked_term:forbidden" in result["violations"]
+    assert "[REDACTED_TERM]" in result["sanitized"]
+
+
+@pytest.mark.asyncio
+async def test_policy_compliance_handles_string_blocked_terms_invalid_json() -> None:
+    node = PolicyComplianceNode(name="policy", blocked_terms="invalid{json")
+    result = await node.run(State(inputs={"content": "This contains invalid{json"}), {})
+    assert "blocked_term:invalid{json" in result["violations"]
+    assert "[REDACTED_TERM]" in result["sanitized"]
+
+
+@pytest.mark.asyncio
 async def test_memory_privacy_requires_list_and_handles_full_history() -> None:
     node = MemoryPrivacyNode(name="privacy")
     with pytest.raises(ValueError, match="expects a list for conversation_history"):
@@ -723,3 +755,18 @@ async def test_turn_annotation_requires_list_and_sentiment_variants() -> None:
 
     assert node._sentiment("This is terrible") == "negative"
     assert node._sentiment("Neutral text here") == "neutral"
+
+
+@pytest.mark.asyncio
+async def test_policy_compliance_handles_non_string_non_list_blocked_terms() -> None:
+    """Test that blocked_terms defaults to empty list for invalid types like dict."""
+    node = PolicyComplianceNode(name="policy")
+    # Bypass Pydantic validation by directly setting blocked_terms to an invalid type
+    node.blocked_terms = {"invalid": "type"}  # type: ignore[assignment]
+    result = await node.run(
+        State(inputs={"content": "This is clean content with password"}), {}
+    )
+    # Since blocked_terms becomes [], "password" is not in the blocked list
+    assert "blocked_term:password" not in result["violations"]
+    # Only PII patterns should be detected
+    assert result["compliant"] is True

@@ -250,7 +250,9 @@ class GroundedGeneratorNode(TaskNode):
         self, query: str, context: list[SearchResult] | None = None
     ) -> str:
         if context:
-            return f"{query}\n\nResponse: See cited context for details."
+            # Include citation markers for each context entry
+            markers = " ".join(f"[{i}]" for i in range(1, len(context) + 1))
+            return f"{query}\n\nResponse: See cited context for details. {markers}"
         return f"{query}\n\nResponse: [Default response]"
 
     def _build_citations(self, context: list[SearchResult]) -> list[dict[str, Any]]:

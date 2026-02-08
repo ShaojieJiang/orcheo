@@ -426,7 +426,7 @@ class WebDocumentLoaderNode(TaskNode):
 
         documents: list[Document] = []
         async with httpx.AsyncClient(
-            timeout=self.timeout,
+            timeout=float(self.timeout),
             follow_redirects=self.follow_redirects,
         ) as client:
             for index, web_input in enumerate(payloads):
@@ -1113,8 +1113,9 @@ class IncrementalIndexerNode(TaskNode):
 
         upserted_ids: list[str] = []
         skipped = 0
-        for start in range(0, len(chunks), self.batch_size):
-            batch = chunks[start : start + self.batch_size]
+        batch_size_int = int(self.batch_size)
+        for start in range(0, len(chunks), batch_size_int):
+            batch = chunks[start : start + batch_size_int]
             embeddings = await self._embed([chunk.content for chunk in batch])
 
             records: list[VectorRecord] = []
@@ -1187,15 +1188,15 @@ class IncrementalIndexerNode(TaskNode):
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     async def _upsert_with_retry(self, records: Iterable[VectorRecord]) -> None:
-        for attempt in range(self.max_retries + 1):  # pragma: no branch
+        for attempt in range(int(self.max_retries) + 1):  # pragma: no branch
             try:
                 await self.vector_store.upsert(records)
                 return
             except Exception as exc:  # pragma: no cover - exercised via tests
-                if attempt == self.max_retries:
+                if attempt == int(self.max_retries):
                     msg = "Vector store upsert failed after retries"
                     raise RuntimeError(msg) from exc
-                await asyncio.sleep(self.backoff_seconds * (2**attempt))
+                await asyncio.sleep(float(self.backoff_seconds) * (2**attempt))
 
 
 EMBEDDING_PAYLOAD_ERROR = (

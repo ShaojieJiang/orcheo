@@ -336,11 +336,33 @@ def test_inmemory_ensure_capacity_sync_skips_turn_limit_when_disabled() -> None:
     assert "secondary" in store.session_last_updated
 
 
+def test_inmemory_ensure_capacity_sync_skips_turn_limit_when_zero() -> None:
+    store = InMemoryMemoryStore(max_sessions=2, max_total_turns=0)
+    store.sessions["primary"] = [MemoryTurn(role="user", content="hello")]
+    store.session_last_updated["primary"] = time.time() - 5
+
+    store._ensure_capacity_sync("primary", incoming_count=1)
+
+    assert "primary" in store.sessions
+    assert len(store.sessions["primary"]) == 1
+
+
 @pytest.mark.asyncio
 async def test_inmemory_store_eviction_short_circuits_when_empty() -> None:
     store = InMemoryMemoryStore()
     await store._evict_stalest_session()
     assert store.sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_inmemory_ensure_capacity_skips_turn_limit_when_zero() -> None:
+    store = InMemoryMemoryStore(max_sessions=2, max_total_turns=0)
+    await store.append_turn("primary", MemoryTurn(role="user", content="hello"))
+
+    await store._ensure_capacity("primary", incoming_count=1)
+
+    assert "primary" in store.sessions
+    assert len(store.sessions["primary"]) == 1
 
 
 @pytest.mark.asyncio

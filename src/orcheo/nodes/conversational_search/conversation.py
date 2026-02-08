@@ -473,9 +473,9 @@ class ConversationCompressorNode(TaskNode):
             msg = "ConversationCompressorNode requires at least one turn to compress"
             raise ValueError(msg)
 
-        max_tokens = self._config_value(config, "max_tokens", self.max_tokens)
+        max_tokens = self._config_value(config, "max_tokens", int(self.max_tokens))
         preserve_recent = self._config_value(
-            config, "preserve_recent", self.preserve_recent
+            config, "preserve_recent", int(self.preserve_recent)
         )
 
         compressed: list[MemoryTurn] = []
@@ -739,7 +739,7 @@ class QueryClarificationNode(TaskNode):
         clarifications = self._build_questions(query, context_hint)
 
         return {
-            "clarifications": clarifications[: self.max_questions],
+            "clarifications": clarifications[: int(self.max_questions)],
             "needs_clarification": bool(clarifications),
             "context_hint": context_hint or None,
         }
@@ -817,8 +817,13 @@ class MemorySummarizerNode(TaskNode):
         retention_seconds = self._config_value(
             config, "retention_seconds", self.retention_seconds
         )
+        max_summary_tokens_int = (
+            int(self.max_summary_tokens)
+            if isinstance(self.max_summary_tokens, int | str)
+            else None
+        )
         max_summary_tokens = self._config_value(
-            config, "max_summary_tokens", self.max_summary_tokens
+            config, "max_summary_tokens", max_summary_tokens_int
         )
 
         context = state.get("results", {}).get(self.source_result_key, {})

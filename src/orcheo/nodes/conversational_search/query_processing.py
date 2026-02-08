@@ -85,7 +85,7 @@ class QueryRewriteNode(TaskNode):
             msg = "history must be a list of messages"
             raise ValueError(msg)
 
-        messages = _normalize_messages(history)[-self.max_history_messages :]
+        messages = _normalize_messages(history)[-int(self.max_history_messages) :]
         context = " ".join(messages)
         needs_rewrite = self._contains_pronoun(query) and bool(context)
 
@@ -281,7 +281,7 @@ class ContextCompressorNode(TaskNode):
             return {"results": [], "summary": "", "original_results": []}
 
         query = self._resolve_query(state)
-        trimmed = entries[: self.max_passages]
+        trimmed = entries[: int(self.max_passages)]
         summary_text = await self._summarize(query, trimmed)
 
         summary_result = SearchResult(

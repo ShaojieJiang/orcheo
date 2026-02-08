@@ -298,12 +298,14 @@ class SparseSearchNode(TaskNode):
         for token in document_tokens:
             token_freq[token] += 1
 
+        k1_float = float(self.k1)
+        b_float = float(self.b)
         for token in query_tokens:
             idf = self._idf(token, corpus)
             freq = token_freq.get(token, 0)
-            numerator = freq * (self.k1 + 1)
-            denominator = freq + self.k1 * (
-                1 - self.b + self.b * (doc_len / avg_length)
+            numerator = freq * (k1_float + 1)
+            denominator = freq + k1_float * (
+                1 - b_float + b_float * (doc_len / avg_length)
             )
             if denominator == 0:
                 continue
@@ -679,7 +681,7 @@ class ReRankerNode(TaskNode):
                 )
             )
         reranked.sort(key=lambda item: item.score, reverse=True)
-        return {"results": reranked[: self.top_k]}
+        return {"results": reranked[: int(self.top_k)]}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
         return _resolve_retrieval_results(
@@ -693,7 +695,7 @@ class ReRankerNode(TaskNode):
         base_score = entry.score
         if self.rerank_function:
             base_score = self.rerank_function(entry)
-        length_penalty = self.length_penalty * len(entry.text.split())
+        length_penalty = float(self.length_penalty) * len(entry.text.split())
         return base_score - length_penalty
 
 
@@ -896,8 +898,8 @@ class SearchResultAdapterNode(TaskNode):
             try:
                 return float(value)
             except ValueError:
-                return self.default_score
-        return self.default_score
+                return float(self.default_score)
+        return float(self.default_score)
 
     def _extract(self, entry: Mapping[str, Any], path: str) -> tuple[bool, Any]:
         if not path:
