@@ -132,6 +132,28 @@ def test_attach_citations_returns_completion_unchanged() -> None:
     assert node._attach_citations("answer", [{"id": "1"}]) == "answer"
 
 
+def test_attach_citations_appends_markers_for_non_inline_styles() -> None:
+    """Test that citation markers are appended for footnote/endnote styles."""
+    # Test footnote style
+    node_footnote = GroundedGeneratorNode(name="generator", citation_style="footnote")
+    result = node_footnote._attach_citations("answer", [{"id": "1"}, {"id": "2"}])
+    assert result == "answer [1] [2]"
+
+    # Test endnote style
+    node_endnote = GroundedGeneratorNode(name="generator", citation_style="endnote")
+    result = node_endnote._attach_citations(
+        "answer with trailing spaces   ", [{"id": "1"}]
+    )
+    assert result == "answer with trailing spaces [1]"
+
+    # Test with multiple citations
+    node_other = GroundedGeneratorNode(name="generator", citation_style="other")
+    result = node_other._attach_citations(
+        "text", [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    )
+    assert result == "text [a] [b] [c]"
+
+
 # Retry logic has been removed - retries should be configured via model_kwargs
 
 
