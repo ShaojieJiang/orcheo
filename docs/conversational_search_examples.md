@@ -13,9 +13,9 @@ This guide walks you through a progressive demo suite for building conversationa
 | Demo | Description | Source | Credentials Required | External Services | Online Demo |
 |------|-------------|--------|---------------------|-------------------|-------------|
 | Web Scrape & Upload | Scrape web pages, chunk text, generate embeddings, upload to MongoDB | `examples/mongodb_agent/01_web_scrape_and_upload.py` | `openai_api_key`, `mongodb_uri` | MongoDB Atlas | — |
-| Index Setup | Create text and vector indexes for hybrid search | `examples/mongodb_agent/02_create_index_and_hybrid_search.py` | `mongodb_uri` | MongoDB Atlas | — |
+| MongoDB Indexes | Create text and vector indexes for hybrid search | `examples/mongodb_agent/02_create_index_and_hybrid_search.py` | `mongodb_uri` | MongoDB Atlas | — |
 | MongoDB RAG Agent | AI agent with MongoDB hybrid search tool | `examples/mongodb_agent/03_qa_agent.py` | `openai_api_key`, `mongodb_uri` | MongoDB Atlas | [Try it](https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373) |
-| Hybrid Indexing | Hybrid indexing (web docs to Pinecone) | `examples/conversational_search/demo_1_hybrid_indexing/demo_1.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
+| Pinecone Indexes | Create dense & sparse Pinecone indexes from web pages | `examples/conversational_search/demo_1_hybrid_indexing/demo_1.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
 | Basic RAG | Basic RAG pipeline (in-memory store) | `examples/conversational_search/demo_2_basic_rag/demo_2.py` | `openai_api_key` | None | — |
 | Hybrid Search | Hybrid search + web search + rerank | `examples/conversational_search/demo_3_hybrid_search/demo_3.py` | `openai_api_key`, `pinecone_api_key`, `tavily_api_key` | Pinecone, Tavily | — |
 | Conversational Search | Conversational search | `examples/conversational_search/demo_4_conversational/demo_4.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | — |
@@ -45,7 +45,7 @@ orcheo credential create openai_api_key --secret sk-your-openai-key
 # Required for Hybrid Search (web search)
 orcheo credential create tavily_api_key --secret tvly-your-tavily-key
 
-# Required for Pinecone-based demos (Hybrid Indexing, Hybrid Search, Conversational Search, Production Pipeline, Evaluation & Research)
+# Required for Pinecone-based demos (Pinecone Indexes, Hybrid Search, Conversational Search, Production Pipeline, Evaluation & Research)
 orcheo credential create pinecone_api_key --secret your-pinecone-key
 ```
 
@@ -80,12 +80,12 @@ Trace update: mongodb_upload (UNSET)
 ✓ Workflow completed successfully
 ```
 
-### Index Setup
+### MongoDB Indexes
 
 Creates text and vector search indexes in MongoDB Atlas for hybrid search capabilities.
 
 ```bash
-orcheo workflow upload examples/mongodb_agent/02_create_index_and_hybrid_search.py --name "Index Setup" --config-file examples/mongodb_agent/config.json
+orcheo workflow upload examples/mongodb_agent/02_create_index_and_hybrid_search.py --name "MongoDB Indexes" --config-file examples/mongodb_agent/config.json
 orcheo workflow run <workflow-id>
 ```
 
@@ -119,6 +119,9 @@ Then you can interact with the agent through the generated link.
 Alternatively, you can try the online demo directly:
 **[Try the online demo →](https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373)**
 
+!!! tip "Try asking about UvA"
+    The knowledge base for this demo contains only University of Amsterdam (UvA) news articles. Try questions like "What's the latest research at UvA?" or "Tell me about UvA news" for the best results.
+
 <iframe
   src="https://orcheo-canvas.ai-colleagues.com/chat/d26b9777-a43a-4d7e-a586-7501c2b01373"
   width="100%"
@@ -126,6 +129,66 @@ Alternatively, you can try the online demo directly:
   frameborder="0"
   style="border: 1px solid #ddd; border-radius: 8px;">
 </iframe>
+
+## Pinecone Indexes
+
+Create dense and sparse Pinecone indexes from web pages. This demo scrapes URLs,
+chunks the text, generates both dense (OpenAI) and sparse (BM25) embeddings, and
+upserts them into two separate Pinecone indexes.
+
+### What It Does
+
+- Scrapes web pages specified in `config.json`
+- Extracts metadata and infers document titles from the first line
+- Chunks text with configurable size and overlap
+- Generates dense embeddings (OpenAI `text-embedding-3-small`) and sparse embeddings (Pinecone BM25)
+- Upserts dense and sparse vectors into separate Pinecone indexes
+
+### Run It
+
+Upload and run through Orcheo:
+
+```bash
+orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py --name "Pinecone Indexes" --config-file examples/conversational_search/demo_1_hybrid_indexing/config.json
+orcheo workflow run <workflow-id>
+```
+
+The default `config.json` scrapes UvA news articles and writes to the
+`orcheo-demo-dense` and `orcheo-demo-sparse` indexes under the `hybrid_search`
+namespace. Edit `config.json` to customise the URLs or index settings.
+
+### Configuration
+
+```json
+{
+  "configurable": {
+    "urls": [
+      {"url": "https://example.com/page-1"},
+      {"url": "https://example.com/page-2"}
+    ],
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
+    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "vector_store_index_dense": "orcheo-demo-dense",
+    "vector_store_index_sparse": "orcheo-demo-sparse",
+    "vector_store_namespace": "hybrid_search"
+  }
+}
+```
+
+### Workflow Diagram
+
+```mermaid
+flowchart TD
+    start([START]) --> loader[WebDocumentLoaderNode]
+    loader --> metadata[MetadataExtractorNode]
+    metadata --> chunking[ChunkingStrategyNode]
+    chunking --> embedding[ChunkEmbeddingNode]
+    embedding --> dense_upsert[VectorUpsertDense]
+    dense_upsert --> sparse_upsert[VectorUpsertSparse]
+    sparse_upsert --> done([END])
+```
 
 ## Basic RAG Pipeline
 
@@ -197,25 +260,15 @@ flowchart TD
     search --> generator --> end2([END])
 ```
 
-## Hybrid Indexing + Hybrid Search
+## Hybrid Search
 
 Dense + sparse retrieval with reciprocal-rank fusion and optional web search.
 
-### Step 1: Index the Corpus (Hybrid Indexing)
+### Prerequisites
 
-First, populate the Pinecone indexes with the default demo corpus:
+Run Pinecone Indexes first to populate the Pinecone indexes.
 
-```bash
-orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py --name "Hybrid Indexing"
-orcheo workflow run <workflow-id> --inputs '{}'
-```
-
-By default this demo pulls Orcheo docs from GitHub raw URLs and writes to the
-`orcheo-demo-dense` and `orcheo-demo-sparse` indexes under the `hybrid_search`
-namespace. Override `DEFAULT_DOC_URLS` in `demo_1.py` if you want to ingest the
-local sample corpus instead.
-
-### Step 2: Run Hybrid Search
+### Run It
 
 ```bash
 orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Hybrid Search"
@@ -228,15 +281,6 @@ orcheo workflow run <workflow-id> --inputs '{"message": "How does Orcheo handle 
 - Results are fused with reciprocal-rank fusion, reranked in Pinecone, and
   summarized before generation
 - Outputs a grounded answer with citations
-
-### Deploy to Orcheo Server
-
-Upload and run via the Orcheo platform:
-
-```bash
-orcheo workflow upload examples/conversational_search/demo_1_hybrid_indexing/demo_1.py --name "Hybrid Indexing"
-orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Hybrid Search"
-```
 
 ## Conversational Search
 
@@ -252,7 +296,7 @@ Stateful, multi-turn chat with conversation memory and query rewriting.
 
 ### Prerequisites
 
-Run Hybrid Indexing first to populate the Pinecone indexes.
+Run Pinecone Indexes first to populate the Pinecone indexes.
 
 ### Run It
 
@@ -324,7 +368,7 @@ LLM-based judging.
 
 ### Prerequisites
 
-Run Hybrid Indexing first to populate the Pinecone indexes.
+Run Pinecone Indexes first to populate the Pinecone indexes.
 
 ### Run It
 
@@ -362,14 +406,14 @@ The demos share sample data in `examples/conversational_search/data/`:
 - `golden/`: Golden datasets for evaluation
 - `labels/`: Relevance labels for metrics
 
-Hybrid Indexing and Evaluation & Research default to GitHub raw URLs, but you can point configs at these
-local files when running offline or customizing the corpus.
+Pinecone Indexes reads URLs from its `config.json`. Evaluation & Research defaults to GitHub raw URLs.
+You can point configs at these local files when running offline or customising the corpus.
 
 ## Next Steps
 
 - Try the MongoDB Agent demos for MongoDB Atlas-based vector search
 - Start with Basic RAG to understand the basic RAG pattern
-- Run Hybrid Indexing before Hybrid Search, Conversational Search, Production Pipeline, and Evaluation & Research to seed the Pinecone indexes
+- Run Pinecone Indexes before Hybrid Search, Conversational Search, Production Pipeline, and Evaluation & Research to seed the Pinecone indexes
 - Progress through Hybrid Search and Conversational Search to add hybrid search and conversation state
 - Use Production Pipeline patterns for production deployments
 - Set up Evaluation & Research for systematic evaluation of your search quality

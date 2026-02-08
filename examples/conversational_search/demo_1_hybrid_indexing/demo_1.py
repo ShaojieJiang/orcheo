@@ -1,6 +1,17 @@
-"""Build a hybrid indexing pipeline with dense and sparse embeddings for Pinecone."""
+"""Build a hybrid indexing pipeline with dense and sparse embeddings for Pinecone.
 
-from langgraph.graph import END, StateGraph
+Configurable inputs (config.json):
+- urls: List of web page URLs to scrape and index
+- chunk_size: Maximum characters per chunk
+- chunk_overlap: Overlap between sequential chunks
+- dense_embedding_method: Registered dense embedding method identifier
+- sparse_embedding_method: Registered sparse embedding method identifier
+- vector_store_index_dense: Pinecone index name for dense vectors
+- vector_store_index_sparse: Pinecone index name for sparse vectors
+- vector_store_namespace: Pinecone namespace for both stores
+"""
+
+from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.embedding_registry import (
     OPENAI_TEXT_EMBEDDING_3_SMALL,
@@ -11,55 +22,27 @@ from orcheo.nodes.conversational_search.ingestion import (
     ChunkingStrategyNode,
     MetadataExtractorNode,
     VectorStoreUpsertNode,
-    WebDocumentInput,
     WebDocumentLoaderNode,
 )
-from orcheo.nodes.conversational_search.vector_store import (
-    BaseVectorStore,
-    PineconeVectorStore,
-)
+from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 
 
-DEFAULT_DOC_URLS = [
-    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/docs/index.md",
-    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/docs/manual_setup.md",
-]
+async def orcheo_workflow() -> StateGraph:
+    """Build the hybrid indexing workflow."""
+    dense_store = PineconeVectorStore(
+        index_name="{{config.configurable.vector_store_index_dense}}",
+        namespace="{{config.configurable.vector_store_namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
+    )
+    sparse_store = PineconeVectorStore(
+        index_name="{{config.configurable.vector_store_index_sparse}}",
+        namespace="{{config.configurable.vector_store_namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
+    )
 
-DEFAULT_CHUNK_SIZE = 512
-DEFAULT_CHUNK_OVERLAP = 64
-DEFAULT_VECTOR_STORE_INDEX_DENSE = "orcheo-demo-dense"
-DEFAULT_VECTOR_STORE_INDEX_SPARSE = "orcheo-demo-sparse"
-DEFAULT_VECTOR_STORE_NAMESPACE = "hybrid_search"
-DEFAULT_VECTOR_STORE_KWARGS = {"api_key": "[[pinecone_api_key]]"}
-
-
-async def build_graph(
-    dense_embedding_method: str = OPENAI_TEXT_EMBEDDING_3_SMALL,
-    sparse_embedding_method: str = PINECONE_BM25_DEFAULT,
-    vector_store: BaseVectorStore | None = None,
-    dense_vector_store: BaseVectorStore | None = None,
-    sparse_vector_store: BaseVectorStore | None = None,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
-    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
-) -> StateGraph:
-    """Construct the ingestion graph for the demo."""
-    dense_store = dense_vector_store or vector_store
-    sparse_store = sparse_vector_store or vector_store
-    if dense_store is None:
-        dense_store = PineconeVectorStore(
-            index_name=DEFAULT_VECTOR_STORE_INDEX_DENSE,
-            namespace=DEFAULT_VECTOR_STORE_NAMESPACE,
-            client_kwargs=DEFAULT_VECTOR_STORE_KWARGS,
-        )
-    if sparse_store is None:
-        sparse_store = PineconeVectorStore(
-            index_name=DEFAULT_VECTOR_STORE_INDEX_SPARSE,
-            namespace=DEFAULT_VECTOR_STORE_NAMESPACE,
-            client_kwargs=DEFAULT_VECTOR_STORE_KWARGS,
-        )
     document_loader = WebDocumentLoaderNode(
         name="document_loader",
-        urls=[WebDocumentInput(url=url) for url in DEFAULT_DOC_URLS],
+        urls="{{config.configurable.urls}}",
         default_metadata={"demo": "hybrid_search"},
     )
     metadata_extractor = MetadataExtractorNode(
@@ -69,15 +52,15 @@ async def build_graph(
     chunking = ChunkingStrategyNode(
         name="chunking_strategy",
         source_result_key=metadata_extractor.name,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        chunk_size=512,
+        chunk_overlap=64,
     )
     chunk_embedder = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key=chunking.name,
         embedding_methods={
-            "dense": dense_embedding_method,
-            "bm25": sparse_embedding_method,
+            "dense": OPENAI_TEXT_EMBEDDING_3_SMALL,
+            "bm25": PINECONE_BM25_DEFAULT,
         },
         credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
@@ -101,8 +84,7 @@ async def build_graph(
     workflow.add_node("chunk_embedding", chunk_embedder)
     workflow.add_node("vector_upsert_dense", dense_vector_upsert)
     workflow.add_node("vector_upsert_sparse", sparse_vector_upsert)
-
-    workflow.set_entry_point("document_loader")
+    workflow.add_edge(START, "document_loader")
     workflow.add_edge("document_loader", "metadata_extractor")
     workflow.add_edge("metadata_extractor", "chunking_strategy")
     workflow.add_edge("chunking_strategy", "chunk_embedding")
