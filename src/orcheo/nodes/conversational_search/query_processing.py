@@ -242,9 +242,8 @@ class ContextCompressorNode(TaskNode):
         default="retrieval_results",
         description="Key in ``state.results`` that holds retrieval payloads.",
     )
-    max_tokens: int = Field(
+    max_tokens: int | str = Field(
         default=400,
-        gt=0,
         description="Maximum whitespace token budget for fallback summaries.",
     )
     max_passages: int = Field(
@@ -396,9 +395,9 @@ class ContextCompressorNode(TaskNode):
 
     def _fallback_summary(self, context_block: str) -> str:
         tokens = context_block.split()
-        if len(tokens) <= self.max_tokens:
+        if len(tokens) <= int(self.max_tokens):
             return context_block
-        truncated = tokens[: self.max_tokens]
+        truncated = tokens[: int(self.max_tokens)]
         return " ".join(truncated) + " …"
 
     @staticmethod

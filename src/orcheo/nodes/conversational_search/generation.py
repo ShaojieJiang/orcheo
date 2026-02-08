@@ -270,14 +270,9 @@ class GroundedGeneratorNode(TaskNode):
     def _attach_citations(
         self, completion: str, citations: list[dict[str, Any]]
     ) -> str:
-        markers = " ".join(f"[{citation['id']}]" for citation in citations)
-        if not markers:
-            return completion
-        if self.citation_style == "footnote":
-            return f"{completion}\n\nFootnotes: {markers}".strip()
-        if self.citation_style == "endnote":
-            return f"{completion}\n\nEndnotes: {markers}".strip()
-        return f"{completion} {markers}".strip()
+        """Return completion unchanged; the LLM cites inline."""
+        del citations
+        return completion
 
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
@@ -617,17 +612,13 @@ class CitationsFormatterNode(TaskNode):
                     "metadata": normalized_metadata,
                 }
             )
-            source_label = (
-                f" (sources: {', '.join(sources)})"
-                if sources and self.include_sources
-                else ""
-            )
             base_text = snippet or str(citation_id)
             external_url = self._resolve_reference_url(citation, normalized_metadata)
-            source_reference = f" ([source]({external_url}))" if external_url else ""
-            formatted_text = (
-                f"[{citation_id}] {base_text}{source_label}{source_reference}".strip()
+            show_sources = bool(sources and self.include_sources)
+            suffix = self._format_citation_suffix(
+                sources if show_sources else [], external_url
             )
+            formatted_text = f"[{citation_id}] {base_text}{suffix}".strip()
             formatted.append(formatted_text)
             references.append(
                 {
@@ -641,7 +632,12 @@ class CitationsFormatterNode(TaskNode):
             raw_reply = payload.get("reply")
             if isinstance(raw_reply, str):  # pragma: no branch
                 base_reply = raw_reply
-        reply = self._build_markdown_reply(base_reply, references)
+        cited_refs = (
+            [ref for ref in references if f"[{ref['id']}]" in base_reply]
+            if base_reply
+            else references
+        )
+        reply = self._build_markdown_reply(base_reply, cited_refs)
 
         self._overwrite_source_reply(state, reply, normalized)
 
@@ -660,6 +656,18 @@ class CitationsFormatterNode(TaskNode):
         source_payload["reply"] = reply
         source_payload["citations"] = citations
 
+    @staticmethod
+    def _format_citation_suffix(sources: list[str], external_url: str | None) -> str:
+        """Build the parenthesized suffix for a single citation line."""
+        parts: list[str] = []
+        if sources:
+            parts.append(f"sources: {', '.join(sources)}")
+        if external_url:
+            parts.append(f"[source]({external_url})")
+        if not parts:
+            return ""
+        return f" ({' | '.join(parts)})"
+
     def _resolve_reference_url(
         self, citation: dict[str, Any], metadata: dict[str, Any]
     ) -> str | None:
@@ -670,6 +678,7 @@ class CitationsFormatterNode(TaskNode):
             "source_url",
             "permalink",
             "href",
+            "source",
         )
         candidates: list[str | None] = []
         for field in url_fields:

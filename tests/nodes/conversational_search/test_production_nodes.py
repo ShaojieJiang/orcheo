@@ -590,7 +590,7 @@ async def test_citations_formatter_normalizes_entries() -> None:
     assert formatted["reply"].startswith("Answer base [1]")
     assert "References:" in formatted["reply"]
     assert "- [1] text (sources: vector)" in formatted["reply"]
-    assert "- [2] other" in formatted["reply"]
+    assert "- [2] other" not in formatted["reply"]
     assert formatted["citations"][0]["sources"] == ["vector"]
 
 
@@ -616,8 +616,13 @@ async def test_citations_formatter_links_snippet_when_metadata_includes_url() ->
     formatted = await node.run(state, {})
 
     assert "References:" in formatted["reply"]
-    assert "- [1] text (sources: vector)" in formatted["reply"]
-    assert "([source](https://example.com))" in formatted["formatted"][0]
+    assert (
+        "- [1] text (sources: vector | [source](https://example.com))"
+        in formatted["reply"]
+    )
+    assert (
+        "(sources: vector | [source](https://example.com))" in formatted["formatted"][0]
+    )
 
 
 @pytest.mark.asyncio
@@ -660,7 +665,7 @@ async def test_citations_formatter_handles_source_and_metadata_variations() -> N
         inputs={},
         results={
             "grounded_generator": {
-                "reply": "  Base answer  ",
+                "reply": "  Base answer [1] [2]  ",
                 "citations": citations,
             }
         },
@@ -674,13 +679,45 @@ async def test_citations_formatter_handles_source_and_metadata_variations() -> N
     assert formatted["citations"][1]["sources"] == ["legacy"]
     assert (
         formatted["formatted"][1]
-        == "[2] second snippet (sources: legacy) ([source](https://example.org))"
+        == "[2] second snippet (sources: legacy | [source](https://example.org))"
     )
-    assert formatted["reply"].startswith("Base answer")
+    assert formatted["reply"].startswith("Base answer [1] [2]")
     assert "- [1] first snippet" in formatted["reply"]
-    assert "- [2] second snippet (sources: legacy)" in formatted["reply"]
+    assert "- [2] second snippet (sources: legacy | [source]" in formatted["reply"]
     assert state["results"]["grounded_generator"]["reply"] == formatted["reply"]
     assert state["results"]["grounded_generator"]["citations"] == formatted["citations"]
+
+
+@pytest.mark.asyncio
+async def test_citations_formatter_resolves_url_from_source_metadata_field() -> None:
+    """Test formatter resolves URLs from metadata['source'] field."""
+    citations = [
+        {
+            "id": "1",
+            "snippet": "indexed chunk",
+            "sources": ["dense"],
+            "metadata": {"source": "https://www.uva.nl/en/news"},
+        },
+    ]
+    node = CitationsFormatterNode(name="formatter-source-url")
+    state = State(
+        inputs={},
+        results={
+            "grounded_generator": {
+                "reply": "Answer text [1]",
+                "citations": citations,
+            }
+        },
+        structured_response=None,
+    )
+
+    formatted = await node.run(state, {})
+
+    assert (
+        formatted["formatted"][0]
+        == "[1] indexed chunk (sources: dense | [source](https://www.uva.nl/en/news))"
+    )
+    assert "https://www.uva.nl/en/news" in formatted["reply"]
 
 
 @pytest.mark.asyncio

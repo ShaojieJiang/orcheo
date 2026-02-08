@@ -111,7 +111,7 @@ This demo is best experienced through the integrated ChatKit UI by uploading and
 
 ```bash
 orcheo workflow upload examples/mongodb_agent/03_qa_agent.py --name "MongoDB RAG Agent" --config-file examples/mongodb_agent/config.json
-orcheo workflow publish <workflow-id>
+orcheo workflow publish <workflow-id> --force
 ```
 
 Then you can interact with the agent through the generated link.
@@ -265,9 +265,11 @@ Run Pinecone Indexes first to populate the Pinecone indexes.
 ### Run It
 
 ```bash
-orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Hybrid Search"
-orcheo workflow run <workflow-id> --inputs '{"message": "How does Orcheo handle authentication?"}'
+orcheo workflow upload examples/conversational_search/demo_3_hybrid_search/demo_3.py --name "Hybrid Search" --config-file examples/conversational_search/demo_3_hybrid_search/config.json
+orcheo workflow publish <workflow-id> --force
 ```
+
+> **Note:** Publishing the workflow before running it is recommended, as published workflows benefit from optimised execution.
 
 **What to expect:**
 
@@ -275,6 +277,41 @@ orcheo workflow run <workflow-id> --inputs '{"message": "How does Orcheo handle 
 - Results are fused with reciprocal-rank fusion, reranked in Pinecone, and
   summarized before generation
 - Outputs a grounded answer with citations
+
+### Configuration
+
+```json
+{
+  "configurable": {
+    "dense_top_k": 8,
+    "dense_similarity_threshold": 0.0,
+    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
+    "sparse_top_k": 10,
+    "sparse_score_threshold": 0.0,
+    "sparse_vector_store_candidate_k": 50,
+    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "web_search_provider": "tavily",
+    "web_search_max_results": 5,
+    "web_search_search_depth": "advanced",
+    "fusion_rrf_k": 60,
+    "fusion_top_k": 8,
+    "context_max_tokens": 400,
+    "context_summary_model": "openai:gpt-4o-mini",
+    "vector_store_index_dense": "orcheo-demo-dense",
+    "vector_store_index_sparse": "orcheo-demo-sparse",
+    "vector_store_namespace": "hybrid_search",
+    "reranker_model": "bge-reranker-v2-m3",
+    "reranker_top_n": 10,
+    "generation_model": "openai:gpt-4o-mini"
+  }
+}
+```
+
+Edit `config.json` to customise retrieval parameters, models, or index settings.
+
+**Tips**: Try asking questions about the indexed content, or ask open-domain questions — thanks to [Tavily](https://tavily.com/) web search integration, the system can answer general knowledge queries beyond the indexed documents.
+
+<!-- TODO: Add an embedded online demo here -->
 
 ## Conversational Search
 

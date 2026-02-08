@@ -6,7 +6,7 @@ import math
 import os
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from typing import Any, Literal
+from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -143,12 +143,11 @@ class SparseSearchNode(TaskNode):
     query_key: str = Field(
         default="message", description="Key within inputs holding the user message"
     )
-    top_k: int = Field(
-        default=5, gt=0, description="Maximum number of results to return"
+    top_k: int | str = Field(
+        default=5, description="Maximum number of results to return"
     )
-    score_threshold: float = Field(
+    score_threshold: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Minimum BM25 score required for inclusion",
     )
     k1: float = Field(default=1.5, gt=0)
@@ -164,9 +163,8 @@ class SparseSearchNode(TaskNode):
         default=None,
         description="Optional vector store containing pre-indexed chunks to query.",
     )
-    vector_store_candidate_k: int = Field(
+    vector_store_candidate_k: int | str = Field(
         default=50,
-        gt=0,
         description="Number of candidates to fetch from the vector store.",
     )
 
@@ -214,8 +212,8 @@ class SparseSearchNode(TaskNode):
                 sources=[self.source_name],
             )
             for chunk, score in sorted(scores, key=lambda item: item[1], reverse=True)
-            if score >= self.score_threshold
-        ][: self.top_k]
+            if score >= float(self.score_threshold)
+        ][: int(self.top_k)]
 
         return {"results": ranked}
 
@@ -226,7 +224,7 @@ class SparseSearchNode(TaskNode):
         embeddings = await self._embed([query])
         results = await self.vector_store.search(
             query=embeddings[0],
-            top_k=self.vector_store_candidate_k,
+            top_k=int(self.vector_store_candidate_k),
         )
         chunks: list[DocumentChunk] = []
         for match in results:
@@ -349,12 +347,12 @@ class WebSearchNode(TaskNode):
         default="https://api.tavily.com/search",
         description="Tavily search endpoint URL.",
     )
-    search_depth: Literal["basic", "advanced"] = Field(
+    search_depth: str = Field(
         default="basic",
         description="Search depth to request from Tavily ('basic' or 'advanced').",
     )
-    max_results: int = Field(
-        default=5, gt=0, description="Maximum number of web results to request."
+    max_results: int | str = Field(
+        default=5, description="Maximum number of web results to request."
     )
     include_answer: bool = Field(
         default=True,
@@ -474,7 +472,7 @@ class WebSearchNode(TaskNode):
             "api_key": api_key,
             "query": query,
             "search_depth": self.search_depth,
-            "max_results": self.max_results,
+            "max_results": int(self.max_results),
             "include_answer": self.include_answer,
             "include_raw_content": self.include_raw_content,
         }
@@ -551,11 +549,11 @@ class HybridFusionNode(TaskNode):
         default_factory=dict,
         description="Optional per-retriever weights for weighted_sum fusion.",
     )
-    rrf_k: int = Field(
-        default=60, gt=0, description="RRF constant to dampen rank impact"
+    rrf_k: int | str = Field(
+        default=60, description="RRF constant to dampen rank impact"
     )
-    top_k: int = Field(
-        default=10, gt=0, description="Number of fused results to return"
+    top_k: int | str = Field(
+        default=10, description="Number of fused results to return"
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -587,7 +585,7 @@ class HybridFusionNode(TaskNode):
         )
 
         ranked = sorted(fused.values(), key=lambda item: item.score, reverse=True)
-        return {"results": ranked[: self.top_k]}
+        return {"results": ranked[: int(self.top_k)]}
 
     def _reciprocal_rank_fusion(
         self, results: dict[str, list[SearchResult]]
@@ -595,7 +593,7 @@ class HybridFusionNode(TaskNode):
         fused: dict[str, SearchResult] = {}
         for source, entries in results.items():
             for rank, entry in enumerate(entries, start=1):
-                score = 1 / (self.rrf_k + rank)
+                score = 1 / (int(self.rrf_k) + rank)
                 fused.setdefault(
                     entry.id,
                     SearchResult(
@@ -938,9 +936,8 @@ class PineconeRerankNode(TaskNode):
         default_factory=lambda: ["chunk_text"],
         description="Document fields evaluated by the reranking model.",
     )
-    top_n: int = Field(
+    top_n: int | str = Field(
         default=10,
-        gt=0,
         description="Maximum reranked results returned from Pinecone.",
     )
     return_documents: bool = Field(
@@ -994,7 +991,7 @@ class PineconeRerankNode(TaskNode):
             query=query,
             documents=documents,
             rank_fields=self.rank_fields,
-            top_n=self.top_n,
+            top_n=int(self.top_n),
             return_documents=self.return_documents,
             parameters=self.parameters or None,
         )
@@ -1036,7 +1033,7 @@ class PineconeRerankNode(TaskNode):
                 )
             )
         reranked.sort(key=lambda result: result.score, reverse=True)
-        return {"results": reranked[: self.top_n]}
+        return {"results": reranked[: int(self.top_n)]}
 
     def _resolve_query(self, state: State) -> str:
         inputs = state.get("inputs", {})
