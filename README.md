@@ -7,8 +7,9 @@
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
 [![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
+[![Documentation](https://readthedocs.org/projects/orcheo/badge/?version=latest)](https://orcheo.readthedocs.io/en/latest/)
 
-Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically.
+Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically. Read the [full documentation](https://orcheo.readthedocs.io/en/latest/) for guides, API reference, and examples.
 
 > **Note:** This project is currently in Beta. Expect breaking changes as we iterate rapidly towards 1.0.
 
