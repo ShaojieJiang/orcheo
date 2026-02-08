@@ -33,6 +33,8 @@ nav:
       - Canvas: canvas.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
+  - Examples:
+      - Conversational Search: conversational_search_examples.md
   - Deployment:
       - Overview: deployment.md
       - Execution Worker: execution_worker/deployment.md
@@ -47,8 +49,6 @@ nav:
       - Custom Nodes & Tools: custom_nodes_and_tools.md
       - MCP Integration: mcp_integration.md
       - Releasing: releasing.md
-  - Examples:
-      - Conversational Search: conversational_search_examples.md
   - Reference:
       - CLI Reference: cli_reference.md
       - SDK Reference: sdk_reference.md
@@ -69,7 +69,10 @@ plugins:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite

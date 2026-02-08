@@ -2,16 +2,7 @@
 
 Foundational assets for five progressive conversational search demos. Milestone 1 provides runnable scaffolds, shared sample data, and utilities so later milestones can focus on full workflows and guardrails.
 
-## Quickstart (< 5 minutes)
-
-### Step 0: Check Your Setup (Optional but Recommended)
-Run the setup checker to verify all prerequisites:
-
-```bash
-python examples/conversational_search/check_setup.py
-```
-
-This will check your Python version, dependencies, credentials, and data files, then provide guidance on any missing items.
+## Quickstart
 
 ### Prerequisites
 1. **Install dependencies**:

@@ -65,8 +65,8 @@ docker compose logs -f canvas
 # Stop all services
 docker compose down
 
-# Rebuild after changes
-docker compose build
+# Rebuild after changes (--no-cache ensures fresh builds with latest PyPI packages)
+docker compose build --no-cache
 docker compose up -d
 ```
 

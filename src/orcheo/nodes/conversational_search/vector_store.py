@@ -116,7 +116,7 @@ class PineconeVectorStore(BaseVectorStore):
     namespace: str | None = None
     client: Any | None = None
 
-    client_kwargs: dict[str, Any] = Field(default_factory=dict)
+    client_kwargs: dict[str, Any] | str = Field(default_factory=dict)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -213,7 +213,9 @@ class PineconeVectorStore(BaseVectorStore):
                 "Install it or provide a pre-configured client."
             )
             raise ImportError(msg) from exc
-        client_kwargs = dict(self.client_kwargs or {})
+        client_kwargs = (
+            self.client_kwargs if isinstance(self.client_kwargs, dict) else {}
+        )
         self.client = Pinecone(**client_kwargs)
         return self.client
 

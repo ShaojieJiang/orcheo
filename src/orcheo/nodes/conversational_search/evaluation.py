@@ -318,7 +318,7 @@ class RetrievalEvaluationNode(TaskNode):
 
     dataset_key: str = Field(default="dataset")
     results_key: str = Field(default="retrieval_results")
-    k: int = Field(default=5, ge=1)
+    k: int | str = Field(default=5)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Compute retrieval metrics across the provided dataset."""
@@ -336,10 +336,11 @@ class RetrievalEvaluationNode(TaskNode):
         maps: list[float] = []
 
         result_map = {row.get("query_id"): row.get("results", []) for row in results}
+        k = int(self.k)
         for example in dataset:
             query_id = example.get("id")
             relevant_ids: set[str] = set(example.get("relevant_ids", []))
-            returned = result_map.get(query_id, [])[: self.k]
+            returned = result_map.get(query_id, [])[:k]
             ranked_ids = [
                 item["id"]
                 for item in returned
@@ -491,17 +492,18 @@ class LLMJudgeNode(TaskNode):
     """Simulate LLM-as-a-judge with transparent heuristics."""
 
     answers_key: str = Field(default="answers")
-    min_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_score: float | str = Field(default=0.5)
     ai_model: str | None = Field(
         default=None, description="Optional model identifier for the judge."
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments passed to init_chat_model.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Apply lightweight judging heuristics to answers."""
+        min_score = float(self.min_score)
         answers = state.get("inputs", {}).get(self.answers_key)
         if not isinstance(answers, list):
             msg = "LLMJudgeNode expects answers list"
@@ -509,20 +511,23 @@ class LLMJudgeNode(TaskNode):
 
         if self.ai_model:
             try:
-                return await self._judge_with_model(answers)
+                return await self._judge_with_model(answers, min_score)
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.warning(
                     "LLMJudgeNode falling back to heuristic scoring: %s", exc
                 )
 
-        return self._judge_with_heuristics(answers)
+        return self._judge_with_heuristics(answers, min_score)
 
-    async def _judge_with_model(self, answers: list[dict[str, Any]]) -> dict[str, Any]:
+    async def _judge_with_model(
+        self, answers: list[dict[str, Any]], min_score: float
+    ) -> dict[str, Any]:
         """Use configured AI model to score answers."""
         from langchain.chat_models import init_chat_model
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
         verdicts: list[dict[str, Any]] = []
         passing = 0
 
@@ -545,7 +550,7 @@ class LLMJudgeNode(TaskNode):
             ]
             response = await model.ainvoke(messages)
             score, flags = self._parse_model_response(response, content)
-            approved = score >= self.min_score
+            approved = score >= min_score
             verdict = {
                 "id": entry.get("id"),
                 "score": score,
@@ -599,7 +604,9 @@ class LLMJudgeNode(TaskNode):
 
         return max(min(score, 1.0), 0.0), flags
 
-    def _judge_with_heuristics(self, answers: list[dict[str, Any]]) -> dict[str, Any]:
+    def _judge_with_heuristics(
+        self, answers: list[dict[str, Any]], min_score: float
+    ) -> dict[str, Any]:
         """Fallback heuristic judging used when no model is configured."""
         verdicts: list[dict[str, Any]] = []
         passing = 0
@@ -607,7 +614,7 @@ class LLMJudgeNode(TaskNode):
             answer_id = entry.get("id")
             content = str(entry.get("answer", ""))
             score = self._score(content)
-            approved = score >= self.min_score
+            approved = score >= min_score
             verdict = {
                 "id": answer_id,
                 "score": score,
@@ -655,20 +662,22 @@ class FailureAnalysisNode(TaskNode):
     retrieval_metrics_key: str = Field(default="retrieval_metrics")
     answer_metrics_key: str = Field(default="answer_metrics")
     feedback_key: str = Field(default="feedback")
-    recall_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    faithfulness_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    recall_threshold: float | str = Field(default=0.6)
+    faithfulness_threshold: float | str = Field(default=0.6)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Flag failure categories using metrics and feedback signals."""
+        recall_threshold = float(self.recall_threshold)
+        faithfulness_threshold = float(self.faithfulness_threshold)
         inputs = state.get("inputs", {})
         retrieval_metrics = inputs.get(self.retrieval_metrics_key, {})
         answer_metrics = inputs.get(self.answer_metrics_key, {})
         feedback = inputs.get(self.feedback_key, []) or []
 
         categories: set[str] = set()
-        if retrieval_metrics.get("recall_at_k", 1.0) < self.recall_threshold:
+        if retrieval_metrics.get("recall_at_k", 1.0) < recall_threshold:
             categories.add("low_recall")
-        if answer_metrics.get("faithfulness", 1.0) < self.faithfulness_threshold:
+        if answer_metrics.get("faithfulness", 1.0) < faithfulness_threshold:
             categories.add("low_answer_quality")
         if any(entry.get("rating", 5) <= 2 for entry in feedback):
             categories.add("negative_feedback")
@@ -689,11 +698,13 @@ class ABTestingNode(TaskNode):
     variants_key: str = Field(default="variants")
     primary_metric: str = Field(default="score")
     evaluation_metrics_key: str = Field(default="evaluation_metrics")
-    min_metric_threshold: float = Field(default=0.5)
-    min_feedback_score: float = Field(default=0.0)
+    min_metric_threshold: float | str = Field(default=0.5)
+    min_feedback_score: float | str = Field(default=0.0)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Rank A/B variants and apply rollout gating criteria."""
+        min_metric_threshold = float(self.min_metric_threshold)
+        min_feedback_score = float(self.min_feedback_score)
         inputs = state.get("inputs", {})
         variants = inputs.get(self.variants_key)
         if not isinstance(variants, list) or not variants:
@@ -709,7 +720,7 @@ class ABTestingNode(TaskNode):
 
         evaluation_metrics = inputs.get(self.evaluation_metrics_key, {})
         rollout_allowed = bool(
-            winner.get(self.primary_metric, 0.0) >= self.min_metric_threshold
+            winner.get(self.primary_metric, 0.0) >= min_metric_threshold
         )
         if evaluation_metrics:
             metrics_to_evaluate = [
@@ -719,15 +730,12 @@ class ABTestingNode(TaskNode):
             ]
             if metrics_to_evaluate:  # pragma: no branch
                 rollout_allowed = rollout_allowed and all(
-                    metric >= self.min_metric_threshold
-                    for metric in metrics_to_evaluate
+                    metric >= min_metric_threshold for metric in metrics_to_evaluate
                 )
 
         feedback_score = inputs.get("feedback_score")
         if isinstance(feedback_score, int | float):
-            rollout_allowed = (
-                rollout_allowed and feedback_score >= self.min_feedback_score
-            )
+            rollout_allowed = rollout_allowed and feedback_score >= min_feedback_score
 
         return {
             "winner": winner,
@@ -876,7 +884,7 @@ class PolicyComplianceNode(TaskNode):
     """Detect basic policy violations and redact sensitive snippets."""
 
     text_key: str = Field(default="content")
-    blocked_terms: list[str] = Field(default_factory=lambda: ["password", "ssn"])
+    blocked_terms: list[str] | str = Field(default_factory=lambda: ["password", "ssn"])
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Apply policy checks and return sanitized content with audit metadata."""
@@ -885,8 +893,19 @@ class PolicyComplianceNode(TaskNode):
             msg = "PolicyComplianceNode expects content string"
             raise ValueError(msg)
 
-        violations = self._detect_violations(content)
-        sanitized = self._sanitize(content)
+        if isinstance(self.blocked_terms, list):
+            blocked_terms = self.blocked_terms
+        elif isinstance(self.blocked_terms, str):
+            try:
+                parsed = json.loads(self.blocked_terms)
+                blocked_terms = parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                blocked_terms = [self.blocked_terms]
+        else:
+            blocked_terms = []
+
+        violations = self._detect_violations(content, blocked_terms)
+        sanitized = self._sanitize(content, blocked_terms)
         return {
             "compliant": not violations,
             "violations": violations,
@@ -901,9 +920,9 @@ class PolicyComplianceNode(TaskNode):
             ],
         }
 
-    def _detect_violations(self, content: str) -> list[str]:
+    def _detect_violations(self, content: str, blocked_terms: list[str]) -> list[str]:
         violations: list[str] = []
-        for term in self.blocked_terms:
+        for term in blocked_terms:
             if re.search(rf"\b{re.escape(term)}\b", content, re.IGNORECASE):
                 violations.append(f"blocked_term:{term}")
         if re.search(r"\b\d{3}-\d{2}-\d{4}\b", content):
@@ -912,10 +931,10 @@ class PolicyComplianceNode(TaskNode):
             violations.append("pii:email")
         return violations
 
-    def _sanitize(self, content: str) -> str:
+    def _sanitize(self, content: str, blocked_terms: list[str]) -> str:
         sanitized = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED_SSN]", content)
         sanitized = re.sub(r"\b\S+@\S+\.[a-z]{2,}\b", "[REDACTED_EMAIL]", sanitized)
-        for term in self.blocked_terms:
+        for term in blocked_terms:
             sanitized = re.sub(
                 rf"\b{re.escape(term)}\b",
                 "[REDACTED_TERM]",
@@ -936,7 +955,7 @@ class MemoryPrivacyNode(TaskNode):
     """Redact sensitive details from stored conversation turns."""
 
     history_key: str = Field(default="conversation_history")
-    retention_count: int | None = Field(default=None, ge=1)
+    retention_count: int | str | None = Field(default=None)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Redact sensitive details and enforce retention limits."""
@@ -959,13 +978,16 @@ class MemoryPrivacyNode(TaskNode):
                 }
             )
 
-        if self.retention_count is not None:
-            sanitized_history = sanitized_history[-self.retention_count :]
+        retention_count_int = (
+            int(self.retention_count) if self.retention_count is not None else None
+        )
+        if retention_count_int is not None:
+            sanitized_history = sanitized_history[-retention_count_int:]
 
         return {
             "sanitized_history": sanitized_history,
             "redaction_count": redactions,
-            "truncated": self.retention_count is not None
+            "truncated": retention_count_int is not None
             and len(history_raw) > len(sanitized_history),
         }
 
@@ -994,10 +1016,11 @@ class DataAugmentationNode(TaskNode):
     """Create lightweight augmented examples for experimentation."""
 
     dataset_key: str = Field(default="dataset")
-    multiplier: int = Field(default=1, ge=1)
+    multiplier: int | str = Field(default=1)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Create augmented dataset variants using deterministic templates."""
+        multiplier = int(self.multiplier)
         dataset = state.get("inputs", {}).get(self.dataset_key)
         if not isinstance(dataset, list):
             msg = "DataAugmentationNode expects dataset list"
@@ -1005,7 +1028,7 @@ class DataAugmentationNode(TaskNode):
 
         augmented: list[dict[str, Any]] = []
         for example in dataset:
-            for i in range(self.multiplier):
+            for i in range(multiplier):
                 augmented.append(self._augment_example(example, i))
 
         return {"augmented_dataset": augmented, "augmented_count": len(augmented)}

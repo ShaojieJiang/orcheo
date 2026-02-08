@@ -42,7 +42,7 @@ async def test_grounded_generator_appends_citations() -> None:
     result = await node.run(state, {})
 
     assert result["citations"]
-    assert "[1]" in result["reply"]
+    assert result["reply"]
     assert result["tokens_used"] > 0
 
 
@@ -124,42 +124,34 @@ def test_truncate_snippet_handles_truncated_whitespace() -> None:
     assert _truncate_snippet(FakeText(), limit=3) == "…"
 
 
-def test_attach_citations_returns_completion_when_no_markers() -> None:
+def test_attach_citations_returns_completion_unchanged() -> None:
     node = GroundedGeneratorNode(name="generator")
 
     assert node._attach_citations("answer", []) == "answer"
+    assert node._attach_citations("answer [1]", [{"id": "1"}]) == "answer [1]"
+    assert node._attach_citations("answer", [{"id": "1"}]) == "answer"
 
 
-def test_attach_citations_handles_footnote_style() -> None:
-    node = GroundedGeneratorNode(name="generator", citation_style="footnote")
-    citations = [
-        {
-            "id": "1",
-            "source_id": "chunk-1",
-            "snippet": "text",
-            "sources": [],
-        }
-    ]
+def test_attach_citations_appends_markers_for_non_inline_styles() -> None:
+    """Test that citation markers are appended for footnote/endnote styles."""
+    # Test footnote style
+    node_footnote = GroundedGeneratorNode(name="generator", citation_style="footnote")
+    result = node_footnote._attach_citations("answer", [{"id": "1"}, {"id": "2"}])
+    assert result == "answer [1] [2]"
 
-    result = node._attach_citations("answer", citations)
+    # Test endnote style
+    node_endnote = GroundedGeneratorNode(name="generator", citation_style="endnote")
+    result = node_endnote._attach_citations(
+        "answer with trailing spaces   ", [{"id": "1"}]
+    )
+    assert result == "answer with trailing spaces [1]"
 
-    assert result == "answer\n\nFootnotes: [1]"
-
-
-def test_attach_citations_handles_endnote_style() -> None:
-    node = GroundedGeneratorNode(name="generator", citation_style="endnote")
-    citations = [
-        {
-            "id": "1",
-            "source_id": "chunk-1",
-            "snippet": "text",
-            "sources": [],
-        }
-    ]
-
-    result = node._attach_citations("answer", citations)
-
-    assert result == "answer\n\nEndnotes: [1]"
+    # Test with multiple citations
+    node_other = GroundedGeneratorNode(name="generator", citation_style="other")
+    result = node_other._attach_citations(
+        "text", [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    )
+    assert result == "text [a] [b] [c]"
 
 
 # Retry logic has been removed - retries should be configured via model_kwargs

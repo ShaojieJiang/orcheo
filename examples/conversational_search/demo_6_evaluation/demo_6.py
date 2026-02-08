@@ -6,10 +6,6 @@ from langgraph.graph import END, StateGraph
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.conversational_search.embedding_registry import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
-    PINECONE_BM25_DEFAULT,
-)
 from orcheo.nodes.conversational_search.evaluation import (
     ABTestingNode,
     AnalyticsExportNode,
@@ -37,97 +33,6 @@ from orcheo.nodes.conversational_search.vector_store import (
 
 
 SESSION_ID = "demo-6-evaluation-session"
-DATA_DIR = (
-    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/"
-    "refs/heads/main/examples/conversational_search/data"
-)
-RECURSION_LIMIT = 250
-
-
-DEFAULT_CONFIG: dict[str, Any] = {
-    "dataset": {
-        "golden_path": DATA_DIR + "/golden/golden_dataset.json",
-        "queries_path": DATA_DIR + "/queries.json",
-        "labels_path": DATA_DIR + "/labels/relevance_labels.json",
-        "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
-        "split": "test",
-        "limit": None,
-    },
-    "retrieval": {
-        "top_k": 4,
-        "embedding_method": OPENAI_TEXT_EMBEDDING_3_SMALL,
-        "sparse_embedding_method": PINECONE_BM25_DEFAULT,
-        "sparse_top_k": 4,
-        "sparse_candidate_k": 50,
-        "sparse_score_threshold": 0.0,
-        "fusion": {
-            "strategy": "rrf",
-            "rrf_k": 30,
-            "top_k": 4,
-        },
-    },
-    "vector_store": {
-        "type": "pinecone",
-        "pinecone": {
-            "index_name": "orcheo-demo-dense",
-            "namespace": "hybrid_search",
-            "client_kwargs": {"api_key": "[[pinecone_api_key]]"},
-        },
-    },
-    "sparse_vector_store": {
-        "type": "pinecone",
-        "pinecone": {
-            "index_name": "orcheo-demo-sparse",
-            "namespace": "hybrid_search",
-            "client_kwargs": {"api_key": "[[pinecone_api_key]]"},
-        },
-    },
-    "generation": {
-        "citation_style": "inline",
-        "model": "openai:gpt-4o-mini",
-    },
-    "ab_testing": {
-        "experiment_id": "retrieval_comparison_001",
-        "min_metric_threshold": 0.35,
-    },
-    "llm_judge": {"min_score": 0.5, "model": "openai:gpt-4o-mini"},
-}
-
-
-def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge ``override`` into ``base`` without mutation."""
-    merged = dict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = merge_dicts(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def build_vector_store_from_config(
-    cfg: dict[str, Any],
-    *,
-    store_kind: str = "vector",
-) -> BaseVectorStore:
-    """Instantiate the Pinecone vector store populated by Demo 0."""
-    store_type = str(cfg.get("type", "pinecone")).lower()
-    if store_type != "pinecone":
-        msg = f"Demo 6 expects a Pinecone {store_kind} vector store seeded by Demo 1."
-        raise ValueError(msg)
-
-    pinecone_cfg = dict(cfg.get("pinecone") or cfg)
-    index_name = pinecone_cfg.get("index_name")
-    if not index_name:
-        msg = f"Pinecone {store_kind} configuration requires 'index_name'"
-        raise ValueError(msg)
-
-    client_kwargs = dict(pinecone_cfg.get("client_kwargs") or {})
-    return PineconeVectorStore(
-        index_name=index_name,
-        namespace=pinecone_cfg.get("namespace"),
-        client_kwargs=client_kwargs,
-    )
 
 
 class ResultToInputsNode(TaskNode):
@@ -570,70 +475,55 @@ class EvaluationReplyNode(TaskNode):
         return f"{value:.{self.precision}f}"
 
 
-def prepare_config_and_stores(
-    config: dict[str, Any] | None,
-    vector_store: BaseVectorStore | None,
-    sparse_vector_store: BaseVectorStore | None,
-) -> tuple[dict[str, Any], BaseVectorStore, BaseVectorStore]:
-    """Merge configuration overrides and resolve vector store instances."""
-    merged_config = merge_dicts(DEFAULT_CONFIG, config or {})
-    vector_store_cfg = merged_config["vector_store"]
-    sparse_vector_store_cfg = (
-        merged_config.get("sparse_vector_store") or vector_store_cfg
+def build_vector_stores() -> tuple[BaseVectorStore, BaseVectorStore]:
+    """Create vector store instances with runtime template strings."""
+    vector_store = PineconeVectorStore(
+        index_name="{{config.configurable.vector_store.pinecone.index_name}}",
+        namespace="{{config.configurable.vector_store.pinecone.namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
     )
-    resolved_vector_store = vector_store or build_vector_store_from_config(
-        vector_store_cfg
+    sparse_vector_store = PineconeVectorStore(
+        index_name="{{config.configurable.sparse_vector_store.pinecone.index_name}}",
+        namespace="{{config.configurable.sparse_vector_store.pinecone.namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
     )
-    resolved_sparse_store = sparse_vector_store or build_vector_store_from_config(
-        sparse_vector_store_cfg, store_kind="sparse"
-    )
-    return merged_config, resolved_vector_store, resolved_sparse_store
+    return vector_store, sparse_vector_store
 
 
 def build_retrieval_nodes(
-    merged_config: dict[str, Any],
     vector_store: BaseVectorStore,
     sparse_vector_store: BaseVectorStore,
 ) -> dict[str, TaskNode]:
     """Create dataset ingestion, retrieval, and evaluation nodes."""
-    dataset_cfg = merged_config["dataset"]
-    retrieval_cfg = merged_config["retrieval"]
-    fusion_cfg = retrieval_cfg.get("fusion", {})
-
     dataset_node = DatasetNode(
         name="dataset",
-        golden_path=dataset_cfg["golden_path"],
-        queries_path=dataset_cfg["queries_path"],
-        labels_path=dataset_cfg["labels_path"],
-        docs_path=dataset_cfg["docs_path"],
-        split=dataset_cfg.get("split"),
-        limit=dataset_cfg.get("limit"),
+        golden_path="{{config.configurable.dataset.golden_path}}",
+        queries_path="{{config.configurable.dataset.queries_path}}",
+        labels_path="{{config.configurable.dataset.labels_path}}",
+        docs_path="{{config.configurable.dataset.docs_path}}",
+        split="{{config.configurable.dataset.split}}",
     )
     dense_search = DenseSearchNode(
         name="dense_search",
         vector_store=vector_store,
-        embedding_method=retrieval_cfg.get(
-            "embedding_method", OPENAI_TEXT_EMBEDDING_3_SMALL
-        ),
-        top_k=retrieval_cfg.get("top_k", 4),
+        embedding_method="{{config.configurable.retrieval.embedding_method}}",
+        top_k="{{config.configurable.retrieval.top_k}}",
         query_key="query",
     )
     sparse_search = SparseSearchNode(
         name="sparse_search",
         vector_store=sparse_vector_store,
-        embedding_method=retrieval_cfg.get(
-            "sparse_embedding_method", PINECONE_BM25_DEFAULT
-        ),
-        top_k=retrieval_cfg.get("sparse_top_k", retrieval_cfg.get("top_k", 4)),
-        vector_store_candidate_k=retrieval_cfg.get("sparse_candidate_k", 50),
-        score_threshold=retrieval_cfg.get("sparse_score_threshold", 0.0),
+        embedding_method="{{config.configurable.retrieval.sparse_embedding_method}}",
+        top_k="{{config.configurable.retrieval.sparse_top_k}}",
+        vector_store_candidate_k="{{config.configurable.retrieval.sparse_candidate_k}}",
+        score_threshold="{{config.configurable.retrieval.sparse_score_threshold}}",
         query_key="query",
     )
     hybrid_fusion = HybridFusionNode(
         name="hybrid_fusion",
-        strategy=fusion_cfg.get("strategy", "rrf"),
-        rrf_k=fusion_cfg.get("rrf_k", 30),
-        top_k=fusion_cfg.get("top_k", 4),
+        strategy="{{config.configurable.retrieval.fusion.strategy}}",
+        rrf_k="{{config.configurable.retrieval.fusion.rrf_k}}",
+        top_k="{{config.configurable.retrieval.fusion.top_k}}",
     )
     variant_retrieval = VariantRetrievalNode(
         name="variant_retrieval",
@@ -653,13 +543,13 @@ def build_retrieval_nodes(
         name="retrieval_eval_vector",
         dataset_key="dataset",
         results_key="vector_only_results",
-        k=retrieval_cfg.get("top_k", 4),
+        k="{{config.configurable.retrieval.top_k}}",
     )
     retrieval_eval_hybrid = RetrievalEvaluationNode(
         name="retrieval_eval_hybrid",
         dataset_key="dataset",
         results_key="hybrid_results",
-        k=retrieval_cfg.get("top_k", 4),
+        k="{{config.configurable.retrieval.top_k}}",
     )
     metrics_to_inputs = ResultToInputsNode(
         name="metrics_to_inputs",
@@ -677,15 +567,13 @@ def build_retrieval_nodes(
     }
 
 
-def build_generation_nodes(
-    generation_cfg: dict[str, Any],
-) -> dict[str, TaskNode]:
+def build_generation_nodes() -> dict[str, TaskNode]:
     """Create generation nodes for batched answer production."""
     generator = GroundedGeneratorNode(
         name="grounded_generator",
         context_result_key="generation_context",
-        citation_style=generation_cfg.get("citation_style", "inline"),
-        ai_model=generation_cfg.get("model"),
+        citation_style="{{config.configurable.generation.citation_style}}",
+        ai_model="{{config.configurable.generation.model}}",
     )
     batch_generator = BatchGenerationNode(
         name="batch_generator",
@@ -706,11 +594,8 @@ def build_generation_nodes(
     }
 
 
-def build_feedback_and_analysis_nodes(
-    merged_config: dict[str, Any],
-) -> dict[str, TaskNode]:
+def build_feedback_and_analysis_nodes() -> dict[str, TaskNode]:
     """Create evaluation, scoring, feedback, and analytics nodes."""
-    ab_cfg = merged_config["ab_testing"]
     answer_quality = AnswerQualityEvaluationNode(
         name="answer_quality", references_key="references", answers_key="answers"
     )
@@ -722,8 +607,8 @@ def build_feedback_and_analysis_nodes(
     llm_judge = LLMJudgeNode(
         name="llm_judge",
         answers_key="answers",
-        min_score=merged_config["llm_judge"].get("min_score", 0.5),
-        ai_model=merged_config["llm_judge"].get("model"),
+        min_score="{{config.configurable.llm_judge.min_score}}",
+        ai_model="{{config.configurable.llm_judge.model}}",
     )
     variant_scoring = VariantScoringNode(name="variant_scoring")
     variant_to_inputs = ResultToInputsNode(
@@ -737,7 +622,7 @@ def build_feedback_and_analysis_nodes(
     ab_testing = ABTestingNode(
         name="ab_testing",
         primary_metric="score",
-        min_metric_threshold=ab_cfg.get("min_metric_threshold", 0.35),
+        min_metric_threshold="{{config.configurable.ab_testing.min_metric_threshold}}",
     )
     feedback_synthesis = FeedbackSynthesisNode(name="feedback_synthesis")
     feedback_to_inputs = ResultToInputsNode(
@@ -796,24 +681,16 @@ def build_feedback_and_analysis_nodes(
     }
 
 
-async def build_graph(
-    *,
-    config: dict[str, Any] | None = None,
-    vector_store: BaseVectorStore | None = None,
-    sparse_vector_store: BaseVectorStore | None = None,
-) -> StateGraph:
+async def orcheo_workflow() -> StateGraph:
     """Assemble the evaluation workflow graph described in the design doc.
 
-    Requires the Pinecone index seeded by Demo 1; no in-memory fallback is provided.
+    Configuration is loaded from config.json and accessed via template strings
+    like {{config.configurable.dataset.golden_path}}.
     """
-    merged_config, vector_store, sparse_vector_store = prepare_config_and_stores(
-        config, vector_store, sparse_vector_store
-    )
-    retrieval_nodes = build_retrieval_nodes(
-        merged_config, vector_store, sparse_vector_store
-    )
-    generation_nodes = build_generation_nodes(merged_config["generation"])
-    evaluation_nodes = build_feedback_and_analysis_nodes(merged_config)
+    vector_store, sparse_vector_store = build_vector_stores()
+    retrieval_nodes = build_retrieval_nodes(vector_store, sparse_vector_store)
+    generation_nodes = build_generation_nodes()
+    evaluation_nodes = build_feedback_and_analysis_nodes()
 
     nodes: dict[str, TaskNode] = {
         **retrieval_nodes,

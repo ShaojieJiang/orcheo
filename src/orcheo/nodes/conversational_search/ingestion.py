@@ -408,8 +408,8 @@ class WebDocumentLoaderNode(TaskNode):
         default_factory=dict,
         description="Metadata applied to every document unless overridden",
     )
-    timeout: float = Field(
-        default=30.0, ge=0.0, description="Timeout in seconds for HTTP requests"
+    timeout: float | str = Field(
+        default=30.0, description="Timeout in seconds for HTTP requests"
     )
     follow_redirects: bool = Field(default=True, description="Follow HTTP redirects")
     extract_title: bool = Field(
@@ -426,7 +426,7 @@ class WebDocumentLoaderNode(TaskNode):
 
         documents: list[Document] = []
         async with httpx.AsyncClient(
-            timeout=self.timeout,
+            timeout=float(self.timeout),
             follow_redirects=self.follow_redirects,
         ) as client:
             for index, web_input in enumerate(payloads):
@@ -513,11 +513,11 @@ class ChunkingStrategyNode(TaskNode):
         default="documents",
         description="Field name within the upstream results that stores documents.",
     )
-    chunk_size: int = Field(
-        default=800, gt=0, description="Maximum characters per chunk"
+    chunk_size: int | str = Field(
+        default=800, description="Maximum characters per chunk"
     )
-    chunk_overlap: int = Field(
-        default=80, ge=0, description="Overlap between sequential chunks"
+    chunk_overlap: int | str = Field(
+        default=80, description="Overlap between sequential chunks"
     )
     preserve_metadata_keys: list[str] | None = Field(
         default=None,
@@ -526,9 +526,13 @@ class ChunkingStrategyNode(TaskNode):
 
     @field_validator("chunk_overlap")
     @classmethod
-    def _validate_overlap(cls, value: int, info: Any) -> int:  # type: ignore[override]
+    def _validate_overlap(cls, value: int | str, info: Any) -> int | str:  # type: ignore[override]
         chunk_size = info.data.get("chunk_size")
-        if chunk_size is not None and value >= chunk_size:
+        if (
+            isinstance(value, int)
+            and isinstance(chunk_size, int)
+            and value >= chunk_size
+        ):
             msg = "chunk_overlap must be smaller than chunk_size"
             raise ValueError(msg)
         return value
@@ -540,12 +544,15 @@ class ChunkingStrategyNode(TaskNode):
             msg = "ChunkingStrategyNode requires at least one document"
             raise ValueError(msg)
 
+        chunk_size = int(self.chunk_size)
+        chunk_overlap = int(self.chunk_overlap)
+
         chunks: list[DocumentChunk] = []
         for document in documents:
             start = 0
             chunk_index = 0
             while start < len(document.content):
-                end = min(start + self.chunk_size, len(document.content))
+                end = min(start + chunk_size, len(document.content))
                 content = document.content[start:end]
                 metadata = self._merge_metadata(document, chunk_index)
                 chunk_id = f"{document.id}-chunk-{chunk_index}"
@@ -560,7 +567,7 @@ class ChunkingStrategyNode(TaskNode):
                 )
                 if end == len(document.content):
                     break
-                start = end - self.chunk_overlap
+                start = end - chunk_overlap
                 chunk_index += 1
 
         return {"chunks": chunks}
@@ -1087,10 +1094,10 @@ class IncrementalIndexerNode(TaskNode):
         ...,
         description="Embedding method identifier applied to chunk content.",
     )
-    batch_size: int = Field(default=32, gt=0, description="Chunk batch size")
-    max_retries: int = Field(default=2, ge=0, description="Retry attempts")
-    backoff_seconds: float = Field(
-        default=0.05, ge=0.0, description="Base backoff for retry attempts"
+    batch_size: int | str = Field(default=32, description="Chunk batch size")
+    max_retries: int | str = Field(default=2, description="Retry attempts")
+    backoff_seconds: float | str = Field(
+        default=0.05, description="Base backoff for retry attempts"
     )
     skip_unchanged: bool = Field(
         default=True,
@@ -1106,8 +1113,9 @@ class IncrementalIndexerNode(TaskNode):
 
         upserted_ids: list[str] = []
         skipped = 0
-        for start in range(0, len(chunks), self.batch_size):
-            batch = chunks[start : start + self.batch_size]
+        batch_size_int = int(self.batch_size)
+        for start in range(0, len(chunks), batch_size_int):
+            batch = chunks[start : start + batch_size_int]
             embeddings = await self._embed([chunk.content for chunk in batch])
 
             records: list[VectorRecord] = []
@@ -1180,15 +1188,15 @@ class IncrementalIndexerNode(TaskNode):
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     async def _upsert_with_retry(self, records: Iterable[VectorRecord]) -> None:
-        for attempt in range(self.max_retries + 1):  # pragma: no branch
+        for attempt in range(int(self.max_retries) + 1):  # pragma: no branch
             try:
                 await self.vector_store.upsert(records)
                 return
             except Exception as exc:  # pragma: no cover - exercised via tests
-                if attempt == self.max_retries:
+                if attempt == int(self.max_retries):
                     msg = "Vector store upsert failed after retries"
                     raise RuntimeError(msg) from exc
-                await asyncio.sleep(self.backoff_seconds * (2**attempt))
+                await asyncio.sleep(float(self.backoff_seconds) * (2**attempt))
 
 
 EMBEDDING_PAYLOAD_ERROR = (

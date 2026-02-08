@@ -63,7 +63,7 @@ class GroundedGeneratorNode(TaskNode):
         ),
         description="Instruction prefix prepended to the prompt.",
     )
-    citation_style: Literal["inline", "footnote", "endnote"] = Field(
+    citation_style: Literal["inline", "footnote", "endnote"] | str = Field(
         default="inline", description="Style hint for formatting citations."
     )
     ai_model: str | None = Field(
@@ -74,7 +74,7 @@ class GroundedGeneratorNode(TaskNode):
             "A deterministic fallback is used when omitted."
         ),
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments passed to init_chat_model.",
     )
@@ -221,7 +221,8 @@ class GroundedGeneratorNode(TaskNode):
         from langchain_core.messages import HumanMessage, SystemMessage
 
         # Initialize chat model
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
 
         # Build messages list
         messages: list[Any] = []
@@ -249,7 +250,9 @@ class GroundedGeneratorNode(TaskNode):
         self, query: str, context: list[SearchResult] | None = None
     ) -> str:
         if context:
-            return f"{query}\n\nResponse: See cited context for details."
+            # Include citation markers for each context entry
+            markers = " ".join(f"[{i}]" for i in range(1, len(context) + 1))
+            return f"{query}\n\nResponse: See cited context for details. {markers}"
         return f"{query}\n\nResponse: [Default response]"
 
     def _build_citations(self, context: list[SearchResult]) -> list[dict[str, Any]]:
@@ -270,14 +273,16 @@ class GroundedGeneratorNode(TaskNode):
     def _attach_citations(
         self, completion: str, citations: list[dict[str, Any]]
     ) -> str:
-        markers = " ".join(f"[{citation['id']}]" for citation in citations)
-        if not markers:
+        """Attach citation markers for non-inline styles."""
+        if not citations:
             return completion
-        if self.citation_style == "footnote":
-            return f"{completion}\n\nFootnotes: {markers}".strip()
-        if self.citation_style == "endnote":
-            return f"{completion}\n\nEndnotes: {markers}".strip()
-        return f"{completion} {markers}".strip()
+
+        style = str(self.citation_style).strip().lower()
+        if style == "inline":
+            return completion
+
+        markers = " ".join(f"[{citation['id']}]" for citation in citations)
+        return f"{completion.rstrip()} {markers}"
 
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> int:
@@ -311,12 +316,11 @@ class StreamingGeneratorNode(TaskNode):
     prompt_key: str = Field(
         default="prompt", description="Key under inputs containing the prompt."
     )
-    chunk_size: int = Field(
-        default=8, gt=0, description="Maximum tokens per emitted frame"
+    chunk_size: int | str = Field(
+        default=8, description="Maximum tokens per emitted frame"
     )
-    buffer_limit: int | None = Field(
+    buffer_limit: int | str | None = Field(
         default=64,
-        gt=0,
         description="Optional backpressure cap on total tokens streamed.",
     )
     ai_model: str | None = Field(
@@ -326,7 +330,7 @@ class StreamingGeneratorNode(TaskNode):
             "When specified, an agent is created using langchain.agents.create_agent."
         ),
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments passed to init_chat_model.",
     )
@@ -393,7 +397,8 @@ class StreamingGeneratorNode(TaskNode):
             return self._default_ai_model(query)
 
         # Initialize chat model
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
 
         # Build messages list
         messages = self._build_streaming_messages(query, history)
@@ -424,17 +429,21 @@ class StreamingGeneratorNode(TaskNode):
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
         tokens = completion.split()
         truncated = False
-        if self.buffer_limit and len(tokens) > self.buffer_limit:
-            tokens = tokens[: self.buffer_limit]
+        buffer_limit_int = (
+            int(self.buffer_limit) if self.buffer_limit is not None else None
+        )
+        if buffer_limit_int and len(tokens) > buffer_limit_int:
+            tokens = tokens[:buffer_limit_int]
             truncated = True
 
+        chunk_size_int = int(self.chunk_size)
         stream: list[dict[str, Any]] = []
         frames: list[dict[str, Any]] = []
         buffer: list[str] = []
         for index, token in enumerate(tokens):
             stream.append({"index": index, "token": token})
             buffer.append(token)
-            if len(buffer) == self.chunk_size:
+            if len(buffer) == chunk_size_int:
                 frames.append(
                     {
                         "index": len(frames),
@@ -553,10 +562,12 @@ class HallucinationGuardNode(TaskNode):
         return bool(snippet)
 
     def _block(self, reason: str) -> dict[str, Any]:
+        fallback = "Unable to provide an answer with proper grounding."
         return {
             "allowed": False,
             "reason": reason,
-            "fallback_response": "Unable to provide an answer with proper grounding.",
+            "fallback_response": fallback,
+            "reply": fallback,
         }
 
 
@@ -617,17 +628,13 @@ class CitationsFormatterNode(TaskNode):
                     "metadata": normalized_metadata,
                 }
             )
-            source_label = (
-                f" (sources: {', '.join(sources)})"
-                if sources and self.include_sources
-                else ""
-            )
             base_text = snippet or str(citation_id)
             external_url = self._resolve_reference_url(citation, normalized_metadata)
-            source_reference = f" ([source]({external_url}))" if external_url else ""
-            formatted_text = (
-                f"[{citation_id}] {base_text}{source_label}{source_reference}".strip()
+            show_sources = bool(sources and self.include_sources)
+            suffix = self._format_citation_suffix(
+                sources if show_sources else [], external_url
             )
+            formatted_text = f"[{citation_id}] {base_text}{suffix}".strip()
             formatted.append(formatted_text)
             references.append(
                 {
@@ -641,7 +648,12 @@ class CitationsFormatterNode(TaskNode):
             raw_reply = payload.get("reply")
             if isinstance(raw_reply, str):  # pragma: no branch
                 base_reply = raw_reply
-        reply = self._build_markdown_reply(base_reply, references)
+        cited_refs = (
+            [ref for ref in references if f"[{ref['id']}]" in base_reply]
+            if base_reply
+            else references
+        )
+        reply = self._build_markdown_reply(base_reply, cited_refs)
 
         self._overwrite_source_reply(state, reply, normalized)
 
@@ -660,6 +672,18 @@ class CitationsFormatterNode(TaskNode):
         source_payload["reply"] = reply
         source_payload["citations"] = citations
 
+    @staticmethod
+    def _format_citation_suffix(sources: list[str], external_url: str | None) -> str:
+        """Build the parenthesized suffix for a single citation line."""
+        parts: list[str] = []
+        if sources:
+            parts.append(f"sources: {', '.join(sources)}")
+        if external_url:
+            parts.append(f"[source]({external_url})")
+        if not parts:
+            return ""
+        return f" ({' | '.join(parts)})"
+
     def _resolve_reference_url(
         self, citation: dict[str, Any], metadata: dict[str, Any]
     ) -> str | None:
@@ -670,6 +694,7 @@ class CitationsFormatterNode(TaskNode):
             "source_url",
             "permalink",
             "href",
+            "source",
         )
         candidates: list[str | None] = []
         for field in url_fields:
@@ -732,10 +757,8 @@ class SearchResultFormatterNode(TaskNode):
     include_score: bool = Field(
         default=True, description="Include scores in the formatted output."
     )
-    score_precision: int = Field(
+    score_precision: int | str = Field(
         default=3,
-        ge=0,
-        le=6,
         description="Decimal precision for score rounding.",
     )
     max_results: int | None = Field(
@@ -848,6 +871,6 @@ class SearchResultFormatterNode(TaskNode):
 
     def _format_score(self, score: Any) -> str:
         if isinstance(score, int | float):
-            precision = self.score_precision
+            precision = int(self.score_precision)
             return f"{score:.{precision}f}"
         return "n/a"

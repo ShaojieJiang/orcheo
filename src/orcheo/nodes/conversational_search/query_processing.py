@@ -48,8 +48,8 @@ class QueryRewriteNode(TaskNode):
         default="history",
         description="Key within ``state.inputs`` containing conversation history.",
     )
-    max_history_messages: int = Field(
-        default=3, gt=0, description="Number of prior messages to consider."
+    max_history_messages: int | str = Field(
+        default=3, description="Number of prior messages to consider."
     )
 
     pronouns: set[str] = Field(
@@ -85,7 +85,7 @@ class QueryRewriteNode(TaskNode):
             msg = "history must be a list of messages"
             raise ValueError(msg)
 
-        messages = _normalize_messages(history)[-self.max_history_messages :]
+        messages = _normalize_messages(history)[-int(self.max_history_messages) :]
         context = " ".join(messages)
         needs_rewrite = self._contains_pronoun(query) and bool(context)
 
@@ -242,14 +242,12 @@ class ContextCompressorNode(TaskNode):
         default="retrieval_results",
         description="Key in ``state.results`` that holds retrieval payloads.",
     )
-    max_tokens: int = Field(
+    max_tokens: int | str = Field(
         default=400,
-        gt=0,
         description="Maximum whitespace token budget for fallback summaries.",
     )
-    max_passages: int = Field(
+    max_passages: int | str = Field(
         default=8,
-        gt=0,
         description="Maximum number of passages to feed into the summarizer.",
     )
     deduplicate: bool = Field(
@@ -262,7 +260,7 @@ class ContextCompressorNode(TaskNode):
             "summarize the retrieved context."
         ),
     )
-    model_kwargs: dict[str, Any] = Field(
+    model_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Additional keyword arguments supplied to ``init_chat_model``.",
     )
@@ -283,7 +281,7 @@ class ContextCompressorNode(TaskNode):
             return {"results": [], "summary": "", "original_results": []}
 
         query = self._resolve_query(state)
-        trimmed = entries[: self.max_passages]
+        trimmed = entries[: int(self.max_passages)]
         summary_text = await self._summarize(query, trimmed)
 
         summary_result = SearchResult(
@@ -369,7 +367,8 @@ class ContextCompressorNode(TaskNode):
         if not self.ai_model:
             msg = "AI model identifier is required for model-based summarization"
             raise ValueError(msg)
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
+        model = init_chat_model(self.ai_model, **kwargs)
 
         prompt = (
             "User Query: {query}\n\nRetrieved Context:\n{context}\n\n"
@@ -396,9 +395,9 @@ class ContextCompressorNode(TaskNode):
 
     def _fallback_summary(self, context_block: str) -> str:
         tokens = context_block.split()
-        if len(tokens) <= self.max_tokens:
+        if len(tokens) <= int(self.max_tokens):
             return context_block
-        truncated = tokens[: self.max_tokens]
+        truncated = tokens[: int(self.max_tokens)]
         return " ".join(truncated) + " …"
 
     @staticmethod
@@ -423,7 +422,7 @@ class MultiHopPlannerNode(TaskNode):
     query_key: str = Field(
         default="message", description="Key within inputs containing the user message"
     )
-    max_hops: int = Field(default=3, gt=0)
+    max_hops: int | str = Field(default=3)
     delimiter: str = Field(default=" and ", description="Delimiter used for splitting")
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -445,8 +444,9 @@ class MultiHopPlannerNode(TaskNode):
         if not raw_parts:
             raw_parts = [query.strip()]
 
+        max_hops_int = int(self.max_hops)
         hops: list[dict[str, Any]] = []
-        for index, part in enumerate(raw_parts[: self.max_hops]):
+        for index, part in enumerate(raw_parts[:max_hops_int]):
             hops.append(
                 {
                     "id": f"hop-{index + 1}",

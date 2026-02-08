@@ -10,6 +10,42 @@ After installing the SDK, the CLI is available immediately:
 orcheo --help
 ```
 
+Check which version you have installed:
+
+```bash
+orcheo --version
+```
+
+## Global Options
+
+| Flag | Environment Variable | Description |
+|------|---------------------|-------------|
+| `--version` | — | Show the installed CLI version and exit. |
+| `--human` | `ORCHEO_HUMAN=1` | Use human-friendly Rich output (colored tables, panels). Without this flag, the CLI defaults to **machine-readable output** (JSON, Markdown tables) suitable for scripting and piping. |
+| `--profile <name>` | `ORCHEO_PROFILE` | Select a named profile from `cli.toml`. |
+| `--api-url <url>` | `ORCHEO_API_URL` | Override the backend API URL. |
+| `--service-token <token>` | `ORCHEO_SERVICE_TOKEN` | Override the service token. |
+| `--offline` | — | Fall back to cached data when network calls fail. |
+| `--cache-ttl <hours>` | — | Cache TTL in hours for offline data (default: 24). |
+
+## Output Modes
+
+By default the CLI produces **machine-readable output**: lists render as Markdown tables, detail views render as JSON, and errors are returned as JSON objects. This makes the CLI suitable for use in scripts, CI pipelines, and tool integrations.
+
+To get human-friendly output with Rich formatting (colored tables, syntax highlighting, status panels), pass `--human` or set the `ORCHEO_HUMAN` environment variable to a truthy value (`1`, `true`, `yes`, `on`):
+
+```bash
+# Machine-readable (default)
+orcheo workflow list
+
+# Human-friendly
+orcheo --human workflow list
+
+# Or via environment variable
+export ORCHEO_HUMAN=1
+orcheo workflow list
+```
+
 ## Shell Auto-Completion
 
 Enable fast shell auto-completion for commands and options:
@@ -51,6 +87,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo token show <token-id>` | Show detailed information for a specific service token. |
 | `orcheo token rotate <token-id> [--overlap <seconds>]` | Rotate a service token with grace period overlap. |
 | `orcheo token revoke <token-id> [--reason <reason>]` | Immediately invalidate a service token. |
+| `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 
@@ -98,10 +135,41 @@ orcheo workflow show <workflow-id> --offline
 
 ## Configuration
 
-The CLI reads configuration from:
+The CLI reads configuration from (highest precedence first):
 
-- Environment variables: `ORCHEO_API_URL`, `ORCHEO_SERVICE_TOKEN`
-- Config file: `~/.config/orcheo/cli.toml` (profiles for multiple environments)
-- Command flags: `--api-url`, `--service-token`, `--profile`
+1. Command flags: `--api-url`, `--service-token`, `--profile`
+2. Environment variables: `ORCHEO_API_URL`, `ORCHEO_SERVICE_TOKEN`
+3. Config file: `~/.config/orcheo/cli.toml` (profiles for multiple environments)
+
+### Writing Profiles with `orcheo config`
+
+The `config` command writes profile settings to `cli.toml`, pulling values from flags, an `.env` file, or the current environment:
+
+```bash
+# Write a profile from flags
+orcheo config --api-url https://api.example.com --service-token sk-...
+
+# Write a named profile
+orcheo config --profile staging --api-url https://staging.example.com
+
+# Import settings from a .env file
+orcheo config --env-file .env
+
+# Write multiple profiles at once
+orcheo config --profile dev --profile staging --env-file .env
+```
+
+The `config` command also accepts OAuth settings for browser-based authentication:
+
+| Flag | Environment Variable | Config Key |
+|------|---------------------|------------|
+| `--auth-issuer` | `ORCHEO_AUTH_ISSUER` | `auth_issuer` |
+| `--auth-client-id` | `ORCHEO_AUTH_CLIENT_ID` | `auth_client_id` |
+| `--auth-scopes` | `ORCHEO_AUTH_SCOPES` | `auth_scopes` |
+| `--auth-audience` | `ORCHEO_AUTH_AUDIENCE` | `auth_audience` |
+| `--auth-organization` | `ORCHEO_AUTH_ORGANIZATION` | `auth_organization` |
+| `--chatkit-public-base-url` | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | `chatkit_public_base_url` |
+
+Once written to a profile, these values are used by `orcheo auth login` and other commands without needing environment variables.
 
 See [Environment Variables](environment_variables.md) for the complete configuration reference.

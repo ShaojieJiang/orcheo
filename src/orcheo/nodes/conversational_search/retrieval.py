@@ -6,7 +6,7 @@ import math
 import os
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from typing import Any, Literal
+from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -53,15 +53,14 @@ class DenseSearchNode(TaskNode):
         ...,
         description="Named embedding method used to transform the query.",
     )
-    top_k: int = Field(
-        default=5, gt=0, description="Maximum number of results to return"
+    top_k: int | str = Field(
+        default=5, description="Maximum number of results to return"
     )
-    score_threshold: float = Field(
+    score_threshold: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Minimum score required for a result to be returned.",
     )
-    filter_metadata: dict[str, Any] = Field(
+    filter_metadata: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Optional metadata filters applied to the vector store query.",
     )
@@ -83,11 +82,17 @@ class DenseSearchNode(TaskNode):
             msg = "DenseSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
+        top_k = int(self.top_k)
+        score_threshold = float(self.score_threshold)
+
         embeddings = await self._embed([query])
+        filter_meta = (
+            self.filter_metadata if isinstance(self.filter_metadata, dict) else None
+        )
         results = await self.vector_store.search(
             query=embeddings[0],
-            top_k=self.top_k,
-            filter_metadata=self.filter_metadata or None,
+            top_k=top_k,
+            filter_metadata=filter_meta,
         )
 
         normalized = [
@@ -100,7 +105,7 @@ class DenseSearchNode(TaskNode):
                 sources=result.sources or [result.source or self.source_name],
             )
             for result in results
-            if result.score >= self.score_threshold
+            if result.score >= score_threshold
         ]
 
         return {"results": normalized}
@@ -141,16 +146,15 @@ class SparseSearchNode(TaskNode):
     query_key: str = Field(
         default="message", description="Key within inputs holding the user message"
     )
-    top_k: int = Field(
-        default=5, gt=0, description="Maximum number of results to return"
+    top_k: int | str = Field(
+        default=5, description="Maximum number of results to return"
     )
-    score_threshold: float = Field(
+    score_threshold: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Minimum BM25 score required for inclusion",
     )
-    k1: float = Field(default=1.5, gt=0)
-    b: float = Field(default=0.75, ge=0.0, le=1.0)
+    k1: float | str = Field(default=1.5)
+    b: float | str = Field(default=0.75)
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
@@ -162,9 +166,8 @@ class SparseSearchNode(TaskNode):
         default=None,
         description="Optional vector store containing pre-indexed chunks to query.",
     )
-    vector_store_candidate_k: int = Field(
+    vector_store_candidate_k: int | str = Field(
         default=50,
-        gt=0,
         description="Number of candidates to fetch from the vector store.",
     )
 
@@ -212,8 +215,8 @@ class SparseSearchNode(TaskNode):
                 sources=[self.source_name],
             )
             for chunk, score in sorted(scores, key=lambda item: item[1], reverse=True)
-            if score >= self.score_threshold
-        ][: self.top_k]
+            if score >= float(self.score_threshold)
+        ][: int(self.top_k)]
 
         return {"results": ranked}
 
@@ -224,7 +227,7 @@ class SparseSearchNode(TaskNode):
         embeddings = await self._embed([query])
         results = await self.vector_store.search(
             query=embeddings[0],
-            top_k=self.vector_store_candidate_k,
+            top_k=int(self.vector_store_candidate_k),
         )
         chunks: list[DocumentChunk] = []
         for match in results:
@@ -295,12 +298,14 @@ class SparseSearchNode(TaskNode):
         for token in document_tokens:
             token_freq[token] += 1
 
+        k1_float = float(self.k1)
+        b_float = float(self.b)
         for token in query_tokens:
             idf = self._idf(token, corpus)
             freq = token_freq.get(token, 0)
-            numerator = freq * (self.k1 + 1)
-            denominator = freq + self.k1 * (
-                1 - self.b + self.b * (doc_len / avg_length)
+            numerator = freq * (k1_float + 1)
+            denominator = freq + k1_float * (
+                1 - b_float + b_float * (doc_len / avg_length)
             )
             if denominator == 0:
                 continue
@@ -347,12 +352,12 @@ class WebSearchNode(TaskNode):
         default="https://api.tavily.com/search",
         description="Tavily search endpoint URL.",
     )
-    search_depth: Literal["basic", "advanced"] = Field(
+    search_depth: str = Field(
         default="basic",
         description="Search depth to request from Tavily ('basic' or 'advanced').",
     )
-    max_results: int = Field(
-        default=5, gt=0, description="Maximum number of web results to request."
+    max_results: int | str = Field(
+        default=5, description="Maximum number of web results to request."
     )
     include_answer: bool = Field(
         default=True,
@@ -472,7 +477,7 @@ class WebSearchNode(TaskNode):
             "api_key": api_key,
             "query": query,
             "search_depth": self.search_depth,
-            "max_results": self.max_results,
+            "max_results": int(self.max_results),
             "include_answer": self.include_answer,
             "include_raw_content": self.include_raw_content,
         }
@@ -549,11 +554,11 @@ class HybridFusionNode(TaskNode):
         default_factory=dict,
         description="Optional per-retriever weights for weighted_sum fusion.",
     )
-    rrf_k: int = Field(
-        default=60, gt=0, description="RRF constant to dampen rank impact"
+    rrf_k: int | str = Field(
+        default=60, description="RRF constant to dampen rank impact"
     )
-    top_k: int = Field(
-        default=10, gt=0, description="Number of fused results to return"
+    top_k: int | str = Field(
+        default=10, description="Number of fused results to return"
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -585,7 +590,7 @@ class HybridFusionNode(TaskNode):
         )
 
         ranked = sorted(fused.values(), key=lambda item: item.score, reverse=True)
-        return {"results": ranked[: self.top_k]}
+        return {"results": ranked[: int(self.top_k)]}
 
     def _reciprocal_rank_fusion(
         self, results: dict[str, list[SearchResult]]
@@ -593,7 +598,7 @@ class HybridFusionNode(TaskNode):
         fused: dict[str, SearchResult] = {}
         for source, entries in results.items():
             for rank, entry in enumerate(entries, start=1):
-                score = 1 / (self.rrf_k + rank)
+                score = 1 / (int(self.rrf_k) + rank)
                 fused.setdefault(
                     entry.id,
                     SearchResult(
@@ -653,10 +658,9 @@ class ReRankerNode(TaskNode):
         default="results", description="Field containing SearchResult entries"
     )
     rerank_function: Callable[[SearchResult], float] | None = Field(default=None)
-    top_k: int = Field(default=10, gt=0)
-    length_penalty: float = Field(
+    top_k: int | str = Field(default=10)
+    length_penalty: float | str = Field(
         default=0.0,
-        ge=0.0,
         description="Penalty applied per token to discourage long passages.",
     )
 
@@ -677,7 +681,7 @@ class ReRankerNode(TaskNode):
                 )
             )
         reranked.sort(key=lambda item: item.score, reverse=True)
-        return {"results": reranked[: self.top_k]}
+        return {"results": reranked[: int(self.top_k)]}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
         return _resolve_retrieval_results(
@@ -691,7 +695,7 @@ class ReRankerNode(TaskNode):
         base_score = entry.score
         if self.rerank_function:
             base_score = self.rerank_function(entry)
-        length_penalty = self.length_penalty * len(entry.text.split())
+        length_penalty = float(self.length_penalty) * len(entry.text.split())
         return base_score - length_penalty
 
 
@@ -709,18 +713,19 @@ class SourceRouterNode(TaskNode):
         default="retriever", description="Result entry containing retrieval items"
     )
     results_field: str = Field(default="results")
-    min_score: float = Field(
-        default=0.0, ge=0.0, description="Minimum score required to retain entries"
+    min_score: float | str = Field(
+        default=0.0, description="Minimum score required to retain entries"
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Group results into per-source buckets while filtering by score."""
         entries = self._resolve_results(state)
         routed: dict[str, list[SearchResult]] = {}
+        min_score = float(self.min_score)
         for entry in entries:
             source = entry.source or "unknown"
             bucket = routed.setdefault(source, [])
-            if entry.score < self.min_score:
+            if entry.score < min_score:
                 continue
             bucket.append(entry)
         return {"routed": routed}
@@ -788,7 +793,7 @@ class SearchResultAdapterNode(TaskNode):
         default=None,
         description="Optional source label to apply to all normalized results.",
     )
-    default_score: float = Field(
+    default_score: float | str = Field(
         default=0.0, description="Score assigned when the payload omits one."
     )
 
@@ -893,8 +898,8 @@ class SearchResultAdapterNode(TaskNode):
             try:
                 return float(value)
             except ValueError:
-                return self.default_score
-        return self.default_score
+                return float(self.default_score)
+        return float(self.default_score)
 
     def _extract(self, entry: Mapping[str, Any], path: str) -> tuple[bool, Any]:
         if not path:
@@ -936,22 +941,21 @@ class PineconeRerankNode(TaskNode):
         default_factory=lambda: ["chunk_text"],
         description="Document fields evaluated by the reranking model.",
     )
-    top_n: int = Field(
+    top_n: int | str = Field(
         default=10,
-        gt=0,
         description="Maximum reranked results returned from Pinecone.",
     )
     return_documents: bool = Field(
         default=True,
         description="Whether the reranker should return document payloads.",
     )
-    parameters: dict[str, Any] = Field(
+    parameters: dict[str, Any] | str = Field(
         default_factory=dict,
         description=(
             "Optional parameters passed to the reranking request (e.g., truncate)."
         ),
     )
-    client_kwargs: dict[str, Any] = Field(
+    client_kwargs: dict[str, Any] | str = Field(
         default_factory=dict,
         description="Keyword arguments forwarded to Pinecone client.",
     )
@@ -992,9 +996,9 @@ class PineconeRerankNode(TaskNode):
             query=query,
             documents=documents,
             rank_fields=self.rank_fields,
-            top_n=self.top_n,
+            top_n=int(self.top_n),
             return_documents=self.return_documents,
-            parameters=self.parameters or None,
+            parameters=self.parameters if isinstance(self.parameters, dict) else None,
         )
         if inspect.isawaitable(rerank_result):
             rerank_result = await rerank_result
@@ -1034,7 +1038,7 @@ class PineconeRerankNode(TaskNode):
                 )
             )
         reranked.sort(key=lambda result: result.score, reverse=True)
-        return {"results": reranked[: self.top_n]}
+        return {"results": reranked[: int(self.top_n)]}
 
     def _resolve_query(self, state: State) -> str:
         inputs = state.get("inputs", {})
@@ -1071,7 +1075,9 @@ class PineconeRerankNode(TaskNode):
                 "Install it or provide a configured client."
             )
             raise ImportError(msg) from exc
-        client_kwargs = dict(self.client_kwargs or {})
+        client_kwargs = (
+            self.client_kwargs if isinstance(self.client_kwargs, dict) else {}
+        )
         self.client = Pinecone(**client_kwargs)
         return self.client
 
