@@ -137,12 +137,14 @@ async def orcheo_workflow() -> StateGraph:
         top_k="{{config.configurable.retrieval.top_k}}",
         score_threshold="{{config.configurable.retrieval.score_threshold}}",
         embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     generator = GroundedGeneratorNode(
         name="generator",
         context_result_key=dense_search.name,
         citation_style="{{config.configurable.generation.citation_style}}",
         ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     citations = CitationsFormatterNode(
         name="citations",

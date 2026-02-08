@@ -90,6 +90,7 @@ async def orcheo_workflow() -> StateGraph:
         embedding_method="{{config.configurable.dense_embedding_method}}",
         top_k="{{config.configurable.dense_top_k}}",
         score_threshold="{{config.configurable.dense_similarity_threshold}}",
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     sparse_search = SparseSearchNode(
         name="sparse_search",
@@ -98,6 +99,7 @@ async def orcheo_workflow() -> StateGraph:
         top_k="{{config.configurable.sparse_top_k}}",
         score_threshold="{{config.configurable.sparse_score_threshold}}",
         vector_store_candidate_k="{{config.configurable.sparse_vector_store_candidate_k}}",
+        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     web_search = WebSearchNode(
         name="web_search",
