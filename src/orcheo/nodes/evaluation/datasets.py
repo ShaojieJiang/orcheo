@@ -710,11 +710,12 @@ class MultiDoc2DialDatasetNode(DatasetNode):
         if raw_data is None and self.data_path:
             raw_data = await self._load_json(self.data_path)
 
-        if not isinstance(raw_data, list):
+        normalized_data = self._normalize_dataset_payload(raw_data)
+        if normalized_data is None:
             msg = "MultiDoc2DialDatasetNode expects md2d_data list"
             raise ValueError(msg)
 
-        conversations = self._parse_conversations(raw_data)
+        conversations = self._parse_conversations(normalized_data)
         max_conversations = self._resolve_max_conversations()
         if max_conversations is not None:
             conversations = conversations[:max_conversations]
@@ -729,6 +730,142 @@ class MultiDoc2DialDatasetNode(DatasetNode):
             "total_conversations": len(conversations),
             "total_turns": total_turns,
         }
+
+    def _normalize_dataset_payload(self, raw_data: Any) -> list[dict[str, Any]] | None:
+        """Normalize official and pre-processed MultiDoc2Dial payloads."""
+        if isinstance(raw_data, list):
+            return raw_data
+        if not isinstance(raw_data, dict):
+            return None
+
+        dial_data = raw_data.get("dial_data")
+        if not isinstance(dial_data, dict):
+            return None
+
+        return self._flatten_official_dialogs(dial_data)
+
+    def _flatten_official_dialogs(
+        self, dial_data: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Convert official ``dial_data`` mapping into list-based conversations."""
+        normalized: list[dict[str, Any]] = []
+
+        for domain, docs in dial_data.items():
+            if not isinstance(docs, dict):
+                continue
+            for doc_id, dialogs in docs.items():
+                if not isinstance(dialogs, list):
+                    continue
+                for dialog in dialogs:
+                    if not isinstance(dialog, dict):
+                        continue
+                    conversation_id = str(dialog.get("dial_id", dialog.get("id", "")))
+                    turns = self._normalize_official_turns(
+                        dialog.get("turns", []),
+                        default_doc_id=str(doc_id),
+                    )
+                    normalized.append(
+                        {
+                            "dial_id": conversation_id,
+                            "domain": str(dialog.get("domain", domain)),
+                            "turns": turns,
+                        }
+                    )
+
+        return normalized
+
+    def _normalize_official_turns(
+        self,
+        turns_raw: Any,
+        *,
+        default_doc_id: str,
+    ) -> list[dict[str, Any]]:
+        """Build user-query turns from official alternating user/agent turns."""
+        if not isinstance(turns_raw, list):
+            return []
+
+        normalized_turns: list[dict[str, Any]] = []
+
+        for idx, turn in enumerate(turns_raw):
+            if not isinstance(turn, dict):
+                continue
+            if str(turn.get("role", "")).lower() != "user":
+                continue
+
+            response_turn = self._find_next_agent_turn(turns_raw, idx)
+            references = (
+                response_turn.get("references", [])
+                if isinstance(response_turn, dict)
+                else []
+            )
+            grounding_spans = self._normalize_reference_spans(
+                references,
+                default_doc_id=default_doc_id,
+            )
+
+            normalized_turns.append(
+                {
+                    "turn_id": str(turn.get("turn_id", idx)),
+                    "user_utterance": str(
+                        turn.get("utterance", turn.get("user_utterance", ""))
+                    ),
+                    "response": (
+                        str(response_turn.get("utterance", ""))
+                        if isinstance(response_turn, dict)
+                        else ""
+                    ),
+                    "grounding_spans": grounding_spans,
+                }
+            )
+
+        return normalized_turns
+
+    def _find_next_agent_turn(
+        self, turns_raw: list[Any], user_idx: int
+    ) -> dict[str, Any] | None:
+        """Return the first agent turn after ``user_idx``."""
+        for candidate in turns_raw[user_idx + 1 :]:
+            if not isinstance(candidate, dict):
+                continue
+            if str(candidate.get("role", "")).lower() == "agent":
+                return candidate
+            if str(candidate.get("role", "")).lower() == "user":
+                return None
+        return None
+
+    def _normalize_reference_spans(
+        self,
+        references: Any,
+        *,
+        default_doc_id: str,
+    ) -> list[dict[str, Any]]:
+        """Convert official references into grounding span dictionaries."""
+        if not isinstance(references, list):
+            return []
+
+        spans: list[dict[str, Any]] = []
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            sp_id = str(reference.get("sp_id", "")).strip()
+            label = str(reference.get("label", "")).strip()
+            span_text = f"{label}:{sp_id}" if label and sp_id else sp_id
+            spans.append(
+                {
+                    "doc_id": str(reference.get("doc_id", default_doc_id)),
+                    "span_text": span_text,
+                    "start": self._safe_int(reference.get("start", 0)),
+                    "end": self._safe_int(reference.get("end", 0)),
+                }
+            )
+        return spans
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """Parse ``value`` as int with a stable fallback for noisy payloads."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _parse_conversations(
         self, raw_data: list[dict[str, Any]]

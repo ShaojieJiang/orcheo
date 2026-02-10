@@ -393,6 +393,44 @@ MD2D_SAMPLE = [
     },
 ]
 
+MD2D_OFFICIAL_SAMPLE = {
+    "dial_data": {
+        "ssa": {
+            "doc-ssa-1": [
+                {
+                    "dial_id": "official-d1",
+                    "doc_id": "doc-ssa-1",
+                    "domain": "ssa",
+                    "turns": [
+                        {
+                            "turn_id": 1,
+                            "role": "user",
+                            "utterance": "How do I apply?",
+                        },
+                        {
+                            "turn_id": 2,
+                            "role": "agent",
+                            "utterance": "You can apply online.",
+                            "references": [{"sp_id": "12", "label": "solution"}],
+                        },
+                        {
+                            "turn_id": 3,
+                            "role": "user",
+                            "utterance": "What documents do I need?",
+                        },
+                        {
+                            "turn_id": 4,
+                            "role": "agent",
+                            "utterance": "Bring proof of identity.",
+                            "references": [{"sp_id": "13", "label": "precondition"}],
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+}
+
 MD2D_CORPUS_SAMPLE = {
     "doc_data": {
         "ssa": {
@@ -553,6 +591,24 @@ async def test_md2d_dataset_node_parses_conversations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_md2d_dataset_node_parses_official_dial_data_mapping() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": MD2D_OFFICIAL_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
+
+    conv = result["conversations"][0]
+    assert conv["conversation_id"] == "official-d1"
+    assert conv["domain"] == "ssa"
+    assert conv["turns"][0]["user_utterance"] == "How do I apply?"
+    assert conv["turns"][0]["gold_response"] == "You can apply online."
+    assert conv["turns"][0]["grounding_spans"][0]["span_text"] == "solution:12"
+    assert conv["turns"][1]["gold_response"] == "Bring proof of identity."
+
+
+@pytest.mark.asyncio
 async def test_md2d_dataset_node_limits_conversations() -> None:
     node = MultiDoc2DialDatasetNode(name="md2d", max_conversations=1)
     state = State(inputs={"md2d_data": MD2D_SAMPLE})
@@ -582,6 +638,21 @@ async def test_md2d_dataset_node_loads_from_file(tmp_path: Path) -> None:
 
     assert result["total_conversations"] == 2
     assert result["total_turns"] == 3
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_loads_official_payload_from_file(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "md2d_official.json"
+    data_path.write_text(json.dumps(MD2D_OFFICIAL_SAMPLE), encoding="utf-8")
+
+    node = MultiDoc2DialDatasetNode(name="md2d", data_path=str(data_path))
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
 
 
 @pytest.mark.asyncio
