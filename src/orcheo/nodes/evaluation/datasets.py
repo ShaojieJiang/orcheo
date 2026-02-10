@@ -752,7 +752,12 @@ class MultiDoc2DialDatasetNode(DatasetNode):
 
         for domain, docs in dial_data.items():
             if not isinstance(docs, dict):
-                continue
+                msg = (
+                    "MultiDoc2DialDatasetNode expects 'dial_data' domains to map "
+                    "document IDs to dialog lists; "
+                    f"got {type(docs).__name__} for domain '{domain}'"
+                )
+                raise ValueError(msg)
             for doc_id, dialogs in docs.items():
                 if not isinstance(dialogs, list):
                     continue

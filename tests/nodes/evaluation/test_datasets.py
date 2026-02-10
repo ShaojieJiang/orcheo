@@ -561,6 +561,18 @@ async def test_md2d_corpus_loader_node_loads_from_url(
     )
 
 
+MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT = {
+    "dial_data": {
+        "ssa": [
+            {
+                "dial_id": "official-d1",
+                "turns": [],
+            }
+        ]
+    }
+}
+
+
 @pytest.mark.asyncio
 async def test_md2d_corpus_loader_node_rejects_invalid_payload() -> None:
     node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
@@ -606,6 +618,15 @@ async def test_md2d_dataset_node_parses_official_dial_data_mapping() -> None:
     assert conv["turns"][0]["gold_response"] == "You can apply online."
     assert conv["turns"][0]["grounding_spans"][0]["span_text"] == "solution:12"
     assert conv["turns"][1]["gold_response"] == "Bring proof of identity."
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_rejects_invalid_official_domain_layout() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    with pytest.raises(ValueError, match="expects 'dial_data' domains to map"):
+        await node.run(
+            State(inputs={"md2d_data": MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT}), {}
+        )
 
 
 @pytest.mark.asyncio
