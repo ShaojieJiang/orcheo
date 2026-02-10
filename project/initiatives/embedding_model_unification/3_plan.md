@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Shaojie Jiang
 - **Date:** 2026-02-10
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
