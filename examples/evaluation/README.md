@@ -25,44 +25,26 @@ examples/evaluation/
 ├── run_all.py                      # Unified runner for both evaluations
 ├── config_qrecc.json               # QReCC evaluation config
 ├── config_md2d.json                # MultiDoc2Dial evaluation config
-├── config_md2d_indexing.json       # MultiDoc2Dial corpus indexing config
-└── data/                           # Data directory (download separately)
-    ├── qrecc_test.json
-    ├── md2d_validation.json
-    └── md2d_docs/
+└── config_md2d_indexing.json       # MultiDoc2Dial corpus indexing config
 ```
 
-## Data Download
+## Data Sources
 
 ### QReCC
 
-Download the QReCC dataset from [Hugging Face](https://huggingface.co/datasets/apple/QReCC):
+`config_qrecc.json` uses a hosted URL:
 
 ```bash
-mkdir -p examples/evaluation/data
-# Download QReCC test split
-python -c "
-from datasets import load_dataset
-import json
-ds = load_dataset('apple/QReCC', split='test')
-with open('examples/evaluation/data/qrecc_test.json', 'w') as f:
-    json.dump([dict(row) for row in ds], f)
-"
+https://huggingface.co/datasets/slupart/qrecc/resolve/main/qrecc_test.json?download=true
 ```
 
 ### MultiDoc2Dial
 
-Download the MultiDoc2Dial dataset from [Hugging Face](https://huggingface.co/datasets/doc2dial/MultiDoc2Dial):
+`config_md2d.json` and `config_md2d_indexing.json` use hosted URLs:
 
 ```bash
-# Download MultiDoc2Dial validation split
-python -c "
-from datasets import load_dataset
-import json
-ds = load_dataset('doc2dial/MultiDoc2Dial', split='validation')
-with open('examples/evaluation/data/md2d_validation.json', 'w') as f:
-    json.dump([dict(row) for row in ds], f)
-"
+https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_dial_validation.json
+https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_doc.json
 ```
 
 ## Setup
@@ -121,12 +103,14 @@ python examples/evaluation/run_all.py
 
 ### Quick Iteration
 
-Limit conversations for faster feedback during development:
+Limit evaluation conversations or indexing documents for faster feedback during
+development:
 
 ```bash
-# Edit config to set max_conversations
-# e.g., in config_qrecc.json:
+# Edit config to set max_conversations / max_documents
+# e.g., in config_qrecc.json or config_md2d_indexing.json:
 # "max_conversations": 10
+# "max_documents": 50
 ```
 
 ## Interpreting Results
@@ -166,8 +150,8 @@ Each dataset has a single config file that controls data paths, model selections
 | Config | Key Parameters |
 |--------|----------------|
 | `config_qrecc.json` | `data_path`, `max_conversations`, similarity `embed_model` and `dimensions` |
-| `config_md2d.json` | `data_path`, `max_conversations`, retrieval `embed_model` and `top_k`, generation `model` |
-| `config_md2d_indexing.json` | `docs_path`, `chunk_size`, `chunk_overlap`, retrieval `embed_model` |
+| `config_md2d.json` | `data_path`, `max_conversations`, retrieval `embed_model`/`dimensions`/`top_k`, generation `model` |
+| `config_md2d_indexing.json` | `docs_path`, `max_documents`, `chunk_size`, `chunk_overlap`, retrieval `embed_model`/`dimensions` |
 
 Users can create custom configs with different model or retrieval parameters to compare pipeline configurations against the established baselines.
 

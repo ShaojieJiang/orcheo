@@ -3,11 +3,12 @@
   "tags": ["evaluation", "multidoc2dial"],
   "configurable": {
     "md2d": {
-      "data_path": "examples/evaluation/data/md2d_validation.json",
+      "data_path": "https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_dial_validation.json",
       "max_conversations": 2
     },
     "retrieval": {
       "embed_model": "openai:text-embedding-3-small",
+      "dimensions": 512,
       "top_k": 4
     },
     "vector_store": {

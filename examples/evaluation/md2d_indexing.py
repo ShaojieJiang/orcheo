@@ -15,19 +15,20 @@ from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
-    DocumentLoaderNode,
     VectorStoreUpsertNode,
 )
 from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
+from orcheo.nodes.evaluation.datasets import MultiDoc2DialCorpusLoaderNode
 
 
 def build_nodes() -> dict[str, Any]:
     """Create all nodes for the corpus indexing pipeline."""
     nodes: dict[str, Any] = {}
 
-    nodes["loader"] = DocumentLoaderNode(
+    nodes["loader"] = MultiDoc2DialCorpusLoaderNode(
         name="loader",
-        documents=[{"storage_path": "{{config.configurable.corpus.docs_path}}"}],
+        corpus_path="{{config.configurable.corpus.docs_path}}",
+        max_documents="{{config.configurable.corpus.max_documents}}",
     )
 
     nodes["chunker"] = ChunkingStrategyNode(
@@ -43,7 +44,10 @@ def build_nodes() -> dict[str, Any]:
         dense_embedding_specs={
             "default": {
                 "embed_model": "{{config.configurable.retrieval.embed_model}}",
-                "model_kwargs": {"api_key": "[[openai_api_key]]"},
+                "model_kwargs": {
+                    "api_key": "[[openai_api_key]]",
+                    "dimensions": "{{config.configurable.retrieval.dimensions}}",
+                },
             }
         },
     )

@@ -7,6 +7,7 @@ import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.evaluation.datasets import (
     DatasetNode,
+    MultiDoc2DialCorpusLoaderNode,
     MultiDoc2DialDatasetNode,
     QReCCDatasetNode,
 )
@@ -391,6 +392,142 @@ MD2D_SAMPLE = [
         ],
     },
 ]
+
+MD2D_CORPUS_SAMPLE = {
+    "doc_data": {
+        "ssa": {
+            "doc-1": {
+                "doc_id": "doc-1",
+                "domain": "ssa",
+                "title": "Doc One",
+                "doc_text": "Content for doc one.",
+                "spans": {"1": {"text_sp": "Content"}},
+            }
+        },
+        "va": {
+            "doc-2": {
+                "doc_id": "doc-2",
+                "domain": "va",
+                "title": "Doc Two",
+                "doc_text": "Content for doc two.",
+                "spans": {},
+            }
+        },
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_state_inputs() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 2
+    documents = result["documents"]
+    assert len(documents) == 2
+    assert documents[0]["id"] == "doc-1"
+    assert documents[0]["metadata"]["domain"] == "ssa"
+    assert documents[0]["metadata"]["span_count"] == 1
+    assert state["inputs"]["documents"] == documents
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_limits_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader", max_documents=1)
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+    assert result["documents"][0]["id"] == "doc-1"
+
+
+def test_md2d_corpus_loader_node_allows_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    assert node.max_documents == "{{config.configurable.corpus.max_documents}}"
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_resolves_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"corpus": {"max_documents": 1}}},
+    )
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        corpus_path="https://example.com/doc2dial_doc.json",
+        http_timeout=7.0,
+    )
+    checked: dict[str, bool] = {"status": False}
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            checked["status"] = True
+
+        def json(self) -> dict[str, Any]:
+            return MD2D_CORPUS_SAMPLE
+
+    class DummyClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 7.0
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
+            return None
+
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
+            assert url == "https://example.com/doc2dial_doc.json"
+            assert follow_redirects is True
+            return DummyResponse()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.evaluation.datasets.httpx.AsyncClient",
+        DummyClient,
+    )
+
+    result = await node.run(State(inputs={}), {})
+
+    assert checked["status"] is True
+    assert result["count"] == 2
+    assert result["documents"][0]["source"].startswith(
+        "https://example.com/doc2dial_doc.json#doc_id="
+    )
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_rejects_invalid_payload() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    with pytest.raises(ValueError, match="must include a 'doc_data' mapping"):
+        await node.run(State(inputs={"md2d_corpus": {"bad": {}}}), {})
 
 
 @pytest.mark.asyncio

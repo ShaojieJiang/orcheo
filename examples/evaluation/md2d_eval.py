@@ -53,7 +53,10 @@ def build_generation_pipeline_graph() -> StateGraph:
             name="search",
             vector_store=vector_store,
             embed_model="{{config.configurable.retrieval.embed_model}}",
-            model_kwargs={"api_key": "[[openai_api_key]]"},
+            model_kwargs={
+                "api_key": "[[openai_api_key]]",
+                "dimensions": "{{config.configurable.retrieval.dimensions}}",
+            },
             top_k="{{config.configurable.retrieval.top_k}}",
         ),
     )

@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.conversational_search.models import Document
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -295,6 +296,190 @@ class DatasetNode(TaskNode):
                 {"id": path.name, "content": content.strip(), "source": path.name}
             )
         return corpus
+
+
+@registry.register(
+    NodeMetadata(
+        name="MultiDoc2DialCorpusLoaderNode",
+        description=(
+            "Load MultiDoc2Dial corpus documents from a local path or URL and "
+            "normalize them for indexing."
+        ),
+        category="evaluation",
+    )
+)
+class MultiDoc2DialCorpusLoaderNode(TaskNode):
+    """Load MultiDoc2Dial document corpus into conversational-search documents."""
+
+    input_key: str = Field(
+        default="md2d_corpus",
+        description="Key within ``state.inputs`` containing the corpus JSON payload.",
+    )
+    output_key: str = Field(
+        default="documents",
+        description=(
+            "Key within ``state.inputs`` where normalized documents are stored."
+        ),
+    )
+    corpus_path: str | None = Field(
+        default=None,
+        description="Path or URL to ``doc2dial_doc.json``.",
+    )
+    max_documents: int | str | None = Field(
+        default=None,
+        description="Limit the number of corpus documents to load for indexing.",
+    )
+    http_timeout: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Timeout in seconds for URL-based corpus loading.",
+    )
+
+    @field_validator("max_documents", mode="before")
+    @classmethod
+    def _validate_max_documents(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_documents must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_documents(self) -> int | None:
+        value = self.max_documents
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_documents must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_documents must be >= 1"
+            raise ValueError(msg)
+        return value
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Load corpus JSON and emit normalized document payloads."""
+        del config
+        inputs = state.get("inputs") or {}
+        state["inputs"] = inputs
+
+        raw_corpus = inputs.get(self.input_key)
+        if raw_corpus is None:
+            if self.corpus_path is None:
+                msg = (
+                    "MultiDoc2DialCorpusLoaderNode requires state.inputs "
+                    f"'{self.input_key}' or 'corpus_path'."
+                )
+                raise ValueError(msg)
+            raw_corpus = await self._load_json(self.corpus_path)
+
+        documents = self._parse_corpus(raw_corpus, self.corpus_path)
+        max_documents = self._resolve_max_documents()
+        if max_documents is not None:
+            documents = documents[:max_documents]
+        serialized_documents = [document.model_dump() for document in documents]
+        inputs[self.output_key] = serialized_documents
+        return {
+            "documents": serialized_documents,
+            "count": len(serialized_documents),
+        }
+
+    async def _load_json(self, path: str) -> Any:
+        if self._is_url(path):
+            async with httpx.AsyncClient(timeout=self.http_timeout) as client:
+                response = await client.get(path, follow_redirects=True)
+                response.raise_for_status()
+                return response.json()
+        with Path(path).open("r", encoding="utf-8") as file:
+            return json.load(file)
+
+    def _parse_corpus(
+        self,
+        payload: Any,
+        source_hint: str | None,
+    ) -> list[Document]:
+        if not isinstance(payload, dict):
+            msg = "MultiDoc2Dial corpus payload must be a mapping"
+            raise ValueError(msg)
+        doc_data = payload.get("doc_data")
+        if not isinstance(doc_data, dict):
+            msg = "MultiDoc2Dial corpus payload must include a 'doc_data' mapping"
+            raise ValueError(msg)
+
+        documents = [
+            document
+            for domain, fallback_doc_id, raw_doc in self._iter_raw_documents(doc_data)
+            if (
+                document := self._build_document(
+                    domain=domain,
+                    fallback_doc_id=fallback_doc_id,
+                    raw_doc=raw_doc,
+                    source_hint=source_hint,
+                )
+            )
+            is not None
+        ]
+
+        if not documents:
+            msg = "MultiDoc2Dial corpus did not contain any indexable documents"
+            raise ValueError(msg)
+        return documents
+
+    def _build_source(self, source_hint: str | None, document_id: str) -> str:
+        source = source_hint or "multidoc2dial"
+        return f"{source}#doc_id={document_id}"
+
+    def _is_url(self, path: str) -> bool:
+        return path.startswith(("http://", "https://"))
+
+    def _iter_raw_documents(
+        self, doc_data: dict[str, Any]
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        entries: list[tuple[str, str, dict[str, Any]]] = []
+        for domain, docs in doc_data.items():
+            if not isinstance(docs, dict):
+                continue
+            for fallback_doc_id, raw_doc in docs.items():
+                if not isinstance(raw_doc, dict):
+                    continue
+                entries.append((str(domain), str(fallback_doc_id), raw_doc))
+        return entries
+
+    def _build_document(
+        self,
+        domain: str,
+        fallback_doc_id: str,
+        raw_doc: dict[str, Any],
+        source_hint: str | None,
+    ) -> Document | None:
+        document_id = str(raw_doc.get("doc_id") or fallback_doc_id).strip()
+        if not document_id:
+            return None
+        content = str(raw_doc.get("doc_text", "")).strip()
+        if not content:
+            return None
+
+        title = str(raw_doc.get("title", "")).strip()
+        metadata: dict[str, Any] = {"domain": str(raw_doc.get("domain") or domain)}
+        if title:
+            metadata["title"] = title
+        if isinstance(raw_doc.get("spans"), dict):
+            metadata["span_count"] = len(raw_doc["spans"])
+
+        return Document(
+            id=document_id,
+            content=content,
+            metadata=metadata,
+            source=self._build_source(source_hint, document_id),
+        )
 
 
 # --- Data Models ---
