@@ -9,7 +9,6 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.conversational_search.ingestion import _temporary_env_vars
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -312,26 +311,25 @@ class BleuMetricsNode(TaskNode):
 class SemanticSimilarityMetricsNode(TaskNode):
     """Embedding-based similarity scoring. Task-agnostic."""
 
-    model: str = Field(
-        default="text-embedding-3-small",
+    embed_model: str = Field(
+        default="openai:text-embedding-3-small",
         description=(
-            "Embedding model (e.g. text-embedding-3-small, embed-english-v3.0)"
+            "Dense embedding model identifier, e.g. openai:text-embedding-3-small"
         ),
     )
-    dimensions: int = Field(default=512, description="Embedding dimension size")
-    provider: str = Field(
-        default="openai",
-        description="Embedding provider (openai, cohere, etc.)",
-    )
-    credential_env_vars: dict[str, str | None] = Field(
+    model_kwargs: dict[str, Any] = Field(
         default_factory=dict,
-        description="Environment variables applied during embedding execution.",
+        description="Additional keyword arguments forwarded to init_embeddings.",
     )
     predictions_key: str = Field(default="predictions")
     references_key: str = Field(default="references")
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return per-item scores and corpus-level aggregate."""
+        from orcheo.nodes.conversational_search.embeddings import (
+            init_dense_embeddings,
+        )
+
         inputs = state.get("inputs", {})
         predictions = inputs.get(self.predictions_key)
         references = inputs.get(self.references_key)
@@ -351,9 +349,8 @@ class SemanticSimilarityMetricsNode(TaskNode):
         str_references = [str(r) for r in references]
 
         all_texts = str_predictions + str_references
-        with _temporary_env_vars(self.credential_env_vars):
-            embeddings = self._create_embeddings()
-            all_embeddings = await embeddings.aembed_documents(all_texts)
+        model = init_dense_embeddings(self.embed_model, self.model_kwargs)
+        all_embeddings = await model.aembed_documents(all_texts)
 
         n = len(str_predictions)
         pred_embeddings = all_embeddings[:n]
@@ -371,21 +368,6 @@ class SemanticSimilarityMetricsNode(TaskNode):
             "corpus_score": corpus_score,
             "per_item": per_item,
         }
-
-    def _create_embeddings(self) -> Any:
-        """Create an embedding model instance via LangChain's interface."""
-        if self.provider == "openai":
-            from langchain_openai import OpenAIEmbeddings
-
-            return OpenAIEmbeddings(model=self.model, dimensions=self.dimensions)
-
-        if self.provider == "cohere":
-            from langchain_cohere import CohereEmbeddings
-
-            return CohereEmbeddings(model=self.model)
-
-        msg = f"Unsupported embedding provider: {self.provider}"
-        raise ValueError(msg)
 
     def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
         dot_product = sum(x * y for x, y in zip(a, b, strict=True))

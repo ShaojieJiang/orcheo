@@ -12,8 +12,8 @@
     },
     "retrieval": {
       "top_k": 4,
-      "embedding_method": "embedding:openai:text-embedding-3-small",
-      "sparse_embedding_method": "embedding:pinecone:bm25-default",
+      "embed_model": "openai:text-embedding-3-small",
+      "sparse_model": "pinecone:bm25",
       "sparse_top_k": 4,
       "sparse_candidate_k": 50,
       "sparse_score_threshold": 0.0,

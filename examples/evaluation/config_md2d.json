@@ -7,8 +7,15 @@
       "max_conversations": 2
     },
     "retrieval": {
-      "embedding_method": "embedding:openai:text-embedding-3-small",
+      "embed_model": "openai:text-embedding-3-small",
       "top_k": 4
+    },
+    "vector_store": {
+      "type": "pinecone",
+      "pinecone": {
+        "index_name": "orcheo-md2d",
+        "namespace": "md2d_eval"
+      }
     },
     "generation": {
       "model": "openai:gpt-4o-mini"

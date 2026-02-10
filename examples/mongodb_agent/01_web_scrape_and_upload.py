@@ -7,13 +7,12 @@ Configurable inputs (config.json):
 - database: MongoDB database name
 - collection: MongoDB collection name
 - vector_path: Document field used for the embedding vector
-- embedding_method: Registered embedding method identifier
+- embed_model: Dense embedding model identifier
 """
 
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
     WebDocumentLoaderNode,
@@ -38,7 +37,15 @@ async def orcheo_workflow() -> StateGraph:
     chunk_embedding = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key="chunking",
-        embedding_methods={"dense": OPENAI_TEXT_EMBEDDING_3_SMALL},
+        dense_embedding_specs={
+            "dense": {
+                "embed_model": "{{config.configurable.embed_model}}",
+                "model_kwargs": {
+                    "api_key": "[[openai_api_key]]",
+                    "dimensions": "{{config.configurable.dimensions}}",
+                },
+            }
+        },
     )
 
     mongodb_upload = MongoDBInsertManyNode(

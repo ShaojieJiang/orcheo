@@ -10,7 +10,7 @@
       "model": "openai:gpt-4o-mini"
     },
     "similarity": {
-      "model": "text-embedding-3-small",
+      "embed_model": "openai:text-embedding-3-small",
       "dimensions": 512
     }
   }

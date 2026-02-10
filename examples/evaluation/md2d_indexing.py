@@ -18,6 +18,7 @@ from orcheo.nodes.conversational_search.ingestion import (
     DocumentLoaderNode,
     VectorStoreUpsertNode,
 )
+from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 
 
 def build_nodes() -> dict[str, Any]:
@@ -26,23 +27,35 @@ def build_nodes() -> dict[str, Any]:
 
     nodes["loader"] = DocumentLoaderNode(
         name="loader",
-        source_path="{{config.configurable.corpus.docs_path}}",
+        documents=[{"storage_path": "{{config.configurable.corpus.docs_path}}"}],
     )
 
     nodes["chunker"] = ChunkingStrategyNode(
         name="chunker",
+        source_result_key="loader",
         chunk_size="{{config.configurable.corpus.chunk_size}}",
         chunk_overlap="{{config.configurable.corpus.chunk_overlap}}",
     )
 
     nodes["embedder"] = ChunkEmbeddingNode(
         name="embedder",
-        embedding_method="{{config.configurable.retrieval.embedding_method}}",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        source_result_key="chunker",
+        dense_embedding_specs={
+            "default": {
+                "embed_model": "{{config.configurable.retrieval.embed_model}}",
+                "model_kwargs": {"api_key": "[[openai_api_key]]"},
+            }
+        },
     )
 
     nodes["upsert"] = VectorStoreUpsertNode(
         name="upsert",
+        source_result_key="embedder",
+        vector_store=PineconeVectorStore(
+            index_name="{{config.configurable.vector_store.pinecone.index_name}}",
+            namespace="{{config.configurable.vector_store.pinecone.namespace}}",
+            client_kwargs={"api_key": "[[pinecone_api_key]]"},
+        ),
     )
 
     return nodes

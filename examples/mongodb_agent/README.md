@@ -20,7 +20,7 @@ Edit `config.json`:
 - `database`, `collection`: target MongoDB location.
 - `vector_path`: field name to store vectors (must match index path).
 - `text_paths`: fields searched by Atlas Search.
-- `embedding_method`: embedding registry key.
+- `embed_model`: dense embedding model identifier.
 - `dimensions`: must match the embedding output dimension.
 - `urls`: list of pages to scrape for ingestion.
 - `ai_model`, `system_prompt`: agent behavior.
