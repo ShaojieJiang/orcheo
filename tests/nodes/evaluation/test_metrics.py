@@ -317,6 +317,14 @@ def test_token_f1_compute_edge_cases() -> None:
     assert node._compute_f1("abc", "xyz") == 0.0
 
 
+def test_token_f1_uses_token_frequencies() -> None:
+    node = TokenF1MetricsNode(name="f1")
+
+    score = node._compute_f1("a a a", "a")
+
+    assert score == pytest.approx(0.5)
+
+
 def test_semantic_similarity_unsupported_provider() -> None:
     node = SemanticSimilarityMetricsNode(name="similarity", provider="bad")
     with pytest.raises(ValueError, match="Unsupported embedding provider"):

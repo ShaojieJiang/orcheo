@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections import Counter
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -449,13 +450,14 @@ class TokenF1MetricsNode(TaskNode):
         if not pred_tokens or not ref_tokens:
             return 0.0
 
-        pred_set = set(pred_tokens)
-        ref_set = set(ref_tokens)
-        common = pred_set & ref_set
+        pred_counter = Counter(pred_tokens)
+        ref_counter = Counter(ref_tokens)
+        overlap = pred_counter & ref_counter
+        overlap_count = sum(overlap.values())
 
-        if not common:
+        if overlap_count == 0:
             return 0.0
 
-        precision = len(common) / len(pred_set)
-        recall = len(common) / len(ref_set)
+        precision = overlap_count / len(pred_tokens)
+        recall = overlap_count / len(ref_tokens)
         return 2 * precision * recall / (precision + recall)
