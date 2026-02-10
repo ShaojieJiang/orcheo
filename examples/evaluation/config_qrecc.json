@@ -3,14 +3,14 @@
   "tags": ["evaluation", "qrecc"],
   "configurable": {
     "qrecc": {
-      "data_path": "examples/evaluation/data/qrecc_test.json",
+      "data_path": "https://huggingface.co/datasets/slupart/qrecc/resolve/main/qrecc_test.json?download=true",
       "max_conversations": 2
     },
     "rewrite": {
       "model": "openai:gpt-4o-mini"
     },
     "similarity": {
-      "model": "text-embedding-3-small",
+      "embed_model": "openai:text-embedding-3-small",
       "dimensions": 512
     }
   }

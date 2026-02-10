@@ -3,12 +3,14 @@
   "tags": ["evaluation", "multidoc2dial", "indexing"],
   "configurable": {
     "corpus": {
-      "docs_path": "examples/evaluation/data/md2d_docs/",
+      "docs_path": "https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_doc.json",
+      "max_documents": 2,
       "chunk_size": 512,
       "chunk_overlap": 64
     },
     "retrieval": {
-      "embedding_method": "embedding:openai:text-embedding-3-small"
+      "embed_model": "openai:text-embedding-3-small",
+      "dimensions": 512
     },
     "vector_store": {
       "type": "pinecone",

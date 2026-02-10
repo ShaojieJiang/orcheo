@@ -3,11 +3,11 @@
 Configurable inputs (config.json):
 - dense_top_k: Number of dense search results to retrieve
 - dense_similarity_threshold: Minimum similarity score for dense results
-- dense_embedding_method: Registered dense embedding method identifier
+- dense_embed_model: Dense embedding model identifier
 - sparse_top_k: Number of sparse search results to retrieve
 - sparse_score_threshold: Minimum score for sparse results
 - sparse_vector_store_candidate_k: Candidate pool size for sparse search
-- sparse_embedding_method: Registered sparse embedding method identifier
+- sparse_model: Sparse embedding model identifier
 - web_search_provider: Web search provider (default: tavily)
 - web_search_max_results: Maximum web search results
 - web_search_search_depth: Web search depth (basic or advanced)
@@ -87,19 +87,19 @@ async def orcheo_workflow() -> StateGraph:
     dense_search = DenseSearchNode(
         name="dense_search",
         vector_store=dense_store,
-        embedding_method="{{config.configurable.dense_embedding_method}}",
+        embed_model="{{config.configurable.dense_embed_model}}",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
         top_k="{{config.configurable.dense_top_k}}",
         score_threshold="{{config.configurable.dense_similarity_threshold}}",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     sparse_search = SparseSearchNode(
         name="sparse_search",
         vector_store=sparse_store,
-        embedding_method="{{config.configurable.sparse_embedding_method}}",
+        sparse_model="{{config.configurable.sparse_model}}",
+        sparse_kwargs={},
         top_k="{{config.configurable.sparse_top_k}}",
         score_threshold="{{config.configurable.sparse_score_threshold}}",
         vector_store_candidate_k="{{config.configurable.sparse_vector_store_candidate_k}}",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     web_search = WebSearchNode(
         name="web_search",

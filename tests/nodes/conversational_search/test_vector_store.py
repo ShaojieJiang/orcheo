@@ -373,6 +373,21 @@ async def test_in_memory_vector_store_requires_dense_embeddings_for_queries() ->
 
 
 @pytest.mark.asyncio
+async def test_in_memory_vector_store_rejects_sparse_only_query_payloads() -> None:
+    store = InMemoryVectorStore()
+    with pytest.raises(
+        ValueError,
+        match="InMemoryVectorStore only supports dense query vectors for search",
+    ):
+        await store.search(
+            query=EmbeddingVector(
+                values=[],
+                sparse_values=SparseValues(indices=[1], values=[0.5]),
+            )
+        )
+
+
+@pytest.mark.asyncio
 async def test_pinecone_vector_store_search_normalizes_matches() -> None:
     index = _DummyIndex()
     client = _DummyClient(index=index)
@@ -497,3 +512,24 @@ async def test_pinecone_vector_store_search_skips_matches_without_id() -> None:
             metadata={"text": "has id"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_rejects_records_with_no_dense_or_sparse() -> None:
+    index = _DummyIndex()
+    client = _DummyClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-test", client=client)
+
+    with pytest.raises(
+        ValueError, match="Vector records must include dense values or sparse_values"
+    ):
+        await store.upsert(
+            [
+                VectorRecord(
+                    id="invalid",
+                    values=[],
+                    text="empty",
+                    metadata={},
+                )
+            ]
+        )

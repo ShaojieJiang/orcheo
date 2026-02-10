@@ -67,9 +67,11 @@ def build_nodes() -> dict[str, Any]:
 
     nodes["similarity"] = SemanticSimilarityMetricsNode(
         name="similarity",
-        model="{{config.configurable.similarity.model}}",
-        dimensions="{{config.configurable.similarity.dimensions}}",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        embed_model="{{config.configurable.similarity.embed_model}}",
+        model_kwargs={
+            "api_key": "[[openai_api_key]]",
+            "dimensions": "{{config.configurable.similarity.dimensions}}",
+        },
     )
 
     nodes["analytics_export"] = AnalyticsExportNode(

@@ -506,20 +506,20 @@ def build_retrieval_nodes(
     dense_search = DenseSearchNode(
         name="dense_search",
         vector_store=vector_store,
-        embedding_method="{{config.configurable.retrieval.embedding_method}}",
+        embed_model="{{config.configurable.retrieval.embed_model}}",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
         top_k="{{config.configurable.retrieval.top_k}}",
         query_key="query",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     sparse_search = SparseSearchNode(
         name="sparse_search",
         vector_store=sparse_vector_store,
-        embedding_method="{{config.configurable.retrieval.sparse_embedding_method}}",
+        sparse_model="{{config.configurable.retrieval.sparse_model}}",
+        sparse_kwargs={},
         top_k="{{config.configurable.retrieval.sparse_top_k}}",
         vector_store_candidate_k="{{config.configurable.retrieval.sparse_candidate_k}}",
         score_threshold="{{config.configurable.retrieval.sparse_score_threshold}}",
         query_key="query",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     hybrid_fusion = HybridFusionNode(
         name="hybrid_fusion",

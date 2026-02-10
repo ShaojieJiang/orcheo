@@ -20,6 +20,7 @@ from orcheo.nodes.conversational_search.query_processing import (
     QueryRewriteNode,
 )
 from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
+from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 from orcheo.nodes.evaluation.analytics import AnalyticsExportNode
 from orcheo.nodes.evaluation.batch import ConversationalBatchEvalNode
 from orcheo.nodes.evaluation.datasets import MultiDoc2DialDatasetNode
@@ -32,6 +33,11 @@ from orcheo.nodes.evaluation.metrics import (
 
 def build_generation_pipeline_graph() -> StateGraph:
     """Build the per-turn retrieval-generation sub-graph for batch evaluation."""
+    vector_store = PineconeVectorStore(
+        index_name="{{config.configurable.vector_store.pinecone.index_name}}",
+        namespace="{{config.configurable.vector_store.pinecone.namespace}}",
+        client_kwargs={"api_key": "[[pinecone_api_key]]"},
+    )
     graph = StateGraph(State)
     graph.add_node(
         "rewrite",
@@ -45,9 +51,13 @@ def build_generation_pipeline_graph() -> StateGraph:
         "search",
         DenseSearchNode(
             name="search",
-            embedding_method="{{config.configurable.retrieval.embedding_method}}",
+            vector_store=vector_store,
+            embed_model="{{config.configurable.retrieval.embed_model}}",
+            model_kwargs={
+                "api_key": "[[openai_api_key]]",
+                "dimensions": "{{config.configurable.retrieval.dimensions}}",
+            },
             top_k="{{config.configurable.retrieval.top_k}}",
-            credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
         ),
     )
     graph.add_node(

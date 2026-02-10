@@ -14,9 +14,6 @@ from orcheo.nodes.conversational_search.conversation import (
     QueryClarificationNode,
     TopicShiftDetectorNode,
 )
-from orcheo.nodes.conversational_search.embedding_registry import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
-)
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     GroundedGeneratorNode,
@@ -138,8 +135,8 @@ async def orcheo_workflow() -> StateGraph:
         vector_store=vector_store,
         top_k="{{config.configurable.retrieval.top_k}}",
         score_threshold="{{config.configurable.retrieval.score_threshold}}",
-        embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        embed_model="openai:text-embedding-3-small",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     generator = GroundedGeneratorNode(
         name="generator",

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
-import inspect
 import os
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -709,7 +708,7 @@ class MetadataExtractorNode(TaskNode):
     )
 )
 class ChunkEmbeddingNode(TaskNode):
-    """Embed document chunks through one or more embedding functions."""
+    """Embed document chunks through dense and sparse embedding specs."""
 
     source_result_key: str = Field(
         default="chunking_strategy",
@@ -718,9 +717,13 @@ class ChunkEmbeddingNode(TaskNode):
     chunks_field: str = Field(
         default="chunks", description="Field containing chunk payloads"
     )
-    embedding_methods: dict[str, str] = Field(
-        ...,
-        description="Named embedding method identifiers used to transform chunk text.",
+    dense_embedding_specs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Logical-name keyed dense embedding specs.",
+    )
+    sparse_embedding_specs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Logical-name keyed sparse embedding specs.",
     )
     required_metadata_keys: list[str] = Field(
         default_factory=lambda: ["document_id", "chunk_index"],
@@ -728,70 +731,136 @@ class ChunkEmbeddingNode(TaskNode):
             "Metadata keys that must be present before embeddings are computed."
         ),
     )
-    credential_env_vars: dict[str, str | None] = Field(
-        default_factory=dict,
-        description="Environment variables applied during embedding execution.",
-    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @field_validator("embedding_methods")
-    @classmethod
-    def _validate_embedding_methods(cls, value: dict[str, str]) -> dict[str, str]:
-        if not value:
-            raise ValueError("At least one embedding method must be configured")
-        for method_name in value.values():
-            if method_name not in _EMBEDDING_METHODS:
-                raise ValueError(f"Unknown embedding method '{method_name}'")
-        return value
-
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Convert chunks into vector records keyed by embedding name."""
+        del config
+        from orcheo.nodes.conversational_search.embeddings import (
+            DenseEmbeddingSpec,
+            SparseEmbeddingSpec,
+            init_dense_embeddings,
+            init_sparse_embeddings,
+            sparse_embed_documents,
+        )
+
         chunks = self._resolve_chunks(state)
         if not chunks:
             msg = "ChunkEmbeddingNode requires at least one chunk"
             raise ValueError(msg)
 
+        if not self.dense_embedding_specs and not self.sparse_embedding_specs:
+            msg = "At least one dense or sparse embedding spec must be configured"
+            raise ValueError(msg)
+
+        self._validate_required_metadata(chunks)
+
+        records_by_function: dict[str, list[VectorRecord]] = {}
+        chunk_texts = [chunk.content for chunk in chunks]
+        total_specs = len(self.dense_embedding_specs) + len(self.sparse_embedding_specs)
+        multiple_functions = total_specs > 1
+
+        for name, spec_data in self.dense_embedding_specs.items():
+            spec = DenseEmbeddingSpec.model_validate(spec_data)
+            model = init_dense_embeddings(spec.embed_model, spec.model_kwargs)
+            embeddings = await model.aembed_documents(chunk_texts)
+            if len(embeddings) != len(chunks):
+                msg = (
+                    "Embedding function returned "
+                    f"{len(embeddings)} embeddings for {len(chunks)} chunks"
+                )
+                raise ValueError(msg)
+            records_by_function[name] = self._build_dense_records(
+                chunks=chunks,
+                embeddings=embeddings,
+                embedding_name=name,
+                multiple_functions=multiple_functions,
+            )
+
+        for name, spec_data in self.sparse_embedding_specs.items():
+            sparse_spec = SparseEmbeddingSpec.model_validate(spec_data)
+            encoder = init_sparse_embeddings(
+                sparse_spec.sparse_model, sparse_spec.sparse_kwargs
+            )
+            sparse_vectors = sparse_embed_documents(encoder, chunk_texts, fit=True)
+            if len(sparse_vectors) != len(chunks):
+                msg = (
+                    "Sparse embedding returned "
+                    f"{len(sparse_vectors)} vectors for {len(chunks)} chunks"
+                )
+                raise ValueError(msg)
+            records_by_function[name] = self._build_sparse_records(
+                chunks=chunks,
+                sparse_vectors=sparse_vectors,
+                embedding_name=name,
+                multiple_functions=multiple_functions,
+            )
+
+        return {"chunk_embeddings": records_by_function}
+
+    def _validate_required_metadata(self, chunks: list[DocumentChunk]) -> None:
         for key in self.required_metadata_keys:
             for chunk in chunks:
                 if key not in chunk.metadata:
                     msg = f"Missing required metadata '{key}' for chunk {chunk.id}"
                     raise ValueError(msg)
 
-        records_by_function: dict[str, list[VectorRecord]] = {}
-        chunk_texts = [chunk.content for chunk in chunks]
-        multiple_functions = len(self.embedding_methods) > 1
+    def _build_dense_records(
+        self,
+        *,
+        chunks: list[DocumentChunk],
+        embeddings: list[list[float]],
+        embedding_name: str,
+        multiple_functions: bool,
+    ) -> list[VectorRecord]:
+        records: list[VectorRecord] = []
+        for chunk, values in zip(chunks, embeddings, strict=True):
+            records.append(
+                VectorRecord(
+                    id=self._record_id(chunk.id, embedding_name, multiple_functions),
+                    values=values,
+                    text=chunk.content,
+                    metadata=self._embedding_metadata(chunk, embedding_name),
+                )
+            )
+        return records
 
-        with _temporary_env_vars(self.credential_env_vars):
-            for name, method_name in self.embedding_methods.items():
-                embedding_function = resolve_embedding_method(method_name)
-                embeddings = await self._embed(chunk_texts, embedding_function)
-                if len(embeddings) != len(chunks):
-                    msg = (
-                        "Embedding function returned "
-                        f"{len(embeddings)} embeddings for {len(chunks)} chunks"
-                    )
-                    raise ValueError(msg)
+    def _build_sparse_records(
+        self,
+        *,
+        chunks: list[DocumentChunk],
+        sparse_vectors: list[SparseValues],
+        embedding_name: str,
+        multiple_functions: bool,
+    ) -> list[VectorRecord]:
+        records: list[VectorRecord] = []
+        for chunk, sparse_values in zip(chunks, sparse_vectors, strict=True):
+            records.append(
+                VectorRecord(
+                    id=self._record_id(chunk.id, embedding_name, multiple_functions),
+                    values=[],
+                    text=chunk.content,
+                    metadata=self._embedding_metadata(chunk, embedding_name),
+                    sparse_values=sparse_values,
+                )
+            )
+        return records
 
-                records: list[VectorRecord] = []
-                suffix = f"-{name}" if multiple_functions else ""
-                for chunk, vector in zip(chunks, embeddings, strict=True):
-                    metadata = dict(chunk.metadata)
-                    metadata.setdefault("chunk_id", chunk.id)
-                    metadata["embedding_type"] = name
-                    record_id = f"{chunk.id}{suffix}" if suffix else chunk.id
-                    records.append(
-                        VectorRecord(
-                            id=record_id,
-                            values=vector.values,
-                            text=chunk.content,
-                            metadata=metadata,
-                            sparse_values=vector.sparse_values,
-                        )
-                    )
-                records_by_function[name] = records
+    @staticmethod
+    def _record_id(chunk_id: str, embedding_name: str, multiple_functions: bool) -> str:
+        if not multiple_functions:
+            return chunk_id
+        return f"{chunk_id}-{embedding_name}"
 
-        return {"chunk_embeddings": records_by_function}
+    @staticmethod
+    def _embedding_metadata(
+        chunk: DocumentChunk, embedding_name: str
+    ) -> dict[str, Any]:
+        metadata = dict(chunk.metadata)
+        metadata.setdefault("chunk_id", chunk.id)
+        metadata["embedding_type"] = embedding_name
+        return metadata
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})
@@ -807,25 +876,12 @@ class ChunkEmbeddingNode(TaskNode):
             raise ValueError(msg)
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
 
-    async def _embed(
-        self,
-        texts: list[str],
-        embedder: EmbeddingMethod,
-    ) -> list[EmbeddingVector]:
-        result = embedder(texts)
-        if inspect.isawaitable(result):
-            result = await result
-        try:
-            return normalize_embedding_output(result)
-        except ValueError as exc:
-            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
-
 
 @registry.register(
     NodeMetadata(
         name="TextEmbeddingNode",
         description=(
-            "Embed one or more text inputs using a configurable embedding method."
+            "Embed one or more text inputs using a configurable embedding model."
         ),
         category="conversational_search",
     )
@@ -837,15 +893,15 @@ class TextEmbeddingNode(TaskNode):
         default="text",
         description="Key within state or state.inputs containing the text payload.",
     )
-    embedding_method: str = Field(
+    embed_model: str = Field(
         ...,
-        description="Embedding method identifier applied to the text inputs.",
-    )
-    embedding_method_key: str = Field(
-        default="embedding_method",
         description=(
-            "Optional configurable key used to override the embedding method."
+            "Dense embedding model identifier, e.g. openai:text-embedding-3-small"
         ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments forwarded to init_embeddings.",
     )
     output_key: str = Field(
         default="embeddings",
@@ -867,22 +923,13 @@ class TextEmbeddingNode(TaskNode):
         default=False,
         description="Return a single embedding when the input was a string.",
     )
-    credential_env_vars: dict[str, str | None] = Field(
-        default_factory=dict,
-        description="Environment variables applied during embedding execution.",
-    )
-
-    @field_validator("embedding_method")
-    @classmethod
-    def _validate_embedding_method(cls, value: str) -> str:
-        if not value:
-            raise ValueError("embedding_method must be a non-empty string")
-        if value not in _EMBEDDING_METHODS:
-            raise ValueError(f"Unknown embedding method '{value}'")
-        return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Embed configured text input and return normalized vectors."""
+        """Embed configured text input and return dense vectors."""
+        from orcheo.nodes.conversational_search.embeddings import (
+            init_dense_embeddings,
+        )
+
         texts, is_single = self._resolve_texts(state)
         if not texts:
             if self.allow_empty:
@@ -890,31 +937,34 @@ class TextEmbeddingNode(TaskNode):
             msg = "TextEmbeddingNode requires at least one non-empty text input"
             raise ValueError(msg)
 
-        method = self._resolve_embedding_method(config)
-        embedder = resolve_embedding_method(method)
+        model = init_dense_embeddings(self.embed_model, self.model_kwargs)
+        dense_payload = await model.aembed_documents(texts)
+        if not isinstance(dense_payload, list):
+            msg = "TextEmbeddingNode embedder must return a list of vectors"
+            raise ValueError(msg)
 
-        with _temporary_env_vars(self.credential_env_vars):
-            output = embedder(texts)
-            if inspect.isawaitable(output):
-                output = await output  # type: ignore[assignment]
-        try:
-            vectors = normalize_embedding_output(output)
-        except ValueError as exc:
-            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
+        dense_vectors = [_coerce_float_list(vector) for vector in dense_payload]
+        if len(dense_vectors) != len(texts):
+            msg = (
+                "TextEmbeddingNode embedder returned "
+                f"{len(dense_vectors)} vectors for {len(texts)} texts"
+            )
+            raise ValueError(msg)
 
-        payload: dict[str, Any] = {}
-        payload[self.output_key] = self._maybe_unwrap(vectors, is_single)
+        vectors = [EmbeddingVector(values=vec) for vec in dense_vectors]
+
+        output_payload: dict[str, Any] = {}
+        output_payload[self.output_key] = self._maybe_unwrap(vectors, is_single)
 
         if self.dense_output_key:
-            dense_vectors = require_dense_embeddings(vectors)
-            payload[self.dense_output_key] = self._maybe_unwrap(
+            output_payload[self.dense_output_key] = self._maybe_unwrap(
                 dense_vectors, is_single
             )
 
         if self.text_output_key:
-            payload[self.text_output_key] = self._maybe_unwrap(texts, is_single)
+            output_payload[self.text_output_key] = self._maybe_unwrap(texts, is_single)
 
-        return payload
+        return output_payload
 
     def _resolve_texts(self, state: State) -> tuple[list[str], bool]:
         value = self._extract_input_value(state)
@@ -957,14 +1007,6 @@ class TextEmbeddingNode(TaskNode):
             msg = "TextEmbeddingNode requires non-empty text strings"
             raise ValueError(msg)
         return item
-
-    def _resolve_embedding_method(self, config: RunnableConfig) -> str:
-        configurable = config.get("configurable", {})
-        if isinstance(configurable, Mapping) and self.embedding_method_key:
-            override = configurable.get(self.embedding_method_key)
-            if isinstance(override, str) and override.strip():
-                return override
-        return self.embedding_method
 
     def _empty_payload(self, is_single: bool) -> dict[str, Any]:
         payload: dict[str, Any] = {self.output_key: []}
@@ -1090,9 +1132,15 @@ class IncrementalIndexerNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter used for upserts.",
     )
-    embedding_method: str = Field(
+    embed_model: str = Field(
         ...,
-        description="Embedding method identifier applied to chunk content.",
+        description=(
+            "Dense embedding model identifier, e.g. openai:text-embedding-3-small"
+        ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments forwarded to init_embeddings.",
     )
     batch_size: int | str = Field(default=32, description="Chunk batch size")
     max_retries: int | str = Field(default=2, description="Retry attempts")
@@ -1106,20 +1154,28 @@ class IncrementalIndexerNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Embed and upsert chunks with retry and change-detection."""
+        from orcheo.nodes.conversational_search.embeddings import (
+            init_dense_embeddings,
+        )
+
         chunks = self._resolve_chunks(state)
         if not chunks:
             msg = "IncrementalIndexerNode requires at least one chunk"
             raise ValueError(msg)
+
+        model = init_dense_embeddings(self.embed_model, self.model_kwargs)
 
         upserted_ids: list[str] = []
         skipped = 0
         batch_size_int = int(self.batch_size)
         for start in range(0, len(chunks), batch_size_int):
             batch = chunks[start : start + batch_size_int]
-            embeddings = await self._embed([chunk.content for chunk in batch])
+            dense_vectors = await model.aembed_documents(
+                [chunk.content for chunk in batch]
+            )
 
             records: list[VectorRecord] = []
-            for chunk, vector in zip(batch, embeddings, strict=True):
+            for chunk, values in zip(batch, dense_vectors, strict=True):
                 content_hash = self._hash_text(chunk.content)
                 if self.skip_unchanged and self._is_unchanged(chunk.id, content_hash):
                     skipped += 1
@@ -1134,10 +1190,9 @@ class IncrementalIndexerNode(TaskNode):
                 records.append(
                     VectorRecord(
                         id=chunk.id,
-                        values=vector.values,
+                        values=values,
                         text=chunk.content,
                         metadata=metadata,
-                        sparse_values=vector.sparse_values,
                     )
                 )
 
@@ -1164,16 +1219,6 @@ class IncrementalIndexerNode(TaskNode):
             msg = "chunks payload must be a list"
             raise ValueError(msg)
         return [DocumentChunk.model_validate(chunk) for chunk in chunks]
-
-    async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
-        embedder = resolve_embedding_method(self.embedding_method)
-        output = embedder(texts)
-        if inspect.isawaitable(output):
-            output = await output
-        try:
-            return normalize_embedding_output(output)
-        except ValueError as exc:
-            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
 
     def _is_unchanged(self, record_id: str, content_hash: str) -> bool:
         store_records = getattr(self.vector_store, "records", None)

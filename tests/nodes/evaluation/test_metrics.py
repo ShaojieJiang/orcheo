@@ -1,7 +1,5 @@
 """Tests for evaluation metric nodes."""
 
-import os
-from typing import Any
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.evaluation.metrics import (
@@ -182,7 +180,11 @@ async def test_bleu_metrics_node_empty_inputs() -> None:
 async def test_semantic_similarity_node_computes_scores(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    node = SemanticSimilarityMetricsNode(name="similarity")
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    node = SemanticSimilarityMetricsNode(
+        name="similarity", embed_model="test:fake", model_kwargs={}
+    )
     predictions = ["The cat sat on the mat", "Hello world"]
     references = ["The cat sat on the mat", "Goodbye universe"]
 
@@ -194,15 +196,12 @@ async def test_semantic_similarity_node_computes_scores(
     ]
 
     class FakeEmbeddings:
-        def __init__(self, **kwargs: Any) -> None:
-            pass
-
         async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
             return mock_embeddings
 
-    import langchain_openai
-
-    monkeypatch.setattr(langchain_openai, "OpenAIEmbeddings", FakeEmbeddings)
+    monkeypatch.setattr(
+        emb_mod, "init_dense_embeddings", lambda *a, **kw: FakeEmbeddings()
+    )
 
     state = State(inputs={"predictions": predictions, "references": references})
     result = await node.run(state, {})
@@ -215,37 +214,10 @@ async def test_semantic_similarity_node_computes_scores(
 
 
 @pytest.mark.asyncio
-async def test_semantic_similarity_node_applies_credential_env_vars(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, str | None] = {"api_key": None}
-
-    class FakeEmbeddings:
-        def __init__(self, **kwargs: Any) -> None:
-            pass
-
-        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-            captured["api_key"] = os.getenv("OPENAI_API_KEY")
-            return [[1.0], [0.0]]
-
-    import langchain_openai
-
-    monkeypatch.setattr(langchain_openai, "OpenAIEmbeddings", FakeEmbeddings)
-
-    node = SemanticSimilarityMetricsNode(
-        name="similarity",
-        credential_env_vars={"OPENAI_API_KEY": "vault-value"},
-    )
-    state = State(inputs={"predictions": ["a"], "references": ["b"]})
-
-    await node.run(state, {})
-
-    assert captured["api_key"] == "vault-value"
-
-
-@pytest.mark.asyncio
 async def test_semantic_similarity_node_validates_inputs() -> None:
-    node = SemanticSimilarityMetricsNode(name="similarity")
+    node = SemanticSimilarityMetricsNode(
+        name="similarity", embed_model="test:fake", model_kwargs={}
+    )
     with pytest.raises(ValueError, match="expects predictions and references lists"):
         await node.run(State(inputs={"predictions": "bad", "references": []}), {})
     with pytest.raises(ValueError, match="of same length"):
@@ -255,7 +227,9 @@ async def test_semantic_similarity_node_validates_inputs() -> None:
 
 
 def test_semantic_similarity_cosine_edge_cases() -> None:
-    node = SemanticSimilarityMetricsNode(name="similarity")
+    node = SemanticSimilarityMetricsNode(
+        name="similarity", embed_model="test:fake", model_kwargs={}
+    )
     assert node._cosine_similarity([0.0, 0.0], [1.0, 0.0]) == 0.0
     assert node._cosine_similarity([1.0, 0.0], [0.0, 0.0]) == 0.0
     assert node._cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
