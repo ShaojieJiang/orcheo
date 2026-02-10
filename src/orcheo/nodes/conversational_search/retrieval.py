@@ -288,6 +288,7 @@ class SparseSearchNode(TaskNode):
         if self.sparse_model:
             from orcheo.nodes.conversational_search.ingestion import EmbeddingVector
 
+            self._validate_sparse_query_configuration()
             encoder = init_sparse_embeddings(self.sparse_model, self.sparse_kwargs)
             sparse_query = sparse_embed_query(encoder, query)
             return EmbeddingVector(values=[], sparse_values=sparse_query)
@@ -301,6 +302,19 @@ class SparseSearchNode(TaskNode):
 
         model = init_dense_embeddings(self.embed_model, self.model_kwargs)
         return await model.aembed_query(query)
+
+    def _validate_sparse_query_configuration(self) -> None:
+        """Validate sparse query encoder settings for vector-store retrieval."""
+        if self.sparse_model not in {"pinecone:bm25", "pinecone:bm25-default"}:
+            return
+        if self.sparse_kwargs.get("encoder_state_path"):
+            return
+        msg = (
+            "SparseSearchNode with sparse_model='pinecone:bm25' requires "
+            "sparse_kwargs['encoder_state_path'] so query encoding uses a "
+            "pre-fitted BM25 encoder."
+        )
+        raise ValueError(msg)
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})

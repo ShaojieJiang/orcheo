@@ -401,6 +401,22 @@ async def test_sparse_search_uses_sparse_model_for_vector_store_query() -> None:
     assert sparse_values.indices == [0]
 
 
+@pytest.mark.asyncio
+async def test_sparse_search_bm25_requires_encoder_state_path() -> None:
+    node = SparseSearchNode(
+        name="sparse-bm25-missing-state",
+        vector_store=InMemoryVectorStore(),
+        sparse_model="pinecone:bm25",
+        sparse_kwargs={},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"requires sparse_kwargs\['encoder_state_path'\]",
+    ):
+        await node._build_vector_store_query("apple")
+
+
 def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
     node = SparseSearchNode(name="sparse")
     state = State(
