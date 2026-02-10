@@ -443,3 +443,37 @@ def test_context_compressor_collect_sources_defaults_to_retrieval() -> None:
     )
 
     assert ContextCompressorNode._collect_sources([entry]) == ["retrieval"]
+
+
+@pytest.mark.asyncio
+async def test_query_rewrite_falls_back_on_empty_ai_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers line 104: fallback when AI model returns empty content."""
+
+    class EmptyModel:
+        async def ainvoke(self, messages: list[Any]) -> Any:  # type: ignore[override]
+            return type("Resp", (), {"content": ""})
+
+    def fake_init_chat_model(*_: Any, **__: Any) -> EmptyModel:
+        return EmptyModel()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.query_processing.init_chat_model",
+        fake_init_chat_model,
+    )
+
+    node = QueryRewriteNode(name="rewrite-fallback", ai_model="openai:gpt-4o-mini")
+    state = State(
+        inputs={
+            "query": "How does it scale?",
+            "history": [{"role": "user", "content": "Vector store overview"}],
+        },
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["query"] == "How does it scale?"
+    assert result["used_history"] is True

@@ -343,3 +343,149 @@ async def test_batch_eval_pipeline_writes_to_state_inputs() -> None:
         "Who created the Python programming language?",
         "What is the Java programming language?",
     ]
+
+
+def test_batch_eval_validate_max_conversations_none() -> None:
+    """None max_conversations passes validation (default)."""
+    node = ConversationalBatchEvalNode(name="batch", max_conversations=None)
+    assert node.max_conversations is None
+
+
+def test_batch_eval_validate_max_conversations_invalid_string() -> None:
+    """Non-integer, non-template string raises ValueError."""
+    with pytest.raises(ValueError, match="must be an integer"):
+        ConversationalBatchEvalNode(name="batch", max_conversations="bad")
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_conversations_invalid_string() -> None:
+    """String that can't resolve to int raises ValueError at runtime."""
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_conversations="{{config.configurable.max}}",
+    )
+    # Simulate template not resolved (stays as string)
+    node.max_conversations = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_conversations_less_than_one() -> None:
+    """max_conversations < 1 raises ValueError."""
+    node = ConversationalBatchEvalNode(name="batch", max_conversations=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolves_conversations_from_direct_results() -> None:
+    """Conversations found directly in results under conversations_key."""
+    node = ConversationalBatchEvalNode(name="batch")
+    state = State(
+        inputs={},
+        results={"conversations": QRECC_CONVERSATIONS},
+    )
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_fallback_when_no_conversations_found() -> None:
+    """When conversations not in inputs, direct results, or nested results."""
+    node = ConversationalBatchEvalNode(name="batch")
+    state = State(
+        inputs={},
+        results={"other": {"some_key": "value"}},
+    )
+    with pytest.raises(ValueError, match="expects conversations list"):
+        await node.run(state, {})
+
+
+def test_batch_eval_extract_prediction_non_mapping() -> None:
+    """_extract_prediction returns fallback for non-Mapping result."""
+    node = ConversationalBatchEvalNode(name="batch")
+    assert node._extract_prediction("not a mapping", "fallback") == "fallback"
+
+
+def test_batch_eval_extract_prediction_from_top_level() -> None:
+    """_extract_prediction finds prediction at top level of result."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result = node._extract_prediction({"query": "found it"}, "fallback")
+    assert result == "found it"
+
+
+def test_batch_eval_extract_prediction_from_results_values() -> None:
+    """_extract_prediction searches reversed results values."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result_state = {
+        "results": {
+            "node_a": {"other": "data"},
+            "node_b": {"query": "from node_b"},
+        }
+    }
+    result = node._extract_prediction(result_state, "fallback")
+    assert result == "from node_b"
+
+
+def test_batch_eval_extract_prediction_from_inputs() -> None:
+    """_extract_prediction falls back to inputs mapping."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result_state = {
+        "results": {"node_a": {"other": "data"}},
+        "inputs": {"query": "from inputs"},
+    }
+    result = node._extract_prediction(result_state, "fallback")
+    assert result == "from inputs"
+
+
+def test_batch_eval_extract_prediction_ultimate_fallback() -> None:
+    """_extract_prediction returns fallback when nothing found anywhere."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result_state = {
+        "results": {"node_a": {"other": "data"}},
+        "inputs": {"other": "data"},
+    }
+    result = node._extract_prediction(result_state, "fallback")
+    assert result == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolves_from_nested_results_iteration() -> None:
+    """Conversations found in nested results via iteration over values."""
+    node = ConversationalBatchEvalNode(name="batch")
+    state = State(
+        inputs={},
+        results={
+            "other_node": {"conversations": QRECC_CONVERSATIONS},
+        },
+    )
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+
+
+def test_batch_eval_extract_prediction_skips_non_mapping_results_values() -> None:
+    """_extract_prediction skips non-Mapping entries in results values."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result_state: dict[str, Any] = {
+        "results": {
+            "node_a": "not_a_mapping",
+            "node_b": {"query": "found"},
+        },
+    }
+    result = node._extract_prediction(result_state, "fallback")
+    assert result == "found"
+
+
+def test_batch_eval_extract_prediction_inputs_fallback_no_match() -> None:
+    """_extract_prediction checks inputs but field not present, uses fallback."""
+    node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
+    result_state: dict[str, Any] = {
+        "results": {},
+        "inputs": {"message": "no query field"},
+    }
+    result = node._extract_prediction(result_state, "fallback")
+    assert result == "fallback"

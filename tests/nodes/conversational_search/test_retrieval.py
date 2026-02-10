@@ -1117,3 +1117,41 @@ async def test_adapter_extract_sources_neither_list_nor_string() -> None:
 
     # sources is 42 (not list/str), so falls back to source
     assert result["results"][0].sources == ["src"]
+
+
+@pytest.mark.asyncio
+async def test_sparse_search_requires_embed_model_without_sparse_model() -> None:
+    """Covers lines 297-301: error when embed_model is empty and no sparse_model."""
+    store = InMemoryVectorStore()
+    await store.upsert([VectorRecord(id="v1", values=[1.0], text="chunk", metadata={})])
+    node = SparseSearchNode(
+        name="sparse-no-embed",
+        embed_model="",
+        sparse_model=None,
+        vector_store=store,
+    )
+    state = State(
+        inputs={"query": "test query"},
+        results={},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SparseSearchNode requires embed_model when vector_store is set",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_sparse_validate_bm25_with_encoder_state_path(
+    tmp_path: Any,
+) -> None:
+    """Covers line 311: early return when encoder_state_path is provided."""
+    node = SparseSearchNode(
+        name="sparse-bm25-state",
+        sparse_model="pinecone:bm25",
+        sparse_kwargs={"encoder_state_path": str(tmp_path / "state.bin")},
+    )
+    # Should NOT raise — the early return on line 311 skips the error
+    node._validate_sparse_query_configuration()

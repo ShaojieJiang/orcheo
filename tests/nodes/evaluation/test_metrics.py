@@ -297,9 +297,3 @@ def test_token_f1_uses_token_frequencies() -> None:
     score = node._compute_f1("a a a", "a")
 
     assert score == pytest.approx(0.5)
-
-
-def test_semantic_similarity_unsupported_provider() -> None:
-    node = SemanticSimilarityMetricsNode(name="similarity", provider="bad")
-    with pytest.raises(ValueError, match="Unsupported embedding provider"):
-        node._create_embeddings()

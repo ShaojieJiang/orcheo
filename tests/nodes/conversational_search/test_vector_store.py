@@ -533,3 +533,73 @@ async def test_pinecone_vector_store_rejects_records_with_no_dense_or_sparse() -
                 )
             ]
         )
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_search_accepts_embedding_vector() -> None:
+    """Covers line 63: search with EmbeddingVector having non-empty values."""
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="vec-ev",
+                values=[1.0, 0.0],
+                text="ev record",
+                metadata={"topic": "ev"},
+            )
+        ]
+    )
+
+    results = await store.search(query=EmbeddingVector(values=[1.0, 0.0]), top_k=1)
+
+    assert len(results) == 1
+    assert results[0].id == "vec-ev"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_vector_store_search_skips_empty_value_records() -> None:
+    """Covers line 80: records with empty values are skipped during search."""
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="empty-vals",
+                values=[],
+                text="no values",
+                metadata={},
+                sparse_values=SparseValues(indices=[0], values=[1.0]),
+            ),
+            VectorRecord(
+                id="with-vals",
+                values=[1.0],
+                text="has values",
+                metadata={},
+            ),
+        ]
+    )
+
+    results = await store.search(query=[1.0], top_k=10)
+
+    assert [r.id for r in results] == ["with-vals"]
+
+
+@pytest.mark.asyncio
+async def test_pinecone_vector_store_upserts_sparse_only_records() -> None:
+    """Covers lines 144->146: upsert records with sparse_values but no dense."""
+    index = _DummyIndex()
+    client = _DummyClient(index=index)
+    store = PineconeVectorStore(index_name="pinecone-sparse-only", client=client)
+    record = VectorRecord(
+        id="sparse-only",
+        values=[],
+        text="sparse doc",
+        metadata={"key": "val"},
+        sparse_values=SparseValues(indices=[0, 1], values=[0.3, 0.7]),
+    )
+
+    await store.upsert([record])
+
+    payload, _ = index.calls[0]
+    assert "values" not in payload[0]
+    assert payload[0]["sparse_values"] == {"indices": [0, 1], "values": [0.3, 0.7]}
+    assert payload[0]["metadata"]["text"] == "sparse doc"

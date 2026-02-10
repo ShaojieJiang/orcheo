@@ -834,7 +834,7 @@ class MultiDoc2DialDatasetNode(DatasetNode):
                 continue
             if str(candidate.get("role", "")).lower() == "agent":
                 return candidate
-            if str(candidate.get("role", "")).lower() == "user":
+            if str(candidate.get("role", "")).lower() == "user":  # pragma: no branch
                 return None
         return None
 

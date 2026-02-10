@@ -20,6 +20,7 @@ from orcheo.nodes.conversational_search.ingestion import (
     _coerce_sparse_values,
     _temporary_env_vars,
     normalize_embedding_output,
+    require_dense_embeddings,
 )
 from orcheo.nodes.conversational_search.models import Document
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
@@ -1814,3 +1815,207 @@ async def test_web_document_loader_skips_title_when_already_in_metadata(
     result = await node.run(state, {})
 
     assert result["documents"][0]["metadata"]["title"] == "Pre-existing"
+
+
+# --- Additional coverage tests ---
+
+
+def test_coerce_sparse_values_validates_dict() -> None:
+    """Covers line 78 of ingestion.py (dict branch)."""
+    result = _coerce_sparse_values({"indices": [0, 1], "values": [0.5, 0.3]})
+    assert result == SparseValues(indices=[0, 1], values=[0.5, 0.3])
+
+
+def test_normalize_embedding_output_rejects_non_list() -> None:
+    """Covers lines 84-85 of ingestion.py."""
+    with pytest.raises(ValueError, match="embedding response must be a list"):
+        normalize_embedding_output("not-a-list")
+
+
+def test_normalize_embedding_output_coerces_float_lists() -> None:
+    """Covers lines 93-94 of ingestion.py."""
+    result = normalize_embedding_output([[1.0, 2.0]])
+    assert len(result) == 1
+    assert result[0].values == [1.0, 2.0]
+    assert result[0].sparse_values is None
+
+
+def test_normalize_embedding_output_dict_with_dense_values() -> None:
+    """Covers line 106 of ingestion.py."""
+    result = normalize_embedding_output([{"values": [0.5, 0.3]}])
+    assert result[0].values == [0.5, 0.3]
+    assert result[0].sparse_values is None
+
+
+def test_normalize_embedding_output_dict_with_sparse_only() -> None:
+    """Covers dict sparse branch in normalize_embedding_output."""
+    sparse = SparseValues(indices=[0], values=[1.0])
+    result = normalize_embedding_output([{"sparse_values": sparse}])
+    assert result[0].sparse_values is sparse
+    assert result[0].values == []
+
+
+def test_normalize_embedding_output_rejects_invalid_entry_type() -> None:
+    """Covers lines 112-113 of ingestion.py."""
+    with pytest.raises(
+        ValueError, match="embedding payload entries must be lists or mappings"
+    ):
+        normalize_embedding_output([42])
+
+
+def test_temporary_env_vars_noop_for_empty_dict() -> None:
+    """Covers lines 121-122 of ingestion.py (empty dict early return)."""
+    with _temporary_env_vars({}):
+        pass
+
+
+def test_require_dense_embeddings_returns_values() -> None:
+    """Covers lines 142-148 of ingestion.py (success path)."""
+    vectors = [EmbeddingVector(values=[1.0, 2.0]), EmbeddingVector(values=[3.0])]
+    result = require_dense_embeddings(vectors)
+    assert result == [[1.0, 2.0], [3.0]]
+
+
+def test_require_dense_embeddings_rejects_empty_values() -> None:
+    """Covers lines 144-146 of ingestion.py (failure path)."""
+    with pytest.raises(
+        ValueError, match="dense embeddings must include non-empty float values"
+    ):
+        require_dense_embeddings([EmbeddingVector(values=[])])
+
+
+@pytest.mark.asyncio
+async def test_chunk_embedding_node_dense_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers lines 769-773 of ingestion.py."""
+
+    class MismatchEmbeddings:
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0]]  # always returns 1 embedding
+
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    monkeypatch.setattr(
+        emb_mod,
+        "init_dense_embeddings",
+        lambda *a, **kw: MismatchEmbeddings(),
+    )
+
+    chunks = {
+        "chunks": [
+            {
+                "id": "c1",
+                "document_id": "d1",
+                "index": 0,
+                "content": "one",
+                "metadata": {"document_id": "d1", "chunk_index": 0},
+            },
+            {
+                "id": "c2",
+                "document_id": "d1",
+                "index": 1,
+                "content": "two",
+                "metadata": {"document_id": "d1", "chunk_index": 1},
+            },
+        ]
+    }
+    state = State(
+        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+    )
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        dense_embedding_specs={"default": {"embed_model": "test:fake"}},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Embedding function returned 1 embeddings for 2 chunks",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_chunk_embedding_node_sparse_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers lines 788-792 of ingestion.py."""
+
+    class MismatchSparseEncoder:
+        def fit(self, texts: list[str]) -> None:
+            pass
+
+        def encode_documents(self, texts: list[str]) -> list[dict[str, Any]]:
+            return [{"indices": [0], "values": [1.0]}]  # always returns 1
+
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    monkeypatch.setattr(
+        emb_mod,
+        "init_sparse_embeddings",
+        lambda *a, **kw: MismatchSparseEncoder(),
+    )
+
+    chunks = {
+        "chunks": [
+            {
+                "id": "c1",
+                "document_id": "d1",
+                "index": 0,
+                "content": "one",
+                "metadata": {"document_id": "d1", "chunk_index": 0},
+            },
+            {
+                "id": "c2",
+                "document_id": "d1",
+                "index": 1,
+                "content": "two",
+                "metadata": {"document_id": "d1", "chunk_index": 1},
+            },
+        ]
+    }
+    state = State(
+        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+    )
+    node = ChunkEmbeddingNode(
+        name="chunk_embedding",
+        sparse_embedding_specs={"sparse": {"sparse_model": "test:fake"}},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Sparse embedding returned 1 vectors for 2 chunks",
+    ):
+        await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_text_embedding_node_vector_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers lines 948-952 of ingestion.py."""
+
+    class MismatchEmbeddings:
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0], [2.0]]  # always returns 2
+
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    monkeypatch.setattr(
+        emb_mod,
+        "init_dense_embeddings",
+        lambda *a, **kw: MismatchEmbeddings(),
+    )
+
+    state = State(inputs={"text": "hello"}, results={}, structured_response=None)
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embed_model="test:fake",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TextEmbeddingNode embedder returned 2 vectors for 1 texts",
+    ):
+        await node.run(state, {})
