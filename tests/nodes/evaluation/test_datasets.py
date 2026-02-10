@@ -183,8 +183,9 @@ async def test_dataset_node_loads_json_from_url(
         ) -> None:
             return None
 
-        async def get(self, url: str) -> DummyResponse:
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
             assert url == "https://example.com/data.json"
+            assert follow_redirects is True
             return DummyResponse()
 
     monkeypatch.setattr(
@@ -265,6 +266,38 @@ async def test_qrecc_dataset_node_limits_conversations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_qrecc_dataset_node_supports_truth_field_names() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    state = State(
+        inputs={
+            "qrecc_data": [
+                {
+                    "Conversation_no": 1,
+                    "Turn_no": 1,
+                    "Question": "What is Python?",
+                    "Truth_rewrite": "What is the Python programming language?",
+                    "Context": [],
+                    "Truth_answer": "Python is a programming language.",
+                }
+            ]
+        }
+    )
+    result = await node.run(state, {})
+
+    turns = result["conversations"][0]["turns"]
+    assert turns[0]["gold_rewrite"] == "What is the Python programming language?"
+    assert turns[0]["gold_answer"] == "Python is a programming language."
+
+
+def test_qrecc_dataset_node_allows_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.qrecc.max_conversations}}"
+
+
+@pytest.mark.asyncio
 async def test_qrecc_dataset_node_loads_from_file(tmp_path: Path) -> None:
     data_path = tmp_path / "qrecc.json"
     data_path.write_text(json.dumps(QRECC_SAMPLE), encoding="utf-8")
@@ -292,6 +325,21 @@ async def test_qrecc_dataset_node_stores_in_inputs() -> None:
 
     assert "conversations" in state["inputs"]
     assert len(state["inputs"]["conversations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_resolves_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"qrecc": {"max_conversations": 1}}},
+    )
+    result = await node.run(state, {})
+    assert result["total_conversations"] == 1
 
 
 # --- MultiDoc2DialDatasetNode Tests ---
@@ -376,6 +424,14 @@ async def test_md2d_dataset_node_limits_conversations() -> None:
     assert result["total_conversations"] == 1
     assert len(result["conversations"]) == 1
     assert result["conversations"][0]["conversation_id"] == "d1"
+
+
+def test_md2d_dataset_node_allows_templated_max_conversations() -> None:
+    node = MultiDoc2DialDatasetNode(
+        name="md2d",
+        max_conversations="{{config.configurable.md2d.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.md2d.max_conversations}}"
 
 
 @pytest.mark.asyncio

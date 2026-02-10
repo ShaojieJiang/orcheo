@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -276,7 +276,7 @@ class DatasetNode(TaskNode):
             raise ValueError(msg)
         if self._is_url(path):
             async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-                response = await client.get(path)
+                response = await client.get(path, follow_redirects=True)
                 response.raise_for_status()
                 return response.json()
         with Path(path).open("r", encoding="utf-8") as file:
@@ -360,11 +360,40 @@ class QReCCDatasetNode(DatasetNode):
         default=None,
         description="Path or URL to QReCC JSON data file",
     )
-    max_conversations: int | None = Field(
+    max_conversations: int | str | None = Field(
         default=None,
-        ge=1,
         description="Limit conversations to load",
     )
+
+    @field_validator("max_conversations", mode="before")
+    @classmethod
+    def _validate_max_conversations(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_conversations(self) -> int | None:
+        value = self.max_conversations
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_conversations must be >= 1"
+            raise ValueError(msg)
+        return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse QReCC data and return structured conversations."""
@@ -381,8 +410,9 @@ class QReCCDatasetNode(DatasetNode):
             raise ValueError(msg)
 
         conversations = self._parse_conversations(raw_data)
-        if self.max_conversations is not None:
-            conversations = conversations[: self.max_conversations]
+        max_conversations = self._resolve_max_conversations()
+        if max_conversations is not None:
+            conversations = conversations[:max_conversations]
 
         conv_dicts = [conv.model_dump() for conv in conversations]
         total_turns = sum(len(c.turns) for c in conversations)
@@ -410,9 +440,11 @@ class QReCCDatasetNode(DatasetNode):
             turn = QreccTurn(
                 turn_id=turn_id,
                 raw_question=str(record.get("Question", "")),
-                gold_rewrite=str(record.get("Rewrite", "")),
+                gold_rewrite=str(
+                    record.get("Rewrite", record.get("Truth_rewrite", ""))
+                ),
                 context=[str(c) for c in context],
-                gold_answer=str(record.get("Answer", "")),
+                gold_answer=str(record.get("Answer", record.get("Truth_answer", ""))),
             )
 
             conv_map.setdefault(conv_id, []).append(turn)
@@ -448,11 +480,40 @@ class MultiDoc2DialDatasetNode(DatasetNode):
         default=None,
         description="Path or URL to MultiDoc2Dial JSON data file",
     )
-    max_conversations: int | None = Field(
+    max_conversations: int | str | None = Field(
         default=None,
-        ge=1,
         description="Limit conversations to load",
     )
+
+    @field_validator("max_conversations", mode="before")
+    @classmethod
+    def _validate_max_conversations(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_conversations(self) -> int | None:
+        value = self.max_conversations
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_conversations must be >= 1"
+            raise ValueError(msg)
+        return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse MultiDoc2Dial data and return structured conversations."""
@@ -469,8 +530,9 @@ class MultiDoc2DialDatasetNode(DatasetNode):
             raise ValueError(msg)
 
         conversations = self._parse_conversations(raw_data)
-        if self.max_conversations is not None:
-            conversations = conversations[: self.max_conversations]
+        max_conversations = self._resolve_max_conversations()
+        if max_conversations is not None:
+            conversations = conversations[:max_conversations]
 
         conv_dicts = [conv.model_dump() for conv in conversations]
         total_turns = sum(len(c.turns) for c in conversations)

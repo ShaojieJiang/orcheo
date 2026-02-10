@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import StateGraph
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
@@ -45,9 +45,8 @@ class ConversationalBatchEvalNode(TaskNode):
         default="gold_rewrite",
         description="Field name in turn data containing the gold label",
     )
-    max_conversations: int | None = Field(
+    max_conversations: int | str | None = Field(
         default=None,
-        ge=1,
         description="Limit number of conversations to evaluate",
     )
     pipeline: SkipJsonSchema[StateGraph | None] = Field(
@@ -67,16 +66,47 @@ class ConversationalBatchEvalNode(TaskNode):
             self._compiled_pipeline = self.pipeline.compile()
         return self._compiled_pipeline
 
+    @field_validator("max_conversations", mode="before")
+    @classmethod
+    def _validate_max_conversations(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_conversations(self) -> int | None:
+        value = self.max_conversations
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_conversations must be >= 1"
+            raise ValueError(msg)
+        return value
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Iterate conversations, collect predictions and gold references."""
         inputs = state.get("inputs", {})
-        conversations = inputs.get(self.conversations_key)
+        conversations = self._resolve_conversations(state, inputs)
         if not isinstance(conversations, list):
             msg = "ConversationalBatchEvalNode expects conversations list"
             raise ValueError(msg)
 
-        if self.max_conversations is not None:
-            conversations = conversations[: self.max_conversations]
+        max_conversations = self._resolve_max_conversations()
+        if max_conversations is not None:
+            conversations = conversations[:max_conversations]
 
         predictions: list[str] = []
         references: list[str] = []
@@ -120,6 +150,31 @@ class ConversationalBatchEvalNode(TaskNode):
             "total_turns": len(predictions),
             "total_conversations": len(conversations),
         }
+
+    def _resolve_conversations(
+        self,
+        state: State,
+        inputs: Mapping[str, Any],
+    ) -> Any:
+        conversations = inputs.get(self.conversations_key)
+        if isinstance(conversations, list):
+            return conversations
+
+        results = state.get("results")
+        if not isinstance(results, Mapping):
+            return conversations
+
+        direct = results.get(self.conversations_key)
+        if isinstance(direct, list):
+            return direct
+
+        for node_result in results.values():
+            if isinstance(node_result, Mapping):
+                nested = node_result.get(self.conversations_key)
+                if isinstance(nested, list):
+                    return nested
+
+        return conversations
 
     async def _process_turn(
         self,
