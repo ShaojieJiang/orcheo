@@ -165,7 +165,9 @@ def build_demo_nodes(
         response_field="sanitized",
     )
 
-    nodes["query_rewrite"] = QueryRewriteNode(name="query_rewrite")
+    nodes["query_rewrite"] = QueryRewriteNode(
+        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+    )
     nodes["rewrite_to_search"] = ResultToInputsNode(
         name="rewrite_to_search",
         source_result_key=nodes["query_rewrite"].name,

@@ -1,13 +1,14 @@
 """Query processing nodes for conversational search pipelines."""
 
 from __future__ import annotations
-import re
 from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
+from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
+from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -37,8 +38,16 @@ def _normalize_messages(history: list[Any]) -> list[str]:
         category="conversational_search",
     )
 )
-class QueryRewriteNode(TaskNode):
-    """Rewrite queries using conversation history and simple heuristics."""
+class QueryRewriteNode(AgentNode):
+    """Rewrite queries using conversation history and an AI model."""
+
+    system_prompt: str | TextTensor | None = (
+        "You are a query rewriter for a conversational search system. "
+        "Given the conversation context and the current user query, rewrite "
+        "the query to be self-contained by resolving any coreferences, ellipses, "
+        "or implicit references to prior conversation. Output only the rewritten "
+        "query with no explanation."
+    )
 
     query_key: str = Field(
         default="message",
@@ -52,23 +61,8 @@ class QueryRewriteNode(TaskNode):
         default=3, description="Number of prior messages to consider."
     )
 
-    pronouns: set[str] = Field(
-        default_factory=lambda: {
-            "it",
-            "they",
-            "them",
-            "this",
-            "that",
-            "these",
-            "those",
-            "he",
-            "she",
-        },
-        description="Pronouns that trigger contextual rewriting.",
-    )
-
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Rewrite queries using recent history when pronouns are detected."""
+        """Rewrite queries using an AI model with recent conversation history."""
         inputs = state.get("inputs", {})
         query = (
             inputs.get(self.query_key)
@@ -87,22 +81,34 @@ class QueryRewriteNode(TaskNode):
 
         messages = _normalize_messages(history)[-int(self.max_history_messages) :]
         context = " ".join(messages)
-        needs_rewrite = self._contains_pronoun(query) and bool(context)
 
-        rewritten = query.strip()
-        if needs_rewrite:
-            rewritten = f"{rewritten}. Context: {context}".strip()
+        if not context:
+            return {
+                "original_query": query,
+                "query": query.strip(),
+                "used_history": False,
+                "context": "",
+            }
+
+        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        prompt = self._system_prompt_text
+        llm_messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(
+                content=(f"Conversation context: {context}\n\nCurrent query: {query}")
+            ),
+        ]
+        response = await model.ainvoke(llm_messages)  # type: ignore[arg-type]
+        rewritten = str(getattr(response, "content", response)).strip()
+        if not rewritten:
+            rewritten = query.strip()
 
         return {
             "original_query": query,
             "query": rewritten,
-            "used_history": needs_rewrite,
+            "used_history": True,
             "context": context,
         }
-
-    def _contains_pronoun(self, query: str) -> bool:
-        tokens = re.findall(r"\b\w+\b", query.lower())
-        return any(token in self.pronouns for token in tokens)
 
 
 @registry.register(

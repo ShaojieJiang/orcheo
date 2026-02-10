@@ -120,7 +120,9 @@ async def orcheo_workflow() -> StateGraph:
     )
     classifier = QueryClassifierNode(name="query_classifier")
     coref = CoreferenceResolverNode(name="coreference_resolver")
-    own_query_rewrite = QueryRewriteNode(name="query_rewrite")
+    own_query_rewrite = QueryRewriteNode(
+        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+    )
     coref_sync = ResultToInputsNode(
         name="coreference_result_to_inputs",
         source_result_key=coref.name,

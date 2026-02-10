@@ -1,0 +1,17 @@
+{
+  "recursion_limit": 100,
+  "tags": ["evaluation", "multidoc2dial"],
+  "configurable": {
+    "md2d": {
+      "data_path": "examples/evaluation/data/md2d_validation.json",
+      "max_conversations": 2
+    },
+    "retrieval": {
+      "embedding_method": "embedding:openai:text-embedding-3-small",
+      "top_k": 4
+    },
+    "generation": {
+      "model": "openai:gpt-4o-mini"
+    }
+  }
+}

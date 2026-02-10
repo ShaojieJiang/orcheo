@@ -1,0 +1,17 @@
+{
+  "recursion_limit": 100,
+  "tags": ["evaluation", "qrecc"],
+  "configurable": {
+    "qrecc": {
+      "data_path": "examples/evaluation/data/qrecc_test.json",
+      "max_conversations": 2
+    },
+    "rewrite": {
+      "model": "openai:gpt-4o-mini"
+    },
+    "similarity": {
+      "model": "text-embedding-3-small",
+      "dimensions": 512
+    }
+  }
+}

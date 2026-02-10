@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** ShaojieJiang
 - **Date:** 2026-02-09
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -52,7 +52,7 @@ src/orcheo/nodes/evaluation/
 
 - **MultiDoc2DialDatasetNode** (`evaluation/datasets.py`) — Extends DatasetNode to parse MultiDoc2Dial conversation files and grounding span annotations. Extracts gold responses and grounding spans. Loads MultiDoc2Dial data from Hugging Face.
 
-- **ConversationalBatchEvalNode** (`evaluation/batch.py`) — Iterates conversations and turns through a configurable pipeline sub-graph. Maintains conversation history across turns, collects per-turn predictions alongside gold labels. Follows the VariantRetrievalNode / BatchGenerationNode pattern from demo_6. Requires an upstream dataset and pipeline nodes configured via workflow.
+- **ConversationalBatchEvalNode** (`evaluation/batch.py`) — Iterates conversations and turns through a configurable `StateGraph` pipeline sub-graph. Maintains conversation history across turns, collects per-turn predictions alongside gold labels, compiles the sub-graph once, and reuses the compiled runnable across turns. Requires an upstream dataset and a per-turn pipeline graph configured via workflow.
 
 - **RougeMetricsNode** (`evaluation/metrics.py`) — Computes configurable ROUGE scores (`rouge-score`) between predicted and reference texts. Supports any ROUGE variant (`rouge1`, `rouge2`, `rougeL`, `rougeLsum`) and measure (`precision`, `recall`, `fmeasure`) via node attributes. Aggregates into per-item and corpus-level summaries. Task-agnostic: works on any `(predicted, reference)` text pairs.
 
@@ -70,14 +70,14 @@ src/orcheo/nodes/evaluation/
   - Requires: MultiDoc2Dial documents, embedding model, vector store
 
 - **QReCC Evaluation**
-  - QReCCDatasetNode → ConversationalBatchEvalNode(pipeline=QueryRewriteNode) → [RougeMetricsNode(variant=rouge1, measure=recall), SemanticSimilarityMetricsNode] → AnalyticsExportNode
+  - QReCCDatasetNode → ConversationalBatchEvalNode(pipeline=`StateGraph(rewrite)`) → [RougeMetricsNode(variant=rouge1, measure=recall), SemanticSimilarityMetricsNode] → AnalyticsExportNode
   - End-to-end rewriting evaluation in a single invocation
   - Metric nodes run in parallel branches and results are merged by AnalyticsExportNode
   - QueryRewriteNode is LLM-powered and handles coreference resolution
   - Configurable: rewrite model, similarity model, max conversations
 
 - **MultiDoc2Dial Evaluation**
-  - MultiDoc2DialDatasetNode → ConversationalBatchEvalNode(pipeline=QueryRewriteNode → DenseSearchNode → ContextCompressorNode → GroundedGeneratorNode) → [TokenF1MetricsNode, BleuMetricsNode, RougeMetricsNode(variant=rougeL)] → AnalyticsExportNode
+  - MultiDoc2DialDatasetNode → ConversationalBatchEvalNode(pipeline=`StateGraph(rewrite → search → compress → generate)`) → [TokenF1MetricsNode, BleuMetricsNode, RougeMetricsNode(variant=rougeL)] → AnalyticsExportNode
   - End-to-end generation evaluation in a single invocation
   - Metric nodes run in parallel branches and results are merged by AnalyticsExportNode
   - Accepts custom pipeline configs for comparing alternative pipeline configurations
@@ -114,7 +114,7 @@ src/orcheo/nodes/evaluation/
 2. MultiDoc2DialDatasetNode loads and parses conversations with gold responses
 3. ConversationalBatchEvalNode iterates conversations and turns:
    a. For each conversation, initializes empty history
-   b. For each turn, feeds query and history through the pipeline (QueryRewriteNode → DenseSearchNode → ContextCompressorNode → GroundedGeneratorNode)
+   b. For each turn, feeds query and history through the compiled pipeline graph (rewrite → search → compress → generate)
    c. Collects generated response and pairs with gold response
    d. Updates conversation history with the turn
 4. Metric nodes run in parallel:
@@ -277,23 +277,23 @@ class GroundingSpan(BaseModel):
 ```bash
 # QReCC evaluation (local server, default)
 orcheo workflow upload examples/evaluation/qrecc_eval.py --config-file config.json
-orcheo workflow run qrecc_eval
+orcheo workflow run <workflow-id>
 
 # QReCC evaluation (remote server)
 orcheo workflow upload examples/evaluation/qrecc_eval.py --config-file config.json --server https://orcheo.example.com
-orcheo workflow run qrecc_eval --server https://orcheo.example.com
+orcheo workflow run <workflow-id> --server https://orcheo.example.com
 
 # MultiDoc2Dial corpus indexing (local server, default)
 orcheo workflow upload examples/evaluation/md2d_indexing.py --config-file config.json
-orcheo workflow run md2d_indexing
+orcheo workflow run <workflow-id>
 
 # MultiDoc2Dial evaluation (local server, default)
 orcheo workflow upload examples/evaluation/md2d_eval.py --config-file config.json
-orcheo workflow run md2d_eval
+orcheo workflow run <workflow-id>
 
 # MultiDoc2Dial evaluation (remote server)
 orcheo workflow upload examples/evaluation/md2d_eval.py --config-file config.json --server https://orcheo.example.com
-orcheo workflow run md2d_eval --server https://orcheo.example.com
+orcheo workflow run <workflow-id> --server https://orcheo.example.com
 ```
 
 ### Metric Output Schema
