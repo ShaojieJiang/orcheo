@@ -18,24 +18,17 @@ from orcheo.nodes.conversational_search.embedding_registry import (
     PINECONE_BM25_DEFAULT,
 )
 from orcheo.nodes.conversational_search.embeddings import (
+    DenseEmbeddingSpec,
+    SparseEmbeddingSpec,
+    dense_embed_documents,
+    dense_embed_query,
+    init_dense_embeddings,
+    init_sparse_embeddings,
     register_langchain_embedding,
     register_pinecone_bm25_embedding,
     register_pinecone_splade_embedding,
-)
-from orcheo.nodes.conversational_search.evaluation import (  # pragma: no cover
-    ABTestingNode,
-    AnalyticsExportNode,
-    AnswerQualityEvaluationNode,
-    DataAugmentationNode,
-    DatasetNode,
-    FailureAnalysisNode,
-    FeedbackIngestionNode,
-    LLMJudgeNode,
-    MemoryPrivacyNode,
-    PolicyComplianceNode,
-    RetrievalEvaluationNode,
-    TurnAnnotationNode,
-    UserFeedbackCollectionNode,
+    sparse_embed_documents,
+    sparse_embed_query,
 )
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
@@ -77,6 +70,21 @@ from orcheo.nodes.conversational_search.vector_store import (
     InMemoryVectorStore,
     PineconeVectorStore,
 )
+from orcheo.nodes.evaluation import (  # pragma: no cover
+    ABTestingNode,
+    AnalyticsExportNode,
+    AnswerQualityEvaluationNode,
+    DataAugmentationNode,
+    DatasetNode,
+    FailureAnalysisNode,
+    FeedbackIngestionNode,
+    LLMJudgeNode,
+    MemoryPrivacyNode,
+    PolicyComplianceNode,
+    RetrievalEvaluationNode,
+    TurnAnnotationNode,
+    UserFeedbackCollectionNode,
+)
 
 
 __all__ = [
@@ -102,9 +110,17 @@ __all__ = [
     "FailureAnalysisNode",
     "FeedbackIngestionNode",
     "GroundedGeneratorNode",
+    "DenseEmbeddingSpec",
+    "SparseEmbeddingSpec",
+    "dense_embed_documents",
+    "dense_embed_query",
+    "init_dense_embeddings",
+    "init_sparse_embeddings",
     "register_langchain_embedding",
     "register_pinecone_bm25_embedding",
     "register_pinecone_splade_embedding",
+    "sparse_embed_documents",
+    "sparse_embed_query",
     "OPENAI_TEXT_EMBEDDING_3_SMALL",
     "PINECONE_BM25_DEFAULT",
     "HallucinationGuardNode",

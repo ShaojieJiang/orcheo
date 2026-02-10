@@ -6,20 +6,12 @@ import math
 import os
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.conversational_search.ingestion import (
-    EMBEDDING_PAYLOAD_ERROR,
-    EmbeddingVector,
-    _temporary_env_vars,
-    normalize_embedding_output,
-    require_dense_embeddings,
-    resolve_embedding_method,
-)
 from orcheo.nodes.conversational_search.models import (
     DocumentChunk,
     SearchResult,
@@ -30,6 +22,10 @@ from orcheo.nodes.conversational_search.vector_store import (
 )
 from orcheo.nodes.data.utils import _extract_value
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard
+    from orcheo.nodes.conversational_search.ingestion import EmbeddingVector
 
 
 @registry.register(
@@ -50,9 +46,15 @@ class DenseSearchNode(TaskNode):
         default_factory=InMemoryVectorStore,
         description="Vector store adapter that will be queried.",
     )
-    embedding_method: str = Field(
+    embed_model: str = Field(
         ...,
-        description="Named embedding method used to transform the query.",
+        description=(
+            "Dense embedding model identifier, e.g. openai:text-embedding-3-small"
+        ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments forwarded to init_embeddings.",
     )
     top_k: int | str = Field(
         default=5, description="Maximum number of results to return"
@@ -68,10 +70,6 @@ class DenseSearchNode(TaskNode):
     source_name: str = Field(
         default="dense",
         description="Label used to annotate the originating retriever.",
-    )
-    credential_env_vars: dict[str, str | None] = Field(
-        default_factory=dict,
-        description="Environment variables applied during embedding execution.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -90,12 +88,12 @@ class DenseSearchNode(TaskNode):
         top_k = int(self.top_k)
         score_threshold = float(self.score_threshold)
 
-        embeddings = await self._embed([query])
+        query_vector = await self._embed_query(query)
         filter_meta = (
             self.filter_metadata if isinstance(self.filter_metadata, dict) else None
         )
         results = await self.vector_store.search(
-            query=embeddings[0],
+            query=query_vector,
             top_k=top_k,
             filter_metadata=filter_meta,
         )
@@ -115,21 +113,13 @@ class DenseSearchNode(TaskNode):
 
         return {"results": normalized}
 
-    async def _embed(self, texts: list[str]) -> list[list[float]]:
-        embedder = resolve_embedding_method(self.embedding_method)
-        with _temporary_env_vars(self.credential_env_vars):
-            output = embedder(texts)
-            if inspect.isawaitable(output):
-                output = await output  # type: ignore[assignment]
-        try:
-            vectors = normalize_embedding_output(output)
-        except ValueError as exc:
-            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
-        try:
-            return require_dense_embeddings(vectors)
-        except ValueError as exc:
-            msg = "Dense embeddings must include dense vector values"
-            raise ValueError(msg) from exc
+    async def _embed_query(self, text: str) -> list[float]:
+        from orcheo.nodes.conversational_search.embeddings import (
+            init_dense_embeddings,
+        )
+
+        model = init_dense_embeddings(self.embed_model, self.model_kwargs)
+        return await model.aembed_query(text)
 
 
 @registry.register(
@@ -164,9 +154,27 @@ class SparseSearchNode(TaskNode):
     source_name: str = Field(
         default="sparse", description="Label for the sparse retriever."
     )
-    embedding_method: str = Field(
-        ...,
-        description="Named embedding method used when querying a vector store.",
+    embed_model: str = Field(
+        default="",
+        description=(
+            "Dense embedding model used when querying a vector store for "
+            "candidate chunks. Required when vector_store is set."
+        ),
+    )
+    model_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments forwarded to init_embeddings.",
+    )
+    sparse_model: str | None = Field(
+        default=None,
+        description=(
+            "Sparse embedding model identifier, e.g. pinecone:bm25. "
+            "When set, uses external sparse encoder instead of built-in BM25."
+        ),
+    )
+    sparse_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional sparse-model kwargs passed to sparse initializer.",
     )
     vector_store: BaseVectorStore | None = Field(
         default=None,
@@ -175,10 +183,6 @@ class SparseSearchNode(TaskNode):
     vector_store_candidate_k: int | str = Field(
         default=50,
         description="Number of candidates to fetch from the vector store.",
-    )
-    credential_env_vars: dict[str, str | None] = Field(
-        default_factory=dict,
-        description="Environment variables applied during embedding execution.",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -234,9 +238,10 @@ class SparseSearchNode(TaskNode):
         """Retrieve candidate chunks from the vector store using the query embedding."""
         if self.vector_store is None:
             return []
-        embeddings = await self._embed([query])
+
+        query_vector = await self._build_vector_store_query(query)
         results = await self.vector_store.search(
-            query=embeddings[0],
+            query=query_vector,
             top_k=int(self.vector_store_candidate_k),
         )
         chunks: list[DocumentChunk] = []
@@ -270,17 +275,46 @@ class SparseSearchNode(TaskNode):
             )
         return chunks
 
-    async def _embed(self, texts: list[str]) -> list[EmbeddingVector]:
-        embedder = resolve_embedding_method(self.embedding_method)
-        with _temporary_env_vars(self.credential_env_vars):
-            output = embedder(texts)
-            if inspect.isawaitable(output):
-                output = await output  # type: ignore[assignment]
-        try:
-            vectors = normalize_embedding_output(output)
-        except ValueError as exc:
-            raise ValueError(EMBEDDING_PAYLOAD_ERROR) from exc
-        return vectors
+    async def _build_vector_store_query(
+        self, query: str
+    ) -> list[float] | EmbeddingVector:
+        """Build sparse or dense query payload for candidate retrieval."""
+        from orcheo.nodes.conversational_search.embeddings import (
+            init_dense_embeddings,
+            init_sparse_embeddings,
+            sparse_embed_query,
+        )
+
+        if self.sparse_model:
+            from orcheo.nodes.conversational_search.ingestion import EmbeddingVector
+
+            self._validate_sparse_query_configuration()
+            encoder = init_sparse_embeddings(self.sparse_model, self.sparse_kwargs)
+            sparse_query = sparse_embed_query(encoder, query)
+            return EmbeddingVector(values=[], sparse_values=sparse_query)
+
+        if not self.embed_model:
+            msg = (
+                "SparseSearchNode requires embed_model when vector_store is set "
+                "and sparse_model is not configured"
+            )
+            raise ValueError(msg)
+
+        model = init_dense_embeddings(self.embed_model, self.model_kwargs)
+        return await model.aembed_query(query)
+
+    def _validate_sparse_query_configuration(self) -> None:
+        """Validate sparse query encoder settings for vector-store retrieval."""
+        if self.sparse_model not in {"pinecone:bm25", "pinecone:bm25-default"}:
+            return
+        if self.sparse_kwargs.get("encoder_state_path"):
+            return
+        msg = (
+            "SparseSearchNode with sparse_model='pinecone:bm25' requires "
+            "sparse_kwargs['encoder_state_path'] so query encoding uses a "
+            "pre-fitted BM25 encoder."
+        )
+        raise ValueError(msg)
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
         results = state.get("results", {})

@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.conversational_search import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
     SearchResultAdapterNode,
     SearchResultFormatterNode,
     TextEmbeddingNode,
@@ -32,10 +31,13 @@ def build_hybrid_search_tool_graph() -> StateGraph:
         TextEmbeddingNode(
             name="query_embedding",
             input_key="query",
-            embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
+            embed_model="{{config.configurable.embed_model}}",
+            model_kwargs={
+                "api_key": "[[openai_api_key]]",
+                "dimensions": "{{config.configurable.dimensions}}",
+            },
             dense_output_key="vector",
             unwrap_single=True,
-            credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
         ),
     )
     graph.add_node(

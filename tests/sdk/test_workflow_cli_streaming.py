@@ -62,11 +62,13 @@ async def test_stream_workflow_run_includes_additional_headers(
         *,
         open_timeout: float,
         close_timeout: float,
+        max_size: int | None,
         additional_headers: dict[str, str] | None = None,
     ) -> DummyConnection:
         assert uri.endswith("/ws/workflow/wf-1")
         assert open_timeout == 5
         assert close_timeout == 5
+        assert max_size is None
         assert additional_headers == {"Authorization": "Bearer token"}
         return connection
 
@@ -111,12 +113,14 @@ async def test_stream_workflow_run_falls_back_to_extra_headers(
         *,
         open_timeout: float,
         close_timeout: float,
+        max_size: int | None,
         additional_headers: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> DummyConnection:
         assert uri.endswith("/ws/workflow/wf-1")
         assert open_timeout == 5
         assert close_timeout == 5
+        assert max_size is None
         if additional_headers is not None:
             raise TypeError("unexpected keyword argument 'additional_headers'")
         assert extra_headers == {"Authorization": "Bearer token"}
@@ -164,10 +168,12 @@ async def test_stream_workflow_run_without_headers(
         *,
         open_timeout: float,
         close_timeout: float,
+        max_size: int | None,
     ) -> DummyConnection:
         assert uri.endswith("/ws/workflow/wf-1")
         assert open_timeout == 5
         assert close_timeout == 5
+        assert max_size is None
         return connection
 
     fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
@@ -239,6 +245,55 @@ async def test_stream_workflow_run_succeeds(
     assert payload["triggered_by"] == "cli-actor"
     assert payload["runnable_config"] == {"priority": "high"}
     assert payload["stored_runnable_config"] == {"tags": ["stored"]}
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_run_machine_verbose_emits_start_json(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state(verbose_results=True)
+    state.human = False
+    emitted: list[dict[str, Any]] = []
+
+    class DummyConnection:
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, _: str) -> None:
+            return None
+
+    connection = DummyConnection()
+
+    def fake_connect(*_: Any, **__: Any) -> DummyConnection:
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    async def fake_process(_: CLIState, __: Any) -> str:
+        return "completed"
+
+    def fake_print_json(data: Any) -> None:
+        assert isinstance(data, dict)
+        emitted.append(data)
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+    monkeypatch.setattr("orcheo_sdk.cli.workflow.streaming.print_json", fake_print_json)
+
+    result = await _stream_workflow_run(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+    )
+    assert result == "completed"
+    assert emitted[0]["event"] == "workflow.execution.start"
+    assert emitted[0]["workflow_id"] == "wf-1"
+    assert not state.console.messages
 
 
 @pytest.mark.asyncio()
@@ -397,6 +452,56 @@ async def test_stream_workflow_evaluation_succeeds(
     assert payload["evaluation"] == {"name": "agent"}
     assert payload["runnable_config"] == {"priority": "high"}
     assert payload["stored_runnable_config"] == {"tags": ["stored"]}
+
+
+@pytest.mark.asyncio()
+async def test_stream_workflow_evaluation_machine_verbose_emits_start_json(
+    fake_websockets: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = make_state(verbose_results=True)
+    state.human = False
+    emitted: list[dict[str, Any]] = []
+
+    class DummyConnection:
+        async def __aenter__(self) -> DummyConnection:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def send(self, _: str) -> None:
+            return None
+
+    connection = DummyConnection()
+
+    def fake_connect(*_: Any, **__: Any) -> DummyConnection:
+        return connection
+
+    fake_websockets.connect = fake_connect  # type: ignore[attr-defined]
+
+    async def fake_process(_: CLIState, __: Any) -> str:
+        return "completed"
+
+    def fake_print_json(data: Any) -> None:
+        assert isinstance(data, dict)
+        emitted.append(data)
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._process_stream_messages", fake_process
+    )
+    monkeypatch.setattr("orcheo_sdk.cli.workflow.streaming.print_json", fake_print_json)
+
+    result = await workflow_module._stream_workflow_evaluation(
+        state,
+        "wf-1",
+        {"nodes": []},
+        {"input": "value"},
+        {"name": "agent"},
+    )
+    assert result == "completed"
+    assert emitted[0]["event"] == "workflow.evaluation.start"
+    assert emitted[0]["workflow_id"] == "wf-1"
+    assert not state.console.messages
 
 
 @pytest.mark.asyncio()

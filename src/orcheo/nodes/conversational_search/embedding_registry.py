@@ -1,9 +1,7 @@
-"""Global embedding registrations and identifiers for conversational search."""
+"""Global embedding identifiers for conversational search."""
 
 from __future__ import annotations
-from collections.abc import Callable
 from typing import Final
-from langchain_openai import OpenAIEmbeddings
 from orcheo.nodes.conversational_search.embeddings import (
     register_langchain_embedding,
     register_pinecone_bm25_embedding,
@@ -11,18 +9,22 @@ from orcheo.nodes.conversational_search.embeddings import (
 from orcheo.nodes.conversational_search.ingestion import resolve_embedding_method
 
 
-OPENAI_TEXT_EMBEDDING_3_SMALL: Final[str] = "embedding:openai:text-embedding-3-small"
-PINECONE_BM25_DEFAULT: Final[str] = "embedding:pinecone:bm25-default"
+# Unified dense model identifiers (compatible with langchain init_embeddings)
+OPENAI_TEXT_EMBEDDING_3_SMALL: Final[str] = "openai:text-embedding-3-small"
+PINECONE_BM25_DEFAULT: Final[str] = "pinecone:bm25"
 
 
-def _safe_register(name: str, register_fn: Callable[[], object]) -> None:
+def _safe_register(name: str, register_fn: object) -> None:
     try:
         resolve_embedding_method(name)
     except ValueError:
-        register_fn()
+        if callable(register_fn):
+            register_fn()
 
 
 def _register_defaults() -> None:
+    from langchain_openai import OpenAIEmbeddings
+
     _safe_register(
         OPENAI_TEXT_EMBEDDING_3_SMALL,
         lambda: register_langchain_embedding(

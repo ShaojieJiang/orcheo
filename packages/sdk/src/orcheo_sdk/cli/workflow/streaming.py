@@ -3,7 +3,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
-from orcheo_sdk.cli.output import render_json
+from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services import get_latest_workflow_version_data
 
@@ -25,7 +25,12 @@ def _connect_websocket(
     headers: dict[str, str] | None,
 ) -> Any:
     """Connect to the workflow websocket with compatible header arguments."""
-    kwargs = {"open_timeout": open_timeout, "close_timeout": close_timeout}
+    kwargs = {
+        "open_timeout": open_timeout,
+        "close_timeout": close_timeout,
+        # Workflow nodes can emit payloads above 1 MiB; disable client-side frame limit.
+        "max_size": None,
+    }
     if not headers:
         return websockets.connect(websocket_url, **kwargs)
     try:
@@ -77,8 +82,17 @@ async def _stream_workflow_run(
     if stored_runnable_config is not None:
         payload["stored_runnable_config"] = stored_runnable_config
 
-    state.console.print("[cyan]Starting workflow execution...[/cyan]")
-    state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
+    if state.verbose_results and not state.human:
+        print_json(
+            {
+                "event": "workflow.execution.start",
+                "execution_id": execution_id,
+                "workflow_id": workflow_id,
+            }
+        )
+    else:
+        state.console.print("[cyan]Starting workflow execution...[/cyan]")
+        state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
 
     try:
         headers = _resolve_ws_headers(state)
@@ -157,8 +171,17 @@ async def _stream_workflow_evaluation(
     if stored_runnable_config is not None:
         payload["stored_runnable_config"] = stored_runnable_config
 
-    state.console.print("[cyan]Starting workflow evaluation...[/cyan]")
-    state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
+    if state.verbose_results and not state.human:
+        print_json(
+            {
+                "event": "workflow.evaluation.start",
+                "execution_id": execution_id,
+                "workflow_id": workflow_id,
+            }
+        )
+    else:
+        state.console.print("[cyan]Starting workflow evaluation...[/cyan]")
+        state.console.print(f"[dim]Execution ID: {execution_id}[/dim]\n")
 
     try:
         headers = _resolve_ws_headers(state)
@@ -228,6 +251,12 @@ async def _process_stream_messages(state: CLIState, websocket: Any) -> str:
 
     async for message in websocket:
         update = json.loads(message)
+        if state.verbose_results and not state.human:
+            print_json(update)
+            status = update.get("status")
+            if status in {"error", "cancelled", "completed"}:
+                return str(status)
+            continue
         message_type = update.get("type")
         if message_type == "trace:update":
             handle_trace_update(state, update)
