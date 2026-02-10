@@ -144,6 +144,45 @@ async def test_process_stream_messages_handles_generic_updates() -> None:
     assert any("document_loader" in msg for msg in state.console.messages)
 
 
+@pytest.mark.asyncio()
+async def test_process_stream_messages_machine_verbose_prints_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = make_state(verbose_results=True)
+    state.human = False
+    captured: list[dict[str, Any]] = []
+
+    def fake_print_json(data: Any) -> None:
+        assert isinstance(data, dict)
+        captured.append(data)
+
+    monkeypatch.setattr("orcheo_sdk.cli.workflow.streaming.print_json", fake_print_json)
+
+    messages = [
+        json.dumps({"type": "trace:update", "spans": [{"name": "loader"}]}),
+        json.dumps({"node": "loader", "event": "on_chain_end", "payload": {"ok": 1}}),
+        json.dumps({"status": "completed"}),
+    ]
+
+    class FakeWebSocket:
+        def __init__(self, payloads: list[str]) -> None:
+            self._payloads = iter(payloads)
+
+        def __aiter__(self) -> FakeWebSocket:
+            return self
+
+        async def __anext__(self) -> str:
+            try:
+                return next(self._payloads)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    result = await _process_stream_messages(state, FakeWebSocket(messages))
+    assert result == "completed"
+    assert [entry.get("status") for entry in captured][-1] == "completed"
+    assert not state.console.messages
+
+
 @pytest.mark.parametrize(
     ("status", "expected", "fragment"),
     [

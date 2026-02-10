@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.conversational_search.models import Document
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -276,7 +277,7 @@ class DatasetNode(TaskNode):
             raise ValueError(msg)
         if self._is_url(path):
             async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-                response = await client.get(path)
+                response = await client.get(path, follow_redirects=True)
                 response.raise_for_status()
                 return response.json()
         with Path(path).open("r", encoding="utf-8") as file:
@@ -295,6 +296,190 @@ class DatasetNode(TaskNode):
                 {"id": path.name, "content": content.strip(), "source": path.name}
             )
         return corpus
+
+
+@registry.register(
+    NodeMetadata(
+        name="MultiDoc2DialCorpusLoaderNode",
+        description=(
+            "Load MultiDoc2Dial corpus documents from a local path or URL and "
+            "normalize them for indexing."
+        ),
+        category="evaluation",
+    )
+)
+class MultiDoc2DialCorpusLoaderNode(TaskNode):
+    """Load MultiDoc2Dial document corpus into conversational-search documents."""
+
+    input_key: str = Field(
+        default="md2d_corpus",
+        description="Key within ``state.inputs`` containing the corpus JSON payload.",
+    )
+    output_key: str = Field(
+        default="documents",
+        description=(
+            "Key within ``state.inputs`` where normalized documents are stored."
+        ),
+    )
+    corpus_path: str | None = Field(
+        default=None,
+        description="Path or URL to ``doc2dial_doc.json``.",
+    )
+    max_documents: int | str | None = Field(
+        default=None,
+        description="Limit the number of corpus documents to load for indexing.",
+    )
+    http_timeout: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Timeout in seconds for URL-based corpus loading.",
+    )
+
+    @field_validator("max_documents", mode="before")
+    @classmethod
+    def _validate_max_documents(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_documents must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_documents(self) -> int | None:
+        value = self.max_documents
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_documents must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_documents must be >= 1"
+            raise ValueError(msg)
+        return value
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Load corpus JSON and emit normalized document payloads."""
+        del config
+        inputs = state.get("inputs") or {}
+        state["inputs"] = inputs
+
+        raw_corpus = inputs.get(self.input_key)
+        if raw_corpus is None:
+            if self.corpus_path is None:
+                msg = (
+                    "MultiDoc2DialCorpusLoaderNode requires state.inputs "
+                    f"'{self.input_key}' or 'corpus_path'."
+                )
+                raise ValueError(msg)
+            raw_corpus = await self._load_json(self.corpus_path)
+
+        documents = self._parse_corpus(raw_corpus, self.corpus_path)
+        max_documents = self._resolve_max_documents()
+        if max_documents is not None:
+            documents = documents[:max_documents]
+        serialized_documents = [document.model_dump() for document in documents]
+        inputs[self.output_key] = serialized_documents
+        return {
+            "documents": serialized_documents,
+            "count": len(serialized_documents),
+        }
+
+    async def _load_json(self, path: str) -> Any:
+        if self._is_url(path):
+            async with httpx.AsyncClient(timeout=self.http_timeout) as client:
+                response = await client.get(path, follow_redirects=True)
+                response.raise_for_status()
+                return response.json()
+        with Path(path).open("r", encoding="utf-8") as file:
+            return json.load(file)
+
+    def _parse_corpus(
+        self,
+        payload: Any,
+        source_hint: str | None,
+    ) -> list[Document]:
+        if not isinstance(payload, dict):
+            msg = "MultiDoc2Dial corpus payload must be a mapping"
+            raise ValueError(msg)
+        doc_data = payload.get("doc_data")
+        if not isinstance(doc_data, dict):
+            msg = "MultiDoc2Dial corpus payload must include a 'doc_data' mapping"
+            raise ValueError(msg)
+
+        documents = [
+            document
+            for domain, fallback_doc_id, raw_doc in self._iter_raw_documents(doc_data)
+            if (
+                document := self._build_document(
+                    domain=domain,
+                    fallback_doc_id=fallback_doc_id,
+                    raw_doc=raw_doc,
+                    source_hint=source_hint,
+                )
+            )
+            is not None
+        ]
+
+        if not documents:
+            msg = "MultiDoc2Dial corpus did not contain any indexable documents"
+            raise ValueError(msg)
+        return documents
+
+    def _build_source(self, source_hint: str | None, document_id: str) -> str:
+        source = source_hint or "multidoc2dial"
+        return f"{source}#doc_id={document_id}"
+
+    def _is_url(self, path: str) -> bool:
+        return path.startswith(("http://", "https://"))
+
+    def _iter_raw_documents(
+        self, doc_data: dict[str, Any]
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        entries: list[tuple[str, str, dict[str, Any]]] = []
+        for domain, docs in doc_data.items():
+            if not isinstance(docs, dict):
+                continue
+            for fallback_doc_id, raw_doc in docs.items():
+                if not isinstance(raw_doc, dict):
+                    continue
+                entries.append((str(domain), str(fallback_doc_id), raw_doc))
+        return entries
+
+    def _build_document(
+        self,
+        domain: str,
+        fallback_doc_id: str,
+        raw_doc: dict[str, Any],
+        source_hint: str | None,
+    ) -> Document | None:
+        document_id = str(raw_doc.get("doc_id") or fallback_doc_id).strip()
+        if not document_id:
+            return None
+        content = str(raw_doc.get("doc_text", "")).strip()
+        if not content:
+            return None
+
+        title = str(raw_doc.get("title", "")).strip()
+        metadata: dict[str, Any] = {"domain": str(raw_doc.get("domain") or domain)}
+        if title:
+            metadata["title"] = title
+        if isinstance(raw_doc.get("spans"), dict):
+            metadata["span_count"] = len(raw_doc["spans"])
+
+        return Document(
+            id=document_id,
+            content=content,
+            metadata=metadata,
+            source=self._build_source(source_hint, document_id),
+        )
 
 
 # --- Data Models ---
@@ -360,11 +545,40 @@ class QReCCDatasetNode(DatasetNode):
         default=None,
         description="Path or URL to QReCC JSON data file",
     )
-    max_conversations: int | None = Field(
+    max_conversations: int | str | None = Field(
         default=None,
-        ge=1,
         description="Limit conversations to load",
     )
+
+    @field_validator("max_conversations", mode="before")
+    @classmethod
+    def _validate_max_conversations(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_conversations(self) -> int | None:
+        value = self.max_conversations
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_conversations must be >= 1"
+            raise ValueError(msg)
+        return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse QReCC data and return structured conversations."""
@@ -381,8 +595,9 @@ class QReCCDatasetNode(DatasetNode):
             raise ValueError(msg)
 
         conversations = self._parse_conversations(raw_data)
-        if self.max_conversations is not None:
-            conversations = conversations[: self.max_conversations]
+        max_conversations = self._resolve_max_conversations()
+        if max_conversations is not None:
+            conversations = conversations[:max_conversations]
 
         conv_dicts = [conv.model_dump() for conv in conversations]
         total_turns = sum(len(c.turns) for c in conversations)
@@ -410,9 +625,11 @@ class QReCCDatasetNode(DatasetNode):
             turn = QreccTurn(
                 turn_id=turn_id,
                 raw_question=str(record.get("Question", "")),
-                gold_rewrite=str(record.get("Rewrite", "")),
+                gold_rewrite=str(
+                    record.get("Rewrite", record.get("Truth_rewrite", ""))
+                ),
                 context=[str(c) for c in context],
-                gold_answer=str(record.get("Answer", "")),
+                gold_answer=str(record.get("Answer", record.get("Truth_answer", ""))),
             )
 
             conv_map.setdefault(conv_id, []).append(turn)
@@ -448,11 +665,40 @@ class MultiDoc2DialDatasetNode(DatasetNode):
         default=None,
         description="Path or URL to MultiDoc2Dial JSON data file",
     )
-    max_conversations: int | None = Field(
+    max_conversations: int | str | None = Field(
         default=None,
-        ge=1,
         description="Limit conversations to load",
     )
+
+    @field_validator("max_conversations", mode="before")
+    @classmethod
+    def _validate_max_conversations(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if "{{" in value and "}}" in value:
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    def _resolve_max_conversations(self) -> int | None:
+        value = self.max_conversations
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_conversations must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_conversations must be >= 1"
+            raise ValueError(msg)
+        return value
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse MultiDoc2Dial data and return structured conversations."""
@@ -464,13 +710,15 @@ class MultiDoc2DialDatasetNode(DatasetNode):
         if raw_data is None and self.data_path:
             raw_data = await self._load_json(self.data_path)
 
-        if not isinstance(raw_data, list):
+        normalized_data = self._normalize_dataset_payload(raw_data)
+        if normalized_data is None:
             msg = "MultiDoc2DialDatasetNode expects md2d_data list"
             raise ValueError(msg)
 
-        conversations = self._parse_conversations(raw_data)
-        if self.max_conversations is not None:
-            conversations = conversations[: self.max_conversations]
+        conversations = self._parse_conversations(normalized_data)
+        max_conversations = self._resolve_max_conversations()
+        if max_conversations is not None:
+            conversations = conversations[:max_conversations]
 
         conv_dicts = [conv.model_dump() for conv in conversations]
         total_turns = sum(len(c.turns) for c in conversations)
@@ -482,6 +730,147 @@ class MultiDoc2DialDatasetNode(DatasetNode):
             "total_conversations": len(conversations),
             "total_turns": total_turns,
         }
+
+    def _normalize_dataset_payload(self, raw_data: Any) -> list[dict[str, Any]] | None:
+        """Normalize official and pre-processed MultiDoc2Dial payloads."""
+        if isinstance(raw_data, list):
+            return raw_data
+        if not isinstance(raw_data, dict):
+            return None
+
+        dial_data = raw_data.get("dial_data")
+        if not isinstance(dial_data, dict):
+            return None
+
+        return self._flatten_official_dialogs(dial_data)
+
+    def _flatten_official_dialogs(
+        self, dial_data: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Convert official ``dial_data`` mapping into list-based conversations."""
+        normalized: list[dict[str, Any]] = []
+
+        for domain, docs in dial_data.items():
+            if not isinstance(docs, dict):
+                msg = (
+                    "MultiDoc2DialDatasetNode expects 'dial_data' domains to map "
+                    "document IDs to dialog lists; "
+                    f"got {type(docs).__name__} for domain '{domain}'"
+                )
+                raise ValueError(msg)
+            for doc_id, dialogs in docs.items():
+                if not isinstance(dialogs, list):
+                    continue
+                for dialog in dialogs:
+                    if not isinstance(dialog, dict):
+                        continue
+                    conversation_id = str(dialog.get("dial_id", dialog.get("id", "")))
+                    turns = self._normalize_official_turns(
+                        dialog.get("turns", []),
+                        default_doc_id=str(doc_id),
+                    )
+                    normalized.append(
+                        {
+                            "dial_id": conversation_id,
+                            "domain": str(dialog.get("domain", domain)),
+                            "turns": turns,
+                        }
+                    )
+
+        return normalized
+
+    def _normalize_official_turns(
+        self,
+        turns_raw: Any,
+        *,
+        default_doc_id: str,
+    ) -> list[dict[str, Any]]:
+        """Build user-query turns from official alternating user/agent turns."""
+        if not isinstance(turns_raw, list):
+            return []
+
+        normalized_turns: list[dict[str, Any]] = []
+
+        for idx, turn in enumerate(turns_raw):
+            if not isinstance(turn, dict):
+                continue
+            if str(turn.get("role", "")).lower() != "user":
+                continue
+
+            response_turn = self._find_next_agent_turn(turns_raw, idx)
+            references = (
+                response_turn.get("references", [])
+                if isinstance(response_turn, dict)
+                else []
+            )
+            grounding_spans = self._normalize_reference_spans(
+                references,
+                default_doc_id=default_doc_id,
+            )
+
+            normalized_turns.append(
+                {
+                    "turn_id": str(turn.get("turn_id", idx)),
+                    "user_utterance": str(
+                        turn.get("utterance", turn.get("user_utterance", ""))
+                    ),
+                    "response": (
+                        str(response_turn.get("utterance", ""))
+                        if isinstance(response_turn, dict)
+                        else ""
+                    ),
+                    "grounding_spans": grounding_spans,
+                }
+            )
+
+        return normalized_turns
+
+    def _find_next_agent_turn(
+        self, turns_raw: list[Any], user_idx: int
+    ) -> dict[str, Any] | None:
+        """Return the first agent turn after ``user_idx``."""
+        for candidate in turns_raw[user_idx + 1 :]:
+            if not isinstance(candidate, dict):
+                continue
+            if str(candidate.get("role", "")).lower() == "agent":
+                return candidate
+            if str(candidate.get("role", "")).lower() == "user":
+                return None
+        return None
+
+    def _normalize_reference_spans(
+        self,
+        references: Any,
+        *,
+        default_doc_id: str,
+    ) -> list[dict[str, Any]]:
+        """Convert official references into grounding span dictionaries."""
+        if not isinstance(references, list):
+            return []
+
+        spans: list[dict[str, Any]] = []
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            sp_id = str(reference.get("sp_id", "")).strip()
+            label = str(reference.get("label", "")).strip()
+            span_text = f"{label}:{sp_id}" if label and sp_id else sp_id
+            spans.append(
+                {
+                    "doc_id": str(reference.get("doc_id", default_doc_id)),
+                    "span_text": span_text,
+                    "start": self._safe_int(reference.get("start", 0)),
+                    "end": self._safe_int(reference.get("end", 0)),
+                }
+            )
+        return spans
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """Parse ``value`` as int with a stable fallback for noisy payloads."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _parse_conversations(
         self, raw_data: list[dict[str, Any]]

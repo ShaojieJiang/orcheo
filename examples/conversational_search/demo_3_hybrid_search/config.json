@@ -2,11 +2,11 @@
   "configurable": {
     "dense_top_k": 8,
     "dense_similarity_threshold": 0.0,
-    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
+    "dense_embed_model": "openai:text-embedding-3-small",
     "sparse_top_k": 10,
     "sparse_score_threshold": 0.0,
     "sparse_vector_store_candidate_k": 50,
-    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "sparse_model": "pinecone:bm25",
     "web_search_provider": "tavily",
     "web_search_max_results": 5,
     "web_search_search_depth": "advanced",

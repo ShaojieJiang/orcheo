@@ -52,6 +52,12 @@ class InMemoryVectorStore(BaseVectorStore):
         """Perform cosine similarity search over in-memory vectors."""
         if not isinstance(query, list):
             if not query.values:
+                if query.sparse_values is not None:
+                    msg = (
+                        "InMemoryVectorStore only supports dense query vectors "
+                        "for search"
+                    )
+                    raise ValueError(msg)
                 msg = "dense embeddings must include non-empty float values"
                 raise ValueError(msg)
             dense_query = query.values
@@ -70,6 +76,8 @@ class InMemoryVectorStore(BaseVectorStore):
 
         scored: list[SearchResult] = []
         for record in candidates:
+            if not record.values:
+                continue
             score = self._cosine_similarity(dense_query, record.values)
             scored.append(
                 SearchResult(
@@ -126,11 +134,15 @@ class PineconeVectorStore(BaseVectorStore):
         index = self._resolve_index(client)
         payload: list[dict[str, Any]] = []
         for record in records:
+            if not record.values and record.sparse_values is None:
+                msg = "Vector records must include dense values or sparse_values"
+                raise ValueError(msg)
             entry: dict[str, Any] = {
                 "id": record.id,
-                "values": record.values,
                 "metadata": record.metadata | {"text": record.text},
             }
+            if record.values:
+                entry["values"] = record.values
             if record.sparse_values is not None:
                 entry["sparse_values"] = record.sparse_values.model_dump()
             payload.append(entry)

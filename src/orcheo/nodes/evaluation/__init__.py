@@ -11,6 +11,7 @@ from orcheo.nodes.evaluation.compliance import (
 )
 from orcheo.nodes.evaluation.datasets import (
     DatasetNode,
+    MultiDoc2DialCorpusLoaderNode,
     MultiDoc2DialDatasetNode,
     QReCCDatasetNode,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "FeedbackIngestionNode",
     "LLMJudgeNode",
     "MemoryPrivacyNode",
+    "MultiDoc2DialCorpusLoaderNode",
     "MultiDoc2DialDatasetNode",
     "PolicyComplianceNode",
     "QReCCDatasetNode",

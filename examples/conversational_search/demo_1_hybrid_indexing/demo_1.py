@@ -4,8 +4,8 @@ Configurable inputs (config.json):
 - urls: List of web page URLs to scrape and index
 - chunk_size: Maximum characters per chunk
 - chunk_overlap: Overlap between sequential chunks
-- dense_embedding_method: Registered dense embedding method identifier
-- sparse_embedding_method: Registered sparse embedding method identifier
+- dense_embed_model: Dense embedding model identifier
+- sparse_model: Sparse embedding model identifier
 - vector_store_index_dense: Pinecone index name for dense vectors
 - vector_store_index_sparse: Pinecone index name for sparse vectors
 - vector_store_namespace: Pinecone namespace for both stores
@@ -13,10 +13,6 @@ Configurable inputs (config.json):
 
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.conversational_search.embedding_registry import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
-    PINECONE_BM25_DEFAULT,
-)
 from orcheo.nodes.conversational_search.ingestion import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
@@ -52,17 +48,24 @@ async def orcheo_workflow() -> StateGraph:
     chunking = ChunkingStrategyNode(
         name="chunking_strategy",
         source_result_key=metadata_extractor.name,
-        chunk_size=512,
-        chunk_overlap=64,
+        chunk_size="{{config.configurable.chunk_size}}",
+        chunk_overlap="{{config.configurable.chunk_overlap}}",
     )
     chunk_embedder = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key=chunking.name,
-        embedding_methods={
-            "dense": OPENAI_TEXT_EMBEDDING_3_SMALL,
-            "bm25": PINECONE_BM25_DEFAULT,
+        dense_embedding_specs={
+            "dense": {
+                "embed_model": "{{config.configurable.dense_embed_model}}",
+                "model_kwargs": {"api_key": "[[openai_api_key]]"},
+            }
         },
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        sparse_embedding_specs={
+            "bm25": {
+                "sparse_model": "{{config.configurable.sparse_model}}",
+                "sparse_kwargs": {},
+            }
+        },
     )
     dense_vector_upsert = VectorStoreUpsertNode(
         name="vector_upsert_dense",

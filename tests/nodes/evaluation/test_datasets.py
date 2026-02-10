@@ -7,6 +7,7 @@ import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.evaluation.datasets import (
     DatasetNode,
+    MultiDoc2DialCorpusLoaderNode,
     MultiDoc2DialDatasetNode,
     QReCCDatasetNode,
 )
@@ -183,8 +184,9 @@ async def test_dataset_node_loads_json_from_url(
         ) -> None:
             return None
 
-        async def get(self, url: str) -> DummyResponse:
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
             assert url == "https://example.com/data.json"
+            assert follow_redirects is True
             return DummyResponse()
 
     monkeypatch.setattr(
@@ -265,6 +267,38 @@ async def test_qrecc_dataset_node_limits_conversations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_qrecc_dataset_node_supports_truth_field_names() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    state = State(
+        inputs={
+            "qrecc_data": [
+                {
+                    "Conversation_no": 1,
+                    "Turn_no": 1,
+                    "Question": "What is Python?",
+                    "Truth_rewrite": "What is the Python programming language?",
+                    "Context": [],
+                    "Truth_answer": "Python is a programming language.",
+                }
+            ]
+        }
+    )
+    result = await node.run(state, {})
+
+    turns = result["conversations"][0]["turns"]
+    assert turns[0]["gold_rewrite"] == "What is the Python programming language?"
+    assert turns[0]["gold_answer"] == "Python is a programming language."
+
+
+def test_qrecc_dataset_node_allows_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.qrecc.max_conversations}}"
+
+
+@pytest.mark.asyncio
 async def test_qrecc_dataset_node_loads_from_file(tmp_path: Path) -> None:
     data_path = tmp_path / "qrecc.json"
     data_path.write_text(json.dumps(QRECC_SAMPLE), encoding="utf-8")
@@ -292,6 +326,21 @@ async def test_qrecc_dataset_node_stores_in_inputs() -> None:
 
     assert "conversations" in state["inputs"]
     assert len(state["inputs"]["conversations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_resolves_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"qrecc": {"max_conversations": 1}}},
+    )
+    result = await node.run(state, {})
+    assert result["total_conversations"] == 1
 
 
 # --- MultiDoc2DialDatasetNode Tests ---
@@ -344,6 +393,192 @@ MD2D_SAMPLE = [
     },
 ]
 
+MD2D_OFFICIAL_SAMPLE = {
+    "dial_data": {
+        "ssa": {
+            "doc-ssa-1": [
+                {
+                    "dial_id": "official-d1",
+                    "doc_id": "doc-ssa-1",
+                    "domain": "ssa",
+                    "turns": [
+                        {
+                            "turn_id": 1,
+                            "role": "user",
+                            "utterance": "How do I apply?",
+                        },
+                        {
+                            "turn_id": 2,
+                            "role": "agent",
+                            "utterance": "You can apply online.",
+                            "references": [{"sp_id": "12", "label": "solution"}],
+                        },
+                        {
+                            "turn_id": 3,
+                            "role": "user",
+                            "utterance": "What documents do I need?",
+                        },
+                        {
+                            "turn_id": 4,
+                            "role": "agent",
+                            "utterance": "Bring proof of identity.",
+                            "references": [{"sp_id": "13", "label": "precondition"}],
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+}
+
+MD2D_CORPUS_SAMPLE = {
+    "doc_data": {
+        "ssa": {
+            "doc-1": {
+                "doc_id": "doc-1",
+                "domain": "ssa",
+                "title": "Doc One",
+                "doc_text": "Content for doc one.",
+                "spans": {"1": {"text_sp": "Content"}},
+            }
+        },
+        "va": {
+            "doc-2": {
+                "doc_id": "doc-2",
+                "domain": "va",
+                "title": "Doc Two",
+                "doc_text": "Content for doc two.",
+                "spans": {},
+            }
+        },
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_state_inputs() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 2
+    documents = result["documents"]
+    assert len(documents) == 2
+    assert documents[0]["id"] == "doc-1"
+    assert documents[0]["metadata"]["domain"] == "ssa"
+    assert documents[0]["metadata"]["span_count"] == 1
+    assert state["inputs"]["documents"] == documents
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_limits_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader", max_documents=1)
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+    assert result["documents"][0]["id"] == "doc-1"
+
+
+def test_md2d_corpus_loader_node_allows_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    assert node.max_documents == "{{config.configurable.corpus.max_documents}}"
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_resolves_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"corpus": {"max_documents": 1}}},
+    )
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        corpus_path="https://example.com/doc2dial_doc.json",
+        http_timeout=7.0,
+    )
+    checked: dict[str, bool] = {"status": False}
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            checked["status"] = True
+
+        def json(self) -> dict[str, Any]:
+            return MD2D_CORPUS_SAMPLE
+
+    class DummyClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 7.0
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
+            return None
+
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
+            assert url == "https://example.com/doc2dial_doc.json"
+            assert follow_redirects is True
+            return DummyResponse()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.evaluation.datasets.httpx.AsyncClient",
+        DummyClient,
+    )
+
+    result = await node.run(State(inputs={}), {})
+
+    assert checked["status"] is True
+    assert result["count"] == 2
+    assert result["documents"][0]["source"].startswith(
+        "https://example.com/doc2dial_doc.json#doc_id="
+    )
+
+
+MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT = {
+    "dial_data": {
+        "ssa": [
+            {
+                "dial_id": "official-d1",
+                "turns": [],
+            }
+        ]
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_rejects_invalid_payload() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    with pytest.raises(ValueError, match="must include a 'doc_data' mapping"):
+        await node.run(State(inputs={"md2d_corpus": {"bad": {}}}), {})
+
 
 @pytest.mark.asyncio
 async def test_md2d_dataset_node_parses_conversations() -> None:
@@ -368,6 +603,33 @@ async def test_md2d_dataset_node_parses_conversations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_md2d_dataset_node_parses_official_dial_data_mapping() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": MD2D_OFFICIAL_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
+
+    conv = result["conversations"][0]
+    assert conv["conversation_id"] == "official-d1"
+    assert conv["domain"] == "ssa"
+    assert conv["turns"][0]["user_utterance"] == "How do I apply?"
+    assert conv["turns"][0]["gold_response"] == "You can apply online."
+    assert conv["turns"][0]["grounding_spans"][0]["span_text"] == "solution:12"
+    assert conv["turns"][1]["gold_response"] == "Bring proof of identity."
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_rejects_invalid_official_domain_layout() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    with pytest.raises(ValueError, match="expects 'dial_data' domains to map"):
+        await node.run(
+            State(inputs={"md2d_data": MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT}), {}
+        )
+
+
+@pytest.mark.asyncio
 async def test_md2d_dataset_node_limits_conversations() -> None:
     node = MultiDoc2DialDatasetNode(name="md2d", max_conversations=1)
     state = State(inputs={"md2d_data": MD2D_SAMPLE})
@@ -376,6 +638,14 @@ async def test_md2d_dataset_node_limits_conversations() -> None:
     assert result["total_conversations"] == 1
     assert len(result["conversations"]) == 1
     assert result["conversations"][0]["conversation_id"] == "d1"
+
+
+def test_md2d_dataset_node_allows_templated_max_conversations() -> None:
+    node = MultiDoc2DialDatasetNode(
+        name="md2d",
+        max_conversations="{{config.configurable.md2d.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.md2d.max_conversations}}"
 
 
 @pytest.mark.asyncio
@@ -389,6 +659,21 @@ async def test_md2d_dataset_node_loads_from_file(tmp_path: Path) -> None:
 
     assert result["total_conversations"] == 2
     assert result["total_turns"] == 3
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_loads_official_payload_from_file(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "md2d_official.json"
+    data_path.write_text(json.dumps(MD2D_OFFICIAL_SAMPLE), encoding="utf-8")
+
+    node = MultiDoc2DialDatasetNode(name="md2d", data_path=str(data_path))
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
 
 
 @pytest.mark.asyncio

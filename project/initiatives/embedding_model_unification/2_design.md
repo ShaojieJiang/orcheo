@@ -158,12 +158,12 @@ Shared helper contract:
 ```python
 def init_dense_embeddings(embed_model: str, model_kwargs: dict[str, Any]) -> Embeddings
 
-async def embed_documents(
+async def dense_embed_documents(
     model: Embeddings,
     texts: list[str],
 ) -> list[list[float]]
 
-async def embed_query(
+async def dense_embed_query(
     model: Embeddings,
     text: str,
 ) -> list[float]
@@ -177,12 +177,12 @@ def init_sparse_embeddings(
     sparse_kwargs: dict[str, Any],
 ) -> SparseEmbedder
 
-async def sparse_embed_documents(
+def sparse_embed_documents(
     model: SparseEmbedder,
     texts: list[str],
 ) -> list[SparseValues]
 
-async def sparse_embed_query(
+def sparse_embed_query(
     model: SparseEmbedder,
     text: str,
 ) -> SparseValues

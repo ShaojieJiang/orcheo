@@ -138,11 +138,48 @@ async def test_batch_eval_limits_conversations() -> None:
     assert "conv2" not in result["per_conversation"]
 
 
+def test_batch_eval_allows_templated_max_conversations() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.qrecc.max_conversations}}"
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolves_templated_max_conversations() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
+    node.decode_variables(
+        state,
+        config={"configurable": {"qrecc": {"max_conversations": 1}}},
+    )
+    result = await node.run(state, {})
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
+
+
 @pytest.mark.asyncio
 async def test_batch_eval_rejects_non_list() -> None:
     node = ConversationalBatchEvalNode(name="batch")
     with pytest.raises(ValueError, match="expects"):
         await node.run(State(inputs={}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_reads_conversations_from_results() -> None:
+    node = ConversationalBatchEvalNode(name="batch")
+    state = State(
+        inputs={},
+        results={"dataset": {"conversations": QRECC_CONVERSATIONS}},
+    )
+    result = await node.run(state, {})
+
+    assert result["total_turns"] == 3
+    assert result["total_conversations"] == 2
 
 
 @pytest.mark.asyncio
