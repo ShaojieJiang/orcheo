@@ -51,6 +51,7 @@ nav:
       - MCP Integration: mcp_integration.md
       - Releasing: releasing.md
   - Reference:
+      - Node Catalog: node_catalog.md
       - CLI Reference: cli_reference.md
       - SDK Reference: sdk_reference.md
       - OpenTelemetry Tracing: otel_tracing/README.md
