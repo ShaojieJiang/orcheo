@@ -1,7 +1,7 @@
-# Conversational Search Examples
+# Conversational Search
 
 !!! warning "Prerequisites"
-    Working with these examples requires at least finishing the [Quick Start](index.md#quick-start) OR the [Manual Setup Quick Start](manual_setup.md#quick-start) first.
+    Working with these examples requires at least finishing the [Quick Start](../index.md#quick-start) OR the [Manual Setup Quick Start](../manual_setup.md#quick-start) first.
 
 !!! tip "AI Coding Assistants"
     If you use [Claude Code](https://claude.ai/code), [Codex CLI](https://github.com/openai/codex), or [Cursor](https://cursor.com), we recommend installing the `orcheo-demos` skill from [agent-skills](https://github.com/ShaojieJiang/agent-skills) to streamline running and deploying these demos.
@@ -172,8 +172,8 @@ namespace. Edit `config.json` to customise the URLs or index settings.
     ],
     "chunk_size": 512,
     "chunk_overlap": 64,
-    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
-    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "dense_embed_model": "openai:text-embedding-3-small",
+    "sparse_model": "pinecone:bm25",
     "vector_store_index_dense": "orcheo-demo-dense",
     "vector_store_index_sparse": "orcheo-demo-sparse",
     "vector_store_namespace": "hybrid_search"
@@ -202,7 +202,7 @@ The simplest starting point. This demo works entirely locally with no external v
 
 - Routes queries through ingestion, search, or direct generation based on context
 - Uses an in-memory vector store for document embeddings
-- Uses a demo embedding function for retrieval; OpenAI is used for grounded generation
+- Uses OpenAI embeddings (`openai:text-embedding-3-small`) for retrieval and grounded generation
 - Produces grounded responses with inline citations
 
 ### Run It
@@ -289,11 +289,11 @@ orcheo workflow publish <workflow-id> --force
   "configurable": {
     "dense_top_k": 8,
     "dense_similarity_threshold": 0.0,
-    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
+    "dense_embed_model": "openai:text-embedding-3-small",
     "sparse_top_k": 10,
     "sparse_score_threshold": 0.0,
     "sparse_vector_store_candidate_k": 50,
-    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "sparse_model": "pinecone:bm25",
     "web_search_provider": "tavily",
     "web_search_max_results": 5,
     "web_search_search_depth": "advanced",
@@ -335,6 +335,7 @@ Stateful, multi-turn chat with conversation memory and query rewriting.
 
 - **ConversationStateNode**: Maintains session history and summary
 - **QueryClassifierNode**: Routes to search, clarification, or finalize branches
+- **QueryRewriteNode**: Uses an AI model to rewrite follow-up queries with context
 - **CoreferenceResolverNode**: Rewrites pronouns using recent context
 - **TopicShiftDetectorNode**: Flags topic divergence
 - **MemorySummarizerNode**: Persists compact summaries at finalization
@@ -454,7 +455,7 @@ Execute via the Orcheo Console or API.
       },
       "top_k": 4,
       "score_threshold": 0.0,
-      "embedding_method": "embedding:openai:text-embedding-3-small"
+      "embed_model": "openai:text-embedding-3-small"
     },
     "session": {
       "max_sessions": 8,
@@ -483,7 +484,7 @@ Execute via the Orcheo Console or API.
 ```
 
 Edit `config.json` to customise:
-- **Retrieval**: Vector store settings, top-k results, and embedding method
+- **Retrieval**: Vector store settings, top-k results, and embedding model
 - **Session**: Conversation limits and turn constraints
 - **Caching**: TTL and cache size for response caching
 - **Multi-hop**: Maximum hops for multi-step query planning
@@ -509,6 +510,9 @@ Alternatively, you can try the online demo directly:
 
 Evaluation-focused scaffold with golden datasets, retrieval A/B testing, and
 LLM-based judging.
+
+For benchmark-oriented workflows (QReCC and MultiDoc2Dial), see
+[Evaluation](evaluation.md).
 
 ### What's Included
 
@@ -547,8 +551,8 @@ Execute via the Orcheo Console or API to run evaluation sweeps.
     },
     "retrieval": {
       "top_k": 4,
-      "embedding_method": "embedding:openai:text-embedding-3-small",
-      "sparse_embedding_method": "embedding:pinecone:bm25-default",
+      "embed_model": "openai:text-embedding-3-small",
+      "sparse_model": "pinecone:bm25",
       "sparse_top_k": 4,
       "sparse_candidate_k": 50,
       "sparse_score_threshold": 0.0,
@@ -590,7 +594,7 @@ Execute via the Orcheo Console or API to run evaluation sweeps.
 
 Edit `config.json` to customise:
 - **Dataset**: Paths to golden queries, relevance labels, and test documents
-- **Retrieval**: Top-k results, embedding methods, fusion strategy
+- **Retrieval**: Top-k results, embedding models, fusion strategy
 - **Vector store**: Pinecone index names and namespaces for dense and sparse indexes
 - **Generation**: Citation style and model for answer generation
 - **A/B testing**: Experiment ID and minimum metric threshold for rollout decisions

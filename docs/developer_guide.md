@@ -9,6 +9,15 @@ This guide is for developers contributing to the Orcheo project.
 - `packages/sdk/` – lightweight Python SDK for composing workflow requests
 - `apps/canvas/` – React + Vite scaffold for the visual workflow designer
 
+## Evaluation Node Imports
+
+Evaluation nodes now live under `orcheo.nodes.evaluation`.
+
+- Preferred import path: `from orcheo.nodes.evaluation import ...`
+- Compatibility shim remains available: `orcheo.nodes.conversational_search.evaluation`
+
+Use the new import path for all new code and examples.
+
 ## Development Environment Setup
 
 ### Prerequisites
