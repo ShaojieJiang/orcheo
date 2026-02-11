@@ -69,7 +69,9 @@ dependencies = [
   "openai-chatkit>=1.4.0",
   "aiosqlite>=0.22.0",
   "psycopg[binary,pool]>=3.2.0",
-  "pycryptodome>=3.20.0"
+  "pycryptodome>=3.20.0",
+  "rouge-score>=0.1.2",
+  "sacrebleu>=2.3.0"
 ]
 description = "Add your description here"
 name = "orcheo"

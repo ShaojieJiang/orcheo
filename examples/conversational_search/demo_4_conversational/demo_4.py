@@ -14,9 +14,6 @@ from orcheo.nodes.conversational_search.conversation import (
     QueryClarificationNode,
     TopicShiftDetectorNode,
 )
-from orcheo.nodes.conversational_search.embedding_registry import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
-)
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     GroundedGeneratorNode,
@@ -120,7 +117,9 @@ async def orcheo_workflow() -> StateGraph:
     )
     classifier = QueryClassifierNode(name="query_classifier")
     coref = CoreferenceResolverNode(name="coreference_resolver")
-    own_query_rewrite = QueryRewriteNode(name="query_rewrite")
+    own_query_rewrite = QueryRewriteNode(
+        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+    )
     coref_sync = ResultToInputsNode(
         name="coreference_result_to_inputs",
         source_result_key=coref.name,
@@ -136,8 +135,8 @@ async def orcheo_workflow() -> StateGraph:
         vector_store=vector_store,
         top_k="{{config.configurable.retrieval.top_k}}",
         score_threshold="{{config.configurable.retrieval.score_threshold}}",
-        embedding_method=OPENAI_TEXT_EMBEDDING_3_SMALL,
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        embed_model="openai:text-embedding-3-small",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     generator = GroundedGeneratorNode(
         name="generator",

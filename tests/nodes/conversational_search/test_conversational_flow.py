@@ -17,18 +17,7 @@ from orcheo.nodes.conversational_search import (
 )
 from orcheo.nodes.conversational_search.ingestion import (
     RawDocumentInput,
-    register_embedding_method,
 )
-
-
-DEFAULT_FLOW_EMBEDDING_NAME = "flow-embedding"
-
-
-def _flow_embedder(texts: list[str]) -> list[list[float]]:
-    return [[float(len(text))] for text in texts]
-
-
-register_embedding_method(DEFAULT_FLOW_EMBEDDING_NAME, _flow_embedder)
 
 
 @pytest.mark.asyncio
@@ -55,7 +44,7 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
     chunk_embedder = ChunkEmbeddingNode(
         name="chunk_embedding",
         chunks_field="chunks",
-        embedding_methods={"default": DEFAULT_FLOW_EMBEDDING_NAME},
+        dense_embedding_specs={"default": {"embed_model": "test:fake"}},
     )
     vector_upsert = VectorStoreUpsertNode(
         name="vector_upsert",
@@ -67,7 +56,7 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
         vector_store=vector_store,
         query_key="query",
         top_k=2,
-        embedding_method=DEFAULT_FLOW_EMBEDDING_NAME,
+        embed_model="test:fake",
     )
     generator = GroundedGeneratorNode(
         name="generator", context_result_key="retriever", context_field="results"

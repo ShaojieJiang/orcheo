@@ -68,7 +68,8 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
 | `orcheo workflow show <workflow> [--version <num>]` | Print workflow summary, publish status/details, Mermaid graph, and runs. Use `--version` to show a specific version instead of the latest. |
-| `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>]` | Trigger a workflow execution and stream status to the console. |
+| `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow execution. Streaming is enabled by default. |
+| `orcheo workflow evaluate <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--evaluation <json> \| --evaluation-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow evaluation run (requires streaming mode). |
 | `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from Python or JSON file. |
 | `orcheo workflow download <workflow> [-o <file>] [--version <num>]` | Download workflow definition as Python or JSON. Use `--version` to download a specific version. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
@@ -95,7 +96,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 
 ### Running Workflows
 
-Pass workflow inputs inline with `--inputs` or from disk via `--inputs-file`. Use `--config` or `--config-file` to provide LangChain runnable configuration for the execution (each pair is mutually exclusive).
+Pass workflow inputs inline with `--inputs` or from disk via `--inputs-file`. Use `--config` or `--config-file` to provide LangChain runnable configuration for execution (each pair is mutually exclusive).
 
 ```bash
 # Run with inline inputs
@@ -104,6 +105,33 @@ orcheo workflow run my-workflow --inputs '{"query": "hello"}'
 # Run with inputs from file
 orcheo workflow run my-workflow --inputs-file inputs.json
 ```
+
+Streaming options:
+
+- `--stream` (default): stream node and trace updates in real time.
+- `--no-stream`: disable streaming for `workflow run` and create the run via API response payload.
+- `--verbose`: include full payload output for stream updates.
+
+In machine-readable mode (default, without `--human`), `--verbose` emits JSON event lines, including a start event (`workflow.execution.start`) and raw WebSocket updates until terminal status.
+
+### Evaluating Workflows
+
+Use `workflow evaluate` to run Agentensor evaluation mode:
+
+```bash
+# Evaluate with inline payload
+orcheo workflow evaluate my-workflow \
+  --inputs '{"query": "hello"}' \
+  --evaluation '{"dataset": {"name": "golden"}}'
+
+# Evaluate with files
+orcheo workflow evaluate my-workflow \
+  --inputs-file inputs.json \
+  --evaluation-file evaluation.json \
+  --verbose
+```
+
+`workflow evaluate` uses streaming mode and surfaces start events as `workflow.evaluation.start` in machine-readable verbose output.
 
 ### Publishing Workflows
 

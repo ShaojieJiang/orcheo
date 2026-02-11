@@ -10,8 +10,8 @@
     ],
     "chunk_size": 512,
     "chunk_overlap": 64,
-    "dense_embedding_method": "embedding:openai:text-embedding-3-small",
-    "sparse_embedding_method": "embedding:pinecone:bm25-default",
+    "dense_embed_model": "openai:text-embedding-3-small",
+    "sparse_model": "pinecone:bm25",
     "vector_store_index_dense": "orcheo-demo-dense",
     "vector_store_index_sparse": "orcheo-demo-sparse",
     "vector_store_namespace": "hybrid_search"

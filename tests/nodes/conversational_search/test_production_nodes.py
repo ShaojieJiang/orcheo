@@ -19,7 +19,6 @@ from orcheo.nodes.conversational_search.generation import (
 )
 from orcheo.nodes.conversational_search.ingestion import (
     IncrementalIndexerNode,
-    register_embedding_method,
 )
 from orcheo.nodes.conversational_search.models import DocumentChunk, SearchResult
 from orcheo.nodes.conversational_search.query_processing import MultiHopPlannerNode
@@ -45,16 +44,6 @@ class FlakyVectorStore(InMemoryVectorStore):
         await super().upsert(records)
 
 
-PRODUCTION_TEST_EMBEDDING_NAME = "test-production-embedding"
-
-
-def _production_test_embedder(texts: list[str]) -> list[list[float]]:
-    return [[float(len(text))] for text in texts]
-
-
-register_embedding_method(PRODUCTION_TEST_EMBEDDING_NAME, _production_test_embedder)
-
-
 @pytest.mark.asyncio
 async def test_incremental_indexer_retries_and_skips_duplicates() -> None:
     store = FlakyVectorStore()
@@ -77,7 +66,7 @@ async def test_incremental_indexer_retries_and_skips_duplicates() -> None:
     node = IncrementalIndexerNode(
         name="indexer",
         vector_store=store,
-        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
+        embed_model="test:fake",
         max_retries=1,
         backoff_seconds=0.0,
     )
@@ -112,7 +101,7 @@ async def test_incremental_indexer_raises_after_exhausting_retries() -> None:
     node = IncrementalIndexerNode(
         name="indexer-error",
         vector_store=store,
-        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
+        embed_model="test:fake",
         max_retries=0,
         backoff_seconds=0.0,
     )
@@ -127,7 +116,7 @@ async def test_incremental_indexer_validates_inputs() -> None:
     node = IncrementalIndexerNode(
         name="indexer-empty",
         vector_store=InMemoryVectorStore(),
-        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
+        embed_model="test:fake",
     )
     empty_state = State(inputs={}, results={}, structured_response=None)
 
@@ -135,23 +124,6 @@ async def test_incremental_indexer_validates_inputs() -> None:
         ValueError, match="IncrementalIndexerNode requires at least one chunk"
     ):
         await node.run(empty_state, {})
-
-    async def bad_embed(texts: list[str]) -> list[str]:
-        return ["invalid"]
-
-    chunk = DocumentChunk(
-        id="c-1", document_id="d-1", index=0, content="text", metadata={}
-    )
-    register_embedding_method("bad-embed", bad_embed)
-    node_bad = IncrementalIndexerNode(
-        name="indexer-bad",
-        vector_store=InMemoryVectorStore(),
-        embedding_method="bad-embed",
-    )
-    bad_state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
-
-    with pytest.raises(ValueError, match="Embedding function must return"):
-        await node_bad.run(bad_state, {})
 
 
 class ListRecordStore(BaseVectorStore):
@@ -169,7 +141,7 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
     node = IncrementalIndexerNode(
         name="indexer-invalid",
         vector_store=InMemoryVectorStore(),
-        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
+        embed_model="test:fake",
     )
     with pytest.raises(ValueError, match="chunks payload must be a list"):
         await node.run(
@@ -183,7 +155,7 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
         name="indexer-weird",
         vector_store=ListRecordStore(),
         skip_unchanged=True,
-        embedding_method=PRODUCTION_TEST_EMBEDDING_NAME,
+        embed_model="test:fake",
     )
     result = await node_skip.run(
         State(inputs={}, results={"chunks": [chunk]}, structured_response=None), {}
@@ -193,24 +165,20 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
 
 
 @pytest.mark.asyncio
-async def test_incremental_indexer_persists_sparse_embeddings() -> None:
+async def test_incremental_indexer_persists_dense_embeddings() -> None:
     chunk = DocumentChunk(
-        id="chunk-sparse",
-        document_id="doc-sparse",
+        id="chunk-dense",
+        document_id="doc-dense",
         index=0,
         content="body",
         metadata={},
     )
 
-    def sparse_only_embedding(texts: list[str]) -> list[dict[str, Any]]:
-        return [{"sparse_values": {"indices": [7], "values": [0.75]}} for _ in texts]
-
-    register_embedding_method("sparse-only-indexer", sparse_only_embedding)
     store = InMemoryVectorStore()
     node = IncrementalIndexerNode(
-        name="indexer-sparse",
+        name="indexer-dense",
         vector_store=store,
-        embedding_method="sparse-only-indexer",
+        embed_model="test:fake",
         skip_unchanged=False,
     )
     state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
@@ -218,10 +186,10 @@ async def test_incremental_indexer_persists_sparse_embeddings() -> None:
     result = await node.run(state, {})
 
     assert result["indexed_count"] == 1
-    stored = store.records.get("chunk-sparse")
+    stored = store.records.get("chunk-dense")
     assert stored is not None
-    assert stored.sparse_values is not None
-    assert stored.values == []
+    assert stored.values == [float(len("body"))]
+    assert stored.sparse_values is None
 
 
 @pytest.mark.asyncio

@@ -12,21 +12,9 @@ from orcheo.nodes.conversational_search.ingestion import (
     DocumentLoaderNode,
     MetadataExtractorNode,
     VectorStoreUpsertNode,
-    register_embedding_method,
 )
 from orcheo.nodes.conversational_search.retrieval import DenseSearchNode
 from orcheo.nodes.conversational_search.vector_store import InMemoryVectorStore
-
-
-DEFAULT_DEMO_2_EMBEDDING = "demo2-embedding"
-
-
-def demo2_embedder(texts: list[str]) -> list[list[float]]:
-    """Embedding function for demo 2."""
-    return [[float(len(text))] for text in texts]
-
-
-register_embedding_method(DEFAULT_DEMO_2_EMBEDDING, demo2_embedder)
 
 
 class EntryRoutingNode(TaskNode):
@@ -72,8 +60,12 @@ def create_ingestion_nodes(
     chunk_embedding = ChunkEmbeddingNode(
         name="chunk_embedding",
         source_result_key="chunking",
-        embedding_methods={"default": DEFAULT_DEMO_2_EMBEDDING},
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
+        dense_embedding_specs={
+            "default": {
+                "embed_model": "openai:text-embedding-3-small",
+                "model_kwargs": {"api_key": "[[openai_api_key]]"},
+            }
+        },
     )
     vector_upsert = VectorStoreUpsertNode(
         name="vector_upsert",
@@ -99,7 +91,8 @@ def create_search_nodes(
         vector_store=vector_store,
         top_k="{{config.configurable.top_k}}",
         score_threshold="{{config.configurable.similarity_threshold}}",
-        embedding_method=DEFAULT_DEMO_2_EMBEDDING,
+        embed_model="openai:text-embedding-3-small",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
 
     # generation_config was unused, so we just instantiate the node

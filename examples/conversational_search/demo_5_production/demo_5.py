@@ -14,9 +14,6 @@ from orcheo.nodes.conversational_search.conversation import (
     InMemoryMemoryStore,
     SessionManagementNode,
 )
-from orcheo.nodes.conversational_search.embedding_registry import (
-    OPENAI_TEXT_EMBEDDING_3_SMALL,
-)
 from orcheo.nodes.conversational_search.evaluation import (
     MemoryPrivacyNode,
     PolicyComplianceNode,
@@ -165,7 +162,9 @@ def build_demo_nodes(
         response_field="sanitized",
     )
 
-    nodes["query_rewrite"] = QueryRewriteNode(name="query_rewrite")
+    nodes["query_rewrite"] = QueryRewriteNode(
+        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+    )
     nodes["rewrite_to_search"] = ResultToInputsNode(
         name="rewrite_to_search",
         source_result_key=nodes["query_rewrite"].name,
@@ -182,13 +181,11 @@ def build_demo_nodes(
     nodes["dense_search"] = DenseSearchNode(
         name="dense_search",
         vector_store=vector_store,
-        embedding_method=retrieval_cfg.get(
-            "embedding_method", OPENAI_TEXT_EMBEDDING_3_SMALL
-        ),
+        embed_model=retrieval_cfg.get("embed_model", "openai:text-embedding-3-small"),
+        model_kwargs={"api_key": "[[openai_api_key]]"},
         top_k=retrieval_cfg.get("top_k", 4),
         score_threshold=retrieval_cfg.get("score_threshold", 0.0),
         query_key="search_query",
-        credential_env_vars={"OPENAI_API_KEY": "[[openai_api_key]]"},
     )
     nodes["source_router"] = SourceRouterNode(
         name="source_router",
@@ -359,7 +356,7 @@ async def orcheo_workflow() -> StateGraph:
     shared_cache: OrderedDict[str, tuple[str, float | None]] = OrderedDict()
 
     retrieval_cfg = {
-        "embedding_method": "{{config.configurable.retrieval.embedding_method}}",
+        "embed_model": "{{config.configurable.retrieval.embed_model}}",
         "top_k": "{{config.configurable.retrieval.top_k}}",
         "score_threshold": "{{config.configurable.retrieval.score_threshold}}",
     }

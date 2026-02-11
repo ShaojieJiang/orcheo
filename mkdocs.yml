@@ -34,7 +34,8 @@ nav:
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
   - Examples:
-      - Conversational Search: conversational_search_examples.md
+      - Conversational Search: examples/conversational_search.md
+      - Evaluation: examples/evaluation.md
   - Deployment:
       - Overview: deployment.md
       - Execution Worker: execution_worker/deployment.md

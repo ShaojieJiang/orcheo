@@ -12,8 +12,27 @@ from orcheo.nodes.conversational_search.query_processing import (
 
 
 @pytest.mark.asyncio
-async def test_query_rewrite_appends_context_for_pronoun() -> None:
-    node = QueryRewriteNode(name="rewrite", max_history_messages=2)
+async def test_query_rewrite_rewrites_with_ai_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class StubModel:
+        async def ainvoke(self, messages: list[Any]) -> Any:  # type: ignore[override]
+            captured["messages"] = messages
+            return type("Resp", (), {"content": "How does the vector store scale?"})
+
+    def fake_init_chat_model(*_: Any, **__: Any) -> StubModel:
+        return StubModel()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.query_processing.init_chat_model",
+        fake_init_chat_model,
+    )
+
+    node = QueryRewriteNode(
+        name="rewrite", ai_model="openai:gpt-4o-mini", max_history_messages=2
+    )
     state = State(
         inputs={
             "query": "How does it scale?",
@@ -29,7 +48,12 @@ async def test_query_rewrite_appends_context_for_pronoun() -> None:
     result = await node.run(state, {})
 
     assert result["used_history"] is True
-    assert "Context: Tell me about the vector store" in result["query"]
+    assert result["query"] == "How does the vector store scale?"
+    assert result["original_query"] == "How does it scale?"
+    system_msg = captured["messages"][0]
+    human_msg = captured["messages"][1]
+    assert "query rewriter" in system_msg.content.lower()
+    assert "How does it scale?" in human_msg.content
 
 
 @pytest.mark.asyncio
@@ -122,10 +146,10 @@ def test_normalize_messages_handles_mixed_payloads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_query_rewrite_handles_non_pronoun_query() -> None:
-    node = QueryRewriteNode(name="rewrite-no-context")
+async def test_query_rewrite_skips_model_without_history() -> None:
+    node = QueryRewriteNode(name="rewrite-no-context", ai_model="openai:gpt-4o-mini")
     state = State(
-        inputs={"query": "Tell me about graphs", "history": ["previous turn"]},
+        inputs={"query": "Tell me about graphs", "history": []},
         results={},
         structured_response=None,
     )
@@ -138,7 +162,7 @@ async def test_query_rewrite_handles_non_pronoun_query() -> None:
 
 @pytest.mark.asyncio
 async def test_query_rewrite_validates_history_type() -> None:
-    node = QueryRewriteNode(name="rewrite-error")
+    node = QueryRewriteNode(name="rewrite-error", ai_model="openai:gpt-4o-mini")
     state = State(
         inputs={"query": "hello", "history": "not-a-list"},
         results={},
@@ -151,7 +175,7 @@ async def test_query_rewrite_validates_history_type() -> None:
 
 @pytest.mark.asyncio
 async def test_query_rewrite_requires_query() -> None:
-    node = QueryRewriteNode(name="rewrite-empty")
+    node = QueryRewriteNode(name="rewrite-empty", ai_model="openai:gpt-4o-mini")
     state = State(inputs={"query": "   "}, results={}, structured_response=None)
 
     with pytest.raises(
@@ -419,3 +443,37 @@ def test_context_compressor_collect_sources_defaults_to_retrieval() -> None:
     )
 
     assert ContextCompressorNode._collect_sources([entry]) == ["retrieval"]
+
+
+@pytest.mark.asyncio
+async def test_query_rewrite_falls_back_on_empty_ai_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers line 104: fallback when AI model returns empty content."""
+
+    class EmptyModel:
+        async def ainvoke(self, messages: list[Any]) -> Any:  # type: ignore[override]
+            return type("Resp", (), {"content": ""})
+
+    def fake_init_chat_model(*_: Any, **__: Any) -> EmptyModel:
+        return EmptyModel()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.conversational_search.query_processing.init_chat_model",
+        fake_init_chat_model,
+    )
+
+    node = QueryRewriteNode(name="rewrite-fallback", ai_model="openai:gpt-4o-mini")
+    state = State(
+        inputs={
+            "query": "How does it scale?",
+            "history": [{"role": "user", "content": "Vector store overview"}],
+        },
+        results={},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["query"] == "How does it scale?"
+    assert result["used_history"] is True

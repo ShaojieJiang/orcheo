@@ -1,0 +1,1053 @@
+"""Tests for DatasetNode, QReCCDatasetNode, and MultiDoc2DialDatasetNode."""
+
+import json
+from pathlib import Path
+from typing import Any
+import pytest
+from orcheo.graph.state import State
+from orcheo.nodes.evaluation.datasets import (
+    DatasetNode,
+    MultiDoc2DialCorpusLoaderNode,
+    MultiDoc2DialDatasetNode,
+    QReCCDatasetNode,
+)
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_filters_split_and_limit() -> None:
+    node = DatasetNode(name="dataset")
+    state = State(
+        inputs={
+            "split": "eval",
+            "limit": 1,
+            "dataset": [
+                {"id": "q1", "split": "eval"},
+                {"id": "q2", "split": "train"},
+            ],
+        }
+    )
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert result["dataset"] == [{"id": "q1", "split": "eval"}]
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_loads_from_files(tmp_path: Path) -> None:
+    golden_path = tmp_path / "golden.json"
+    queries_path = tmp_path / "queries.json"
+    labels_path = tmp_path / "labels.json"
+    docs_path = tmp_path / "docs"
+    docs_path.mkdir()
+
+    golden_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "g1",
+                    "query": "capital of France",
+                    "expected_citations": ["d1"],
+                    "expected_answer": "Paris",
+                    "split": "test",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    queries_path.write_text(
+        json.dumps([{"id": "q2", "question": "What is Python?", "split": "train"}]),
+        encoding="utf-8",
+    )
+    labels_path.write_text(
+        json.dumps([{"query_id": "q2", "doc_id": "d2"}]), encoding="utf-8"
+    )
+    (docs_path / "d1.md").write_text("Paris is the capital city.", encoding="utf-8")
+    (docs_path / "d2.md").write_text("Python is a programming language.", "utf-8")
+
+    node = DatasetNode(
+        name="dataset",
+        golden_path=str(golden_path),
+        queries_path=str(queries_path),
+        labels_path=str(labels_path),
+        docs_path=str(docs_path),
+        split="test",
+        limit=1,
+    )
+
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert result["dataset"][0]["id"] == "g1"
+    assert result["references"] == {"g1": "Paris"}
+    assert len(result["keyword_corpus"]) == 2
+    assert state["inputs"]["dataset"] == result["dataset"]
+    assert state["inputs"]["references"] == {"g1": "Paris"}
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_rejects_non_list_inputs() -> None:
+    node = DatasetNode(name="dataset")
+    with pytest.raises(ValueError, match="expects dataset to be a list"):
+        await node.run(State(inputs={"dataset": "bad"}), {})
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_skips_split_and_limit_when_invalid() -> None:
+    node = DatasetNode(name="dataset")
+    dataset = [
+        {"id": "q1", "split": "eval"},
+        {"id": "q2", "split": "train"},
+    ]
+    result = await node.run(
+        State(inputs={"dataset": dataset, "split": None, "limit": 0}), {}
+    )
+    assert result["count"] == len(dataset)
+    assert result["dataset"] == dataset
+
+
+def test_dataset_node_input_helpers_and_update() -> None:
+    node = DatasetNode(name="dataset")
+    references = {"q1": "answer"}
+    keyword_corpus = [{"id": "k1", "content": "payload"}]
+    inputs = {
+        "references": references,
+        "keyword_corpus": keyword_corpus,
+    }
+
+    assert node._references_from_inputs(inputs) == references
+    assert node._keyword_corpus_from_inputs(inputs) == keyword_corpus
+
+    container: dict[str, Any] = {}
+    node._update_inputs(
+        container,
+        [{"id": "q1"}],
+        references,
+        keyword_corpus,
+        "eval",
+        2,
+    )
+    assert container["split"] == "eval"
+    assert container["limit"] == 2
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_validation_and_loading_helpers() -> None:
+    node = DatasetNode(name="dataset")
+    with pytest.raises(ValueError, match="references to be a dict"):
+        node._validate_inputs([{}], references="bad", keyword_corpus=[])
+
+    with pytest.raises(ValueError, match="keyword_corpus to be a list"):
+        node._validate_inputs([{}], references={}, keyword_corpus="bad")
+
+    assert node._build_keyword_corpus() == []
+    with pytest.raises(ValueError, match="JSON path must be provided"):
+        await node._load_json(None)
+
+    node.golden_path = "golden"
+    assert node._should_load_from_files(None) is True
+    assert node._should_load_from_files([]) is True
+
+    node = DatasetNode(name="dataset")
+    with pytest.raises(ValueError, match="golden_path"):
+        await node._load_from_files(None, None)
+
+
+@pytest.mark.asyncio
+async def test_dataset_node_loads_json_from_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = DatasetNode(name="dataset", http_timeout=5.0)
+    payload = [{"id": "q1"}]
+    checked: dict[str, bool] = {"status": False}
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            checked["status"] = True
+
+        def json(self) -> list[dict[str, str]]:
+            return payload
+
+    class DummyClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 5.0
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
+            return None
+
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
+            assert url == "https://example.com/data.json"
+            assert follow_redirects is True
+            return DummyResponse()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.evaluation.datasets.httpx.AsyncClient",
+        DummyClient,
+    )
+
+    result = await node._load_json("https://example.com/data.json")
+    assert checked["status"] is True
+    assert result == payload
+
+
+# --- QReCCDatasetNode Tests ---
+
+
+QRECC_SAMPLE = [
+    {
+        "Conversation_no": 1,
+        "Turn_no": 1,
+        "Question": "What is Python?",
+        "Rewrite": "What is the Python programming language?",
+        "Context": [],
+        "Answer": "Python is a programming language.",
+    },
+    {
+        "Conversation_no": 1,
+        "Turn_no": 2,
+        "Question": "Who created it?",
+        "Rewrite": "Who created Python?",
+        "Context": ["What is Python?", "Python is a programming language."],
+        "Answer": "Guido van Rossum.",
+    },
+    {
+        "Conversation_no": 2,
+        "Turn_no": 1,
+        "Question": "What is Java?",
+        "Rewrite": "What is the Java programming language?",
+        "Context": [],
+        "Answer": "Java is an OOP language.",
+    },
+]
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_parses_conversations() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
+
+    convs = result["conversations"]
+    assert len(convs) == 2
+
+    conv1 = convs[0]
+    assert conv1["conversation_id"] == "1"
+    assert len(conv1["turns"]) == 2
+    assert conv1["turns"][0]["raw_question"] == "What is Python?"
+    assert (
+        conv1["turns"][0]["gold_rewrite"] == "What is the Python programming language?"
+    )
+    assert conv1["turns"][1]["context"] == [
+        "What is Python?",
+        "Python is a programming language.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_limits_conversations() -> None:
+    node = QReCCDatasetNode(name="qrecc", max_conversations=1)
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert len(result["conversations"]) == 1
+    assert result["conversations"][0]["conversation_id"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_supports_truth_field_names() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    state = State(
+        inputs={
+            "qrecc_data": [
+                {
+                    "Conversation_no": 1,
+                    "Turn_no": 1,
+                    "Question": "What is Python?",
+                    "Truth_rewrite": "What is the Python programming language?",
+                    "Context": [],
+                    "Truth_answer": "Python is a programming language.",
+                }
+            ]
+        }
+    )
+    result = await node.run(state, {})
+
+    turns = result["conversations"][0]["turns"]
+    assert turns[0]["gold_rewrite"] == "What is the Python programming language?"
+    assert turns[0]["gold_answer"] == "Python is a programming language."
+
+
+def test_qrecc_dataset_node_allows_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.qrecc.max_conversations}}"
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_loads_from_file(tmp_path: Path) -> None:
+    data_path = tmp_path / "qrecc.json"
+    data_path.write_text(json.dumps(QRECC_SAMPLE), encoding="utf-8")
+
+    node = QReCCDatasetNode(name="qrecc", data_path=str(data_path))
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_rejects_non_list() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    with pytest.raises(ValueError, match="expects qrecc_data list"):
+        await node.run(State(inputs={}), {})
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_stores_in_inputs() -> None:
+    node = QReCCDatasetNode(name="qrecc")
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    await node.run(state, {})
+
+    assert "conversations" in state["inputs"]
+    assert len(state["inputs"]["conversations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_qrecc_dataset_node_resolves_templated_max_conversations() -> None:
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"qrecc": {"max_conversations": 1}}},
+    )
+    result = await node.run(state, {})
+    assert result["total_conversations"] == 1
+
+
+# --- MultiDoc2DialDatasetNode Tests ---
+
+
+MD2D_SAMPLE = [
+    {
+        "dial_id": "d1",
+        "domain": "ssa",
+        "turns": [
+            {
+                "turn_id": "0",
+                "user_utterance": "How do I apply?",
+                "response": "You can apply online.",
+                "grounding_spans": [
+                    {
+                        "doc_id": "doc1",
+                        "span_text": "apply online",
+                        "start": 10,
+                        "end": 22,
+                    }
+                ],
+            },
+            {
+                "turn_id": "1",
+                "user_utterance": "What documents do I need?",
+                "response": "You need proof of identity.",
+                "grounding_spans": [],
+            },
+        ],
+    },
+    {
+        "dial_id": "d2",
+        "domain": "va",
+        "turns": [
+            {
+                "turn_id": "0",
+                "user_utterance": "Am I eligible?",
+                "response": "Eligibility depends on service.",
+                "grounding_spans": [
+                    {
+                        "doc_id": "doc2",
+                        "span_text": "depends on service",
+                        "start": 0,
+                        "end": 18,
+                    }
+                ],
+            },
+        ],
+    },
+]
+
+MD2D_OFFICIAL_SAMPLE = {
+    "dial_data": {
+        "ssa": {
+            "doc-ssa-1": [
+                {
+                    "dial_id": "official-d1",
+                    "doc_id": "doc-ssa-1",
+                    "domain": "ssa",
+                    "turns": [
+                        {
+                            "turn_id": 1,
+                            "role": "user",
+                            "utterance": "How do I apply?",
+                        },
+                        {
+                            "turn_id": 2,
+                            "role": "agent",
+                            "utterance": "You can apply online.",
+                            "references": [{"sp_id": "12", "label": "solution"}],
+                        },
+                        {
+                            "turn_id": 3,
+                            "role": "user",
+                            "utterance": "What documents do I need?",
+                        },
+                        {
+                            "turn_id": 4,
+                            "role": "agent",
+                            "utterance": "Bring proof of identity.",
+                            "references": [{"sp_id": "13", "label": "precondition"}],
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+}
+
+MD2D_CORPUS_SAMPLE = {
+    "doc_data": {
+        "ssa": {
+            "doc-1": {
+                "doc_id": "doc-1",
+                "domain": "ssa",
+                "title": "Doc One",
+                "doc_text": "Content for doc one.",
+                "spans": {"1": {"text_sp": "Content"}},
+            }
+        },
+        "va": {
+            "doc-2": {
+                "doc_id": "doc-2",
+                "domain": "va",
+                "title": "Doc Two",
+                "doc_text": "Content for doc two.",
+                "spans": {},
+            }
+        },
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_state_inputs() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 2
+    documents = result["documents"]
+    assert len(documents) == 2
+    assert documents[0]["id"] == "doc-1"
+    assert documents[0]["metadata"]["domain"] == "ssa"
+    assert documents[0]["metadata"]["span_count"] == 1
+    assert state["inputs"]["documents"] == documents
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_limits_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader", max_documents=1)
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+    assert result["documents"][0]["id"] == "doc-1"
+
+
+def test_md2d_corpus_loader_node_allows_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    assert node.max_documents == "{{config.configurable.corpus.max_documents}}"
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_resolves_templated_max_documents() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        max_documents="{{config.configurable.corpus.max_documents}}",
+    )
+    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
+    node.decode_variables(
+        state,
+        config={"configurable": {"corpus": {"max_documents": 1}}},
+    )
+
+    result = await node.run(state, {})
+
+    assert result["count"] == 1
+    assert len(result["documents"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_loads_from_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="md2d_corpus_loader",
+        corpus_path="https://example.com/doc2dial_doc.json",
+        http_timeout=7.0,
+    )
+    checked: dict[str, bool] = {"status": False}
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            checked["status"] = True
+
+        def json(self) -> dict[str, Any]:
+            return MD2D_CORPUS_SAMPLE
+
+    class DummyClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 7.0
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
+            return None
+
+        async def get(self, url: str, *, follow_redirects: bool) -> DummyResponse:
+            assert url == "https://example.com/doc2dial_doc.json"
+            assert follow_redirects is True
+            return DummyResponse()
+
+    monkeypatch.setattr(
+        "orcheo.nodes.evaluation.datasets.httpx.AsyncClient",
+        DummyClient,
+    )
+
+    result = await node.run(State(inputs={}), {})
+
+    assert checked["status"] is True
+    assert result["count"] == 2
+    assert result["documents"][0]["source"].startswith(
+        "https://example.com/doc2dial_doc.json#doc_id="
+    )
+
+
+MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT = {
+    "dial_data": {
+        "ssa": [
+            {
+                "dial_id": "official-d1",
+                "turns": [],
+            }
+        ]
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_node_rejects_invalid_payload() -> None:
+    node = MultiDoc2DialCorpusLoaderNode(name="md2d_corpus_loader")
+    with pytest.raises(ValueError, match="must include a 'doc_data' mapping"):
+        await node.run(State(inputs={"md2d_corpus": {"bad": {}}}), {})
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_parses_conversations() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": MD2D_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
+
+    convs = result["conversations"]
+    assert len(convs) == 2
+
+    conv1 = convs[0]
+    assert conv1["conversation_id"] == "d1"
+    assert conv1["domain"] == "ssa"
+    assert len(conv1["turns"]) == 2
+    assert conv1["turns"][0]["user_utterance"] == "How do I apply?"
+    assert conv1["turns"][0]["gold_response"] == "You can apply online."
+    assert len(conv1["turns"][0]["grounding_spans"]) == 1
+    assert conv1["turns"][0]["grounding_spans"][0]["doc_id"] == "doc1"
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_parses_official_dial_data_mapping() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": MD2D_OFFICIAL_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
+
+    conv = result["conversations"][0]
+    assert conv["conversation_id"] == "official-d1"
+    assert conv["domain"] == "ssa"
+    assert conv["turns"][0]["user_utterance"] == "How do I apply?"
+    assert conv["turns"][0]["gold_response"] == "You can apply online."
+    assert conv["turns"][0]["grounding_spans"][0]["span_text"] == "solution:12"
+    assert conv["turns"][1]["gold_response"] == "Bring proof of identity."
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_rejects_invalid_official_domain_layout() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    with pytest.raises(ValueError, match="expects 'dial_data' domains to map"):
+        await node.run(
+            State(inputs={"md2d_data": MD2D_OFFICIAL_INVALID_DOMAIN_LAYOUT}), {}
+        )
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_limits_conversations() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d", max_conversations=1)
+    state = State(inputs={"md2d_data": MD2D_SAMPLE})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert len(result["conversations"]) == 1
+    assert result["conversations"][0]["conversation_id"] == "d1"
+
+
+def test_md2d_dataset_node_allows_templated_max_conversations() -> None:
+    node = MultiDoc2DialDatasetNode(
+        name="md2d",
+        max_conversations="{{config.configurable.md2d.max_conversations}}",
+    )
+    assert node.max_conversations == "{{config.configurable.md2d.max_conversations}}"
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_loads_from_file(tmp_path: Path) -> None:
+    data_path = tmp_path / "md2d.json"
+    data_path.write_text(json.dumps(MD2D_SAMPLE), encoding="utf-8")
+
+    node = MultiDoc2DialDatasetNode(name="md2d", data_path=str(data_path))
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_loads_official_payload_from_file(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "md2d_official.json"
+    data_path.write_text(json.dumps(MD2D_OFFICIAL_SAMPLE), encoding="utf-8")
+
+    node = MultiDoc2DialDatasetNode(name="md2d", data_path=str(data_path))
+    state = State(inputs={})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    assert result["total_turns"] == 2
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_rejects_non_list() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    with pytest.raises(ValueError, match="expects md2d_data list"):
+        await node.run(State(inputs={}), {})
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_stores_in_inputs() -> None:
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": MD2D_SAMPLE})
+    await node.run(state, {})
+
+    assert "conversations" in state["inputs"]
+    assert len(state["inputs"]["conversations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_node_handles_missing_fields() -> None:
+    sparse_data = [
+        {
+            "id": "s1",
+            "turns": [
+                {"user_utterance": "Hello", "response": "Hi"},
+            ],
+        }
+    ]
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    state = State(inputs={"md2d_data": sparse_data})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+    conv = result["conversations"][0]
+    assert conv["conversation_id"] == "s1"
+    assert conv["domain"] == "unknown"
+    assert conv["turns"][0]["grounding_spans"] == []
+
+
+# --- MultiDoc2DialCorpusLoaderNode additional coverage ---
+
+
+def test_md2d_corpus_loader_validate_max_documents_none() -> None:
+    """None max_documents passes validation."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader", max_documents=None)
+    assert node.max_documents is None
+
+
+def test_md2d_corpus_loader_validate_max_documents_invalid_string() -> None:
+    """Non-integer, non-template string raises ValueError."""
+    with pytest.raises(ValueError, match="max_documents must be an integer"):
+        MultiDoc2DialCorpusLoaderNode(name="loader", max_documents="bad")
+
+
+def test_md2d_corpus_loader_resolve_max_documents_invalid_string() -> None:
+    """String that can't resolve to int raises ValueError."""
+    node = MultiDoc2DialCorpusLoaderNode(
+        name="loader",
+        max_documents="{{config.configurable.max}}",
+    )
+    node.max_documents = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        node._resolve_max_documents()
+
+
+def test_md2d_corpus_loader_resolve_max_documents_less_than_one() -> None:
+    """max_documents < 1 raises ValueError."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader", max_documents=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        node._resolve_max_documents()
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_requires_path_or_input() -> None:
+    """Raises when neither state input nor corpus_path is provided."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    with pytest.raises(ValueError, match="requires state.inputs"):
+        await node.run(State(inputs={}), {})
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_loads_from_file(tmp_path: Path) -> None:
+    """Loads corpus from a local file path."""
+    corpus_path = tmp_path / "corpus.json"
+    corpus_path.write_text(json.dumps(MD2D_CORPUS_SAMPLE), encoding="utf-8")
+
+    node = MultiDoc2DialCorpusLoaderNode(name="loader", corpus_path=str(corpus_path))
+    result = await node.run(State(inputs={}), {})
+
+    assert result["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_rejects_non_dict_payload() -> None:
+    """Raises when corpus payload is not a mapping."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        await node.run(State(inputs={"md2d_corpus": []}), {})
+
+
+@pytest.mark.asyncio
+async def test_md2d_corpus_loader_rejects_empty_corpus() -> None:
+    """Raises when corpus has no indexable documents."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    empty_corpus = {"doc_data": {"ssa": {"doc-1": {"doc_id": "", "doc_text": ""}}}}
+    with pytest.raises(ValueError, match="did not contain any indexable documents"):
+        await node.run(State(inputs={"md2d_corpus": empty_corpus}), {})
+
+
+def test_md2d_corpus_loader_iter_raw_documents_skips_non_dicts() -> None:
+    """_iter_raw_documents skips non-dict docs and entries."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    doc_data: dict[str, Any] = {
+        "domain1": "not_a_dict",
+        "domain2": {"doc1": "not_a_dict", "doc2": {"doc_id": "d2", "doc_text": "ok"}},
+    }
+    entries = node._iter_raw_documents(doc_data)
+    assert len(entries) == 1
+    assert entries[0][2]["doc_id"] == "d2"
+
+
+def test_md2d_corpus_loader_build_document_empty_id() -> None:
+    """_build_document returns None for empty doc_id."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    result = node._build_document(
+        domain="test",
+        fallback_doc_id="",
+        raw_doc={"doc_text": "content"},
+        source_hint=None,
+    )
+    assert result is None
+
+
+def test_md2d_corpus_loader_build_document_empty_content() -> None:
+    """_build_document returns None for empty content."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    result = node._build_document(
+        domain="test", fallback_doc_id="d1", raw_doc={"doc_text": ""}, source_hint=None
+    )
+    assert result is None
+
+
+def test_md2d_corpus_loader_build_document_with_title_and_spans() -> None:
+    """_build_document includes title and span_count in metadata."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    result = node._build_document(
+        domain="test",
+        fallback_doc_id="d1",
+        raw_doc={
+            "doc_id": "d1",
+            "title": "My Title",
+            "doc_text": "Content here.",
+            "spans": {"1": {}, "2": {}},
+        },
+        source_hint="hint",
+    )
+    assert result is not None
+    assert result.metadata["title"] == "My Title"
+    assert result.metadata["span_count"] == 2
+    assert result.source == "hint#doc_id=d1"
+
+
+def test_md2d_corpus_loader_build_document_no_title_no_spans() -> None:
+    """_build_document omits title and span_count when not present."""
+    node = MultiDoc2DialCorpusLoaderNode(name="loader")
+    result = node._build_document(
+        domain="test",
+        fallback_doc_id="d1",
+        raw_doc={"doc_id": "d1", "doc_text": "Content."},
+        source_hint=None,
+    )
+    assert result is not None
+    assert "title" not in result.metadata
+    assert "span_count" not in result.metadata
+    assert result.source == "multidoc2dial#doc_id=d1"
+
+
+# --- QReCCDatasetNode additional coverage ---
+
+
+def test_qrecc_validate_max_conversations_none() -> None:
+    """None max_conversations passes validation."""
+    node = QReCCDatasetNode(name="qrecc", max_conversations=None)
+    assert node.max_conversations is None
+
+
+def test_qrecc_validate_max_conversations_invalid_string() -> None:
+    """Non-integer, non-template string raises ValueError."""
+    with pytest.raises(ValueError, match="max_conversations must be an integer"):
+        QReCCDatasetNode(name="qrecc", max_conversations="bad")
+
+
+def test_qrecc_resolve_max_conversations_invalid_string() -> None:
+    """String that can't resolve to int raises ValueError."""
+    node = QReCCDatasetNode(
+        name="qrecc",
+        max_conversations="{{config.configurable.max}}",
+    )
+    node.max_conversations = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        node._resolve_max_conversations()
+
+
+def test_qrecc_resolve_max_conversations_less_than_one() -> None:
+    """max_conversations < 1 raises ValueError."""
+    node = QReCCDatasetNode(name="qrecc", max_conversations=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        node._resolve_max_conversations()
+
+
+# --- MultiDoc2DialDatasetNode additional coverage ---
+
+
+def test_md2d_validate_max_conversations_none() -> None:
+    """None max_conversations passes validation."""
+    node = MultiDoc2DialDatasetNode(name="md2d", max_conversations=None)
+    assert node.max_conversations is None
+
+
+def test_md2d_validate_max_conversations_invalid_string() -> None:
+    """Non-integer, non-template string raises ValueError."""
+    with pytest.raises(ValueError, match="max_conversations must be an integer"):
+        MultiDoc2DialDatasetNode(name="md2d", max_conversations="bad")
+
+
+def test_md2d_resolve_max_conversations_invalid_string() -> None:
+    """String that can't resolve to int raises ValueError."""
+    node = MultiDoc2DialDatasetNode(
+        name="md2d",
+        max_conversations="{{config.configurable.max}}",
+    )
+    node.max_conversations = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        node._resolve_max_conversations()
+
+
+def test_md2d_resolve_max_conversations_less_than_one() -> None:
+    """max_conversations < 1 raises ValueError."""
+    node = MultiDoc2DialDatasetNode(name="md2d", max_conversations=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        node._resolve_max_conversations()
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_normalize_returns_none_for_bad_dial_data() -> None:
+    """dict payload with non-dict dial_data returns None -> raises."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    with pytest.raises(ValueError, match="expects md2d_data list"):
+        await node.run(State(inputs={"md2d_data": {"dial_data": "not_a_dict"}}), {})
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_flatten_skips_non_list_dialogs() -> None:
+    """Non-list dialog values within a domain are skipped."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    payload = {
+        "dial_data": {
+            "ssa": {
+                "doc-1": "not_a_list",
+                "doc-2": [
+                    {
+                        "dial_id": "d1",
+                        "domain": "ssa",
+                        "turns": [
+                            {"turn_id": 1, "role": "user", "utterance": "Hi"},
+                            {"turn_id": 2, "role": "agent", "utterance": "Hello"},
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+    state = State(inputs={"md2d_data": payload})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_md2d_dataset_flatten_skips_non_dict_dialogs() -> None:
+    """Non-dict dialog entries within a list are skipped."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    payload = {
+        "dial_data": {
+            "ssa": {
+                "doc-1": [
+                    "not_a_dict",
+                    {
+                        "dial_id": "d1",
+                        "domain": "ssa",
+                        "turns": [
+                            {"turn_id": 1, "role": "user", "utterance": "Hi"},
+                            {"turn_id": 2, "role": "agent", "utterance": "Hello"},
+                        ],
+                    },
+                ],
+            }
+        }
+    }
+    state = State(inputs={"md2d_data": payload})
+    result = await node.run(state, {})
+
+    assert result["total_conversations"] == 1
+
+
+def test_md2d_normalize_official_turns_non_list() -> None:
+    """_normalize_official_turns returns empty list for non-list input."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    assert node._normalize_official_turns("not_a_list", default_doc_id="d1") == []
+
+
+def test_md2d_normalize_official_turns_skips_non_dict_turns() -> None:
+    """Non-dict turns are skipped."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    turns = node._normalize_official_turns(
+        ["not_a_dict", {"role": "user", "utterance": "Hi"}],
+        default_doc_id="d1",
+    )
+    assert len(turns) == 1
+
+
+def test_md2d_find_next_agent_turn_skips_non_dict() -> None:
+    """_find_next_agent_turn skips non-dict entries."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    turns: list[Any] = [
+        {"role": "user", "utterance": "Hi"},
+        "not_a_dict",
+        {"role": "agent", "utterance": "Hello"},
+    ]
+    result = node._find_next_agent_turn(turns, 0)
+    assert result is not None
+    assert result["utterance"] == "Hello"
+
+
+def test_md2d_find_next_agent_turn_stops_at_next_user() -> None:
+    """_find_next_agent_turn returns None when next user turn precedes agent."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    turns: list[Any] = [
+        {"role": "user", "utterance": "Q1"},
+        {"role": "user", "utterance": "Q2"},
+        {"role": "agent", "utterance": "A"},
+    ]
+    result = node._find_next_agent_turn(turns, 0)
+    assert result is None
+
+
+def test_md2d_find_next_agent_turn_no_turns_after_user() -> None:
+    """_find_next_agent_turn returns None when user is last turn."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    turns: list[Any] = [{"role": "user", "utterance": "Q1"}]
+    result = node._find_next_agent_turn(turns, 0)
+    assert result is None
+
+
+def test_md2d_normalize_reference_spans_non_list() -> None:
+    """_normalize_reference_spans returns empty for non-list input."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    assert node._normalize_reference_spans("not_a_list", default_doc_id="d1") == []
+
+
+def test_md2d_normalize_reference_spans_skips_non_dict() -> None:
+    """Non-dict reference entries are skipped."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    result = node._normalize_reference_spans(
+        ["not_a_dict", {"sp_id": "1", "label": "test"}],
+        default_doc_id="d1",
+    )
+    assert len(result) == 1
+
+
+def test_md2d_safe_int_fallback() -> None:
+    """_safe_int returns default for non-parseable values."""
+    node = MultiDoc2DialDatasetNode(name="md2d")
+    assert node._safe_int("bad") == 0
+    assert node._safe_int(None, default=42) == 42
+    assert node._safe_int(5) == 5
