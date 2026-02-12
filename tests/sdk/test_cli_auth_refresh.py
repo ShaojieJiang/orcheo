@@ -63,6 +63,7 @@ def test_get_valid_access_token_oauth_not_configured(
 ) -> None:
     monkeypatch.delenv("ORCHEO_AUTH_ISSUER", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_AUDIENCE", raising=False)
 
     result = get_valid_access_token(profile="default")
     assert result is None
@@ -73,6 +74,7 @@ def test_get_valid_access_token_no_tokens(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     result = get_valid_access_token(profile="default")
     assert result is None
@@ -83,6 +85,7 @@ def test_get_valid_access_token_valid_token(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     future = int(time.time() * 1000) + 3600000
     tokens = AuthTokens(access_token="valid-token", expires_at=future)
@@ -97,6 +100,7 @@ def test_get_valid_access_token_expired_no_refresh(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     past = int(time.time() * 1000) - 3600000
     tokens = AuthTokens(access_token="expired-token", expires_at=past)
@@ -111,6 +115,7 @@ def test_refresh_oauth_tokens_no_refresh_token(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     past = int(time.time() * 1000) - 3600000
     tokens = AuthTokens(
@@ -127,6 +132,7 @@ def test_refresh_oauth_tokens_not_configured(
 ) -> None:
     monkeypatch.delenv("ORCHEO_AUTH_ISSUER", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ORCHEO_AUTH_AUDIENCE", raising=False)
 
     result = refresh_oauth_tokens(profile="default")
     assert result is None
@@ -137,6 +143,7 @@ def test_refresh_oauth_tokens_invalid_discovery_json(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     tokens = AuthTokens(
         access_token="expired-token", expires_at=0, refresh_token="refresh-token"
@@ -163,6 +170,7 @@ def test_refresh_oauth_tokens_http_error(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     tokens = AuthTokens(
         access_token="expired-token", expires_at=0, refresh_token="refresh-token"
@@ -192,6 +200,7 @@ def test_refresh_oauth_tokens_missing_access_token(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     tokens = AuthTokens(
         access_token="expired-token", expires_at=0, refresh_token="refresh-token"
@@ -220,6 +229,7 @@ def test_refresh_oauth_tokens_success_calculates_expiry(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     tokens = AuthTokens(
         access_token="expired-token",
@@ -265,6 +275,7 @@ def test_refresh_oauth_tokens_success_fallback_expiry(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ORCHEO_AUTH_AUDIENCE", "https://api.example.com")
 
     tokens = AuthTokens(
         access_token="expired-token", expires_at=456, refresh_token="refresh-token"

@@ -4,7 +4,7 @@
   "configurable": {
     "corpus": {
       "docs_path": "https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_doc.json",
-      "max_documents": 2,
+      "max_documents": null,
       "chunk_size": 512,
       "chunk_overlap": 64
     },

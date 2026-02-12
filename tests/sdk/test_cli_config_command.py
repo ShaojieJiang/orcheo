@@ -77,10 +77,10 @@ def test_config_command_uses_environment_defaults(
     assert profile["service_token"] == env["ORCHEO_SERVICE_TOKEN"]
 
 
-def test_config_command_without_service_token(
+def test_config_command_without_auth_or_service_token_fails(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """Test config command works without service token (covers falsy branch)."""
+    """Config command should fail when neither auth method is configured."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     env_without_token = {
@@ -98,14 +98,12 @@ def test_config_command_without_service_token(
 
     result = runner.invoke(app, ["config"], env=env_without_token)
 
-    assert result.exit_code == 0
-
-    config_path = config_dir / CONFIG_FILENAME
-    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    profile = data["profiles"]["default"]
-
-    assert profile["api_url"] == "http://api.test"
-    assert "service_token" not in profile
+    assert result.exit_code == 1
+    assert isinstance(result.exception, CLIError)
+    assert (
+        "one of service_token or (auth_issuer and auth_client_id and"
+        " auth_audience) needs to be configured." in str(result.exception)
+    )
 
 
 def test_read_env_file_not_found(tmp_path: Path) -> None:
@@ -263,6 +261,8 @@ def test_config_command_falls_back_to_existing_profile_api_url(
             "https://auth.example.com/",
             "--auth-client-id",
             "test-client-id",
+            "--auth-audience",
+            "https://api.example.com/",
         ],
         env=minimal_env,
     )
@@ -273,6 +273,7 @@ def test_config_command_falls_back_to_existing_profile_api_url(
     assert profile["api_url"] == "http://existing.test"
     assert profile["auth_issuer"] == "https://auth.example.com/"
     assert profile["auth_client_id"] == "test-client-id"
+    assert profile["auth_audience"] == "https://api.example.com/"
 
 
 def test_config_command_preserves_api_url_per_profile(
@@ -315,6 +316,8 @@ def test_config_command_preserves_api_url_per_profile(
             "https://auth.example.com/",
             "--auth-client-id",
             "test-client-id",
+            "--auth-audience",
+            "https://api.example.com/",
         ],
         env=minimal_env,
     )
@@ -324,6 +327,8 @@ def test_config_command_preserves_api_url_per_profile(
     profiles = data["profiles"]
     assert profiles["alpha"]["api_url"] == "http://alpha.test"
     assert profiles["beta"]["api_url"] == "http://beta.test"
+    assert profiles["alpha"]["auth_audience"] == "https://api.example.com/"
+    assert profiles["beta"]["auth_audience"] == "https://api.example.com/"
 
 
 def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> None:
@@ -495,6 +500,56 @@ def test_config_command_incomplete_oauth_client_id_only(
         )
 
 
+def test_config_command_incomplete_oauth_missing_audience(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test issuer/client_id without audience raises CLIError."""
+    from unittest.mock import MagicMock
+    from rich.console import Console
+    from typer import Context
+    from orcheo_sdk.cli.auth.config import (
+        AUTH_AUDIENCE_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_ISSUER_ENV,
+        AUTH_ORGANIZATION_ENV,
+        AUTH_SCOPES_ENV,
+    )
+    from orcheo_sdk.cli.config_command import configure
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
+    for key in [
+        AUTH_ISSUER_ENV,
+        AUTH_CLIENT_ID_ENV,
+        AUTH_SCOPES_ENV,
+        AUTH_AUDIENCE_ENV,
+        AUTH_ORGANIZATION_ENV,
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    mock_state = MagicMock()
+    mock_state.console = Console()
+    mock_ctx = MagicMock(spec=Context)
+    mock_ctx.ensure_object.return_value = mock_state
+
+    with pytest.raises(CLIError, match="auth_audience"):
+        configure(
+            ctx=mock_ctx,
+            profile=None,
+            api_url="http://api.test",
+            service_token=None,
+            chatkit_public_base_url=None,
+            auth_issuer="https://auth.example.com",
+            auth_client_id="my-client",
+            auth_scopes=None,
+            auth_audience=None,
+            auth_organization=None,
+            env_file=None,
+        )
+
+
 def test_resolve_oauth_values_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Cover false branches when no OAuth values resolve."""
     from orcheo_sdk.cli.auth.config import (
@@ -570,8 +625,8 @@ def test_config_check_fails_without_auth_or_service_token(
     assert result.exit_code == 1
     assert isinstance(result.exception, CLIError)
     assert (
-        "one of service_token or (auth_issuer and auth_client_id) needs to"
-        " be configured." in str(result.exception)
+        "one of service_token or (auth_issuer and auth_client_id and"
+        " auth_audience) needs to be configured." in str(result.exception)
     )
 
 
@@ -612,6 +667,7 @@ def test_config_check_applies_env_file_overrides(
                 "ORCHEO_API_URL=http://env-check.test",
                 "ORCHEO_AUTH_ISSUER=https://issuer.env-check.test",
                 "ORCHEO_AUTH_CLIENT_ID=env-client-1234",
+                "ORCHEO_AUTH_AUDIENCE=https://api.env-check.test",
             ]
         ),
         encoding="utf-8",
@@ -665,6 +721,7 @@ def test_config_check_passes_with_redacted_oauth(
                 'api_url = "http://api.test"',
                 'auth_issuer = "https://issuer.example.com"',
                 'auth_client_id = "oauth-client-1234"',
+                'auth_audience = "https://api.example.com"',
                 "",
             ]
         ),
@@ -677,8 +734,10 @@ def test_config_check_passes_with_redacted_oauth(
     assert "api-url: http://api.test" in result.stdout
     assert "auth-issuer: ht...om" in result.stdout
     assert "auth-client-id: oa...34" in result.stdout
+    assert "auth-audience: ht...om" in result.stdout
     assert "https://issuer.example.com" not in result.stdout
     assert "oauth-client-1234" not in result.stdout
+    assert "https://api.example.com" not in result.stdout
 
 
 def test_redact_value_short_string() -> None:
@@ -736,6 +795,7 @@ def test_config_check_oauth_only_no_service_token(
                 'api_url = "http://api.test"',
                 'auth_issuer = "https://issuer.example.com"',
                 'auth_client_id = "oauth-client-1234"',
+                'auth_audience = "https://api.example.com"',
                 "",
             ]
         ),
@@ -750,6 +810,7 @@ def test_config_check_oauth_only_no_service_token(
     assert "service-token" not in result.stdout
     assert "auth-issuer:" in result.stdout
     assert "auth-client-id:" in result.stdout
+    assert "auth-audience:" in result.stdout
 
 
 def test_config_check_machine_output(runner: CliRunner, env: dict[str, str]) -> None:

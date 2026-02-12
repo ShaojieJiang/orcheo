@@ -4,7 +4,7 @@
   "configurable": {
     "md2d": {
       "data_path": "https://raw.githubusercontent.com/doc2dial/sharedtask-dialdoc2021/master/data/doc2dial/v1.0.1/doc2dial_dial_validation.json",
-      "max_conversations": 2
+      "max_conversations": null
     },
     "retrieval": {
       "embed_model": "openai:text-embedding-3-small",

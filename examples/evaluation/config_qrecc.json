@@ -4,7 +4,7 @@
   "configurable": {
     "qrecc": {
       "data_path": "https://huggingface.co/datasets/slupart/qrecc/resolve/main/qrecc_test.json?download=true",
-      "max_conversations": 2
+      "max_conversations": null
     },
     "rewrite": {
       "model": "openai:gpt-4o-mini"
