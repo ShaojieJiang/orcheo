@@ -7,9 +7,12 @@ import pytest
 from typer.testing import CliRunner
 from orcheo_sdk.cli.config import CONFIG_FILENAME, PROFILE_ENV
 from orcheo_sdk.cli.config_command import (
+    _check_profile,
     _format_toml_value,
     _read_env_file,
+    _redact_value,
     _resolve_value,
+    _run_config_check,
 )
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
@@ -343,7 +346,7 @@ def test_config_command_missing_api_url(runner: CliRunner, tmp_path: Path) -> No
 
     assert result.exit_code == 1
     assert isinstance(result.exception, CLIError)
-    assert "ORCHEO_API_URL" in str(result.exception)
+    assert "Missing api_url" in str(result.exception)
 
 
 def test_config_command_invalid_toml(
@@ -543,7 +546,7 @@ def test_config_check_fails_without_api_url(
 
     assert result.exit_code == 1
     assert isinstance(result.exception, CLIError)
-    assert "Missing ORCHEO_API_URL." in str(result.exception)
+    assert "Missing api_url." in str(result.exception)
 
 
 def test_config_check_fails_without_auth_or_service_token(
@@ -676,3 +679,100 @@ def test_config_check_passes_with_redacted_oauth(
     assert "auth-client-id: oa...34" in result.stdout
     assert "https://issuer.example.com" not in result.stdout
     assert "oauth-client-1234" not in result.stdout
+
+
+def test_redact_value_short_string() -> None:
+    """Test that short values (<=4 chars) are fully redacted."""
+    assert _redact_value("ab") == "**"
+    assert _redact_value("abcd") == "****"
+    assert _redact_value("") == ""
+
+
+def test_check_profile_missing_api_url() -> None:
+    """Test _check_profile returns error when api_url is missing."""
+    reason, output = _check_profile({"service_token": "tok"})
+    assert reason == "'api_url' is not configured."
+    assert output is None
+
+
+def test_run_config_check_none_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test _run_config_check raises when output is None."""
+    from unittest.mock import MagicMock
+    import orcheo_sdk.cli.config_command as cc
+
+    state = MagicMock()
+    state.human = True
+
+    profiles: dict[str, dict[str, str]] = {
+        "bad": {"api_url": "http://a.test"},
+    }
+
+    def _fake_check(
+        profile_data: dict[str, object],
+    ) -> tuple[str | None, dict[str, str] | None]:
+        return None, None
+
+    monkeypatch.setattr(cc, "_check_profile", _fake_check)
+
+    with pytest.raises(CLIError, match="failed check"):
+        _run_config_check(
+            state=state,
+            profile_names=["bad"],
+            profiles=profiles,
+        )
+
+
+def test_config_check_oauth_only_no_service_token(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Test --check with OAuth auth only covers 206->208, 247->249."""
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'auth_issuer = "https://issuer.example.com"',
+                'auth_client_id = "oauth-client-1234"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    check_env = {**env, "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["config", "--check"], env=check_env)
+
+    assert result.exit_code == 0
+    assert "api-url: http://api.test" in result.stdout
+    assert "service-token" not in result.stdout
+    assert "auth-issuer:" in result.stdout
+    assert "auth-client-id:" in result.stdout
+
+
+def test_config_check_machine_output(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test --check in machine mode outputs JSON."""
+    import json
+
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'service_token = "token-123456"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    machine_env = {**env, "ORCHEO_HUMAN": "", "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["config", "--check"], env=machine_env)
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["status"] == "success"
+    assert "default" in data["profiles"]

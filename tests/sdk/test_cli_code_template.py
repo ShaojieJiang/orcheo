@@ -21,7 +21,7 @@ def test_code_template_creates_workflow_file(
     assert output_file.exists()
     content = output_file.read_text()
     assert "from langgraph.graph import END, START, StateGraph" in content
-    assert "async def build_graph()" in content
+    assert "async def orcheo_workflow()" in content
     assert "Created workflow template" in result.stdout
 
 

@@ -267,9 +267,7 @@ def _resolve_profiles_with_overrides(
         profile_data = dict(profiles.get(name, {}))
         resolved_api_url = resolved_api_url_override or profile_data.get("api_url")
         if not resolved_api_url:
-            raise CLIError(
-                "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
-            )
+            raise CLIError("Missing api_url.")
 
         profile_data["api_url"] = resolved_api_url
         if resolved_service_token:

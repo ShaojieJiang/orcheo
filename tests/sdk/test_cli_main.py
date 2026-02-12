@@ -313,3 +313,32 @@ def test_run_human_injects_human_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured_argv[0] == "orcheo-human"
     assert captured_argv[1] == "--human"
     assert captured_argv[2:] == ["node", "list"]
+
+
+def test_run_human_skips_inject_when_flag_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test run_human does not duplicate --human when already present."""
+    from orcheo_sdk.cli import main as main_mod
+
+    captured_argv: list[str] = []
+
+    def mock_run() -> None:
+        nonlocal captured_argv
+        captured_argv = main_mod.sys.argv.copy()
+
+    monkeypatch.setattr(main_mod, "run", mock_run)
+    monkeypatch.setattr(
+        main_mod.sys,
+        "argv",
+        ["orcheo-human", "--human", "node", "list"],
+    )
+
+    run_human()
+
+    assert captured_argv == [
+        "orcheo-human",
+        "--human",
+        "node",
+        "list",
+    ]
