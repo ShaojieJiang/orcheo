@@ -78,7 +78,7 @@ def generate_workflow_template_data() -> dict[str, str]:
     """
     template = '''"""Minimal LangGraph workflow for Orcheo.
 
-Orcheo loads any top-level StateGraph or a `build_graph` function (sync or async)
+Orcheo loads any top-level StateGraph or a `orcheo_workflow` function (sync or async)
 that returns one.
 
 Key points:
@@ -94,7 +94,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.logic import SetVariableNode
 
 
-async def build_graph() -> StateGraph:
+async def orcheo_workflow() -> StateGraph:
     """Build and return the LangGraph workflow."""
     graph = StateGraph(State)
     graph.add_node(
