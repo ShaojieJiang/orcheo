@@ -38,14 +38,6 @@ config_app = typer.Typer(
     help="Write CLI profile settings to the Orcheo config file.",
 )
 
-ProfileOption = Annotated[
-    list[str] | None,
-    typer.Option(
-        "--profile",
-        "-p",
-        help="Profile name to write (can be provided multiple times).",
-    ),
-]
 EnvFileOption = Annotated[
     Path | None,
     typer.Option("--env-file", help="Path to a .env file to read values from."),
@@ -317,7 +309,6 @@ def _resolve_profiles_with_overrides(
 @config_app.callback(invoke_without_command=True)
 def configure(
     ctx: typer.Context,
-    profile: ProfileOption = None,
     api_url: Annotated[
         str | None,
         typer.Option("--api-url", help="API base URL to write."),
@@ -366,13 +357,10 @@ def configure(
     state = _state(ctx)
 
     env_data = _read_env_file(env_file) if env_file else None
-    env_profile = None
-    if env_data and PROFILE_ENV in env_data:
-        env_profile = env_data[PROFILE_ENV]
-    else:
-        env_profile = os.getenv(PROFILE_ENV)
+    env_file_profile = env_data.get(PROFILE_ENV) if env_data else None
 
-    profile_names = profile or [env_profile or DEFAULT_PROFILE]
+    state_profile = getattr(getattr(state, "settings", None), "profile", None)
+    profile_names = [env_file_profile or state_profile or DEFAULT_PROFILE]
 
     config_path = get_config_dir() / CONFIG_FILENAME
     try:
