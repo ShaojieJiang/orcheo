@@ -372,10 +372,10 @@ def test_init_sparse_embeddings_rejects_unsupported_provider() -> None:
         init_sparse_embeddings("unknown:model")
 
 
-def test_init_sparse_embeddings_pinecone_bm25_default(
+def test_init_sparse_embeddings_pinecone_bm25_without_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Covers lines 95-105 of embeddings.py (bm25 default path)."""
+    """Covers BM25 constructor path in _init_pinecone_sparse."""
     import pinecone_text.sparse as ps
 
     class FakeBM25:
@@ -386,6 +386,30 @@ def test_init_sparse_embeddings_pinecone_bm25_default(
 
     result = init_sparse_embeddings("pinecone:bm25")
     assert isinstance(result, FakeBM25)
+
+
+def test_init_sparse_embeddings_pinecone_bm25_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers BM25 default-model path in _init_pinecone_sparse."""
+    import pinecone_text.sparse as ps
+
+    class FakeBM25:
+        @staticmethod
+        def default() -> FakeBM25:
+            instance = FakeBM25()
+            instance.from_default = True
+            return instance
+
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.from_default = False
+
+    monkeypatch.setattr(ps, "BM25Encoder", FakeBM25)
+
+    result = init_sparse_embeddings("pinecone:bm25-default")
+    assert isinstance(result, FakeBM25)
+    assert result.from_default is True
 
 
 def test_init_sparse_embeddings_pinecone_bm25_with_state_path(
@@ -404,11 +428,40 @@ def test_init_sparse_embeddings_pinecone_bm25_with_state_path(
         def __init__(self, **kwargs: Any) -> None:
             pass
 
-        @classmethod
-        def load(cls, path: str) -> FakeBM25:
-            instance = cls()
+        @staticmethod
+        def load(path: str) -> FakeBM25:
+            instance = FakeBM25()
             instance.loaded_from = path
             return instance
+
+    monkeypatch.setattr(ps, "BM25Encoder", FakeBM25)
+
+    result = init_sparse_embeddings(
+        "pinecone:bm25", {"encoder_state_path": str(state_file)}
+    )
+    assert isinstance(result, FakeBM25)
+    assert result.loaded_from == str(state_file)
+
+
+def test_init_sparse_embeddings_pinecone_bm25_with_state_path_instance_load(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Covers fallback for BM25 instance-style load API."""
+    import pinecone_text.sparse as ps
+
+    state_file = tmp_path / "state.bin"
+    state_file.write_text("data")
+
+    class FakeBM25:
+        loaded_from: str | None = None
+
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def load(self, path: str) -> FakeBM25:
+            self.loaded_from = path
+            return self
 
     monkeypatch.setattr(ps, "BM25Encoder", FakeBM25)
 

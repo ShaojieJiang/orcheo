@@ -101,7 +101,9 @@ def _init_pinecone_sparse(model: str, kwargs: dict[str, Any]) -> Any:
             if not path.exists():
                 msg = f"Encoder state path does not exist: {encoder_state_path}"
                 raise FileNotFoundError(msg)
-            return BM25Encoder.load(str(path))
+            return _load_bm25_encoder_from_path(path)
+        if model == "bm25-default" and not kwargs:
+            return BM25Encoder.default()
         return BM25Encoder(**kwargs)
     if model == "splade":
         try:
@@ -128,6 +130,18 @@ def sparse_embed_documents(
         encoder.fit(texts)
     payload = encoder.encode_documents(texts)
     return _encode_sparse_vectors(payload)
+
+
+def _load_bm25_encoder_from_path(path: Path) -> Any:
+    """Load BM25 encoder state from disk across pinecone-text API variants."""
+    from pinecone_text.sparse import BM25Encoder
+
+    try:
+        # pinecone-text<=0.10 used class-style load calls.
+        return BM25Encoder.load(str(path))
+    except TypeError:
+        # pinecone-text>=0.11 uses an instance load method.
+        return BM25Encoder().load(str(path))
 
 
 def sparse_embed_query(
@@ -285,7 +299,7 @@ def _bm25_encoder_builder(
             if not path.exists():
                 msg = f"Encoder state path does not exist: {encoder_state_path}"
                 raise FileNotFoundError(msg)
-            return BM25Encoder.load(str(path))
+            return _load_bm25_encoder_from_path(path)
         return BM25Encoder()
 
     return _builder

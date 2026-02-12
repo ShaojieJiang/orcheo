@@ -783,7 +783,13 @@ class ChunkEmbeddingNode(TaskNode):
             encoder = init_sparse_embeddings(
                 sparse_spec.sparse_model, sparse_spec.sparse_kwargs
             )
-            sparse_vectors = sparse_embed_documents(encoder, chunk_texts, fit=True)
+            sparse_vectors = sparse_embed_documents(
+                encoder,
+                chunk_texts,
+                fit=self._should_fit_sparse_encoder(
+                    sparse_spec.sparse_model, sparse_spec.sparse_kwargs
+                ),
+            )
             if len(sparse_vectors) != len(chunks):
                 msg = (
                     "Sparse embedding returned "
@@ -798,6 +804,18 @@ class ChunkEmbeddingNode(TaskNode):
             )
 
         return {"chunk_embeddings": records_by_function}
+
+    @staticmethod
+    def _should_fit_sparse_encoder(
+        sparse_model: str,
+        sparse_kwargs: Mapping[str, Any],
+    ) -> bool:
+        """Return whether sparse document encoding should fit encoder state."""
+        if sparse_model == "pinecone:bm25-default":
+            return False
+        if sparse_model == "pinecone:bm25" and sparse_kwargs.get("encoder_state_path"):
+            return False
+        return True
 
     def _validate_required_metadata(self, chunks: list[DocumentChunk]) -> None:
         for key in self.required_metadata_keys:
