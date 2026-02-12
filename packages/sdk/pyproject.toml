@@ -27,6 +27,7 @@ dev = [
 
 [project.scripts]
 orcheo = "orcheo_sdk.cli.main:run"
+orcheo-human = "orcheo_sdk.cli.main:run_human"
 orcheo-mcp = "orcheo_sdk.mcp_server.main:main"
 
 [tool.hatch.build.targets.wheel]
