@@ -170,6 +170,88 @@ def _write_profiles(config_path: Path, profiles: dict[str, dict[str, Any]]) -> N
     config_path.write_text(content, encoding="utf-8")
 
 
+def _resolve_profile_value(profile_data: dict[str, Any], key: str) -> str | None:
+    value = profile_data.get(key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _redact_value(value: str) -> str:
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:2]}...{value[-2:]}"
+
+
+def _check_profile(
+    profile_data: dict[str, Any],
+) -> tuple[str | None, dict[str, str] | None]:
+    api_url = _resolve_profile_value(profile_data, "api_url")
+    if not api_url:
+        return "'api_url' is not configured.", None
+
+    service_token = _resolve_profile_value(profile_data, "service_token")
+    auth_issuer = _resolve_profile_value(profile_data, AUTH_ISSUER_KEY)
+    auth_client_id = _resolve_profile_value(profile_data, AUTH_CLIENT_ID_KEY)
+    has_oauth = bool(auth_issuer and auth_client_id)
+
+    if not service_token and not has_oauth:
+        return (
+            "one of service_token or (auth_issuer and auth_client_id) needs to"
+            " be configured.",
+            None,
+        )
+
+    output = {"api_url": api_url}
+    if service_token:
+        output["service_token"] = _redact_value(service_token)
+    if auth_issuer:
+        output["auth_issuer"] = _redact_value(auth_issuer)
+    if auth_client_id:
+        output["auth_client_id"] = _redact_value(auth_client_id)
+    return None, output
+
+
+def _run_config_check(
+    *,
+    state: CLIState,
+    profile_names: list[str],
+    profiles: dict[str, dict[str, Any]],
+) -> None:
+    results: dict[str, dict[str, str]] = {}
+    for name in profile_names:
+        profile_data = dict(profiles.get(name, {}))
+        reason, output = _check_profile(profile_data)
+        if reason:
+            raise CLIError(f"Profile '{name}' failed check: {reason}")
+        if output is None:
+            raise CLIError(f"Profile '{name}' failed check.")
+        results[name] = output
+
+    if not state.human:
+        print_json(
+            {
+                "status": "success",
+                "profiles": results,
+            }
+        )
+        return
+
+    state.console.print(
+        f"[green]Config check passed for {len(profile_names)} profile(s)."
+    )
+    for name in profile_names:
+        details = results[name]
+        state.console.print(f"[bold]{name}[/bold]")
+        state.console.print(f"  api-url: {details['api_url']}")
+        if "service_token" in details:
+            state.console.print(f"  service-token: {details['service_token']}")
+        if "auth_issuer" in details:
+            state.console.print(f"  auth-issuer: {details['auth_issuer']}")
+        if "auth_client_id" in details:
+            state.console.print(f"  auth-client-id: {details['auth_client_id']}")
+
+
 @config_app.callback(invoke_without_command=True)
 def configure(
     ctx: typer.Context,
@@ -210,6 +292,13 @@ def configure(
         typer.Option("--auth-organization", help="OAuth organization to write."),
     ] = None,
     env_file: EnvFileOption = None,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check",
+            help="Check profile config status without writing changes.",
+        ),
+    ] = False,
 ) -> None:
     """Write CLI profile configuration to ``cli.toml``."""
     state = _state(ctx)
@@ -228,6 +317,14 @@ def configure(
         profiles = load_profiles(config_path)
     except tomllib.TOMLDecodeError as exc:
         raise CLIError(f"Invalid TOML in {config_path}.") from exc
+
+    if check:
+        _run_config_check(
+            state=state,
+            profile_names=profile_names,
+            profiles=profiles,
+        )
+        return
 
     resolved_api_url_override = _resolve_value(
         API_URL_ENV, env_data=env_data, override=api_url

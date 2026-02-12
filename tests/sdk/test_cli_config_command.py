@@ -521,3 +521,101 @@ def test_resolve_oauth_values_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
         auth_organization=None,
     )
     assert result == {}
+
+
+def test_config_check_fails_without_api_url(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'service_token = "token-123456"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["config", "--check"], env=env)
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, CLIError)
+    assert "'api_url' is not configured." in str(result.exception)
+
+
+def test_config_check_fails_without_auth_or_service_token(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["config", "--check"], env=env)
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, CLIError)
+    assert (
+        "one of service_token or (auth_issuer and auth_client_id) needs to"
+        " be configured." in str(result.exception)
+    )
+
+
+def test_config_check_passes_with_redacted_service_token(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'service_token = "token-123456"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["config", "--check"], env=env)
+
+    assert result.exit_code == 0
+    assert "api-url: http://api.test" in result.stdout
+    assert "service-token: to...56" in result.stdout
+    assert "token-123456" not in result.stdout
+
+
+def test_config_check_passes_with_redacted_oauth(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'auth_issuer = "https://issuer.example.com"',
+                'auth_client_id = "oauth-client-1234"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["config", "--check"], env=env)
+
+    assert result.exit_code == 0
+    assert "api-url: http://api.test" in result.stdout
+    assert "auth-issuer: ht...om" in result.stdout
+    assert "auth-client-id: oa...34" in result.stdout
+    assert "https://issuer.example.com" not in result.stdout
+    assert "oauth-client-1234" not in result.stdout
