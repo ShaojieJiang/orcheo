@@ -227,3 +227,14 @@ def run() -> None:
     finally:
         if hasattr(app, "rich_markup_mode"):
             app.rich_markup_mode = original_rich_markup
+
+
+def run_human() -> None:
+    """Entry point that defaults to human-readable output."""
+    original_argv = sys.argv.copy()
+    try:
+        if "--human" not in sys.argv:
+            sys.argv = [sys.argv[0], "--human", *sys.argv[1:]]
+        run()
+    finally:
+        sys.argv = original_argv

@@ -8,7 +8,7 @@ import respx
 import typer
 from typer.testing import CliRunner
 from orcheo_sdk.cli.errors import APICallError, CLIError
-from orcheo_sdk.cli.main import app, run
+from orcheo_sdk.cli.main import app, run, run_human
 
 
 def test_main_config_error_handling(
@@ -294,3 +294,51 @@ def test_run_disables_rich_markup_in_machine_mode(
     assert exc_info.value.code == 1
     assert dummy.called_with_none
     assert dummy.rich_markup_mode == "rich"
+
+
+def test_run_human_injects_human_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orcheo_sdk.cli import main as main_mod
+
+    captured_argv: list[str] = []
+
+    def mock_run() -> None:
+        nonlocal captured_argv
+        captured_argv = main_mod.sys.argv.copy()
+
+    monkeypatch.setattr(main_mod, "run", mock_run)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo-human", "node", "list"])
+
+    run_human()
+
+    assert captured_argv[0] == "orcheo-human"
+    assert captured_argv[1] == "--human"
+    assert captured_argv[2:] == ["node", "list"]
+
+
+def test_run_human_skips_inject_when_flag_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test run_human does not duplicate --human when already present."""
+    from orcheo_sdk.cli import main as main_mod
+
+    captured_argv: list[str] = []
+
+    def mock_run() -> None:
+        nonlocal captured_argv
+        captured_argv = main_mod.sys.argv.copy()
+
+    monkeypatch.setattr(main_mod, "run", mock_run)
+    monkeypatch.setattr(
+        main_mod.sys,
+        "argv",
+        ["orcheo-human", "--human", "node", "list"],
+    )
+
+    run_human()
+
+    assert captured_argv == [
+        "orcheo-human",
+        "--human",
+        "node",
+        "list",
+    ]

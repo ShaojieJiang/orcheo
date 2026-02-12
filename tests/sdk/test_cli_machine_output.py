@@ -166,6 +166,32 @@ class TestConfigMachineMode:
         assert "profiles" in data
         assert "config_path" in data
 
+    def test_check_outputs_redacted_json(
+        self, runner: CliRunner, machine_env: dict[str, str]
+    ) -> None:
+        config_path = Path(machine_env["ORCHEO_CONFIG_DIR"]) / "cli.toml"
+        config_path.write_text(
+            "\n".join(
+                [
+                    "[profiles.default]",
+                    'api_url = "http://api.test"',
+                    'service_token = "token-123456"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        check_env = {**machine_env, "ORCHEO_SERVICE_TOKEN": ""}
+        result = runner.invoke(app, ["config", "--check"], env=check_env)
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["status"] == "success"
+        assert "config_path" not in data
+        assert data["profiles"]["default"]["api_url"] == "http://api.test"
+        assert data["profiles"]["default"]["service_token"] == "to...56"
+
 
 class TestEdgeListMachineMode:
     def test_outputs_markdown_table(
