@@ -837,3 +837,46 @@ def test_config_check_machine_output(runner: CliRunner, env: dict[str, str]) -> 
     data = json.loads(result.stdout)
     assert data["status"] == "success"
     assert "default" in data["profiles"]
+
+
+def test_config_command_allows_setting_only_missing_oauth_field_on_existing_profile(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Allow completing legacy OAuth profiles by setting only missing fields."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'auth_issuer = "https://auth.example.com"',
+                'auth_client_id = "my-client"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    env = {
+        "ORCHEO_CONFIG_DIR": str(config_dir),
+        "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
+        "ORCHEO_API_URL": "http://api.test",
+        "ORCHEO_HUMAN": "1",
+        "NO_COLOR": "1",
+    }
+
+    result = runner.invoke(
+        app,
+        ["config", "--auth-audience", "https://api.example.com"],
+        env=env,
+    )
+
+    assert result.exit_code == 0
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    profile = data["profiles"]["default"]
+    assert profile["auth_issuer"] == "https://auth.example.com"
+    assert profile["auth_client_id"] == "my-client"
+    assert profile["auth_audience"] == "https://api.example.com"

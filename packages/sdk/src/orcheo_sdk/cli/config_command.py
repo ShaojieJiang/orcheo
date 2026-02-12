@@ -177,6 +177,23 @@ def _resolve_profile_value(profile_data: dict[str, Any], key: str) -> str | None
     return None
 
 
+def _validate_oauth_completeness(profile_data: dict[str, Any]) -> None:
+    oauth_required_keys = [AUTH_ISSUER_KEY, AUTH_CLIENT_ID_KEY, AUTH_AUDIENCE_KEY]
+    present_oauth_keys = [
+        key for key in oauth_required_keys if _resolve_profile_value(profile_data, key)
+    ]
+    if 0 < len(present_oauth_keys) < len(oauth_required_keys):
+        missing_oauth_keys = [
+            key for key in oauth_required_keys if key not in present_oauth_keys
+        ]
+        missing_keys = ", ".join(f"'{key}'" for key in missing_oauth_keys)
+        is_or_are = "is" if len(missing_oauth_keys) == 1 else "are"
+        raise CLIError(
+            f"Incomplete OAuth configuration: {missing_keys} {is_or_are} required"
+            " when any OAuth field is set."
+        )
+
+
 def _redact_value(value: str) -> str:
     if len(value) <= 4:
         return "*" * len(value)
@@ -280,6 +297,7 @@ def _resolve_profiles_with_overrides(
         if resolved_public_base_url:
             profile_data["chatkit_public_base_url"] = resolved_public_base_url
         profile_data.update(oauth_values)
+        _validate_oauth_completeness(profile_data)
 
         service_token = _resolve_profile_value(profile_data, "service_token")
         auth_issuer = _resolve_profile_value(profile_data, AUTH_ISSUER_KEY)
@@ -383,19 +401,6 @@ def configure(
         auth_audience=auth_audience,
         auth_organization=auth_organization,
     )
-
-    oauth_required_keys = [AUTH_ISSUER_KEY, AUTH_CLIENT_ID_KEY, AUTH_AUDIENCE_KEY]
-    present_oauth_keys = [key for key in oauth_required_keys if key in oauth_values]
-    if 0 < len(present_oauth_keys) < len(oauth_required_keys):
-        missing_oauth_keys = [
-            key for key in oauth_required_keys if key not in present_oauth_keys
-        ]
-        missing_keys = ", ".join(f"'{key}'" for key in missing_oauth_keys)
-        is_or_are = "is" if len(missing_oauth_keys) == 1 else "are"
-        raise CLIError(
-            f"Incomplete OAuth configuration: {missing_keys} {is_or_are} required"
-            " when any OAuth field is set."
-        )
 
     profiles = _resolve_profiles_with_overrides(
         profile_names=profile_names,
