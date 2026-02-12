@@ -305,14 +305,17 @@ class SparseSearchNode(TaskNode):
 
     def _validate_sparse_query_configuration(self) -> None:
         """Validate sparse query encoder settings for vector-store retrieval."""
-        if self.sparse_model not in {"pinecone:bm25", "pinecone:bm25-default"}:
+        if self.sparse_model == "pinecone:bm25-default":
+            return
+        if self.sparse_model != "pinecone:bm25":
             return
         if self.sparse_kwargs.get("encoder_state_path"):
             return
         msg = (
             "SparseSearchNode with sparse_model='pinecone:bm25' requires "
             "sparse_kwargs['encoder_state_path'] so query encoding uses a "
-            "pre-fitted BM25 encoder."
+            "pre-fitted BM25 encoder. Use sparse_model='pinecone:bm25-default' "
+            "to use Pinecone default parameters without local state files."
         )
         raise ValueError(msg)
 

@@ -38,14 +38,6 @@ config_app = typer.Typer(
     help="Write CLI profile settings to the Orcheo config file.",
 )
 
-ProfileOption = Annotated[
-    list[str] | None,
-    typer.Option(
-        "--profile",
-        "-p",
-        help="Profile name to write (can be provided multiple times).",
-    ),
-]
 EnvFileOption = Annotated[
     Path | None,
     typer.Option("--env-file", help="Path to a .env file to read values from."),
@@ -177,6 +169,23 @@ def _resolve_profile_value(profile_data: dict[str, Any], key: str) -> str | None
     return None
 
 
+def _validate_oauth_completeness(profile_data: dict[str, Any]) -> None:
+    oauth_required_keys = [AUTH_ISSUER_KEY, AUTH_CLIENT_ID_KEY, AUTH_AUDIENCE_KEY]
+    present_oauth_keys = [
+        key for key in oauth_required_keys if _resolve_profile_value(profile_data, key)
+    ]
+    if 0 < len(present_oauth_keys) < len(oauth_required_keys):
+        missing_oauth_keys = [
+            key for key in oauth_required_keys if key not in present_oauth_keys
+        ]
+        missing_keys = ", ".join(f"'{key}'" for key in missing_oauth_keys)
+        is_or_are = "is" if len(missing_oauth_keys) == 1 else "are"
+        raise CLIError(
+            f"Incomplete OAuth configuration: {missing_keys} {is_or_are} required"
+            " when any OAuth field is set."
+        )
+
+
 def _redact_value(value: str) -> str:
     if len(value) <= 4:
         return "*" * len(value)
@@ -193,12 +202,13 @@ def _check_profile(
     service_token = _resolve_profile_value(profile_data, "service_token")
     auth_issuer = _resolve_profile_value(profile_data, AUTH_ISSUER_KEY)
     auth_client_id = _resolve_profile_value(profile_data, AUTH_CLIENT_ID_KEY)
-    has_oauth = bool(auth_issuer and auth_client_id)
+    auth_audience = _resolve_profile_value(profile_data, AUTH_AUDIENCE_KEY)
+    has_oauth = bool(auth_issuer and auth_client_id and auth_audience)
 
     if not service_token and not has_oauth:
         return (
-            "one of service_token or (auth_issuer and auth_client_id) needs to"
-            " be configured.",
+            "one of service_token or (auth_issuer and auth_client_id and"
+            " auth_audience) needs to be configured.",
             None,
         )
 
@@ -209,6 +219,8 @@ def _check_profile(
         output["auth_issuer"] = _redact_value(auth_issuer)
     if auth_client_id:
         output["auth_client_id"] = _redact_value(auth_client_id)
+    if auth_audience:
+        output["auth_audience"] = _redact_value(auth_audience)
     return None, output
 
 
@@ -250,6 +262,8 @@ def _run_config_check(
             state.console.print(f"  auth-issuer: {details['auth_issuer']}")
         if "auth_client_id" in details:
             state.console.print(f"  auth-client-id: {details['auth_client_id']}")
+        if "auth_audience" in details:
+            state.console.print(f"  auth-audience: {details['auth_audience']}")
 
 
 def _resolve_profiles_with_overrides(
@@ -275,6 +289,18 @@ def _resolve_profiles_with_overrides(
         if resolved_public_base_url:
             profile_data["chatkit_public_base_url"] = resolved_public_base_url
         profile_data.update(oauth_values)
+        _validate_oauth_completeness(profile_data)
+
+        service_token = _resolve_profile_value(profile_data, "service_token")
+        auth_issuer = _resolve_profile_value(profile_data, AUTH_ISSUER_KEY)
+        auth_client_id = _resolve_profile_value(profile_data, AUTH_CLIENT_ID_KEY)
+        auth_audience = _resolve_profile_value(profile_data, AUTH_AUDIENCE_KEY)
+        has_oauth = bool(auth_issuer and auth_client_id and auth_audience)
+        if not service_token and not has_oauth:
+            raise CLIError(
+                "one of service_token or (auth_issuer and auth_client_id and"
+                " auth_audience) needs to be configured."
+            )
         resolved_profiles[name] = profile_data
 
     return resolved_profiles
@@ -283,7 +309,6 @@ def _resolve_profiles_with_overrides(
 @config_app.callback(invoke_without_command=True)
 def configure(
     ctx: typer.Context,
-    profile: ProfileOption = None,
     api_url: Annotated[
         str | None,
         typer.Option("--api-url", help="API base URL to write."),
@@ -332,13 +357,10 @@ def configure(
     state = _state(ctx)
 
     env_data = _read_env_file(env_file) if env_file else None
-    env_profile = None
-    if env_data and PROFILE_ENV in env_data:
-        env_profile = env_data[PROFILE_ENV]
-    else:
-        env_profile = os.getenv(PROFILE_ENV)
+    env_file_profile = env_data.get(PROFILE_ENV) if env_data else None
 
-    profile_names = profile or [env_profile or DEFAULT_PROFILE]
+    state_profile = getattr(getattr(state, "settings", None), "profile", None)
+    profile_names = [env_file_profile or state_profile or DEFAULT_PROFILE]
 
     config_path = get_config_dir() / CONFIG_FILENAME
     try:
@@ -367,15 +389,6 @@ def configure(
         auth_audience=auth_audience,
         auth_organization=auth_organization,
     )
-
-    has_issuer = AUTH_ISSUER_KEY in oauth_values
-    has_client_id = AUTH_CLIENT_ID_KEY in oauth_values
-    if has_issuer != has_client_id:
-        missing = AUTH_CLIENT_ID_KEY if has_issuer else AUTH_ISSUER_KEY
-        raise CLIError(
-            f"Incomplete OAuth configuration: '{missing}' is required when"
-            f" '{AUTH_ISSUER_KEY if has_issuer else AUTH_CLIENT_ID_KEY}' is set."
-        )
 
     profiles = _resolve_profiles_with_overrides(
         profile_names=profile_names,

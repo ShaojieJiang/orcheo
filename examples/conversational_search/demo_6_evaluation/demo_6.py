@@ -507,7 +507,7 @@ def build_retrieval_nodes(
         name="dense_search",
         vector_store=vector_store,
         embed_model="{{config.configurable.retrieval.embed_model}}",
-        model_kwargs={"api_key": "[[openai_api_key]]"},
+        model_kwargs={"api_key": "[[openai_api_key]]", "dimensions": 512},
         top_k="{{config.configurable.retrieval.top_k}}",
         query_key="query",
     )

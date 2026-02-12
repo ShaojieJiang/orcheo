@@ -163,7 +163,9 @@ def build_demo_nodes(
     )
 
     nodes["query_rewrite"] = QueryRewriteNode(
-        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+        name="query_rewrite",
+        ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     nodes["rewrite_to_search"] = ResultToInputsNode(
         name="rewrite_to_search",
@@ -182,7 +184,7 @@ def build_demo_nodes(
         name="dense_search",
         vector_store=vector_store,
         embed_model=retrieval_cfg.get("embed_model", "openai:text-embedding-3-small"),
-        model_kwargs={"api_key": "[[openai_api_key]]"},
+        model_kwargs={"api_key": "[[openai_api_key]]", "dimensions": 512},
         top_k=retrieval_cfg.get("top_k", 4),
         score_threshold=retrieval_cfg.get("score_threshold", 0.0),
         query_key="search_query",

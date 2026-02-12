@@ -1989,6 +1989,22 @@ async def test_chunk_embedding_node_sparse_count_mismatch(
         await node.run(state, {})
 
 
+def test_chunk_embedding_should_fit_sparse_encoder() -> None:
+    assert (
+        ChunkEmbeddingNode._should_fit_sparse_encoder("pinecone:bm25-default", {})
+        is False
+    )
+    assert (
+        ChunkEmbeddingNode._should_fit_sparse_encoder(
+            "pinecone:bm25",
+            {"encoder_state_path": "/tmp/state.json"},
+        )
+        is False
+    )
+    assert ChunkEmbeddingNode._should_fit_sparse_encoder("pinecone:bm25", {}) is True
+    assert ChunkEmbeddingNode._should_fit_sparse_encoder("pinecone:splade", {}) is True
+
+
 @pytest.mark.asyncio
 async def test_text_embedding_node_vector_count_mismatch(
     monkeypatch: pytest.MonkeyPatch,

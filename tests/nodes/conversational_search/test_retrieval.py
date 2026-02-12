@@ -417,6 +417,16 @@ async def test_sparse_search_bm25_requires_encoder_state_path() -> None:
         await node._build_vector_store_query("apple")
 
 
+def test_sparse_search_bm25_default_allows_missing_encoder_state_path() -> None:
+    node = SparseSearchNode(
+        name="sparse-bm25-default",
+        sparse_model="pinecone:bm25-default",
+        sparse_kwargs={},
+    )
+
+    node._validate_sparse_query_configuration()
+
+
 def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
     node = SparseSearchNode(name="sparse")
     state = State(
