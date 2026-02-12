@@ -118,7 +118,9 @@ async def orcheo_workflow() -> StateGraph:
     classifier = QueryClassifierNode(name="query_classifier")
     coref = CoreferenceResolverNode(name="coreference_resolver")
     own_query_rewrite = QueryRewriteNode(
-        name="query_rewrite", ai_model="openai:gpt-4o-mini"
+        name="query_rewrite",
+        ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
     )
     coref_sync = ResultToInputsNode(
         name="coreference_result_to_inputs",
@@ -136,7 +138,7 @@ async def orcheo_workflow() -> StateGraph:
         top_k="{{config.configurable.retrieval.top_k}}",
         score_threshold="{{config.configurable.retrieval.score_threshold}}",
         embed_model="openai:text-embedding-3-small",
-        model_kwargs={"api_key": "[[openai_api_key]]"},
+        model_kwargs={"api_key": "[[openai_api_key]]", "dimensions": 512},
     )
     generator = GroundedGeneratorNode(
         name="generator",
