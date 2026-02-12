@@ -88,7 +88,7 @@ async def orcheo_workflow() -> StateGraph:
         name="dense_search",
         vector_store=dense_store,
         embed_model="{{config.configurable.dense_embed_model}}",
-        model_kwargs={"api_key": "[[openai_api_key]]"},
+        model_kwargs={"api_key": "[[openai_api_key]]", "dimensions": 512},
         top_k="{{config.configurable.dense_top_k}}",
         score_threshold="{{config.configurable.dense_similarity_threshold}}",
     )
