@@ -783,6 +783,17 @@ def test_check_profile_missing_api_url() -> None:
     assert output is None
 
 
+def test_check_profile_missing_auth_method() -> None:
+    """Test _check_profile returns error when no auth method is configured."""
+    reason, output = _check_profile({"api_url": "http://api.test"})
+    assert reason is not None
+    assert (
+        "one of service_token or (auth_issuer and auth_client_id and"
+        " auth_audience) needs to be configured." == reason
+    )
+    assert output is None
+
+
 def test_run_config_check_none_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -805,6 +816,34 @@ def test_run_config_check_none_output(
     monkeypatch.setattr(cc, "_check_profile", _fake_check)
 
     with pytest.raises(CLIError, match="failed check"):
+        _run_config_check(
+            state=state,
+            profile_names=["bad"],
+            profiles=profiles,
+        )
+
+
+def test_run_config_check_reason_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test _run_config_check raises with profile-specific reason."""
+    from unittest.mock import MagicMock
+    import orcheo_sdk.cli.config_command as cc
+
+    state = MagicMock()
+    state.human = True
+    profiles: dict[str, dict[str, str]] = {
+        "bad": {"api_url": "http://a.test"},
+    }
+
+    def _fake_check(
+        profile_data: dict[str, object],
+    ) -> tuple[str | None, dict[str, str] | None]:
+        return "mocked failure", None
+
+    monkeypatch.setattr(cc, "_check_profile", _fake_check)
+
+    with pytest.raises(CLIError, match="Profile 'bad' failed check: mocked failure"):
         _run_config_check(
             state=state,
             profile_names=["bad"],
