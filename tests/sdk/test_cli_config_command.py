@@ -1,6 +1,7 @@
 """Tests for the CLI config command."""
 
 from __future__ import annotations
+import re
 import tomllib
 from pathlib import Path
 import pytest
@@ -80,7 +81,9 @@ def test_config_command_rejects_profile_option(
     result = runner.invoke(app, ["config", "--profile", "remote"], env=env)
 
     assert result.exit_code == 2
-    assert "No such option: --profile" in result.output
+    output = re.sub(r"\x1b\[[0-9;]*m", "", result.output).lower()
+    assert "--profile" in output
+    assert "option" in output
 
 
 def test_config_command_without_auth_or_service_token_fails(
