@@ -538,11 +538,12 @@ def test_config_check_fails_without_api_url(
         encoding="utf-8",
     )
 
-    result = runner.invoke(app, ["config", "--check"], env=env)
+    check_env = {**env, "ORCHEO_API_URL": "", "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["config", "--check"], env=check_env)
 
     assert result.exit_code == 1
     assert isinstance(result.exception, CLIError)
-    assert "'api_url' is not configured." in str(result.exception)
+    assert "Missing ORCHEO_API_URL." in str(result.exception)
 
 
 def test_config_check_fails_without_auth_or_service_token(
@@ -560,7 +561,8 @@ def test_config_check_fails_without_auth_or_service_token(
         encoding="utf-8",
     )
 
-    result = runner.invoke(app, ["config", "--check"], env=env)
+    check_env = {**env, "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["config", "--check"], env=check_env)
 
     assert result.exit_code == 1
     assert isinstance(result.exception, CLIError)
@@ -568,6 +570,60 @@ def test_config_check_fails_without_auth_or_service_token(
         "one of service_token or (auth_issuer and auth_client_id) needs to"
         " be configured." in str(result.exception)
     )
+
+
+def test_config_check_applies_cli_overrides(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text("[profiles.default]\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "--check",
+            "--api-url",
+            "http://override.test",
+            "--service-token",
+            "override-token-1234",
+        ],
+        env=env,
+    )
+
+    assert result.exit_code == 0
+    assert "api-url: http://override.test" in result.stdout
+    assert "service-token: ov...34" in result.stdout
+
+
+def test_config_check_applies_env_file_overrides(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text("[profiles.default]\n", encoding="utf-8")
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "ORCHEO_API_URL=http://env-check.test",
+                "ORCHEO_AUTH_ISSUER=https://issuer.env-check.test",
+                "ORCHEO_AUTH_CLIENT_ID=env-client-1234",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["config", "--check", "--env-file", str(env_file)],
+        env=env,
+    )
+
+    assert result.exit_code == 0
+    assert "api-url: http://env-check.test" in result.stdout
+    assert "auth-issuer: ht...st" in result.stdout
+    assert "auth-client-id: en...34" in result.stdout
 
 
 def test_config_check_passes_with_redacted_service_token(
@@ -586,7 +642,8 @@ def test_config_check_passes_with_redacted_service_token(
         encoding="utf-8",
     )
 
-    result = runner.invoke(app, ["config", "--check"], env=env)
+    check_env = {**env, "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["config", "--check"], env=check_env)
 
     assert result.exit_code == 0
     assert "api-url: http://api.test" in result.stdout

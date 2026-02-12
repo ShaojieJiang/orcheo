@@ -252,6 +252,36 @@ def _run_config_check(
             state.console.print(f"  auth-client-id: {details['auth_client_id']}")
 
 
+def _resolve_profiles_with_overrides(
+    *,
+    profile_names: list[str],
+    profiles: dict[str, dict[str, Any]],
+    resolved_api_url_override: str | None,
+    resolved_service_token: str | None,
+    resolved_public_base_url: str | None,
+    oauth_values: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    resolved_profiles = dict(profiles)
+
+    for name in profile_names:
+        profile_data = dict(profiles.get(name, {}))
+        resolved_api_url = resolved_api_url_override or profile_data.get("api_url")
+        if not resolved_api_url:
+            raise CLIError(
+                "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
+            )
+
+        profile_data["api_url"] = resolved_api_url
+        if resolved_service_token:
+            profile_data["service_token"] = resolved_service_token
+        if resolved_public_base_url:
+            profile_data["chatkit_public_base_url"] = resolved_public_base_url
+        profile_data.update(oauth_values)
+        resolved_profiles[name] = profile_data
+
+    return resolved_profiles
+
+
 @config_app.callback(invoke_without_command=True)
 def configure(
     ctx: typer.Context,
@@ -318,14 +348,6 @@ def configure(
     except tomllib.TOMLDecodeError as exc:
         raise CLIError(f"Invalid TOML in {config_path}.") from exc
 
-    if check:
-        _run_config_check(
-            state=state,
-            profile_names=profile_names,
-            profiles=profiles,
-        )
-        return
-
     resolved_api_url_override = _resolve_value(
         API_URL_ENV, env_data=env_data, override=api_url
     )
@@ -357,20 +379,22 @@ def configure(
             f" '{AUTH_ISSUER_KEY if has_issuer else AUTH_CLIENT_ID_KEY}' is set."
         )
 
-    for name in profile_names:
-        profile_data = dict(profiles.get(name, {}))
-        resolved_api_url = resolved_api_url_override or profile_data.get("api_url")
-        if not resolved_api_url:
-            raise CLIError(
-                "Missing ORCHEO_API_URL. Provide --api-url or set ORCHEO_API_URL."
-            )
-        profile_data["api_url"] = resolved_api_url
-        if resolved_service_token:
-            profile_data["service_token"] = resolved_service_token
-        if resolved_public_base_url:
-            profile_data["chatkit_public_base_url"] = resolved_public_base_url
-        profile_data.update(oauth_values)
-        profiles[name] = profile_data
+    profiles = _resolve_profiles_with_overrides(
+        profile_names=profile_names,
+        profiles=profiles,
+        resolved_api_url_override=resolved_api_url_override,
+        resolved_service_token=resolved_service_token,
+        resolved_public_base_url=resolved_public_base_url,
+        oauth_values=oauth_values,
+    )
+
+    if check:
+        _run_config_check(
+            state=state,
+            profile_names=profile_names,
+            profiles=profiles,
+        )
+        return
 
     _write_profiles(config_path, profiles)
     if not state.human:

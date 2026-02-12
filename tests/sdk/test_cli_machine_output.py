@@ -182,7 +182,8 @@ class TestConfigMachineMode:
             encoding="utf-8",
         )
 
-        result = runner.invoke(app, ["config", "--check"], env=machine_env)
+        check_env = {**machine_env, "ORCHEO_SERVICE_TOKEN": ""}
+        result = runner.invoke(app, ["config", "--check"], env=check_env)
 
         assert result.exit_code == 0
         data = json.loads(result.stdout)
