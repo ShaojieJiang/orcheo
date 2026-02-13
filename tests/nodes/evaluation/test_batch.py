@@ -147,6 +147,12 @@ def test_batch_eval_allows_templated_max_conversations() -> None:
     assert node.max_conversations == "{{config.configurable.qrecc.max_conversations}}"
 
 
+def test_batch_eval_validate_max_conversations_invalid_string() -> None:
+    """Non-integer, non-template max_conversations raises ValueError."""
+    with pytest.raises(ValueError, match="must be an integer"):
+        ConversationalBatchEvalNode(name="batch", max_conversations="bad")
+
+
 @pytest.mark.asyncio
 async def test_batch_eval_resolves_templated_max_conversations() -> None:
     node = ConversationalBatchEvalNode(
@@ -161,6 +167,24 @@ async def test_batch_eval_resolves_templated_max_conversations() -> None:
     result = await node.run(state, {})
     assert result["total_conversations"] == 1
     assert result["total_turns"] == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_conversations_invalid_string() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_conversations="{{config.configurable.qrecc.max_conversations}}",
+    )
+    node.max_conversations = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_conversations_less_than_one() -> None:
+    node = ConversationalBatchEvalNode(name="batch", max_conversations=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
 
 
 @pytest.mark.asyncio
@@ -724,3 +748,21 @@ def test_batch_eval_get_compiled_pipeline_caches_result() -> None:
 def test_batch_eval_get_compiled_pipeline_none_when_unconfigured() -> None:
     node = ConversationalBatchEvalNode(name="batch", pipeline=None)
     assert node.get_compiled_pipeline() is None
+
+
+def test_batch_eval_validate_max_concurrency_allows_none() -> None:
+    node = ConversationalBatchEvalNode(name="batch", max_concurrency=None)
+    assert node.max_concurrency is None
+
+
+def test_batch_eval_validate_history_window_size_allows_none() -> None:
+    node = ConversationalBatchEvalNode(name="batch", history_window_size=None)
+    assert node.history_window_size is None
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_concurrency_none_defaults_to_one() -> None:
+    node = ConversationalBatchEvalNode(name="batch", max_concurrency=None)
+    result = await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+    assert result["total_conversations"] == 2
+    assert result["total_turns"] == 3
