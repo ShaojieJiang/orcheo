@@ -12,6 +12,12 @@
       "embed_model": "openai:text-embedding-3-small",
       "dimensions": 512
     },
+    "indexing": {
+      "batch_size": 32,
+      "max_retries": 2,
+      "backoff_seconds": 0.05,
+      "skip_unchanged": false
+    },
     "vector_store": {
       "type": "pinecone",
       "pinecone": {

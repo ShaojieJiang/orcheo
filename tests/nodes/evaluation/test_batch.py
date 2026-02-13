@@ -1,5 +1,6 @@
 """Tests for ConversationalBatchEvalNode."""
 
+import asyncio
 from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -223,6 +224,21 @@ async def test_batch_eval_builds_history() -> None:
     assert conv1["predictions"][1] == "Who created it?"
 
 
+@pytest.mark.asyncio
+async def test_batch_eval_omits_per_conversation_details_when_disabled() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        include_per_conversation_details=False,
+    )
+    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
+    result = await node.run(state, {})
+
+    conv1 = result["per_conversation"]["conv1"]
+    assert conv1["num_turns"] == 2
+    assert "predictions" not in conv1
+    assert "references" not in conv1
+
+
 # --- Pipeline mode tests ---
 
 
@@ -322,6 +338,75 @@ async def test_batch_eval_pipeline_receives_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_batch_eval_pipeline_respects_history_window() -> None:
+    """Pipeline receives bounded history when history_window_size is configured."""
+    conversations = [
+        {
+            "conversation_id": "conv",
+            "turns": [
+                {"raw_question": "q1", "gold_rewrite": "g1"},
+                {"raw_question": "q2", "gold_rewrite": "g2"},
+                {"raw_question": "q3", "gold_rewrite": "g3"},
+            ],
+        }
+    ]
+    received_histories: list[list[str]] = []
+
+    class HistoryCapture(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del config
+            inputs = state.get("inputs", {})
+            received_histories.append(list(inputs.get("history", [])))
+            return {"query": inputs.get("message", "")}
+
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        prediction_field="query",
+        history_window_size=1,
+        pipeline=_build_pipeline_graph(HistoryCapture(name="capture")),
+    )
+    state = State(inputs={"conversations": conversations})
+    await node.run(state, {})
+
+    assert received_histories == [[], ["q1"], ["q2"]]
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_preserves_order_with_concurrency() -> None:
+    """Prediction order remains conversation-major with concurrent processing."""
+
+    class DelayedEcho(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del config
+            message = str(state.get("inputs", {}).get("message", ""))
+            if message == "slow":
+                await asyncio.sleep(0.02)
+            return {"query": message.upper()}
+
+    conversations = [
+        {
+            "conversation_id": "conv_slow",
+            "turns": [{"raw_question": "slow", "gold_rewrite": "g1"}],
+        },
+        {
+            "conversation_id": "conv_fast",
+            "turns": [{"raw_question": "fast", "gold_rewrite": "g2"}],
+        },
+    ]
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        prediction_field="query",
+        max_concurrency=2,
+        pipeline=_build_pipeline_graph(DelayedEcho(name="rewrite")),
+    )
+    state = State(inputs={"conversations": conversations})
+    result = await node.run(state, {})
+
+    assert result["predictions"] == ["SLOW", "FAST"]
+    assert list(result["per_conversation"]) == ["conv_slow", "conv_fast"]
+
+
+@pytest.mark.asyncio
 async def test_batch_eval_pipeline_writes_to_state_inputs() -> None:
     """Pipeline mode writes predictions/references to state inputs."""
     node = ConversationalBatchEvalNode(
@@ -374,6 +459,20 @@ async def test_batch_eval_resolve_max_conversations_invalid_string() -> None:
 async def test_batch_eval_resolve_max_conversations_less_than_one() -> None:
     """max_conversations < 1 raises ValueError."""
     node = ConversationalBatchEvalNode(name="batch", max_conversations=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+def test_batch_eval_validate_max_concurrency_invalid_string() -> None:
+    """Non-integer, non-template max_concurrency raises ValueError."""
+    with pytest.raises(ValueError, match="must be an integer"):
+        ConversationalBatchEvalNode(name="batch", max_concurrency="bad")
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_concurrency_less_than_one() -> None:
+    """max_concurrency < 1 raises ValueError."""
+    node = ConversationalBatchEvalNode(name="batch", max_concurrency=0)
     with pytest.raises(ValueError, match="must be >= 1"):
         await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
 

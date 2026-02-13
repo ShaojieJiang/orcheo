@@ -151,7 +151,7 @@ Each dataset has a single config file that controls data paths, model selections
 |--------|----------------|
 | `config_qrecc.json` | `data_path`, `max_conversations`, similarity `embed_model` and `dimensions` |
 | `config_md2d.json` | `data_path`, `max_conversations`, retrieval `embed_model`/`dimensions`/`top_k`, generation `model` |
-| `config_md2d_indexing.json` | `docs_path`, `max_documents`, `chunk_size`, `chunk_overlap`, retrieval `embed_model`/`dimensions` |
+| `config_md2d_indexing.json` | `docs_path`, `max_documents`, `chunk_size`, `chunk_overlap`, retrieval `embed_model`/`dimensions`, indexing `batch_size`/`max_retries`/`backoff_seconds` |
 
 Users can create custom configs with different model or retrieval parameters to compare pipeline configurations against the established baselines.
 
