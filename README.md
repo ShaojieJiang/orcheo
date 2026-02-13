@@ -13,7 +13,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 > **Note:** This project is currently in Beta. Expect breaking changes as we iterate rapidly towards 1.0.
 
-> **SIGIR Reviewers:** See the **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/conversational_search_examples/)** for step-by-step demos from basic RAG to production-ready search.
+> **SIGIR Reviewers:** See the **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/examples/conversational_search/)** for step-by-step demos from basic RAG to production-ready search.
 
 ## Why Orcheo?
 
@@ -56,7 +56,7 @@ That's it! Your agent handles the complexity while you focus on describing what 
 ## Guides
 
 - **[Manual Setup Guide](https://orcheo.readthedocs.io/en/latest/manual_setup/)** — Installation, CLI reference, authentication, and Canvas setup
-- **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/conversational_search_examples/)** — Step-by-step demos from basic RAG to production-ready search
+- **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/examples/conversational_search/)** — Step-by-step demos from basic RAG to production-ready search
 
 ```bash
 # Quick start: Run Demo 1 (no external services required)
