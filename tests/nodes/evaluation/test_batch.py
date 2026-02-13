@@ -469,10 +469,104 @@ def test_batch_eval_validate_max_concurrency_invalid_string() -> None:
         ConversationalBatchEvalNode(name="batch", max_concurrency="bad")
 
 
+def test_batch_eval_allows_templated_max_concurrency() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_concurrency="{{config.configurable.eval.max_concurrency}}",
+    )
+    assert node.max_concurrency == "{{config.configurable.eval.max_concurrency}}"
+
+
 @pytest.mark.asyncio
 async def test_batch_eval_resolve_max_concurrency_less_than_one() -> None:
     """max_concurrency < 1 raises ValueError."""
     node = ConversationalBatchEvalNode(name="batch", max_concurrency=0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolves_templated_max_concurrency() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_concurrency="{{config.configurable.eval.max_concurrency}}",
+    )
+    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
+    node.decode_variables(
+        state,
+        config={"configurable": {"eval": {"max_concurrency": 2}}},
+    )
+    result = await node.run(state, {})
+    assert result["total_conversations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_max_concurrency_invalid_string() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        max_concurrency="{{config.configurable.eval.max_concurrency}}",
+    )
+    node.max_concurrency = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+def test_batch_eval_validate_history_window_size_invalid_string() -> None:
+    with pytest.raises(ValueError, match="must be an integer"):
+        ConversationalBatchEvalNode(name="batch", history_window_size="bad")
+
+
+def test_batch_eval_allows_templated_history_window_size() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        history_window_size="{{config.configurable.eval.history_window_size}}",
+    )
+    assert (
+        node.history_window_size == "{{config.configurable.eval.history_window_size}}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolves_templated_history_window_size() -> None:
+    received_histories: list[list[str]] = []
+
+    class HistoryCapture(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del config
+            inputs = state.get("inputs", {})
+            received_histories.append(list(inputs.get("history", [])))
+            return {"query": inputs.get("message", "")}
+
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        prediction_field="query",
+        history_window_size="{{config.configurable.eval.history_window_size}}",
+        pipeline=_build_pipeline_graph(HistoryCapture(name="capture")),
+    )
+    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
+    node.decode_variables(
+        state,
+        config={"configurable": {"eval": {"history_window_size": 1}}},
+    )
+    await node.run(state, {})
+
+    assert received_histories == [[], ["What is Python?"], []]
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_history_window_size_invalid_string() -> None:
+    node = ConversationalBatchEvalNode(
+        name="batch",
+        history_window_size="{{config.configurable.eval.history_window_size}}",
+    )
+    node.history_window_size = "not_a_number"
+    with pytest.raises(ValueError, match="must resolve to an integer"):
+        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_resolve_history_window_size_less_than_one() -> None:
+    node = ConversationalBatchEvalNode(name="batch", history_window_size=0)
     with pytest.raises(ValueError, match="must be >= 1"):
         await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
 
@@ -588,3 +682,45 @@ def test_batch_eval_extract_prediction_inputs_fallback_no_match() -> None:
     }
     result = node._extract_prediction(result_state, "fallback")
     assert result == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_batch_eval_handles_non_list_turns_and_invalid_turn_entries() -> None:
+    conversations = [
+        {
+            "turns": [
+                "invalid_turn",
+                {
+                    "user_utterance": "hello",
+                    "gold_rewrite": "gold",
+                },
+            ],
+        },
+        {
+            "conversation_id": "conv2",
+            "turns": "not_a_list",
+        },
+    ]
+    node = ConversationalBatchEvalNode(name="batch")
+    result = await node.run(State(inputs={"conversations": conversations}), {})
+
+    assert result["predictions"] == ["hello"]
+    assert result["references"] == ["gold"]
+    assert result["per_conversation"]["unknown"]["num_turns"] == 1
+    assert result["per_conversation"]["conv2"]["num_turns"] == 0
+
+
+def test_batch_eval_get_compiled_pipeline_caches_result() -> None:
+    graph = _build_pipeline_graph(EchoRewriteNode(name="rewrite"))
+    node = ConversationalBatchEvalNode(name="batch", pipeline=graph)
+
+    first = node.get_compiled_pipeline()
+    second = node.get_compiled_pipeline()
+
+    assert first is not None
+    assert first is second
+
+
+def test_batch_eval_get_compiled_pipeline_none_when_unconfigured() -> None:
+    node = ConversationalBatchEvalNode(name="batch", pipeline=None)
+    assert node.get_compiled_pipeline() is None
