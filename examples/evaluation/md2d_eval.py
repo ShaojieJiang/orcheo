@@ -100,6 +100,9 @@ def build_nodes() -> dict[str, Any]:
         prediction_field="reply",
         gold_field="gold_response",
         max_conversations="{{config.configurable.md2d.max_conversations}}",
+        max_concurrency="{{config.configurable.md2d.max_concurrency}}",
+        history_window_size="{{config.configurable.md2d.history_window_size}}",
+        include_per_conversation_details=False,
         pipeline=build_generation_pipeline_graph(),
     )
 

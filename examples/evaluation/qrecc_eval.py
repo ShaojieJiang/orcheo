@@ -56,6 +56,9 @@ def build_nodes() -> dict[str, Any]:
         prediction_field="query",
         gold_field="gold_rewrite",
         max_conversations="{{config.configurable.qrecc.max_conversations}}",
+        max_concurrency="{{config.configurable.qrecc.max_concurrency}}",
+        history_window_size="{{config.configurable.qrecc.history_window_size}}",
+        include_per_conversation_details=False,
         pipeline=build_rewrite_pipeline_graph(),
     )
 

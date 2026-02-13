@@ -13,9 +13,8 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search.ingestion import (
-    ChunkEmbeddingNode,
     ChunkingStrategyNode,
-    VectorStoreUpsertNode,
+    IncrementalIndexerNode,
 )
 from orcheo.nodes.conversational_search.vector_store import PineconeVectorStore
 from orcheo.nodes.evaluation.datasets import MultiDoc2DialCorpusLoaderNode
@@ -38,23 +37,18 @@ def build_nodes() -> dict[str, Any]:
         chunk_overlap="{{config.configurable.corpus.chunk_overlap}}",
     )
 
-    nodes["embedder"] = ChunkEmbeddingNode(
-        name="embedder",
+    nodes["indexer"] = IncrementalIndexerNode(
+        name="indexer",
         source_result_key="chunker",
-        dense_embedding_specs={
-            "default": {
-                "embed_model": "{{config.configurable.retrieval.embed_model}}",
-                "model_kwargs": {
-                    "api_key": "[[openai_api_key]]",
-                    "dimensions": "{{config.configurable.retrieval.dimensions}}",
-                },
-            }
+        embed_model="{{config.configurable.retrieval.embed_model}}",
+        model_kwargs={
+            "api_key": "[[openai_api_key]]",
+            "dimensions": "{{config.configurable.retrieval.dimensions}}",
         },
-    )
-
-    nodes["upsert"] = VectorStoreUpsertNode(
-        name="upsert",
-        source_result_key="embedder",
+        batch_size="{{config.configurable.indexing.batch_size}}",
+        max_retries="{{config.configurable.indexing.max_retries}}",
+        backoff_seconds="{{config.configurable.indexing.backoff_seconds}}",
+        skip_unchanged="{{config.configurable.indexing.skip_unchanged}}",
         vector_store=PineconeVectorStore(
             index_name="{{config.configurable.vector_store.pinecone.index_name}}",
             namespace="{{config.configurable.vector_store.pinecone.namespace}}",
@@ -78,8 +72,7 @@ async def orcheo_workflow() -> StateGraph:
     chain = [
         nodes["loader"],
         nodes["chunker"],
-        nodes["embedder"],
-        nodes["upsert"],
+        nodes["indexer"],
     ]
 
     for current, nxt in zip(chain, chain[1:], strict=False):

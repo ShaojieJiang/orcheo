@@ -1,8 +1,10 @@
 """Conversational batch evaluation node."""
 
 from __future__ import annotations
+import asyncio
 import logging
-from collections.abc import Mapping
+from collections import deque
+from collections.abc import Mapping, Sequence
 from typing import Any
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import StateGraph
@@ -49,6 +51,24 @@ class ConversationalBatchEvalNode(TaskNode):
         default=None,
         description="Limit number of conversations to evaluate",
     )
+    max_concurrency: int | str | None = Field(
+        default=1,
+        description="Maximum number of conversations to evaluate concurrently.",
+    )
+    history_window_size: int | str | None = Field(
+        default=None,
+        description=(
+            "Optional maximum number of prior user utterances to retain per "
+            "conversation turn while building pipeline history."
+        ),
+    )
+    include_per_conversation_details: bool = Field(
+        default=True,
+        description=(
+            "When false, per_conversation only tracks turn counts, reducing "
+            "memory usage for large runs."
+        ),
+    )
     pipeline: SkipJsonSchema[StateGraph | None] = Field(
         default=None,
         description=(
@@ -72,7 +92,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls._is_template(value):
                 return value
             try:
                 value = int(value)
@@ -80,6 +100,40 @@ class ConversationalBatchEvalNode(TaskNode):
                 msg = "max_conversations must be an integer"
                 raise ValueError(msg) from exc
         return value
+
+    @field_validator("max_concurrency", mode="before")
+    @classmethod
+    def _validate_max_concurrency(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if cls._is_template(value):
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_concurrency must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    @field_validator("history_window_size", mode="before")
+    @classmethod
+    def _validate_history_window_size(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            if cls._is_template(value):
+                return value
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "history_window_size must be an integer"
+                raise ValueError(msg) from exc
+        return value
+
+    @staticmethod
+    def _is_template(value: str) -> bool:
+        return "{{" in value and "}}" in value
 
     def _resolve_max_conversations(self) -> int | None:
         value = self.max_conversations
@@ -96,6 +150,36 @@ class ConversationalBatchEvalNode(TaskNode):
             raise ValueError(msg)
         return value
 
+    def _resolve_max_concurrency(self) -> int:
+        value = self.max_concurrency
+        if value is None:
+            return 1
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "max_concurrency must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "max_concurrency must be >= 1"
+            raise ValueError(msg)
+        return value
+
+    def _resolve_history_window_size(self) -> int | None:
+        value = self.history_window_size
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                msg = "history_window_size must resolve to an integer"
+                raise ValueError(msg) from exc
+        if value < 1:
+            msg = "history_window_size must be >= 1"
+            raise ValueError(msg)
+        return value
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Iterate conversations, collect predictions and gold references."""
         inputs = state.get("inputs", {})
@@ -108,36 +192,53 @@ class ConversationalBatchEvalNode(TaskNode):
         if max_conversations is not None:
             conversations = conversations[:max_conversations]
 
+        history_window_size = self._resolve_history_window_size()
+        max_concurrency = self._resolve_max_concurrency()
+        conversation_results: list[dict[str, Any]]
+        if max_concurrency == 1:
+            conversation_results = []
+            for conv in conversations:
+                conversation_results.append(
+                    await self._process_conversation(
+                        conv,
+                        history_window_size,
+                        state,
+                        config,
+                    )
+                )
+        else:
+            semaphore = asyncio.Semaphore(max_concurrency)
+
+            async def _process_with_limit(conv: dict[str, Any]) -> dict[str, Any]:
+                async with semaphore:
+                    return await self._process_conversation(
+                        conv,
+                        history_window_size,
+                        state,
+                        config,
+                    )
+
+            tasks = [
+                asyncio.create_task(_process_with_limit(conv)) for conv in conversations
+            ]
+            conversation_results = await asyncio.gather(*tasks)
+
         predictions: list[str] = []
         references: list[str] = []
         per_conversation: dict[str, dict[str, Any]] = {}
 
-        for conv in conversations:
-            conv_id = conv.get("conversation_id", "unknown")
-            turns = conv.get("turns", [])
-            conv_predictions: list[str] = []
-            conv_references: list[str] = []
-            history: list[str] = []
+        for conv_result in conversation_results:
+            conv_id = conv_result["conversation_id"]
+            conv_predictions = conv_result["predictions"]
+            conv_references = conv_result["references"]
+            predictions.extend(conv_predictions)
+            references.extend(conv_references)
 
-            for turn in turns:
-                gold = str(turn.get(self.gold_field, ""))
-                prediction = await self._process_turn(turn, history, state, config)
-
-                predictions.append(prediction)
-                references.append(gold)
-                conv_predictions.append(prediction)
-                conv_references.append(gold)
-
-                user_utterance = turn.get(
-                    "raw_question", turn.get("user_utterance", "")
-                )
-                history.append(str(user_utterance))
-
-            per_conversation[conv_id] = {
-                "predictions": conv_predictions,
-                "references": conv_references,
-                "num_turns": len(turns),
-            }
+            conv_summary: dict[str, Any] = {"num_turns": conv_result["num_turns"]}
+            if self.include_per_conversation_details:
+                conv_summary["predictions"] = conv_predictions
+                conv_summary["references"] = conv_references
+            per_conversation[conv_id] = conv_summary
 
         # Write to state["inputs"] so downstream metric nodes can read them.
         inputs["predictions"] = predictions
@@ -149,6 +250,45 @@ class ConversationalBatchEvalNode(TaskNode):
             "per_conversation": per_conversation,
             "total_turns": len(predictions),
             "total_conversations": len(conversations),
+        }
+
+    async def _process_conversation(
+        self,
+        conversation: dict[str, Any],
+        history_window_size: int | None,
+        parent_state: State,
+        config: RunnableConfig,
+    ) -> dict[str, Any]:
+        conv_id = str(conversation.get("conversation_id", "unknown"))
+        turns_raw = conversation.get("turns", [])
+        turns = turns_raw if isinstance(turns_raw, list) else []
+
+        conv_predictions: list[str] = []
+        conv_references: list[str] = []
+
+        history: deque[str] | list[str]
+        if history_window_size is None:
+            history = []
+        else:
+            history = deque(maxlen=history_window_size)
+
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            gold = str(turn.get(self.gold_field, ""))
+            prediction = await self._process_turn(turn, history, parent_state, config)
+
+            conv_predictions.append(prediction)
+            conv_references.append(gold)
+
+            user_utterance = turn.get("raw_question", turn.get("user_utterance", ""))
+            history.append(str(user_utterance))
+
+        return {
+            "conversation_id": conv_id,
+            "predictions": conv_predictions,
+            "references": conv_references,
+            "num_turns": len(conv_predictions),
         }
 
     def _resolve_conversations(
@@ -179,7 +319,7 @@ class ConversationalBatchEvalNode(TaskNode):
     async def _process_turn(
         self,
         turn: dict[str, Any],
-        history: list[str],
+        history: Sequence[str],
         parent_state: State,
         config: RunnableConfig,
     ) -> str:
