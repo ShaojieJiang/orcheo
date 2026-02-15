@@ -349,7 +349,9 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
 @registry.register(
     NodeMetadata(
         name="MongoDBHybridSearchNode",
-        description="Execute a hybrid search over text and vector indexes.",
+        description=(
+            "Execute a hybrid search over text and vector indexes asynchronously."
+        ),
         category="mongodb",
     )
 )
@@ -563,20 +565,24 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
         return normalized
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the hybrid search pipeline and normalise results."""
-        self._ensure_collection()
-        assert self._collection is not None
-        collection = self._collection
+        """Execute the hybrid search pipeline asynchronously and normalize results."""
+        self._ensure_async_collection()
+        assert self._async_collection is not None
+        collection = self._async_collection
 
         pipeline = self._build_pipeline()
         context = (
-            f"hybrid search, database={self.database}, collection={self.collection}"
+            f"hybrid search (async), database={self.database}, "
+            f"collection={self.collection}"
         )
 
-        def _operation() -> list[dict[str, Any]]:
-            return list(collection.aggregate(pipeline))
+        async def _operation() -> list[dict[str, Any]]:
+            cursor = collection.aggregate(pipeline)
+            return await cursor.to_list(length=self.top_k)
 
-        results = self._execute_operation(context=context, operation=_operation)
+        results = await self._execute_async_operation(
+            context=context, operation=_operation
+        )
         return {"results": self._normalize_results(results)}
 
 
