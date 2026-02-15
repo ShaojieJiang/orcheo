@@ -50,6 +50,7 @@ dependencies = [
   "feedparser>=6.0.11",
   "mcp[cli]>=1.12.0",
   "pymongo>=4.13.2",
+  "motor>=3.6.0",
   "dynaconf>=3.2.4",
   "structlog>=24.4.0",
   "cryptography>=43.0.1",

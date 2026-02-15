@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
@@ -264,11 +264,14 @@ def test_hybrid_search_builds_vector_only_pipeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_hybrid_search_normalizes_results(mongo_context) -> None:
+async def test_hybrid_search_normalizes_results() -> None:
     object_id = ObjectId("507f1f77bcf86cd799439011")
-    mongo_context.collection.aggregate.return_value = [
-        {"_id": object_id, "score": 1.5, "title": "Doc"}
-    ]
+    cursor = MagicMock()
+    cursor.to_list = AsyncMock(
+        return_value=[{"_id": object_id, "score": 1.5, "title": "Doc"}]
+    )
+    collection = MagicMock()
+    collection.aggregate.return_value = cursor
 
     node = MongoDBHybridSearchNode(
         name="hybrid",
@@ -280,6 +283,8 @@ async def test_hybrid_search_normalizes_results(mongo_context) -> None:
         vector_path="embedding",
         top_k=3,
     )
+    node._async_collection = collection
+    node._ensure_async_collection = MagicMock()
 
     result = await node.run(_base_state(), RunnableConfig())
 
@@ -290,6 +295,36 @@ async def test_hybrid_search_normalizes_results(mongo_context) -> None:
             "raw": {"_id": str(object_id), "title": "Doc"},
         }
     ]
+    collection.aggregate.assert_called_once()
+    cursor.to_list.assert_awaited_once_with(length=3)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_uses_built_pipeline_for_run() -> None:
+    cursor = MagicMock()
+    cursor.to_list = AsyncMock(return_value=[])
+    collection = MagicMock()
+    collection.aggregate.return_value = cursor
+
+    node = MongoDBHybridSearchNode(
+        name="hybrid",
+        database="test_db",
+        collection="test_coll",
+        text_query="hello",
+        vector=[0.1, 0.2],
+        text_paths=["body"],
+        top_k=2,
+    )
+    node._async_collection = collection
+    node._ensure_async_collection = MagicMock()
+
+    await node.run(_base_state(), RunnableConfig())
+
+    called_pipeline = collection.aggregate.call_args[0][0]
+    assert called_pipeline[0]["$search"]["text"]["query"] == "hello"
+    union_stage = next(stage for stage in called_pipeline if "$unionWith" in stage)
+    vector_pipeline = union_stage["$unionWith"]["pipeline"]
+    assert vector_pipeline[0]["$vectorSearch"]["queryVector"] == [0.1, 0.2]
 
 
 def test_hybrid_search_requires_query_or_vector() -> None:
