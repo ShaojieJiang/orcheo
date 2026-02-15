@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 import atexit
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from threading import Lock
 from typing import Any, ClassVar, Literal
 from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pydantic import Field, PrivateAttr, field_validator
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -49,6 +50,13 @@ class MongoDBClientNode(TaskNode):
     _client: MongoClient | None = PrivateAttr(default=None)
     _collection: Collection | None = PrivateAttr(default=None)
     _client_key: str | None = PrivateAttr(default=None)
+    _async_client_cache: ClassVar[dict[str, AsyncIOMotorClient]] = {}
+    _async_client_ref_counts: ClassVar[dict[str, int]] = {}
+    # Lock protects class-level async client cache mutations during setup/teardown.
+    _async_client_lock: ClassVar[Lock] = Lock()
+    _async_client: AsyncIOMotorClient | None = PrivateAttr(default=None)
+    _async_collection: AsyncIOMotorCollection[Any] | None = PrivateAttr(default=None)
+    _async_client_key: str | None = PrivateAttr(default=None)
 
     @classmethod
     def _encode_bson(cls, value: Any) -> Any:
@@ -98,6 +106,44 @@ class MongoDBClientNode(TaskNode):
         for client in clients:
             client.close()
 
+    @classmethod
+    def _get_shared_async_client(cls, connection_string: str) -> AsyncIOMotorClient:
+        with cls._async_client_lock:
+            client = cls._async_client_cache.get(connection_string)
+            if client is None:
+                client = AsyncIOMotorClient(connection_string)
+                cls._async_client_cache[connection_string] = client
+                cls._async_client_ref_counts[connection_string] = 0
+            cls._async_client_ref_counts[connection_string] = (
+                cls._async_client_ref_counts.get(connection_string, 0) + 1
+            )
+        return client
+
+    @classmethod
+    def _release_shared_async_client(cls, connection_string: str) -> None:
+        client: AsyncIOMotorClient | None = None
+        with cls._async_client_lock:
+            ref_count = cls._async_client_ref_counts.get(connection_string)
+            if ref_count is None:
+                return
+            ref_count -= 1
+            if ref_count <= 0:
+                cls._async_client_ref_counts.pop(connection_string, None)
+                client = cls._async_client_cache.pop(connection_string, None)
+            else:
+                cls._async_client_ref_counts[connection_string] = ref_count
+        if client is not None:
+            client.close()
+
+    @classmethod
+    def _close_all_async_clients(cls) -> None:
+        with cls._async_client_lock:
+            clients = list(cls._async_client_cache.values())
+            cls._async_client_cache.clear()
+            cls._async_client_ref_counts.clear()
+        for client in clients:
+            client.close()
+
     def _release_client(self) -> None:
         if self._client is None or self._client_key is None:
             return
@@ -105,6 +151,14 @@ class MongoDBClientNode(TaskNode):
         self._client = None
         self._collection = None
         self._client_key = None
+
+    def _release_async_client(self) -> None:
+        if self._async_client is None or self._async_client_key is None:
+            return
+        type(self)._release_shared_async_client(self._async_client_key)
+        self._async_client = None
+        self._async_collection = None
+        self._async_client_key = None
 
     def _ensure_collection(self) -> None:
         """Ensure the MongoDB collection is initialised."""
@@ -119,6 +173,19 @@ class MongoDBClientNode(TaskNode):
             msg = "MongoDB client could not be initialized"
             raise RuntimeError(msg)
         self._collection = self._client[self.database][self.collection]
+
+    def _ensure_async_collection(self) -> None:
+        """Ensure the async MongoDB collection is initialised."""
+        if self._async_client is None:
+            self._async_client = self._get_shared_async_client(self.connection_string)
+            self._async_client_key = self.connection_string
+        elif (
+            self._async_client_key and self._async_client_key != self.connection_string
+        ):
+            self._release_async_client()
+            self._async_client = self._get_shared_async_client(self.connection_string)
+            self._async_client_key = self.connection_string
+        self._async_collection = self._async_client[self.database][self.collection]
 
     def _execute_operation(
         self,
@@ -150,8 +217,39 @@ class MongoDBClientNode(TaskNode):
             msg = f"MongoDB error during {context}."
             raise RuntimeError(msg) from exc
 
+    async def _execute_async_operation(
+        self,
+        *,
+        context: str,
+        operation: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        try:
+            return await operation()
+        except (
+            AutoReconnect,
+            ConnectionFailure,
+            NetworkTimeout,
+            ServerSelectionTimeoutError,
+        ) as exc:
+            msg = f"MongoDB network error during {context}."
+            raise RuntimeError(msg) from exc
+        except OperationFailure as exc:
+            auth_error_codes = {13, 18}
+            if exc.code in auth_error_codes:
+                msg = f"MongoDB authentication/authorization error during {context}."
+            else:
+                msg = f"MongoDB operation error during {context}."
+            raise RuntimeError(msg) from exc
+        except ConfigurationError as exc:
+            msg = f"MongoDB configuration error during {context}."
+            raise RuntimeError(msg) from exc
+        except PyMongoError as exc:
+            msg = f"MongoDB error during {context}."
+            raise RuntimeError(msg) from exc
+
     def __del__(self) -> None:
         """Automatic cleanup when object is garbage collected."""
+        self._release_async_client()
         self._release_client()
 
 
@@ -662,3 +760,4 @@ __all__ = [
 ]
 
 atexit.register(MongoDBNode._close_all_clients)
+atexit.register(MongoDBNode._close_all_async_clients)

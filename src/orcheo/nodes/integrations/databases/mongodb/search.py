@@ -2,22 +2,11 @@
 
 from __future__ import annotations
 import json
-from collections.abc import Awaitable, Callable, Mapping
-from threading import Lock
-from typing import Any, ClassVar, Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
-from pydantic import Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pymongo.command_cursor import CommandCursor
-from pymongo.errors import (
-    AutoReconnect,
-    ConfigurationError,
-    ConnectionFailure,
-    NetworkTimeout,
-    OperationFailure,
-    PyMongoError,
-    ServerSelectionTimeoutError,
-)
 from orcheo.graph.state import State
 from orcheo.nodes.integrations.databases.mongodb.base import MongoDBClientNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -405,12 +394,6 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
     filter: dict[str, Any] | None = Field(
         default=None, description="Optional MongoDB filter applied post-search."
     )
-    _async_client_cache: ClassVar[dict[str, AsyncIOMotorClient]] = {}
-    _async_client_ref_counts: ClassVar[dict[str, int]] = {}
-    _async_client_lock: ClassVar[Lock] = Lock()
-    _async_client: AsyncIOMotorClient | None = PrivateAttr(default=None)
-    _async_collection: AsyncIOMotorCollection[Any] | None = PrivateAttr(default=None)
-    _async_client_key: str | None = PrivateAttr(default=None)
 
     @field_validator("vector", mode="before")
     @classmethod
@@ -580,94 +563,6 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
                 }
             )
         return normalized
-
-    @classmethod
-    def _get_shared_async_client(cls, connection_string: str) -> AsyncIOMotorClient:
-        with cls._async_client_lock:
-            client = cls._async_client_cache.get(connection_string)
-            if client is None:
-                client = AsyncIOMotorClient(connection_string)
-                cls._async_client_cache[connection_string] = client
-                cls._async_client_ref_counts[connection_string] = 0
-            cls._async_client_ref_counts[connection_string] = (
-                cls._async_client_ref_counts.get(connection_string, 0) + 1
-            )
-        return client
-
-    @classmethod
-    def _release_shared_async_client(cls, connection_string: str) -> None:
-        client: AsyncIOMotorClient | None = None
-        with cls._async_client_lock:
-            ref_count = cls._async_client_ref_counts.get(connection_string)
-            if ref_count is None:
-                return
-            ref_count -= 1
-            if ref_count <= 0:
-                cls._async_client_ref_counts.pop(connection_string, None)
-                client = cls._async_client_cache.pop(connection_string, None)
-            else:
-                cls._async_client_ref_counts[connection_string] = ref_count
-        if client is not None:
-            client.close()
-
-    def _release_async_client(self) -> None:
-        if self._async_client is None or self._async_client_key is None:
-            return
-        type(self)._release_shared_async_client(self._async_client_key)
-        self._async_client = None
-        self._async_collection = None
-        self._async_client_key = None
-
-    def _ensure_async_collection(self) -> None:
-        """Ensure the async MongoDB collection is initialised."""
-        if self._async_client is None:
-            self._async_client = self._get_shared_async_client(self.connection_string)
-            self._async_client_key = self.connection_string
-        elif (
-            self._async_client_key and self._async_client_key != self.connection_string
-        ):
-            self._release_async_client()
-            self._async_client = self._get_shared_async_client(self.connection_string)
-            self._async_client_key = self.connection_string
-        if self._async_client is None:
-            msg = "MongoDB async client could not be initialized"
-            raise RuntimeError(msg)
-        self._async_collection = self._async_client[self.database][self.collection]
-
-    async def _execute_async_operation(
-        self,
-        *,
-        context: str,
-        operation: Callable[[], Awaitable[Any]],
-    ) -> Any:
-        try:
-            return await operation()
-        except (
-            AutoReconnect,
-            ConnectionFailure,
-            NetworkTimeout,
-            ServerSelectionTimeoutError,
-        ) as exc:
-            msg = f"MongoDB network error during {context}."
-            raise RuntimeError(msg) from exc
-        except OperationFailure as exc:
-            auth_error_codes = {13, 18}
-            if exc.code in auth_error_codes:
-                msg = f"MongoDB authentication/authorization error during {context}."
-            else:
-                msg = f"MongoDB operation error during {context}."
-            raise RuntimeError(msg) from exc
-        except ConfigurationError as exc:
-            msg = f"MongoDB configuration error during {context}."
-            raise RuntimeError(msg) from exc
-        except PyMongoError as exc:
-            msg = f"MongoDB error during {context}."
-            raise RuntimeError(msg) from exc
-
-    def __del__(self) -> None:
-        """Automatic cleanup when object is garbage collected."""
-        self._release_async_client()
-        super().__del__()
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the hybrid search pipeline asynchronously and normalize results."""
