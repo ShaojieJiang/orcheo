@@ -49,6 +49,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | Override the ChatKit domain key for Canvas if needed. |
+| `VITE_ALLOWED_HOSTS` | _none_ | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Required when Canvas is served on a custom domain or behind a reverse proxy. |
 
 ## Vault configuration
 
