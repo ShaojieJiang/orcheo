@@ -98,9 +98,12 @@ export default defineConfig({
     }
   },
   server: {
-    allowedHosts: (process.env.VITE_ALLOWED_HOSTS || '')
-      .split(',')
-      .map((h: string) => h.trim())
-      .filter(Boolean)
+    allowedHosts: [
+      'localhost',
+      ...((process.env.VITE_ALLOWED_HOSTS || '')
+        .split(',')
+        .map((h: string) => h.trim())
+        .filter(Boolean))
+    ]
   }
 })

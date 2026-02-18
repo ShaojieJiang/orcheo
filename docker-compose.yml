@@ -154,6 +154,7 @@ services:
       - VITE_ORCHEO_AUTH_PROVIDER_GOOGLE=${VITE_ORCHEO_AUTH_PROVIDER_GOOGLE:-}
       - VITE_ORCHEO_AUTH_PROVIDER_GITHUB=${VITE_ORCHEO_AUTH_PROVIDER_GITHUB:-}
       - VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989
+      - VITE_ALLOWED_HOSTS=orcheo-canvas.ai-colleagues.com
     depends_on:
       - backend
     command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
