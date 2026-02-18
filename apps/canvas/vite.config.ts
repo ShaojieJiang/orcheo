@@ -98,8 +98,9 @@ export default defineConfig({
     }
   },
   server: {
-    allowedHosts: [
-      'orcheo-canvas.ai-colleagues.com'
-    ]
+    allowedHosts: (process.env.VITE_ALLOWED_HOSTS || '')
+      .split(',')
+      .map((h: string) => h.trim())
+      .filter(Boolean)
   }
 })
