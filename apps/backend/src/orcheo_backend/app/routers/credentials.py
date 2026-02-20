@@ -113,6 +113,11 @@ def update_credential(
 ) -> CredentialVaultEntryResponse:
     """Update credential metadata and optionally rotate the secret."""
     effective_workflow_id = workflow_id or request.workflow_id
+    if request.access in {"private", "shared"} and effective_workflow_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=("workflow_id is required when access is set to private or shared"),
+        )
     context = credential_context_from_workflow(effective_workflow_id)
     scope = (
         scope_from_access(request.access, effective_workflow_id)

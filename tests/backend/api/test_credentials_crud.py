@@ -202,6 +202,34 @@ def test_update_credential(api_client: TestClient) -> None:
     assert reveal_response.json()["secret"] == "sk_test_updated"
 
 
+def test_update_credential_rejects_private_access_without_workflow(
+    api_client: TestClient,
+) -> None:
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "public",
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    update_response = api_client.patch(
+        f"/api/credentials/{credential_id}",
+        json={
+            "actor": "tester",
+            "access": "private",
+        },
+    )
+
+    assert update_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "workflow_id is required" in update_response.json()["detail"]
+
+
 def test_create_credential_duplicate_name_returns_409(
     api_client: TestClient,
 ) -> None:
