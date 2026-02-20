@@ -70,7 +70,6 @@ def test_chatkit_session_returns_configured_secret(
     _setup_service_token(
         monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
     )
-    monkeypatch.setenv("CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
     monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     reset_authentication_state()
@@ -103,7 +102,6 @@ def test_chatkit_session_prefers_workflow_specific_secret(
     _setup_service_token(
         monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
     )
-    monkeypatch.setenv("CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
     monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "api-signing-key")
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     reset_authentication_state()
@@ -135,8 +133,7 @@ def test_chatkit_session_missing_secret_returns_service_unavailable(
     _setup_service_token(
         monkeypatch, "session-token", identifier="cli", scopes=["chatkit:session"]
     )
-    monkeypatch.delenv("CHATKIT_TOKEN_SIGNING_KEY", raising=False)
-    monkeypatch.delenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "")
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     reset_authentication_state()
     reset_chatkit_token_state()

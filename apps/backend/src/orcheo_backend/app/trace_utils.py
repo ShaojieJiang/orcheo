@@ -39,7 +39,7 @@ def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
         status=record.status,
         started_at=record.trace_started_at or record.started_at,
         finished_at=record.trace_completed_at or record.completed_at,
-        trace_id=record.trace_id,
+        trace_id=record.trace_id or root_span_id,
         token_usage=TraceTokenUsage(input=total_input, output=total_output),
     )
 

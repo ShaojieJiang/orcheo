@@ -15,7 +15,9 @@ export default function TopNavigation({
   credentials = [],
   isCredentialsLoading = false,
   onAddCredential,
+  onUpdateCredential,
   onDeleteCredential,
+  onRevealCredentialSecret,
 }: TopNavigationProps) {
   const windowWidth = useWindowWidth();
 
@@ -44,7 +46,9 @@ export default function TopNavigation({
           credentials={credentials}
           isCredentialsLoading={isCredentialsLoading}
           onAddCredential={onAddCredential}
+          onUpdateCredential={onUpdateCredential}
           onDeleteCredential={onDeleteCredential}
+          onRevealCredentialSecret={onRevealCredentialSecret}
         />
       </div>
     </header>

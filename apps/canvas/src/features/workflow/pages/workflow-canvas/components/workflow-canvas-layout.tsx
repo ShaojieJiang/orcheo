@@ -120,7 +120,10 @@ export function WorkflowCanvasLayout({
             value="trace"
             className="flex-1 m-0 p-4 overflow-hidden min-h-0"
           >
-            <TraceTabContent {...traceProps} />
+            <TraceTabContent
+              key={`trace-tab-${tabsProps.activeTab}`}
+              {...traceProps}
+            />
           </TabsContent>
 
           <TabsContent value="readiness" className="m-0 p-4 overflow-auto">
@@ -152,13 +155,13 @@ export function WorkflowCanvasLayout({
 
       {chat && (
         <CanvasChatBubble
-          title={chat.chatTitle}
+          title={topNavigationProps.currentWorkflow.name}
           user={chat.user}
           ai={chat.ai}
           workflowId={chat.workflowId}
           sessionPayload={{
             workflowId: chat.workflowId,
-            workflowLabel: chat.chatTitle,
+            workflowLabel: topNavigationProps.currentWorkflow.name,
             chatNodeId: chat.activeChatNodeId,
           }}
           backendBaseUrl={chat.backendBaseUrl}

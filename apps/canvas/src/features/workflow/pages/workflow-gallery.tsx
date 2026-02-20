@@ -9,7 +9,9 @@ export default function WorkflowGallery() {
     credentials,
     isLoading: isCredentialsLoading,
     onAddCredential,
+    onUpdateCredential,
     onDeleteCredential,
+    onRevealCredentialSecret,
   } = useCredentialVault();
 
   const {
@@ -49,7 +51,9 @@ export default function WorkflowGallery() {
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
         onAddCredential={onAddCredential}
+        onUpdateCredential={onUpdateCredential}
         onDeleteCredential={onDeleteCredential}
+        onRevealCredentialSecret={onRevealCredentialSecret}
       />
 
       <main className="flex-1 overflow-auto">

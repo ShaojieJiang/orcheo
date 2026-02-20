@@ -42,6 +42,10 @@ def test_parse_bool_handles_int_and_strings() -> None:
     assert _parse_bool("maybe", True) is True
     assert _parse_bool("unknown", False) is False
 
+    # Non-string/non-int values should also fall back to default
+    assert _parse_bool(object(), True) is True
+    assert _parse_bool(object(), False) is False
+
 
 def test_load_auth_settings_default_dev_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
     """When dev login enabled without explicit scopes, defaults are applied."""

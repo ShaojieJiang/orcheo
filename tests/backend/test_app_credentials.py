@@ -6,7 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialKind, CredentialMetadata, CredentialScope
-from orcheo.vault import WorkflowScopeError
+from orcheo.vault import (
+    CredentialNotFoundError,
+    DuplicateCredentialNameError,
+    WorkflowScopeError,
+)
 
 
 def test_list_credentials_success() -> None:
@@ -232,3 +236,97 @@ def test_delete_credential_scope_error() -> None:
         delete_credential(cred_id, Vault())
 
     assert exc_info.value.status_code == 403
+
+
+def test_reveal_credential_secret_not_found() -> None:
+    from orcheo_backend.app import reveal_credential_secret
+
+    cred_id = uuid4()
+
+    class Vault:
+        def reveal_secret(self, credential_id, context=None):
+            raise CredentialNotFoundError("not found")
+
+    with pytest.raises(HTTPException) as exc_info:
+        reveal_credential_secret(cred_id, Vault())
+
+    assert exc_info.value.status_code == 404
+
+
+def test_reveal_credential_secret_scope_error() -> None:
+    from orcheo_backend.app import reveal_credential_secret
+
+    cred_id = uuid4()
+
+    class Vault:
+        def reveal_secret(self, credential_id, context=None):
+            raise WorkflowScopeError("denied")
+
+    with pytest.raises(HTTPException) as exc_info:
+        reveal_credential_secret(cred_id, Vault())
+
+    assert exc_info.value.status_code == 403
+
+
+def test_update_credential_duplicate_name_error() -> None:
+    from orcheo_backend.app import update_credential
+    from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
+
+    cred_id = uuid4()
+
+    class Vault:
+        def update_credential(self, **kwargs):
+            raise DuplicateCredentialNameError("name already in use")
+
+    request = CredentialUpdateRequest(actor="tester", name="duplicate")
+    with pytest.raises(HTTPException) as exc_info:
+        update_credential(cred_id, request, Vault())
+
+    assert exc_info.value.status_code == 409
+
+
+def test_update_credential_validation_error() -> None:
+    from orcheo_backend.app import update_credential
+    from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
+
+    cred_id = uuid4()
+
+    class Vault:
+        def update_credential(self, **kwargs):
+            raise ValueError("invalid")
+
+    request = CredentialUpdateRequest(actor="tester", name="bad")
+    with pytest.raises(HTTPException) as exc_info:
+        update_credential(cred_id, request, Vault())
+
+    assert exc_info.value.status_code == 422
+
+
+def test_update_credential_access_override() -> None:
+    from orcheo.models import EncryptionEnvelope
+    from orcheo_backend.app import update_credential
+    from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
+
+    cred_id = uuid4()
+    workflow_id = uuid4()
+
+    class Vault:
+        def update_credential(self, **kwargs):
+            return CredentialMetadata(
+                id=cred_id,
+                name="Updated",
+                provider="api",
+                kind=CredentialKind.SECRET,
+                scope=CredentialScope(workflow_ids=[workflow_id]),
+                encryption=EncryptionEnvelope(
+                    algorithm="aes-256-gcm",
+                    key_id="test-key",
+                    ciphertext="encrypted",
+                ),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialUpdateRequest(actor="tester", access="shared")
+    result = update_credential(cred_id, request, Vault(), workflow_id=workflow_id)
+    assert result.access == "shared"

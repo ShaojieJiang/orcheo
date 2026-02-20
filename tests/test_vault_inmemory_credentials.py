@@ -116,3 +116,48 @@ def test_inmemory_remove_credential_missing() -> None:
     vault = InMemoryCredentialVault()
     with pytest.raises(CredentialNotFoundError):
         vault._remove_credential(uuid4())
+
+
+def test_update_credential_updates_scope_without_secret_rotation() -> None:
+    cipher = AesGcmCredentialCipher(key="update-credential-scope")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workflow_id = uuid4()
+    context = CredentialAccessContext(workflow_id=workflow_id)
+
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+        scope=CredentialScope.unrestricted(),
+    )
+
+    updated = vault.update_credential(
+        credential_id=metadata.id,
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+        context=context,
+    )
+
+    assert updated.scope == CredentialScope.for_workflows(workflow_id)
+    assert len(updated.audit_log) == len(metadata.audit_log) + 1
+    assert updated.audit_log[-1].action == "credential_updated"
+    assert (
+        vault.reveal_secret(credential_id=metadata.id, context=context)
+        == "secret-value"
+    )
+
+
+def test_update_credential_rejects_empty_provider() -> None:
+    vault = InMemoryCredentialVault()
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+    )
+
+    with pytest.raises(ValueError, match="provider cannot be empty"):
+        vault.update_credential(credential_id=metadata.id, actor="ops", provider="  ")

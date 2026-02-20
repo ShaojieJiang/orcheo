@@ -1,6 +1,7 @@
 """Tests for the in-memory run history store implementation."""
 
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import pytest
 from orcheo_backend.app.history import (
@@ -8,6 +9,12 @@ from orcheo_backend.app.history import (
     RunHistoryError,
     RunHistoryNotFoundError,
 )
+from orcheo_backend.app.history import in_memory as in_memory_module
+
+
+@dataclass
+class _EmbeddingLike:
+    values: list[float]
 
 
 @pytest.mark.asyncio
@@ -62,6 +69,30 @@ async def test_start_run_persists_runnable_config() -> None:
     assert history.tags == ["alpha"]
     assert history.callbacks == [{"name": "cb"}]
     assert history.run_name == "demo"
+
+
+@pytest.mark.asyncio
+async def test_start_run_wraps_non_list_callbacks_from_config() -> None:
+    store = InMemoryRunHistoryStore()
+    original_normalize_json_value = in_memory_module.normalize_json_value
+
+    def _normalize_override(value: object) -> object:
+        if isinstance(value, list):
+            return "single-callback"
+        return original_normalize_json_value(value)
+
+    in_memory_module.normalize_json_value = _normalize_override  # type: ignore[assignment]
+    try:
+        await store.start_run(
+            workflow_id="wf",
+            execution_id="exec",
+            runnable_config={"callbacks": ["ignored"]},
+        )
+    finally:
+        in_memory_module.normalize_json_value = original_normalize_json_value
+
+    history = await store.get_history("exec")
+    assert history.callbacks == ["single-callback"]
 
 
 @pytest.mark.asyncio
@@ -126,6 +157,19 @@ async def test_in_memory_append_step_increments_index() -> None:
     assert len(history.steps) == 2
     assert history.steps[0].payload == {"action": "start"}
     assert history.steps[1].payload == {"action": "continue"}
+
+
+@pytest.mark.asyncio
+async def test_in_memory_append_step_normalizes_non_json_values() -> None:
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    step = await store.append_step(
+        "exec",
+        {"embedding": _EmbeddingLike(values=[0.1, 0.2])},
+    )
+
+    assert step.payload == {"embedding": {"values": [0.1, 0.2]}}
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
+import type { TraceTabContentProps } from "./trace-tab-content";
 
 import { TraceTabContent } from "./trace-tab-content";
 
@@ -29,6 +30,22 @@ const sampleViewerData: TraceViewerData = {
   },
   spans: [],
 };
+
+const createProps = (
+  overrides: Partial<TraceTabContentProps> = {},
+): TraceTabContentProps => ({
+  status: "ready",
+  error: undefined,
+  viewerData: [sampleViewerData],
+  activeViewer: sampleViewerData,
+  onRefresh: vi.fn(),
+  isRefreshing: false,
+  onSelectTrace: vi.fn(),
+  summary: undefined,
+  lastUpdatedAt: undefined,
+  isLive: false,
+  ...overrides,
+});
 
 describe("TraceTabContent", () => {
   beforeEach(() => {
@@ -62,15 +79,11 @@ describe("TraceTabContent", () => {
   it("shows loading skeleton when trace is loading", () => {
     const { container } = render(
       <TraceTabContent
-        status="loading"
-        error={undefined}
-        viewerData={[]}
-        activeViewer={undefined}
-        onRefresh={vi.fn()}
-        onSelectTrace={vi.fn()}
-        summary={undefined}
-        lastUpdatedAt={undefined}
-        isLive={false}
+        {...createProps({
+          status: "loading",
+          viewerData: [],
+          activeViewer: undefined,
+        })}
       />,
     );
 
@@ -83,15 +96,12 @@ describe("TraceTabContent", () => {
   it("renders error alert when trace fails to load", () => {
     render(
       <TraceTabContent
-        status="error"
-        error="Server unavailable"
-        viewerData={[]}
-        activeViewer={undefined}
-        onRefresh={vi.fn()}
-        onSelectTrace={vi.fn()}
-        summary={undefined}
-        lastUpdatedAt={undefined}
-        isLive={false}
+        {...createProps({
+          status: "error",
+          error: "Server unavailable",
+          viewerData: [],
+          activeViewer: undefined,
+        })}
       />,
     );
 
@@ -102,15 +112,10 @@ describe("TraceTabContent", () => {
   it("renders viewer and summary when data is available", () => {
     render(
       <TraceTabContent
-        status="ready"
-        error={undefined}
-        viewerData={[sampleViewerData]}
-        activeViewer={sampleViewerData}
-        onRefresh={vi.fn()}
-        onSelectTrace={vi.fn()}
-        summary={{ spanCount: 5, totalTokens: 84 }}
-        lastUpdatedAt="2024-01-01T12:00:00Z"
-        isLive={false}
+        {...createProps({
+          summary: { spanCount: 5, totalTokens: 84 },
+          lastUpdatedAt: "2024-01-01T12:00:00Z",
+        })}
       />,
     );
 
@@ -123,15 +128,9 @@ describe("TraceTabContent", () => {
   it("passes the active trace id to the viewer", () => {
     render(
       <TraceTabContent
-        status="ready"
-        error={undefined}
-        viewerData={[sampleViewerData]}
-        activeViewer={sampleViewerData}
-        onRefresh={vi.fn()}
-        onSelectTrace={vi.fn()}
-        summary={{ spanCount: 2, totalTokens: 10 }}
-        lastUpdatedAt={undefined}
-        isLive={false}
+        {...createProps({
+          summary: { spanCount: 2, totalTokens: 10 },
+        })}
       />,
     );
 
@@ -145,15 +144,11 @@ describe("TraceTabContent", () => {
     const onRefresh = vi.fn();
     render(
       <TraceTabContent
-        status="ready"
-        error={undefined}
-        viewerData={[sampleViewerData]}
-        activeViewer={sampleViewerData}
-        onRefresh={onRefresh}
-        onSelectTrace={vi.fn()}
-        summary={{ spanCount: 1, totalTokens: 10 }}
-        lastUpdatedAt={undefined}
-        isLive
+        {...createProps({
+          onRefresh,
+          summary: { spanCount: 1, totalTokens: 10 },
+          isLive: true,
+        })}
       />,
     );
 
@@ -185,15 +180,10 @@ describe("TraceTabContent", () => {
 
     const { getByRole } = render(
       <TraceTabContent
-        status="ready"
-        error={undefined}
-        viewerData={[sampleViewerData]}
-        activeViewer={sampleViewerData}
-        onRefresh={vi.fn()}
-        onSelectTrace={onSelectTrace}
-        summary={{ spanCount: 1, totalTokens: 10 }}
-        lastUpdatedAt={undefined}
-        isLive={false}
+        {...createProps({
+          onSelectTrace,
+          summary: { spanCount: 1, totalTokens: 10 },
+        })}
       />,
     );
 

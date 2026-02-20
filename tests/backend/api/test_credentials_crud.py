@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import status
 from fastapi.testclient import TestClient
 from orcheo.models import CredentialHealthStatus
-from orcheo.vault import InMemoryCredentialVault
+from orcheo.vault import InMemoryCredentialVault, WorkflowScopeError
 
 
 def test_credential_template_crud_and_issuance(api_client: TestClient) -> None:
@@ -133,6 +133,134 @@ def test_create_credential(api_client: TestClient) -> None:
     assert fetch_response.status_code == 200
     entries = fetch_response.json()
     assert any(entry["id"] == payload["id"] for entry in entries)
+
+
+def test_reveal_credential_secret(api_client: TestClient) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": str(workflow_id),
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    reveal_response = api_client.get(
+        f"/api/credentials/{credential_id}/secret",
+        params={"workflow_id": str(workflow_id)},
+    )
+    assert reveal_response.status_code == 200
+    payload = reveal_response.json()
+    assert payload["id"] == credential_id
+    assert payload["secret"] == "sk_test_canvas"
+
+
+def test_update_credential(api_client: TestClient) -> None:
+    workflow_id = uuid4()
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": str(workflow_id),
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    update_response = api_client.patch(
+        f"/api/credentials/{credential_id}",
+        json={
+            "name": "Canvas API Prod",
+            "provider": "openai",
+            "secret": "sk_test_updated",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": str(workflow_id),
+        },
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["id"] == credential_id
+    assert updated["name"] == "Canvas API Prod"
+    assert updated["provider"] == "openai"
+
+    reveal_response = api_client.get(
+        f"/api/credentials/{credential_id}/secret",
+        params={"workflow_id": str(workflow_id)},
+    )
+    assert reveal_response.status_code == 200
+    assert reveal_response.json()["secret"] == "sk_test_updated"
+
+
+def test_update_credential_rejects_private_access_without_workflow(
+    api_client: TestClient,
+) -> None:
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Canvas API",
+            "provider": "api",
+            "secret": "sk_test_canvas",
+            "actor": "tester",
+            "access": "public",
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    update_response = api_client.patch(
+        f"/api/credentials/{credential_id}",
+        json={
+            "actor": "tester",
+            "access": "private",
+        },
+    )
+
+    assert update_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "workflow_id is required" in update_response.json()["detail"]
+
+
+def test_update_credential_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    missing_id = uuid4()
+    response = api_client.patch(
+        f"/api/credentials/{missing_id}",
+        json={"actor": "tester", "name": "missing"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Credential not found"
+
+
+def test_update_credential_scope_error_returns_403(
+    api_client: TestClient,
+    monkeypatch,
+) -> None:
+    vault = api_client.app.state.vault
+
+    def _raise_scope_error(**kwargs):
+        raise WorkflowScopeError("Access denied")
+
+    monkeypatch.setattr(vault, "update_credential", _raise_scope_error)
+
+    response = api_client.patch(
+        f"/api/credentials/{uuid4()}",
+        json={"actor": "tester", "name": "blocked"},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json()["detail"] == "Access denied"
 
 
 def test_create_credential_duplicate_name_returns_409(

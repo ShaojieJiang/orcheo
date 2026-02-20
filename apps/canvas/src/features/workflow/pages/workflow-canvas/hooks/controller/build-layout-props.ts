@@ -14,7 +14,9 @@ export interface WorkflowLayoutProps {
     credentials: WorkflowCanvasResources["credentials"]["credentials"];
     isCredentialsLoading: boolean;
     onAddCredential: WorkflowCanvasResources["credentials"]["handleAddCredential"];
+    onUpdateCredential: WorkflowCanvasResources["credentials"]["handleUpdateCredential"];
     onDeleteCredential: WorkflowCanvasResources["credentials"]["handleDeleteCredential"];
+    onRevealCredentialSecret: WorkflowCanvasResources["credentials"]["handleRevealCredentialSecret"];
   };
   tabsProps: {
     activeTab: string;
@@ -144,6 +146,7 @@ export function buildWorkflowLayoutProps(
     viewerData: execution.trace.viewerData,
     activeViewer: execution.trace.activeTraceViewer,
     onRefresh: () => execution.trace.refresh(),
+    isRefreshing: execution.trace.isRefreshing,
     onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
     summary: traceSummary,
     lastUpdatedAt: activeTrace?.lastUpdatedAt,
@@ -184,7 +187,10 @@ export function buildWorkflowLayoutProps(
       credentials: resources.credentials.credentials,
       isCredentialsLoading: resources.credentials.isCredentialsLoading,
       onAddCredential: resources.credentials.handleAddCredential,
+      onUpdateCredential: resources.credentials.handleUpdateCredential,
       onDeleteCredential: resources.credentials.handleDeleteCredential,
+      onRevealCredentialSecret:
+        resources.credentials.handleRevealCredentialSecret,
     },
     tabsProps: {
       activeTab: core.ui.activeTab,

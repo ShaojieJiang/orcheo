@@ -165,10 +165,16 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
     from orcheo.persistence import create_checkpointer
     from orcheo.runtime.credentials import CredentialResolver, credential_resolution
     from orcheo.runtime.runnable_config import merge_runnable_configs
-    from orcheo_backend.app.dependencies import get_repository, get_vault
+    from orcheo_backend.app.dependencies import (
+        get_history_store,
+        get_repository,
+        get_vault,
+    )
+    from orcheo_backend.app.history import RunHistoryError
     from orcheo_backend.app.workflow_execution import _build_initial_state
 
     repository = get_repository()
+    history_store = get_history_store()
     run_id = str(run.id)
 
     try:
@@ -186,13 +192,30 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
         merged_config = merge_runnable_configs(stored_config, None)
         runtime_config: RunnableConfig = merged_config.to_runnable_config(execution_id)
         state_config = merged_config.to_state_config(execution_id)
+        await _start_history_record(
+            history_store=history_store,
+            workflow_id=str(version.workflow_id),
+            execution_id=execution_id,
+            inputs=inputs,
+            merged_config=merged_config,
+            history_error_cls=RunHistoryError,
+        )
 
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
                 graph = build_graph(graph_config)
                 compiled = graph.compile(checkpointer=checkpointer)
                 state = _build_initial_state(graph_config, inputs, state_config)
-                final_state = await compiled.ainvoke(state, config=runtime_config)
+                await _stream_run_history_steps(
+                    compiled=compiled,
+                    state=state,
+                    runtime_config=runtime_config,
+                    history_store=history_store,
+                    execution_id=execution_id,
+                    history_error_cls=RunHistoryError,
+                )
+                final_state = await compiled.aget_state(runtime_config)
+                final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(
@@ -200,11 +223,91 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
             actor=WORKER_ACTOR,
             output=output,
         )
+        await _mark_history_completed(
+            history_store=history_store,
+            execution_id=execution_id,
+            history_error_cls=RunHistoryError,
+        )
         logger.info("Run %s completed successfully", run_id)
         return {"status": "succeeded"}
 
     except Exception as exc:
-        return await _handle_execution_failure(run, exc)
+        return await _handle_execution_failure(
+            run,
+            exc,
+            history_store=history_store,
+        )
+
+
+async def _start_history_record(
+    *,
+    history_store: Any,
+    workflow_id: str,
+    execution_id: str,
+    inputs: dict[str, Any],
+    merged_config: Any,
+    history_error_cls: type[Exception],
+) -> None:
+    """Persist initial run history metadata for worker executions."""
+    stored_config_payload = merged_config.to_json_config(execution_id)
+    try:
+        await history_store.start_run(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=inputs,
+            runnable_config=stored_config_payload,
+            tags=merged_config.tags,
+            callbacks=merged_config.callbacks,
+            metadata=merged_config.metadata,
+            run_name=merged_config.run_name,
+        )
+    except history_error_cls:
+        logger.exception(
+            "Failed to start run history for execution %s",
+            execution_id,
+        )
+
+
+async def _stream_run_history_steps(
+    *,
+    compiled: Any,
+    state: Any,
+    runtime_config: Any,
+    history_store: Any,
+    execution_id: str,
+    history_error_cls: type[Exception],
+) -> None:
+    """Append streamed node updates to the run history store."""
+    async for step in compiled.astream(
+        state,
+        config=runtime_config,  # type: ignore[arg-type]
+        stream_mode="updates",
+    ):
+        try:
+            await history_store.append_step(execution_id, step)
+        except history_error_cls:
+            logger.exception(
+                "Failed to append run history step for execution %s",
+                execution_id,
+            )
+
+
+async def _mark_history_completed(
+    *,
+    history_store: Any,
+    execution_id: str,
+    history_error_cls: type[Exception],
+) -> None:
+    """Persist completion markers for worker-executed runs."""
+    completion_payload = {"status": "completed"}
+    try:
+        await history_store.append_step(execution_id, completion_payload)
+        await history_store.mark_completed(execution_id)
+    except history_error_cls:
+        logger.exception(
+            "Failed to mark run history completed for execution %s",
+            execution_id,
+        )
 
 
 def _extract_output(final_state: Any) -> dict[str, Any] | None:
@@ -223,12 +326,18 @@ def _extract_output(final_state: Any) -> dict[str, Any] | None:
     return None
 
 
-async def _handle_execution_failure(run: Any, exc: Exception) -> dict[str, Any]:
+async def _handle_execution_failure(
+    run: Any,
+    exc: Exception,
+    *,
+    history_store: Any | None = None,
+) -> dict[str, Any]:
     """Handle workflow execution failure.
 
     Args:
         run: The workflow run object
         exc: The exception that occurred
+        history_store: Optional run history store for failure persistence.
 
     Returns:
         Error result dict
@@ -253,6 +362,18 @@ async def _handle_execution_failure(run: Any, exc: Exception) -> dict[str, Any]:
             run_id,
             mark_exc,
         )
+
+    if history_store is not None:
+        error_payload = {"status": "error", "error": error_message}
+        try:
+            await history_store.append_step(run_id, error_payload)
+            await history_store.mark_failed(run_id, error_message)
+        except Exception as history_exc:
+            logger.exception(
+                "Failed to mark run history %s as failed: %s",
+                run_id,
+                history_exc,
+            )
 
     return {"status": "failed", "error": error_message}
 

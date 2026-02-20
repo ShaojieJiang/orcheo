@@ -151,6 +151,35 @@ class TestHandleExecutionFailure:
 
         assert result["error"] == "Specific runtime error"
 
+    @pytest.mark.asyncio
+    async def test_logs_exception_when_history_mark_failed_fails(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Test history failures are logged without changing the return payload."""
+        from orcheo_backend.worker.tasks import _handle_execution_failure
+
+        mock_repo = AsyncMock()
+        mock_history = AsyncMock()
+        mock_history.mark_failed = AsyncMock(side_effect=RuntimeError("history down"))
+        exception = RuntimeError("Execution exploded")
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
+                result = await _handle_execution_failure(
+                    mock_run, exception, history_store=mock_history
+                )
+
+        assert result == {"status": "failed", "error": "Execution exploded"}
+        mock_history.append_step.assert_awaited_once_with(
+            str(mock_run.id), {"status": "error", "error": "Execution exploded"}
+        )
+        mock_history.mark_failed.assert_awaited_once_with(
+            str(mock_run.id), "Execution exploded"
+        )
+        assert mock_logger.exception.call_count == 2
+
 
 class TestExecuteWorkflow:
     """Tests for _execute_workflow function."""
@@ -165,10 +194,15 @@ class TestExecuteWorkflow:
         mock_repo = AsyncMock()
         mock_repo.get_version = AsyncMock(return_value=mock_version)
         mock_repo.mark_run_succeeded = AsyncMock()
+        mock_history = AsyncMock()
+
+        async def _step_stream() -> Any:
+            yield {"node_a": {"status": "running"}}
 
         mock_graph = MagicMock()
         mock_compiled = MagicMock()
-        mock_compiled.ainvoke = AsyncMock(return_value={"result": "success"})
+        mock_compiled.astream = MagicMock(return_value=_step_stream())
+        mock_compiled.aget_state = AsyncMock(return_value=MagicMock(values={}))
         mock_graph.compile = MagicMock(return_value=mock_compiled)
 
         mock_checkpointer = MagicMock()
@@ -182,35 +216,51 @@ class TestExecuteWorkflow:
                 "orcheo_backend.app.dependencies.get_vault",
                 return_value=MagicMock(),
             ):
-                with patch("orcheo.graph.builder.build_graph", return_value=mock_graph):
+                with patch(
+                    "orcheo_backend.app.dependencies.get_history_store",
+                    return_value=mock_history,
+                ):
                     with patch(
-                        "orcheo.persistence.create_checkpointer",
-                        return_value=mock_checkpointer,
+                        "orcheo.graph.builder.build_graph", return_value=mock_graph
                     ):
                         with patch(
-                            "orcheo_backend.app.workflow_execution._build_initial_state",
-                            return_value={},
+                            "orcheo.persistence.create_checkpointer",
+                            return_value=mock_checkpointer,
                         ):
-                            with patch("orcheo.config.get_settings"):
-                                with patch(
-                                    "orcheo.runtime.runnable_config.merge_runnable_configs"
-                                ) as mock_merge:
-                                    mock_config = MagicMock()
-                                    mock_config.to_runnable_config = MagicMock(
-                                        return_value={}
-                                    )
-                                    mock_config.to_state_config = MagicMock(
-                                        return_value={}
-                                    )
-                                    mock_merge.return_value = mock_config
-
+                            with patch(
+                                "orcheo_backend.app.workflow_execution._build_initial_state",
+                                return_value={},
+                            ):
+                                with patch("orcheo.config.get_settings"):
                                     with patch(
-                                        "orcheo.runtime.credentials.credential_resolution"
-                                    ):
-                                        result = await _execute_workflow(mock_run)
+                                        "orcheo.runtime.runnable_config.merge_runnable_configs"
+                                    ) as mock_merge:
+                                        mock_config = MagicMock()
+                                        mock_config.to_runnable_config = MagicMock(
+                                            return_value={}
+                                        )
+                                        mock_config.to_state_config = MagicMock(
+                                            return_value={}
+                                        )
+                                        mock_config.to_json_config = MagicMock(
+                                            return_value={}
+                                        )
+                                        mock_config.tags = []
+                                        mock_config.callbacks = []
+                                        mock_config.metadata = {}
+                                        mock_config.run_name = None
+                                        mock_merge.return_value = mock_config
+
+                                        with patch(
+                                            "orcheo.runtime.credentials.credential_resolution"
+                                        ):
+                                            result = await _execute_workflow(mock_run)
 
         assert result["status"] == "succeeded"
         mock_repo.mark_run_succeeded.assert_called_once()
+        mock_history.start_run.assert_awaited_once()
+        mock_history.append_step.assert_awaited()
+        mock_history.mark_completed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_handles_execution_exception(
@@ -222,6 +272,7 @@ class TestExecuteWorkflow:
         mock_repo = AsyncMock()
         mock_repo.get_version = AsyncMock(side_effect=RuntimeError("Version not found"))
         mock_repo.mark_run_failed = AsyncMock()
+        mock_history = AsyncMock()
 
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
@@ -230,12 +281,95 @@ class TestExecuteWorkflow:
                 "orcheo_backend.app.dependencies.get_vault",
                 return_value=MagicMock(),
             ):
-                with patch("orcheo.config.get_settings"):
-                    with patch("orcheo_backend.worker.tasks.logger"):
-                        result = await _execute_workflow(mock_run)
+                with patch(
+                    "orcheo_backend.app.dependencies.get_history_store",
+                    return_value=mock_history,
+                ):
+                    with patch("orcheo.config.get_settings"):
+                        with patch("orcheo_backend.worker.tasks.logger"):
+                            result = await _execute_workflow(mock_run)
 
         assert result["status"] == "failed"
         assert "Version not found" in result["error"]
+        mock_history.append_step.assert_awaited_once()
+        mock_history.mark_failed.assert_awaited_once()
+
+
+class TestHistoryHelpers:
+    """Tests for helper functions that persist run history."""
+
+    @pytest.mark.asyncio
+    async def test_start_history_record_logs_history_error(self) -> None:
+        """Test _start_history_record catches history store errors."""
+        from orcheo_backend.worker.tasks import _start_history_record
+
+        history_error_cls = type("HistoryError", (Exception,), {})
+        mock_history = AsyncMock()
+        mock_history.start_run = AsyncMock(side_effect=history_error_cls("oops"))
+        mock_config = MagicMock()
+        mock_config.to_json_config.return_value = {"x": 1}
+        mock_config.tags = []
+        mock_config.callbacks = []
+        mock_config.metadata = {}
+        mock_config.run_name = None
+
+        with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
+            await _start_history_record(
+                history_store=mock_history,
+                workflow_id=str(uuid4()),
+                execution_id=str(uuid4()),
+                inputs={"k": "v"},
+                merged_config=mock_config,
+                history_error_cls=history_error_cls,
+            )
+
+        mock_logger.exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_run_history_steps_logs_history_error(self) -> None:
+        """Test _stream_run_history_steps catches append failures."""
+        from orcheo_backend.worker.tasks import _stream_run_history_steps
+
+        history_error_cls = type("HistoryError", (Exception,), {})
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock(side_effect=history_error_cls("append"))
+        mock_compiled = MagicMock()
+
+        async def _step_stream() -> Any:
+            yield {"node": {"status": "running"}}
+
+        mock_compiled.astream = MagicMock(return_value=_step_stream())
+
+        with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
+            await _stream_run_history_steps(
+                compiled=mock_compiled,
+                state={},
+                runtime_config={},
+                history_store=mock_history,
+                execution_id=str(uuid4()),
+                history_error_cls=history_error_cls,
+            )
+
+        mock_logger.exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mark_history_completed_logs_history_error(self) -> None:
+        """Test _mark_history_completed catches completion failures."""
+        from orcheo_backend.worker.tasks import _mark_history_completed
+
+        history_error_cls = type("HistoryError", (Exception,), {})
+        mock_history = AsyncMock()
+        mock_history.mark_completed = AsyncMock(side_effect=history_error_cls("done"))
+
+        with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
+            await _mark_history_completed(
+                history_store=mock_history,
+                execution_id=str(uuid4()),
+                history_error_cls=history_error_cls,
+            )
+
+        mock_history.append_step.assert_awaited_once()
+        mock_logger.exception.assert_called_once()
 
 
 class TestExecuteRunAsync:

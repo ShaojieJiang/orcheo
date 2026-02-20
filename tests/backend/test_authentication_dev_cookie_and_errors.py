@@ -3,6 +3,7 @@
 from __future__ import annotations
 from unittest.mock import AsyncMock, Mock
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.websockets import WebSocket
@@ -79,8 +80,7 @@ async def test_websocket_dev_cookie_authenticates(
 
     monkeypatch.setenv("ORCHEO_AUTH_DEV_LOGIN_ENABLED", "true")
     monkeypatch.setenv("ORCHEO_AUTH_DEV_COOKIE_NAME", "orcheo_dev_session")
-    # Ensure auth enforcement so the WebSocket path doesn't return anonymous early
-    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "dummy")
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     reset_authentication_state()
 
     websocket = Mock(spec=WebSocket)
@@ -97,24 +97,30 @@ async def test_websocket_dev_cookie_authenticates(
     assert websocket.state.auth is context
 
 
-def test_http_invalid_authorization_scheme_raises(
+@pytest.mark.asyncio
+async def test_http_invalid_authorization_scheme_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invalid Authorization scheme triggers failure path with 401."""
 
-    # Force enforcement via JWT secret (we do not need actual JWT here)
-    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "any-secret")
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
     reset_authentication_state()
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"authorization", b"Basic dXNlcjpwYXNz")],
+    }
 
-    client = TestClient(app)
-    response = client.get(
-        "/api/workflows", headers={"Authorization": "Basic dXNlcjpwYXNz"}
-    )
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request"}
 
-    assert response.status_code == 401
-    detail = response.json()["detail"]
-    # Must correspond to the invalid scheme error
-    assert detail["code"] == "auth.invalid_scheme"
+    request = Request(scope, receive)  # type: ignore[arg-type]
+
+    with pytest.raises(HTTPException) as exc_info:
+        await authenticate_request(request)
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "auth.invalid_scheme"
 
 
 def test_dev_logout_returns_404_when_disabled() -> None:

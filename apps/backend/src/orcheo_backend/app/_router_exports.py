@@ -50,6 +50,8 @@ _resolve_chatkit_workspace_id = _chatkit_routes._resolve_chatkit_workspace_id
 
 list_credentials = _credentials_routes.list_credentials
 create_credential = _credentials_routes.create_credential
+reveal_credential_secret = _credentials_routes.reveal_credential_secret
+update_credential = _credentials_routes.update_credential
 delete_credential = _credentials_routes.delete_credential
 
 list_credential_templates = _credential_templates_routes.list_credential_templates
@@ -154,8 +156,10 @@ __all__ = [
     "mark_run_started",
     "mark_run_succeeded",
     "replay_execution",
+    "reveal_credential_secret",
     "trigger_chatkit_workflow",
     "update_credential_template",
+    "update_credential",
     "update_workflow",
     "validate_workflow_credentials",
     "workflow_websocket",

@@ -7,6 +7,7 @@ a real PostgreSQL database connection.
 from __future__ import annotations
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 import pytest
@@ -105,6 +106,11 @@ class FakePool:
 
     def connection(self) -> FakeConnection:
         return self._connection
+
+
+@dataclass
+class _EmbeddingLike:
+    values: list[float]
 
 
 def make_store(
@@ -270,6 +276,31 @@ async def test_postgres_store_start_run_extracts_from_config(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_start_run_wraps_non_list_callbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses: list[Any] = [{}]
+    store = make_store(monkeypatch, responses)
+
+    original_normalize = pg_store.normalize_json_value
+
+    def _normalize_with_scalar(value: Any) -> Any:
+        if value == ["config-callback"]:
+            return "config-callback"
+        return original_normalize(value)
+
+    monkeypatch.setattr(pg_store, "normalize_json_value", _normalize_with_scalar)
+
+    record = await store.start_run(
+        workflow_id="wf-123",
+        execution_id="exec-456",
+        runnable_config={"callbacks": ["config-callback"]},
+    )
+
+    assert record.callbacks == ["config-callback"]
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_start_run_duplicate_raises_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -319,6 +350,35 @@ async def test_postgres_store_append_step(
 
     assert step.index == 1
     assert step.payload == {"step_type": "test", "data": "value"}
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_append_step_normalizes_non_json_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses: list[Any] = [
+        {"row": {"execution_id": "exec-456"}},
+        {"row": {"current_index": -1}},
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses)
+
+    step = await store.append_step(
+        execution_id="exec-456",
+        payload={"embedding": _EmbeddingLike(values=[0.1, 0.2])},
+    )
+
+    assert step.payload == {"embedding": {"values": [0.1, 0.2]}}
+    queries = store._pool._connection.queries  # type: ignore[union-attr]
+    insert_params = next(
+        params
+        for query, params in queries
+        if "INSERT INTO execution_history_steps" in query
+    )
+    assert insert_params is not None
+    persisted_payload = json.loads(insert_params[3])
+    assert persisted_payload == {"embedding": {"values": [0.1, 0.2]}}
 
 
 @pytest.mark.asyncio

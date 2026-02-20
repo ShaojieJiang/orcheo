@@ -15,6 +15,10 @@ from orcheo_backend.app.history.models import (
     RunHistoryStep,
     _utcnow,
 )
+from orcheo_backend.app.history.serialization import (
+    normalize_json_mapping,
+    normalize_json_value,
+)
 from orcheo_backend.app.history.sqlite_utils import (
     INSERT_EXECUTION_SQL,
     INSERT_EXECUTION_STEP_SQL,
@@ -59,31 +63,49 @@ class SqliteRunHistoryStore:
         async with self._lock:
             started_at = _utcnow()
             trace_started = trace_started_at or started_at
-            payload = json.dumps(dict(inputs or {}))
+            inputs_data = normalize_json_mapping(inputs)
             config_payload_data = runnable_config
             if runnable_config and hasattr(runnable_config, "model_dump"):
                 config_payload_data = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
-            config_payload = json.dumps(dict(config_payload_data or {}))
-            tag_values = (
-                list(tags or config_payload_data.get("tags", []))
-                if isinstance(config_payload_data, Mapping)
-                else list(tags or [])
-            )
-            callback_values = (
-                list(callbacks or config_payload_data.get("callbacks", []))
-                if isinstance(config_payload_data, Mapping)
-                else list(callbacks or [])
-            )
-            metadata_values = (
-                dict(metadata or config_payload_data.get("metadata", {}))
-                if isinstance(config_payload_data, Mapping)
-                else dict(metadata or {})
-            )
-            run_identifier = run_name or (
-                config_payload_data.get("run_name")
+            config_dict = normalize_json_mapping(
+                config_payload_data
                 if isinstance(config_payload_data, Mapping)
                 else None
             )
+            tag_values = (
+                [str(tag) for tag in (tags or config_dict.get("tags", []))]
+                if isinstance(config_payload_data, Mapping)
+                else [str(tag) for tag in (tags or [])]
+            )
+            callback_values = (
+                normalize_json_value(
+                    list(callbacks or config_dict.get("callbacks", []))
+                )
+                if isinstance(config_payload_data, Mapping)
+                else normalize_json_value(list(callbacks or []))
+            )
+            if not isinstance(callback_values, list):
+                callback_values = [callback_values]
+            metadata_values = (
+                normalize_json_mapping(
+                    metadata
+                    if metadata is not None
+                    else config_dict.get("metadata", {})
+                    if isinstance(config_dict.get("metadata", {}), Mapping)
+                    else None
+                )
+                if isinstance(config_payload_data, Mapping)
+                else normalize_json_mapping(metadata)
+            )
+            run_identifier = run_name or (
+                config_dict.get("run_name")
+                if isinstance(config_dict, Mapping)
+                else None
+            )
+            if run_identifier is not None:
+                run_identifier = str(run_identifier)
+            payload = json.dumps(inputs_data)
+            config_payload = json.dumps(config_dict)
             tags_payload = json.dumps(tag_values)
             callbacks_payload = json.dumps(callback_values)
             metadata_payload = json.dumps(metadata_values)
@@ -157,7 +179,7 @@ class SqliteRunHistoryStore:
                         execution_id,
                         next_index,
                         at.isoformat(),
-                        json.dumps(dict(payload)),
+                        json.dumps(normalize_json_mapping(payload)),
                     ),
                 )
                 await conn.execute(
@@ -168,7 +190,11 @@ class SqliteRunHistoryStore:
                     ),
                 )
                 await conn.commit()
-        return RunHistoryStep(index=next_index, at=at, payload=dict(payload))
+        return RunHistoryStep(
+            index=next_index,
+            at=at,
+            payload=normalize_json_mapping(payload),
+        )
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

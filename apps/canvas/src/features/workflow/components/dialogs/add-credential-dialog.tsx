@@ -28,9 +28,9 @@ interface AddCredentialDialogProps {
 
 const DEFAULT_CREDENTIAL: CredentialInput = {
   name: "",
-  type: "api",
+  provider: "custom",
   access: "private",
-  secrets: { apiKey: "" },
+  secrets: { secret: "" },
 };
 
 export function AddCredentialDialog({
@@ -43,6 +43,7 @@ export function AddCredentialDialog({
   const [error, setError] = useState<string | null>(null);
 
   const hasName = pendingCredential.name.trim().length > 0;
+  const hasProvider = pendingCredential.provider.trim().length > 0;
 
   const resetState = useCallback(() => {
     setPendingCredential(DEFAULT_CREDENTIAL);
@@ -103,8 +104,8 @@ export function AddCredentialDialog({
   );
 
   const isSaveDisabled = useMemo(
-    () => !hasName || isSaving,
-    [hasName, isSaving],
+    () => !hasName || !hasProvider || isSaving,
+    [hasName, hasProvider, isSaving],
   );
 
   return (
@@ -143,27 +144,20 @@ export function AddCredentialDialog({
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <label
-              htmlFor="credential-type"
+              htmlFor="credential-provider"
               className="text-right text-sm font-medium"
             >
-              Type
+              Provider
             </label>
-            <Select
-              value={pendingCredential.type}
-              onValueChange={(value) => updateCredential({ type: value })}
-            >
-              <SelectTrigger id="credential-type" className="col-span-3">
-                <SelectValue placeholder="Select credential type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="api">API Key</SelectItem>
-                <SelectItem value="oauth">OAuth</SelectItem>
-                <SelectItem value="database">Database</SelectItem>
-                <SelectItem value="aws">AWS</SelectItem>
-                <SelectItem value="gcp">Google Cloud</SelectItem>
-                <SelectItem value="azure">Azure</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              id="credential-provider"
+              value={pendingCredential.provider}
+              onChange={(event) =>
+                updateCredential({ provider: event.target.value })
+              }
+              className="col-span-3"
+              placeholder="openai, pinecone, mongodb..."
+            />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <label
@@ -190,18 +184,18 @@ export function AddCredentialDialog({
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <label
-              htmlFor="credential-api-key"
+              htmlFor="credential-secret"
               className="text-right text-sm font-medium"
             >
-              API Key
+              Secret
             </label>
             <Input
-              id="credential-api-key"
+              id="credential-secret"
               type="password"
-              value={pendingCredential.secrets?.apiKey ?? ""}
-              onChange={(event) => updateSecret("apiKey", event.target.value)}
+              value={pendingCredential.secrets?.secret ?? ""}
+              onChange={(event) => updateSecret("secret", event.target.value)}
               className="col-span-3"
-              placeholder="Enter API key"
+              placeholder="Enter credential secret"
             />
           </div>
         </div>

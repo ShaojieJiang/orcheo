@@ -30,6 +30,17 @@ class CredentialCreateRequest(BaseModel):
     kind: CredentialKind = CredentialKind.SECRET
 
 
+class CredentialUpdateRequest(BaseModel):
+    """Request payload for updating a credential entry."""
+
+    name: str | None = None
+    provider: str | None = None
+    secret: str | None = None
+    actor: str = Field(default="system")
+    access: Literal["private", "shared", "public"] | None = None
+    workflow_id: UUID | None = None
+
+
 class CredentialHealthItem(BaseModel):
     """Represents the health state for an individual credential."""
 
@@ -152,3 +163,10 @@ class CredentialVaultEntryResponse(BaseModel):
     access: Literal["private", "shared", "public"]
     status: CredentialHealthStatus
     secret_preview: str | None = None
+
+
+class CredentialSecretResponse(BaseModel):
+    """Response payload describing a revealed credential secret."""
+
+    id: str
+    secret: str

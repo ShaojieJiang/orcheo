@@ -1,6 +1,7 @@
 """Coverage for the workflow-scoped ChatKit session endpoint."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import jwt
 import pytest
@@ -54,6 +55,15 @@ def _policy(scopes: set[str]) -> AuthorizationPolicy:
         workspace_ids=frozenset({"ws-1"}),
     )
     return AuthorizationPolicy(context)
+
+
+@pytest.fixture(autouse=True)
+def _enforce_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
 
 
 @pytest.mark.asyncio()

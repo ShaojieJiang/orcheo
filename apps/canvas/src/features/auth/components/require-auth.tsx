@@ -5,7 +5,8 @@ export default function RequireAuth() {
   const location = useLocation();
   const redirectTo = `${location.pathname}${location.search}${location.hash}`;
 
-  if (isAuthenticated()) {
+  const authIssuer = import.meta.env.VITE_ORCHEO_AUTH_ISSUER;
+  if (!authIssuer || isAuthenticated()) {
     return <Outlet />;
   }
 

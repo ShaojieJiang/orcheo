@@ -11,6 +11,10 @@ from orcheo_backend.app.history.models import (
     RunHistoryRecord,
     RunHistoryStep,
 )
+from orcheo_backend.app.history.serialization import (
+    normalize_json_mapping,
+    normalize_json_value,
+)
 
 
 class InMemoryRunHistoryStore:
@@ -45,31 +49,46 @@ class InMemoryRunHistoryStore:
             config_payload = runnable_config
             if runnable_config and hasattr(runnable_config, "model_dump"):
                 config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+            config_mapping = normalize_json_mapping(
+                config_payload if isinstance(config_payload, Mapping) else None
+            )
             tag_values = (
-                list(tags or config_payload.get("tags", []))
-                if isinstance(config_payload, Mapping)
-                else list(tags or [])
+                [str(tag) for tag in (tags or config_mapping.get("tags", []))]
+                if isinstance(config_mapping, Mapping)
+                else [str(tag) for tag in (tags or [])]
             )
             callback_values = (
-                list(callbacks or config_payload.get("callbacks", []))
-                if isinstance(config_payload, Mapping)
-                else list(callbacks or [])
+                normalize_json_value(
+                    list(callbacks or config_mapping.get("callbacks", []))
+                )
+                if isinstance(config_mapping, Mapping)
+                else normalize_json_value(list(callbacks or []))
             )
+            if not isinstance(callback_values, list):
+                callback_values = [callback_values]
             metadata_values = (
-                dict(metadata or config_payload.get("metadata", {}))
-                if isinstance(config_payload, Mapping)
-                else dict(metadata or {})
+                normalize_json_mapping(
+                    metadata
+                    if metadata is not None
+                    else config_mapping.get("metadata", {})
+                    if isinstance(config_mapping.get("metadata", {}), Mapping)
+                    else None
+                )
+                if isinstance(config_mapping, Mapping)
+                else normalize_json_mapping(metadata)
             )
             run_identifier = run_name or (
-                config_payload.get("run_name")
-                if isinstance(config_payload, Mapping)
+                config_mapping.get("run_name")
+                if isinstance(config_mapping, Mapping)
                 else None
             )
+            if run_identifier is not None:
+                run_identifier = str(run_identifier)
             record = RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
-                inputs=dict(inputs or {}),
-                runnable_config=dict(config_payload or {}),
+                inputs=normalize_json_mapping(inputs),
+                runnable_config=config_mapping,
                 tags=tag_values,
                 callbacks=callback_values,
                 metadata=metadata_values,
@@ -93,7 +112,7 @@ class InMemoryRunHistoryStore:
         """Append a step for the execution."""
         async with self._lock:
             record = self._require_record(execution_id)
-            return record.append_step(payload)
+            return record.append_step(normalize_json_mapping(payload))
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

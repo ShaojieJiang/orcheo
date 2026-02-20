@@ -82,6 +82,70 @@ class CredentialOperationsMixin:
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
 
+    def update_credential(
+        self,
+        *,
+        credential_id: UUID,
+        actor: str,
+        name: str | None = None,
+        provider: str | None = None,
+        secret: str | None = None,
+        scope: CredentialScope | None = None,
+        context: CredentialAccessContext | None = None,
+    ) -> CredentialMetadata:
+        """Update mutable credential fields and persist the metadata."""
+        metadata = self._get_metadata(credential_id=credential_id, context=context)
+        normalized_name = self._normalize_non_empty_value(name=name, field_name="name")
+        normalized_provider = self._normalize_non_empty_value(
+            name=provider, field_name="provider"
+        )
+        normalized_secret = self._normalize_non_empty_value(
+            name=secret, field_name="secret"
+        )
+
+        name_changed = normalized_name is not None and normalized_name != metadata.name
+        provider_changed = (
+            normalized_provider is not None and normalized_provider != metadata.provider
+        )
+        scope_changed = scope is not None and scope != metadata.scope
+        secret_changed = (
+            normalized_secret is not None
+            and metadata.reveal(cipher=self._cipher) != normalized_secret
+        )
+        metadata_changed = name_changed or provider_changed or scope_changed
+
+        if name_changed and normalized_name is not None:
+            metadata.name = normalized_name
+        if provider_changed and normalized_provider is not None:
+            metadata.provider = normalized_provider
+        if scope_changed and scope is not None:
+            metadata.scope = scope
+        if secret_changed and normalized_secret is not None:
+            metadata.rotate_secret(
+                secret=normalized_secret,
+                cipher=self._cipher,
+                actor=actor,
+            )
+
+        if metadata_changed:  # pragma: no branch
+            metadata.record_event(actor=actor, action="credential_updated")
+
+        if metadata_changed or secret_changed:  # pragma: no branch
+            self._persist_metadata(metadata)
+
+        return metadata.model_copy(deep=True)
+
+    @staticmethod
+    def _normalize_non_empty_value(*, name: str | None, field_name: str) -> str | None:
+        """Normalize an optional string, rejecting empty values."""
+        if name is None:
+            return None
+        normalized = name.strip()
+        if normalized:
+            return normalized
+        msg = f"{field_name} cannot be empty"
+        raise ValueError(msg)
+
     def update_oauth_tokens(
         self,
         *,

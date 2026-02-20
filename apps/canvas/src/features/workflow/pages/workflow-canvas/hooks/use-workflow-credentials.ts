@@ -11,6 +11,8 @@ import type {
 import {
   createHandleAddCredential,
   createHandleDeleteCredential,
+  createHandleRevealCredentialSecret,
+  createHandleUpdateCredential,
 } from "../handlers/credentials";
 
 type UseWorkflowCredentialsArgs = {
@@ -40,7 +42,9 @@ export const useWorkflowCredentials = ({
 
       setIsCredentialsLoading(true);
       try {
-        const url = new URL(buildBackendHttpUrl("/api/credentials"));
+        const url = new URL(
+          buildBackendHttpUrl("/api/credentials", backendBaseUrl),
+        );
         if (routeWorkflowId) {
           url.searchParams.set("workflow_id", routeWorkflowId);
         }
@@ -65,15 +69,15 @@ export const useWorkflowCredentials = ({
         const mapped = payload.map<Credential>((entry) => ({
           id: entry.id,
           name: entry.name,
+          provider: entry.provider ?? entry.kind,
           type: entry.provider ?? entry.kind,
           createdAt: entry.created_at,
           updatedAt: entry.updated_at,
           owner: entry.owner ?? null,
           access: entry.access,
-          secrets: entry.secret_preview
-            ? { secret: entry.secret_preview }
-            : undefined,
+          secrets: undefined,
           status: entry.status,
+          secretPreview: entry.secret_preview ?? null,
         }));
 
         setCredentials((previous) => {
@@ -108,7 +112,7 @@ export const useWorkflowCredentials = ({
       isActive = false;
       controller.abort();
     };
-  }, [routeWorkflowId]);
+  }, [backendBaseUrl, routeWorkflowId]);
 
   const handleAddCredential = useMemo(
     () =>
@@ -131,10 +135,33 @@ export const useWorkflowCredentials = ({
     [backendBaseUrl, currentWorkflowId, setCredentials],
   );
 
+  const handleUpdateCredential = useMemo(
+    () =>
+      createHandleUpdateCredential({
+        backendBaseUrl,
+        currentWorkflowId,
+        userName,
+        setCredentials,
+      }),
+    [backendBaseUrl, currentWorkflowId, setCredentials, userName],
+  );
+
+  const handleRevealCredentialSecret = useMemo(
+    () =>
+      createHandleRevealCredentialSecret({
+        backendBaseUrl,
+        currentWorkflowId,
+        setCredentials,
+      }),
+    [backendBaseUrl, currentWorkflowId, setCredentials],
+  );
+
   return {
     credentials,
     isCredentialsLoading,
     handleAddCredential,
+    handleUpdateCredential,
     handleDeleteCredential,
+    handleRevealCredentialSecret,
   };
 };

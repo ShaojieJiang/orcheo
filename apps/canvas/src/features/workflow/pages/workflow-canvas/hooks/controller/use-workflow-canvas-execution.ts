@@ -64,6 +64,7 @@ export function useWorkflowCanvasExecution(
 
   const trace = useExecutionTrace({
     backendBaseUrl: core.chat.backendBaseUrl ?? getBackendBaseUrl(),
+    workflowId: core.metadata.currentWorkflowId,
     activeExecutionId: core.execution.activeExecutionId,
     isMountedRef: core.isMountedRef,
     executionIds,
