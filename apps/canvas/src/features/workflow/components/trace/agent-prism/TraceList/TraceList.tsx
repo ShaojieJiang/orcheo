@@ -2,12 +2,16 @@ import type { TraceRecord } from "@evilmartians/agent-prism-types";
 
 import cn from "classnames";
 import { ArrowLeft } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import type { BadgeProps } from "../Badge";
 
 import { Badge } from "../Badge";
+import { Button } from "../Button";
 import { IconButton } from "../IconButton";
 import { TraceListItem } from "./TraceListItem";
+
+const INITIAL_VISIBLE_TRACE_COUNT = 20;
 
 type TraceRecordWithBadges = TraceRecord & {
   badges?: Array<BadgeProps>;
@@ -30,6 +34,18 @@ export const TraceList = ({
   onTraceSelect,
   selectedTrace,
 }: TraceListProps) => {
+  const [visibleTraceCount, setVisibleTraceCount] = useState(
+    INITIAL_VISIBLE_TRACE_COUNT,
+  );
+  const traceIdsSignature = traces.map((trace) => trace.id).join("|");
+
+  useEffect(() => {
+    setVisibleTraceCount(Math.min(INITIAL_VISIBLE_TRACE_COUNT, traces.length));
+  }, [traceIdsSignature, traces.length]);
+
+  const visibleTraces = traces.slice(0, visibleTraceCount);
+  const hasMoreTraces = traces.length > visibleTraceCount;
+
   return (
     <div
       className={cn(
@@ -63,9 +79,9 @@ export const TraceList = ({
       </header>
 
       {expanded && (
-        <ul className="border-agentprism-border flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
-          <div className="flex-1 overflow-y-auto">
-            {traces.map((trace) => (
+        <div className="border-agentprism-border flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
+          <ul className="flex-1 overflow-y-auto">
+            {visibleTraces.map((trace) => (
               <li
                 className="border-agentprism-border w-full list-none border-b [&:not(:last-child)]:border-b"
                 key={trace.id}
@@ -79,8 +95,28 @@ export const TraceList = ({
                 />
               </li>
             ))}
-          </div>
-        </ul>
+          </ul>
+
+          {hasMoreTraces && (
+            <div className="border-agentprism-border shrink-0 border-t p-2">
+              <Button
+                fullWidth
+                size="8"
+                variant="ghost"
+                onClick={() => {
+                  setVisibleTraceCount((current) =>
+                    Math.min(
+                      current + INITIAL_VISIBLE_TRACE_COUNT,
+                      traces.length,
+                    ),
+                  );
+                }}
+              >
+                Load more
+              </Button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

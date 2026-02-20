@@ -28,6 +28,7 @@ export interface TraceTabContentProps {
   viewerData: TraceViewerData[];
   activeViewer?: TraceViewerData;
   onRefresh: () => void;
+  isRefreshing: boolean;
   onSelectTrace?: (traceId: string) => void;
   summary?: TraceSummary;
   lastUpdatedAt?: string;
@@ -85,6 +86,7 @@ export function TraceTabContent({
   viewerData,
   activeViewer,
   onRefresh,
+  isRefreshing,
   onSelectTrace,
   summary,
   lastUpdatedAt,
@@ -102,15 +104,19 @@ export function TraceTabContent({
             Inspect span hierarchy, metrics, and artifacts for the selected run.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            void onRefresh();
-          }}
-        >
-          <RefreshCw className="mr-2 size-4" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isRefreshing}
+            onClick={() => {
+              void onRefresh();
+            }}
+          >
+            <RefreshCw className="mr-2 size-4" />
+            {isRefreshing ? "Refreshing..." : "Refresh"}
+          </Button>
+        </div>
       </div>
 
       {summary && (

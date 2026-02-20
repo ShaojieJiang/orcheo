@@ -24,6 +24,7 @@ import {
 
 export interface UseExecutionTraceParams {
   backendBaseUrl: string;
+  workflowId?: string | null;
   activeExecutionId: string | null;
   isMountedRef: MutableRefObject<boolean>;
   executionIds?: string[];
@@ -37,14 +38,52 @@ export interface ExecutionTraceResult {
   status: TraceEntryStatus;
   error?: string;
   refresh: (executionId?: string) => Promise<void>;
+  loadMore: (executionId?: string) => Promise<void>;
+  canLoadMore: boolean;
+  isRefreshing: boolean;
+  isLoadingMore: boolean;
   handleTraceUpdate: (update: TraceUpdateMessage) => void;
 }
 
 const MAX_TRACE_FETCH_RETRIES = 2;
 const RETRY_DELAY_BASE_MS = 300;
+type TraceFetchMode = "refresh" | "loadMore";
 
-const buildTraceUrl = (backendBaseUrl: string, executionId: string): string =>
-  buildBackendHttpUrl(`/api/executions/${executionId}/trace`, backendBaseUrl);
+const buildTraceUrl = (
+  backendBaseUrl: string,
+  executionId: string,
+  cursor?: string,
+  cacheBustToken?: string,
+): string => {
+  const url = new URL(
+    buildBackendHttpUrl(`/api/executions/${executionId}/trace`, backendBaseUrl),
+  );
+  if (cursor) {
+    url.searchParams.set("cursor", cursor);
+  }
+  if (cacheBustToken) {
+    url.searchParams.set("_refresh", cacheBustToken);
+  }
+  return url.toString();
+};
+
+const buildWorkflowExecutionsUrl = (
+  backendBaseUrl: string,
+  workflowId: string,
+  limit = 50,
+): string =>
+  buildBackendHttpUrl(
+    `/api/workflows/${workflowId}/executions?limit=${encodeURIComponent(
+      String(limit),
+    )}`,
+    backendBaseUrl,
+  );
+
+const appendExecutionId = (ids: string[], executionId: string): string[] =>
+  ids.includes(executionId) ? ids : [...ids, executionId];
+
+const removeExecutionId = (ids: string[], executionId: string): string[] =>
+  ids.filter((id) => id !== executionId);
 
 const buildArtifactResolver =
   (backendBaseUrl: string) => (artifactId: string) => {
@@ -107,35 +146,88 @@ const formatTraceErrorMessage = (error: TraceRequestError): string =>
 
 export function useExecutionTrace({
   backendBaseUrl,
+  workflowId,
   activeExecutionId,
   isMountedRef,
   executionIds,
 }: UseExecutionTraceParams): ExecutionTraceResult {
   const [traces, setTraces] = useState<ExecutionTraceState>({});
-  const fetchingRef = useRef(new Set<string>());
+  const fetchingModesRef = useRef(new Map<string, TraceFetchMode>());
   const primedExecutionsRef = useRef(new Set<string>());
+  const [refreshingExecutionIds, setRefreshingExecutionIds] = useState<
+    string[]
+  >([]);
+  const [loadingMoreExecutionIds, setLoadingMoreExecutionIds] = useState<
+    string[]
+  >([]);
 
   const resolveArtifactUrl = useMemo(
     () => buildArtifactResolver(backendBaseUrl),
     [backendBaseUrl],
   );
 
-  const refresh = useCallback(
-    async (targetExecutionId?: string) => {
+  const loadLatestExecutionIds = useCallback(async (): Promise<string[]> => {
+    if (!workflowId) {
+      return [];
+    }
+    try {
+      const response = await authFetch(
+        buildWorkflowExecutionsUrl(backendBaseUrl, workflowId),
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        return [];
+      }
+      const payload = (await response.json()) as Array<{
+        execution_id?: string;
+      }>;
+      return payload
+        .map((item) => item.execution_id)
+        .filter((value): value is string => Boolean(value));
+    } catch {
+      return [];
+    }
+  }, [backendBaseUrl, workflowId]);
+
+  const fetchTracePage = useCallback(
+    async ({
+      targetExecutionId,
+      mode,
+      cursor,
+      replaceSpans = false,
+      forceNoStore = false,
+    }: {
+      targetExecutionId?: string;
+      mode: TraceFetchMode;
+      cursor?: string;
+      replaceSpans?: boolean;
+      forceNoStore?: boolean;
+    }) => {
       const executionId = targetExecutionId ?? activeExecutionId;
       if (!executionId) {
         return;
       }
-      if (fetchingRef.current.has(executionId)) {
+      if (fetchingModesRef.current.has(executionId)) {
         return;
       }
-      fetchingRef.current.add(executionId);
-      setTraces((prev) => ({
-        ...prev,
-        [executionId]: markTraceLoading(
-          prev[executionId] ?? createEmptyTraceEntry(executionId),
-        ),
-      }));
+
+      fetchingModesRef.current.set(executionId, mode);
+      if (mode === "refresh") {
+        setRefreshingExecutionIds((prev) =>
+          appendExecutionId(prev, executionId),
+        );
+        setTraces((prev) => ({
+          ...prev,
+          [executionId]: markTraceLoading(
+            prev[executionId] ?? createEmptyTraceEntry(executionId),
+          ),
+        }));
+      } else {
+        setLoadingMoreExecutionIds((prev) =>
+          appendExecutionId(prev, executionId),
+        );
+      }
+
       try {
         let lastError: TraceRequestError | undefined;
         let succeeded = false;
@@ -147,7 +239,13 @@ export function useExecutionTrace({
         ) {
           try {
             const response = await authFetch(
-              buildTraceUrl(backendBaseUrl, executionId),
+              buildTraceUrl(
+                backendBaseUrl,
+                executionId,
+                cursor,
+                forceNoStore ? Date.now().toString() : undefined,
+              ),
+              forceNoStore ? { cache: "no-store" } : undefined,
             );
             if (!response.ok) {
               throw await createTraceRequestError(response, executionId);
@@ -159,7 +257,9 @@ export function useExecutionTrace({
             setTraces((prev) => {
               const current =
                 prev[executionId] ?? createEmptyTraceEntry(executionId);
-              const next = applyTraceResponse(current, payload);
+              const next = applyTraceResponse(current, payload, {
+                replaceSpans,
+              });
               return {
                 ...prev,
                 [executionId]: next,
@@ -199,16 +299,100 @@ export function useExecutionTrace({
             ...prev,
             [executionId]: {
               ...current,
-              status: "error",
+              status: mode === "refresh" ? "error" : current.status,
               error: errorMessage,
             },
           };
         });
       } finally {
-        fetchingRef.current.delete(executionId);
+        fetchingModesRef.current.delete(executionId);
+        if (mode === "refresh") {
+          setRefreshingExecutionIds((prev) =>
+            removeExecutionId(prev, executionId),
+          );
+        } else {
+          setLoadingMoreExecutionIds((prev) =>
+            removeExecutionId(prev, executionId),
+          );
+        }
       }
     },
     [activeExecutionId, backendBaseUrl, isMountedRef],
+  );
+
+  const refresh = useCallback(
+    async (targetExecutionId?: string) => {
+      if (targetExecutionId) {
+        await fetchTracePage({
+          targetExecutionId,
+          mode: "refresh",
+          replaceSpans: true,
+          forceNoStore: true,
+        });
+        return;
+      }
+
+      const latestExecutionIds = await loadLatestExecutionIds();
+      const knownExecutionIds = new Set([
+        ...Object.keys(traces),
+        ...(executionIds ?? []),
+      ]);
+      const newExecutionIds = latestExecutionIds.filter(
+        (executionId) => !knownExecutionIds.has(executionId),
+      );
+
+      const executionIdsToRefresh = new Set<string>();
+      if (activeExecutionId) {
+        executionIdsToRefresh.add(activeExecutionId);
+      }
+      for (const executionId of newExecutionIds) {
+        executionIdsToRefresh.add(executionId);
+      }
+      if (!executionIdsToRefresh.size) {
+        const fallbackExecutionId = executionIds?.[0] ?? latestExecutionIds[0];
+        if (fallbackExecutionId) {
+          executionIdsToRefresh.add(fallbackExecutionId);
+        }
+      }
+
+      await Promise.all(
+        [...executionIdsToRefresh].map((executionId) =>
+          fetchTracePage({
+            targetExecutionId: executionId,
+            mode: "refresh",
+            replaceSpans: true,
+            forceNoStore: true,
+          }),
+        ),
+      );
+    },
+    [
+      activeExecutionId,
+      executionIds,
+      fetchTracePage,
+      loadLatestExecutionIds,
+      traces,
+    ],
+  );
+
+  const loadMore = useCallback(
+    async (targetExecutionId?: string) => {
+      const executionId = targetExecutionId ?? activeExecutionId;
+      if (!executionId) {
+        return;
+      }
+      const entry = traces[executionId];
+      if (!entry?.hasNextPage || !entry.nextCursor) {
+        return;
+      }
+      await fetchTracePage({
+        targetExecutionId: executionId,
+        mode: "loadMore",
+        cursor: entry.nextCursor,
+        forceNoStore: true,
+      });
+    },
+    [activeExecutionId, fetchTracePage, traces],
   );
 
   const handleTraceUpdate = useCallback((update: TraceUpdateMessage) => {
@@ -277,6 +461,15 @@ export function useExecutionTrace({
 
   const status = getEntryStatus(activeTrace);
   const error = getEntryError(activeTrace);
+  const isRefreshing = activeExecutionId
+    ? refreshingExecutionIds.includes(activeExecutionId)
+    : false;
+  const isLoadingMore = activeExecutionId
+    ? loadingMoreExecutionIds.includes(activeExecutionId)
+    : false;
+  const canLoadMore = Boolean(
+    activeTrace?.hasNextPage && activeTrace.nextCursor,
+  );
 
   useEffect(() => {
     if (!activeTrace) {
@@ -284,7 +477,7 @@ export function useExecutionTrace({
     }
     if (activeTrace.status === "ready" && !activeTrace.isComplete) {
       const summary = summarizeTrace(activeTrace);
-      if (summary.spanCount === 0 && !fetchingRef.current.size) {
+      if (summary.spanCount === 0 && !fetchingModesRef.current.size) {
         void refresh(activeTrace.executionId);
       }
     }
@@ -298,6 +491,10 @@ export function useExecutionTrace({
     status,
     error,
     refresh,
+    loadMore,
+    canLoadMore,
+    isRefreshing,
+    isLoadingMore,
     handleTraceUpdate,
   };
 }

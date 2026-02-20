@@ -95,6 +95,8 @@ export interface ExecutionTraceEntry {
   status: TraceEntryStatus;
   error?: string;
   isComplete: boolean;
+  hasNextPage: boolean;
+  nextCursor?: string;
   lastUpdatedAt?: string;
 }
 
@@ -267,8 +269,14 @@ export const createEmptyTraceEntry = (
   status: "idle",
   error: undefined,
   isComplete: false,
+  hasNextPage: false,
+  nextCursor: undefined,
   lastUpdatedAt: undefined,
 });
+
+export interface ApplyTraceResponseOptions {
+  replaceSpans?: boolean;
+}
 
 const updateEntryWithSpan = (
   entry: ExecutionTraceEntry,
@@ -292,15 +300,27 @@ const updateEntryWithSpan = (
 export const applyTraceResponse = (
   entry: ExecutionTraceEntry,
   response: TraceResponse,
+  options: ApplyTraceResponseOptions = {},
 ): ExecutionTraceEntry => {
+  const baseEntry = options.replaceSpans
+    ? {
+        ...entry,
+        spansById: {},
+        spanMetadata: {},
+      }
+    : entry;
+  const priorIsComplete = options.replaceSpans ? false : baseEntry.isComplete;
+
   let next = {
-    ...entry,
+    ...baseEntry,
     status: "ready" as TraceEntryStatus,
     metadata: response.execution,
-    traceId: response.execution.trace_id ?? entry.traceId,
+    traceId: response.execution.trace_id ?? baseEntry.traceId,
     error: undefined,
+    hasNextPage: response.page_info.has_next_page,
+    nextCursor: response.page_info.cursor ?? undefined,
     isComplete:
-      entry.isComplete ||
+      priorIsComplete ||
       Boolean(response.execution.finished_at) ||
       response.page_info.has_next_page === false,
   };
@@ -328,6 +348,8 @@ export const applyTraceUpdate = (
     next = {
       ...next,
       isComplete: true,
+      hasNextPage: false,
+      nextCursor: undefined,
     };
   }
   return next;
