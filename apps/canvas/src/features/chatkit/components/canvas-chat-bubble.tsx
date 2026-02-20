@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Loader2, MessageSquare, MinimizeIcon, XIcon } from "lucide-react";
+import { Loader2, MessageSquare } from "lucide-react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { useChatInterfaceOptions } from "@features/shared/components/chat-interface-options";
 import type { ChatParticipant } from "@features/shared/components/chat-interface.types";
@@ -181,6 +181,17 @@ export function CanvasChatBubble({
 
   const chatKitOptions: UseChatKitOptions = useChatInterfaceOptions({
     chatkitOptions: {
+      header: {
+        enabled: true,
+        title: {
+          enabled: true,
+          text: title,
+        },
+        rightAction: {
+          icon: "close",
+          onClick: handleDismiss,
+        },
+      },
       composer: {
         placeholder: `Ask ${title} a question`,
       },
@@ -268,34 +279,6 @@ export function CanvasChatBubble({
           className="fixed right-6 z-50 flex h-[520px] w-full max-w-md flex-col rounded-2xl border border-border bg-card text-foreground shadow-2xl"
           style={floatingPositionStyle}
         >
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div>
-              <p className="text-sm uppercase text-muted-foreground">
-                Chatting
-              </p>
-              <p className="text-base font-semibold">{title}</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={handleCollapse}
-              >
-                <MinimizeIcon className="h-4 w-4" />
-                <span className="sr-only">Collapse chat</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={handleDismiss}
-              >
-                <XIcon className="h-4 w-4" />
-                <span className="sr-only">Hide chat</span>
-              </Button>
-            </div>
-          </div>
           <div className="flex-1 overflow-hidden px-2 py-2">
             {statusView}
             {sessionStatus !== "error" && shouldLoadChat && (
