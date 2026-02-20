@@ -15,6 +15,8 @@ This design replaces the current `Editor` and `Execution` tabs in Canvas with a 
 
 The Workflow tab adds a config entry point that opens workflow-level configuration using the same form stack currently used by node configuration (`@rjsf/core` + existing custom templates/widgets/validator). Workflow config persistence happens only on explicit config save. This avoids introducing a parallel form system and keeps consistency in validation and rendering behavior.
 
+The Workflow config sheet must stay contract-compatible with CLI upload runnable config input so users see the same payload they set with `orcheo workflow upload --config` or `--config-file`.
+
 The gallery interaction model is updated so workflow cards are directly clickable to open workflows. Action controls (menu, favorite, edit button, template actions) preserve current behavior via event-handling boundaries.
 
 ## Components
@@ -78,6 +80,7 @@ The gallery interaction model is updated so workflow cards are directly clickabl
 3. Form renders using shared schema form wrapper and existing RJSF theme assets.
 4. User edits workflow-level config and saves.
 5. Config persists only when user explicitly clicks save in the config sheet/dialog and is stored as `runnable_config`.
+6. Supported fields mirror upload-time runnable config contract: `configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`.
 
 ### Flow 3: Gallery Card Click Navigation
 
@@ -120,11 +123,14 @@ Workflow config form schema (initial scope aligned with runnable config model):
 
 | Field | Type | Description |
 |-------|------|-------------|
+| configurable | object | Runnable `configurable` payload |
 | run_name | string | Optional run display name |
 | tags | string[] | Workflow run tags |
 | metadata | object | Arbitrary JSON metadata |
+| callbacks | array | JSON-serialisable callbacks payload |
 | recursion_limit | number | Max recursion depth |
 | max_concurrency | number | Execution concurrency cap |
+| prompts | object | Named trainable prompts keyed by prompt name |
 
 Workflow version API additions:
 
@@ -138,13 +144,23 @@ Draft shape in Canvas state:
 ```json
 {
   "runnable_config": {
+    "configurable": {
+      "tenant": "team-a"
+    },
     "run_name": "workflow-v2",
     "tags": ["canvas", "prod"],
     "metadata": {
       "owner": "team-a"
     },
+    "callbacks": [],
     "recursion_limit": 25,
-    "max_concurrency": 4
+    "max_concurrency": 4,
+    "prompts": {
+      "summary_prompt": {
+        "template": "Summarize {topic}",
+        "input_variables": ["topic"]
+      }
+    }
   }
 }
 ```

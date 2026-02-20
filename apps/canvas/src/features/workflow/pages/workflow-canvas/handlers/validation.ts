@@ -148,7 +148,7 @@ export const createHandleFixValidation =
     reactFlowInstance,
   }: FixValidationDependencies) =>
   (error: ValidationError) => {
-    setActiveTab("canvas");
+    setActiveTab("workflow");
     const nodes = getNodes();
 
     if (error.nodeId) {

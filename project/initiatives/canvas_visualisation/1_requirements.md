@@ -4,7 +4,7 @@
 - **Authors:** Codex
 - **Project/Feature Name:** Canvas Workflow Visualisation
 - **Type:** Enhancement
-- **Summary:** Simplify LangGraph-first Canvas workflow authoring by removing legacy Editor/Execution tabs, introducing a Workflow Mermaid visualisation tab with reusable workflow config form, and making gallery workflow cards directly clickable.
+- **Summary:** Simplify LangGraph-first Canvas workflow authoring by removing legacy Editor/Execution tabs, introducing a Workflow Mermaid visualisation tab with reusable workflow config form, making gallery workflow cards directly clickable, and ensuring Workflow-tab config reflects the exact runnable config provided via CLI upload (`--config` / `--config-file`).
 - **Owner (if different than authors):** Shaojie Jiang
 - **Date Started:** 2026-02-20
 
@@ -34,6 +34,7 @@ Reduce workflow UI complexity and shift the primary workflow view to diagram-fir
 |---------|--------------|------------|----------|---------------------|
 | Workflow user | See a Workflow tab with Mermaid diagram | I can quickly understand workflow structure | P0 | Workflow page exposes a `Workflow` tab that renders Mermaid for the active workflow version |
 | Workflow user | Configure workflow runtime settings from Workflow tab | I can edit workflow-level config without switching contexts | P0 | Workflow tab has a config button opening a workflow config form reusing node form infrastructure |
+| CLI workflow uploader | See upload runnable config unchanged in Canvas Workflow config sheet | Canvas reflects the same configuration contract used by `orcheo workflow upload --config/--config-file` | P0 | Workflow config sheet supports all runnable config fields accepted by upload (`configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`) |
 | Product team | Remove Editor/Execution tabs from primary experience | UI is focused and aligned to visualization-first direction | P0 | `Editor` and `Execution` tabs are removed from the active tabs list |
 | Engineering team | Preserve old Editor/Execution implementation in legacy location | We can rollback/reference old behavior safely | P0 | Legacy tab implementations are moved under `apps/canvas/src/features/workflow/legacy/` and are not wired to active UI |
 | Gallery user | Click anywhere on workflow cards to open workflow | Navigation is faster and more intuitive | P0 | Clicking the card body navigates to the workflow canvas; action menu buttons remain functional |
@@ -71,6 +72,7 @@ Non-goals:
   - Config button opens workflow config form using same RJSF setup used by node config forms (`customWidgets`, `customTemplates`, `validator`).
   - Workflow config persists only on explicit config save action from the Workflow tab.
   - Saved workflow config maps to workflow version payloads (`runnable_config`).
+  - Workflow config sheet must expose the same runnable config contract used by `orcheo workflow upload --config/--config-file` (no field loss across upload -> read -> save round trips).
 - **P0: Clickable workflow cards**
   - Make non-template workflow gallery cards clickable in the card body area.
   - Preserve dropdown/menu/button controls without accidental navigation.
@@ -99,6 +101,9 @@ The Canvas workflow page replaces tab routing for Editor/Execution with a new Wo
   - `apps/canvas/src/features/workflow/components/panels/node-inspector/config-panel.tsx`
 - Extend workflow version typing for config persistence visibility:
   - `apps/canvas/src/features/workflow/lib/workflow-storage.types.ts`
+- Ensure Workflow config sheet schema/parsing covers upload-supported runnable config fields:
+  - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`
+  - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.utils.ts`
 - Add Mermaid in workflow version API payload returned by backend:
   - `apps/backend/src/orcheo_backend/app/routers/workflows.py`
   - `apps/backend/src/orcheo_backend/app/schemas/workflows.py` (if response schema changes are introduced)

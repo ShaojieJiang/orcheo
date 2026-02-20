@@ -15,6 +15,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.routers import workflows as workflow_router
 
 
 @pytest.mark.asyncio()
@@ -53,6 +54,8 @@ async def test_list_workflow_versions_success() -> None:
     assert len(result) == 2
     assert result[0].id == version1_id
     assert result[1].id == version2_id
+    assert isinstance(result[0].mermaid, str)
+    assert isinstance(result[1].mermaid, str)
 
 
 @pytest.mark.asyncio()
@@ -94,6 +97,7 @@ async def test_get_workflow_version_success() -> None:
 
     assert result.id == version_id
     assert result.version == 1
+    assert isinstance(result.mermaid, str)
 
 
 @pytest.mark.asyncio()
@@ -148,6 +152,40 @@ async def test_diff_workflow_versions_success() -> None:
     assert result.base_version == 1
     assert result.target_version == 2
     assert result.diff == ["+ node1", "- node2"]
+
+
+@pytest.mark.asyncio()
+async def test_list_workflow_versions_handles_mermaid_render_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List workflow versions falls back to null Mermaid if rendering fails."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def list_versions(self, wf_id):
+            return [
+                WorkflowVersion(
+                    id=version_id,
+                    workflow_id=wf_id,
+                    version=1,
+                    graph={},
+                    created_by="admin",
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+            ]
+
+    def _raise_mermaid_failure(_graph: object) -> str:
+        raise ValueError("boom")
+
+    monkeypatch.setattr(workflow_router, "_mermaid_from_graph", _raise_mermaid_failure)
+
+    result = await list_workflow_versions(workflow_id, Repository())
+
+    assert len(result) == 1
+    assert result[0].mermaid is None
 
 
 @pytest.mark.asyncio()

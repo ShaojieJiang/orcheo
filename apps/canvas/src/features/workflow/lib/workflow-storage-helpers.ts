@@ -171,6 +171,8 @@ const toVersionRecord = (
     summary: metadata.summary ?? { ...DEFAULT_SUMMARY },
     snapshot:
       metadata.snapshot ?? emptySnapshot(workflowName, workflowDescription),
+    mermaid: version.mermaid ?? null,
+    runnableConfig: version.runnable_config ?? null,
     graphToCanvas: metadata.graphToCanvas,
   };
 };

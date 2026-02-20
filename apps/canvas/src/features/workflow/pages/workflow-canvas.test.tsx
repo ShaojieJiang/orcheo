@@ -1,12 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import WorkflowCanvas from "./workflow-canvas";
 
@@ -123,72 +116,34 @@ const renderCanvas = () => {
   );
 };
 
-describe("WorkflowCanvas editing history", () => {
-  it("supports undo and redo via buttons", async () => {
+describe("WorkflowCanvas tabs", () => {
+  it("shows workflow tab and hides editor/execution tabs", async () => {
     renderCanvas();
 
-    const initialNodes = await screen.findAllByText("Initial Node");
-    expect(initialNodes.length).toBeGreaterThan(0);
-
-    // Verify undo and redo buttons start disabled (no history yet)
-    const undoButton = screen.getByRole("button", { name: /undo/i });
-    const redoButton = screen.getByRole("button", { name: /redo/i });
-
-    expect(undoButton).toBeDisabled();
-    expect(redoButton).toBeDisabled();
+    expect(await screen.findByRole("tab", { name: /workflow/i })).toBeVisible();
+    expect(
+      screen.queryByRole("tab", { name: /^editor$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /^execution$/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("supports keyboard shortcuts for undo and redo", async () => {
+  it("keeps trace/readiness/settings tabs available", async () => {
     renderCanvas();
 
-    const initialNodes = await screen.findAllByText("Initial Node");
-    expect(initialNodes.length).toBeGreaterThan(0);
-
-    // Verify buttons exist and are initially disabled
-    const undoButtons = screen.getAllByRole("button", { name: /undo/i });
-    const redoButtons = screen.getAllByRole("button", { name: /redo/i });
-
-    expect(undoButtons[0]).toBeDisabled();
-    expect(redoButtons[0]).toBeDisabled();
+    expect(await screen.findByRole("tab", { name: /trace/i })).toBeVisible();
+    expect(screen.getByRole("tab", { name: /readiness/i })).toBeVisible();
+    expect(screen.getByRole("tab", { name: /settings/i })).toBeVisible();
   });
 
-  it("opens the node search overlay from toolbar", async () => {
+  it("renders workflow mermaid empty state when no versions exist", async () => {
     renderCanvas();
 
-    const searchButtons = await screen.findAllByRole("button", {
-      name: /search nodes/i,
-    });
-    const searchButton = searchButtons[0];
-    fireEvent.click(searchButton);
-
-    const searchPanels = await screen.findAllByTestId("workflow-search");
-    const searchInput = within(searchPanels[0]).getByPlaceholderText(
-      "Search nodes...",
-    );
-    fireEvent.change(searchInput, { target: { value: "Initial" } });
-
-    await waitFor(() => {
-      const matches = document.querySelectorAll('[data-search-match="true"]');
-      expect(matches.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("opens the search overlay with ctrl+f", async () => {
-    renderCanvas();
-
-    await screen.findAllByRole("button", { name: /search nodes/i });
-
-    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
-
-    const searchPanels = await screen.findAllByTestId("workflow-search");
-
-    expect(searchPanels.length).toBeGreaterThan(0);
-  });
-
-  it("renders the trace tab in the workflow tabs", async () => {
-    renderCanvas();
-
-    const traceTabs = await screen.findAllByRole("tab", { name: /trace/i });
-    expect(traceTabs.length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText(
+        /save this workflow to generate a versioned mermaid diagram/i,
+      ),
+    ).toBeInTheDocument();
   });
 });

@@ -68,6 +68,7 @@ export function useWorkflowCanvasExecution(
     activeExecutionId: core.execution.activeExecutionId,
     isMountedRef: core.isMountedRef,
     executionIds,
+    enabled: core.ui.activeTab === "trace",
   });
 
   const handleRunWorkflow = useRunWorkflow({

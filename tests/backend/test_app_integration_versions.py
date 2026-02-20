@@ -22,6 +22,7 @@ def test_create_workflow_version(client: TestClient) -> None:
     )
     assert version_response.status_code == 201
     assert version_response.json()["version"] == 1
+    assert isinstance(version_response.json()["mermaid"], str)
 
 
 def test_list_workflow_versions(client: TestClient) -> None:
@@ -39,6 +40,7 @@ def test_list_workflow_versions(client: TestClient) -> None:
     versions_response = client.get(f"/api/workflows/{workflow_id}/versions")
     assert versions_response.status_code == 200
     assert len(versions_response.json()) == 1
+    assert isinstance(versions_response.json()[0]["mermaid"], str)
 
 
 def test_get_workflow_version(client: TestClient) -> None:
@@ -56,6 +58,7 @@ def test_get_workflow_version(client: TestClient) -> None:
     version_response = client.get(f"/api/workflows/{workflow_id}/versions/1")
     assert version_response.status_code == 200
     assert version_response.json()["version"] == 1
+    assert isinstance(version_response.json()["mermaid"], str)
 
 
 def test_diff_workflow_versions(client: TestClient) -> None:

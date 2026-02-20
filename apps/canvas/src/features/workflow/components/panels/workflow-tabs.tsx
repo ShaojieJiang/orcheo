@@ -16,14 +16,8 @@ export default function WorkflowTabs({
     <div className="border-b border-border">
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
         <TabsList className="h-9">
-          <TabsTrigger value="canvas" className="gap-1.5 text-sm px-3 py-1.5">
-            Editor
-          </TabsTrigger>
-          <TabsTrigger
-            value="execution"
-            className="gap-1.5 text-sm px-3 py-1.5"
-          >
-            Execution
+          <TabsTrigger value="workflow" className="gap-1.5 text-sm px-3 py-1.5">
+            Workflow
           </TabsTrigger>
           <TabsTrigger value="trace" className="gap-1.5 text-sm px-3 py-1.5">
             Trace
