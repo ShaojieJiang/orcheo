@@ -63,6 +63,24 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert node_span.status.code == "OK"
 
 
+def test_build_trace_response_uses_root_span_id_when_trace_id_missing() -> None:
+    """Trace response metadata should expose a fallback identifier."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-no-trace-id",
+        execution_id="exec-no-trace-id",
+        status="completed",
+    )
+
+    response = build_trace_response(record)
+    expected_trace_id = blake2b(
+        f"{record.execution_id}:root".encode(), digest_size=8
+    ).hexdigest()
+
+    assert response.execution.trace_id == expected_trace_id
+    assert response.spans[0].span_id == expected_trace_id
+
+
 def test_build_trace_update_returns_none_for_non_node_payload() -> None:
     """build_trace_update should return None when no spans are generated."""
 

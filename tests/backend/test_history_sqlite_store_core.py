@@ -1,6 +1,7 @@
 """Core SQLite run history store tests covering CRUD flows."""
 
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
@@ -13,6 +14,11 @@ from orcheo_backend.app.history import (
 
 
 sqlite_store_module = import_module("orcheo_backend.app.history.sqlite_store")
+
+
+@dataclass
+class _EmbeddingLike:
+    values: list[float]
 
 
 @pytest.mark.asyncio
@@ -104,6 +110,23 @@ async def test_sqlite_store_append_step_missing_execution_raises(
 
     with pytest.raises(RunHistoryNotFoundError, match="execution_id=missing"):
         await store.append_step("missing", {"action": "start"})
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_append_step_normalizes_non_json_values(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "history-serialize.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    await store.append_step(
+        "exec",
+        {"embedding": _EmbeddingLike(values=[0.1, 0.2])},
+    )
+
+    history = await store.get_history("exec")
+    assert history.steps[0].payload == {"embedding": {"values": [0.1, 0.2]}}
 
 
 @pytest.mark.asyncio

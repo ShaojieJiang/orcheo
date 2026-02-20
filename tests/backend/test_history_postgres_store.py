@@ -7,6 +7,7 @@ a real PostgreSQL database connection.
 from __future__ import annotations
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 import pytest
@@ -105,6 +106,11 @@ class FakePool:
 
     def connection(self) -> FakeConnection:
         return self._connection
+
+
+@dataclass
+class _EmbeddingLike:
+    values: list[float]
 
 
 def make_store(
@@ -319,6 +325,35 @@ async def test_postgres_store_append_step(
 
     assert step.index == 1
     assert step.payload == {"step_type": "test", "data": "value"}
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_append_step_normalizes_non_json_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses: list[Any] = [
+        {"row": {"execution_id": "exec-456"}},
+        {"row": {"current_index": -1}},
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses)
+
+    step = await store.append_step(
+        execution_id="exec-456",
+        payload={"embedding": _EmbeddingLike(values=[0.1, 0.2])},
+    )
+
+    assert step.payload == {"embedding": {"values": [0.1, 0.2]}}
+    queries = store._pool._connection.queries  # type: ignore[union-attr]
+    insert_params = next(
+        params
+        for query, params in queries
+        if "INSERT INTO execution_history_steps" in query
+    )
+    assert insert_params is not None
+    persisted_payload = json.loads(insert_params[3])
+    assert persisted_payload == {"embedding": {"values": [0.1, 0.2]}}
 
 
 @pytest.mark.asyncio

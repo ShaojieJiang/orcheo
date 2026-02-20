@@ -15,6 +15,10 @@ from orcheo_backend.app.history.models import (
     RunHistoryStep,
     _utcnow,
 )
+from orcheo_backend.app.history.serialization import (
+    normalize_json_mapping,
+    normalize_json_value,
+)
 
 
 # Optional psycopg dependencies
@@ -173,31 +177,45 @@ class PostgresRunHistoryStore:
         async with self._lock:
             started_at = _utcnow()
             trace_started = trace_started_at or started_at
-            inputs_data = dict(inputs or {})
+            inputs_data = normalize_json_mapping(inputs)
             config_data = runnable_config
             if runnable_config and hasattr(runnable_config, "model_dump"):
                 config_data = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
-            config_dict = dict(config_data or {})
+            config_dict = normalize_json_mapping(
+                config_data if isinstance(config_data, Mapping) else None
+            )
             tag_values = (
-                list(tags or config_dict.get("tags", []))
+                [str(tag) for tag in (tags or config_dict.get("tags", []))]
                 if isinstance(config_dict, Mapping)
-                else list(tags or [])
+                else [str(tag) for tag in (tags or [])]
             )
             callback_values = (
-                list(callbacks or config_dict.get("callbacks", []))
+                normalize_json_value(
+                    list(callbacks or config_dict.get("callbacks", []))
+                )
                 if isinstance(config_dict, Mapping)
-                else list(callbacks or [])
+                else normalize_json_value(list(callbacks or []))
             )
+            if not isinstance(callback_values, list):
+                callback_values = [callback_values]
             metadata_values = (
-                dict(metadata or config_dict.get("metadata", {}))
+                normalize_json_mapping(
+                    metadata
+                    if metadata is not None
+                    else config_dict.get("metadata", {})
+                    if isinstance(config_dict.get("metadata", {}), Mapping)
+                    else None
+                )
                 if isinstance(config_dict, Mapping)
-                else dict(metadata or {})
+                else normalize_json_mapping(metadata)
             )
             run_identifier = run_name or (
                 config_dict.get("run_name")
                 if isinstance(config_dict, Mapping)
                 else None
             )
+            if run_identifier is not None:
+                run_identifier = str(run_identifier)
             async with self._connection() as conn:
                 try:
                     await conn.execute(
@@ -281,7 +299,12 @@ class PostgresRunHistoryStore:
                     )
                     VALUES (%s, %s, %s, %s)
                     """,
-                    (execution_id, next_index, at, json.dumps(dict(payload))),
+                    (
+                        execution_id,
+                        next_index,
+                        at,
+                        json.dumps(normalize_json_mapping(payload)),
+                    ),
                 )
                 await conn.execute(
                     """
@@ -291,7 +314,11 @@ class PostgresRunHistoryStore:
                     """,
                     (at, execution_id),
                 )
-        return RunHistoryStep(index=next_index, at=at, payload=dict(payload))
+        return RunHistoryStep(
+            index=next_index,
+            at=at,
+            payload=normalize_json_mapping(payload),
+        )
 
     async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
         """Mark the execution as completed."""

@@ -129,6 +129,7 @@ async def test_run_inserts_raw_messages_and_records_state(
     repository.create_run.return_value = run_record
     repository.mark_run_started = AsyncMock()
     repository.mark_run_succeeded = AsyncMock()
+    history_store = AsyncMock()
 
     final_state = CustomState(
         reply="final reply", messages=[HumanMessage(content="payload")]
@@ -136,6 +137,11 @@ async def test_run_inserts_raw_messages_and_records_state(
     graph = DummyGraph(final_state)
 
     monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_history_store",
+        lambda: history_store,
+    )
     monkeypatch.setattr(
         workflow_executor_module,
         "create_checkpointer",
@@ -172,6 +178,8 @@ async def test_run_inserts_raw_messages_and_records_state(
     repository.mark_run_succeeded.assert_awaited_once_with(
         run_record.id, actor="chatkit", output={"reply": "final reply"}
     )
+    history_store.start_run.assert_awaited_once()
+    history_store.mark_completed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -188,6 +196,7 @@ async def test_run_streams_progress_updates(
     repository.create_run.return_value = Mock(id="run-id")
     repository.mark_run_started = AsyncMock()
     repository.mark_run_succeeded = AsyncMock()
+    history_store = AsyncMock()
 
     steps = [{"node_a": {"value": 1}}, {"node_b": {"value": 2}}]
     final_state = CustomState(
@@ -196,6 +205,11 @@ async def test_run_streams_progress_updates(
     graph = DummyStreamingGraph(steps, final_state)
 
     monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_history_store",
+        lambda: history_store,
+    )
     monkeypatch.setattr(
         workflow_executor_module,
         "create_checkpointer",
@@ -232,3 +246,6 @@ async def test_run_streams_progress_updates(
     assert "_messages" in state_view
     assert run is not None
     repository.mark_run_succeeded.assert_awaited_once()
+    history_store.start_run.assert_awaited_once()
+    assert history_store.append_step.await_count >= len(steps)
+    history_store.mark_completed.assert_awaited_once()

@@ -1,6 +1,7 @@
 """Tests for the in-memory run history store implementation."""
 
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import pytest
 from orcheo_backend.app.history import (
@@ -8,6 +9,11 @@ from orcheo_backend.app.history import (
     RunHistoryError,
     RunHistoryNotFoundError,
 )
+
+
+@dataclass
+class _EmbeddingLike:
+    values: list[float]
 
 
 @pytest.mark.asyncio
@@ -126,6 +132,19 @@ async def test_in_memory_append_step_increments_index() -> None:
     assert len(history.steps) == 2
     assert history.steps[0].payload == {"action": "start"}
     assert history.steps[1].payload == {"action": "continue"}
+
+
+@pytest.mark.asyncio
+async def test_in_memory_append_step_normalizes_non_json_values() -> None:
+    store = InMemoryRunHistoryStore()
+    await store.start_run(workflow_id="wf", execution_id="exec")
+
+    step = await store.append_step(
+        "exec",
+        {"embedding": _EmbeddingLike(values=[0.1, 0.2])},
+    )
+
+    assert step.payload == {"embedding": {"values": [0.1, 0.2]}}
 
 
 @pytest.mark.asyncio
