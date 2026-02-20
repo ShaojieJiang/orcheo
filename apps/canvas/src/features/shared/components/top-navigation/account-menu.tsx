@@ -21,20 +21,28 @@ import { clearAuthSession } from "@features/auth/lib/auth-session";
 import type {
   Credential,
   CredentialInput,
+  CredentialUpdateInput,
 } from "@features/workflow/types/credential-vault";
 
 interface AccountMenuProps {
   credentials: Credential[];
   isCredentialsLoading: boolean;
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
+  onUpdateCredential?: (
+    id: string,
+    updates: CredentialUpdateInput,
+  ) => Promise<void> | void;
   onDeleteCredential?: (id: string) => Promise<void> | void;
+  onRevealCredentialSecret?: (id: string) => Promise<string | null>;
 }
 
 export default function AccountMenu({
   credentials,
   isCredentialsLoading,
   onAddCredential,
+  onUpdateCredential,
   onDeleteCredential,
+  onRevealCredentialSecret,
 }: AccountMenuProps) {
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const navigate = useNavigate();
@@ -109,7 +117,9 @@ export default function AccountMenu({
             credentials={credentials}
             isLoading={isCredentialsLoading}
             onAddCredential={onAddCredential}
+            onUpdateCredential={onUpdateCredential}
             onDeleteCredential={onDeleteCredential}
+            onRevealCredentialSecret={onRevealCredentialSecret}
           />
         </DialogContent>
       </Dialog>

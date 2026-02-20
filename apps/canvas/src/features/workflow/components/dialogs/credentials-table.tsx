@@ -27,27 +27,68 @@ import {
   MoreHorizontal,
   Trash,
 } from "lucide-react";
-import type { Credential } from "@features/workflow/types/credential-vault";
+import type {
+  Credential,
+  CredentialUpdateInput,
+} from "@features/workflow/types/credential-vault";
 import { CredentialAccessBadge } from "./credential-access-badge";
 import { CredentialStatusBadge } from "./credential-status-badge";
+import { EditCredentialDialog } from "./edit-credential-dialog";
 
 interface CredentialsTableProps {
   credentials: Credential[];
   isLoading?: boolean;
   searchQuery: string;
+  onUpdateCredential?: (
+    id: string,
+    updates: CredentialUpdateInput,
+  ) => Promise<void> | void;
   onDeleteCredential?: (id: string) => Promise<void> | void;
+  onRevealCredentialSecret?: (id: string) => Promise<string | null>;
 }
 
 const SECRET_PLACEHOLDER = "••••••••••••••••";
+const MASKED_SECRET_MARKER = "•";
+
+const isMaskedSecret = (value: string): boolean =>
+  value.includes(MASKED_SECRET_MARKER);
+
+const getCredentialSecretValue = (
+  credential: Credential,
+  loadedSecrets: Record<string, string>,
+): string | undefined => {
+  const loaded = loadedSecrets[credential.id];
+  if (loaded) {
+    return loaded;
+  }
+  const inlineSecret = credential.secrets
+    ? Object.values(credential.secrets)[0]
+    : undefined;
+  if (inlineSecret && !isMaskedSecret(inlineSecret)) {
+    return inlineSecret;
+  }
+  return undefined;
+};
 
 export function CredentialsTable({
   credentials,
   isLoading,
   searchQuery,
+  onUpdateCredential,
   onDeleteCredential,
+  onRevealCredentialSecret,
 }: CredentialsTableProps) {
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>(
     {},
+  );
+  const [loadedSecrets, setLoadedSecrets] = useState<Record<string, string>>(
+    {},
+  );
+  const [loadingSecretState, setLoadingSecretState] = useState<
+    Record<string, boolean>
+  >({});
+  const [editingCredential, setEditingCredential] = useState<Credential | null>(
+    null,
   );
 
   const filteredCredentials = useMemo(() => {
@@ -56,15 +97,62 @@ export function CredentialsTable({
     }
     const normalizedQuery = searchQuery.toLowerCase();
     return credentials.filter((credential) => {
-      const type = credential.type?.toLowerCase() ?? "";
+      const provider = (
+        credential.provider ??
+        credential.type ??
+        ""
+      ).toLowerCase();
       return (
         credential.name.toLowerCase().includes(normalizedQuery) ||
-        type.includes(normalizedQuery)
+        provider.includes(normalizedQuery)
       );
     });
   }, [credentials, searchQuery]);
 
-  const toggleSecretVisibility = (credentialId: string) => {
+  const ensureCredentialSecret = async (
+    credential: Credential,
+  ): Promise<string | undefined> => {
+    const existingSecret = getCredentialSecretValue(credential, loadedSecrets);
+    if (existingSecret) {
+      return existingSecret;
+    }
+    if (!onRevealCredentialSecret) {
+      return undefined;
+    }
+
+    setLoadingSecretState((previous) => ({
+      ...previous,
+      [credential.id]: true,
+    }));
+    try {
+      const revealed = await onRevealCredentialSecret(credential.id);
+      if (!revealed) {
+        return undefined;
+      }
+      setLoadedSecrets((previous) => ({
+        ...previous,
+        [credential.id]: revealed,
+      }));
+      return revealed;
+    } finally {
+      setLoadingSecretState((previous) => ({
+        ...previous,
+        [credential.id]: false,
+      }));
+    }
+  };
+
+  const toggleSecretVisibility = async (credential: Credential) => {
+    const credentialId = credential.id;
+    const isVisible = Boolean(visibleSecrets[credentialId]);
+    if (!isVisible) {
+      try {
+        await ensureCredentialSecret(credential);
+      } catch (error) {
+        console.error("Failed to reveal credential secret", error);
+        return;
+      }
+    }
     setVisibleSecrets((prev) => ({
       ...prev,
       [credentialId]: !prev[credentialId],
@@ -72,13 +160,37 @@ export function CredentialsTable({
   };
 
   const copySecret = async (credential: Credential) => {
-    const secret = credential.secrets
-      ? Object.values(credential.secrets)[0]
-      : undefined;
+    let secret: string | undefined;
+    try {
+      secret = await ensureCredentialSecret(credential);
+    } catch (error) {
+      console.error("Failed to copy credential secret", error);
+      return;
+    }
     if (!secret || typeof navigator === "undefined") {
       return;
     }
     await navigator.clipboard.writeText(secret);
+  };
+
+  const openCredentialEditor = async (credential: Credential) => {
+    try {
+      const revealedSecret = await ensureCredentialSecret(credential);
+      if (revealedSecret) {
+        setEditingCredential({
+          ...credential,
+          secrets: {
+            ...(credential.secrets ?? {}),
+            secret: revealedSecret,
+          },
+        });
+        return;
+      }
+    } catch (error) {
+      console.error("Failed to load credential secret for editing", error);
+    }
+
+    setEditingCredential(credential);
   };
 
   return (
@@ -87,7 +199,7 @@ export function CredentialsTable({
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Type</TableHead>
+            <TableHead>Provider</TableHead>
             <TableHead>Access</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Secret</TableHead>
@@ -120,10 +232,25 @@ export function CredentialsTable({
           ) : null}
           {!isLoading &&
             filteredCredentials.map((credential) => {
-              const secret = credential.secrets
+              const inlineSecret = credential.secrets
                 ? Object.values(credential.secrets)[0]
                 : undefined;
+              const secret = getCredentialSecretValue(
+                credential,
+                loadedSecrets,
+              );
               const secretVisible = visibleSecrets[credential.id];
+              const isLoadingSecret =
+                loadingSecretState[credential.id] === true;
+              const provider =
+                credential.provider ?? credential.type ?? "unknown";
+              const hasSecret =
+                secret !== undefined ||
+                inlineSecret !== undefined ||
+                credential.secretPreview != null;
+              const canReadSecret =
+                secret !== undefined ||
+                (hasSecret && onRevealCredentialSecret !== undefined);
               return (
                 <TableRow key={credential.id}>
                   <TableCell className="max-w-[300px] font-medium">
@@ -133,9 +260,7 @@ export function CredentialsTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {credential.type ?? "unknown"}
-                    </Badge>
+                    <Badge variant="outline">{provider}</Badge>
                   </TableCell>
                   <TableCell>
                     <CredentialAccessBadge access={credential.access} />
@@ -145,21 +270,34 @@ export function CredentialsTable({
                   </TableCell>
                   <TableCell>
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="max-w-[220px] truncate rounded bg-muted px-2 py-1 font-mono text-xs">
+                      <div
+                        className={
+                          secretVisible && secret
+                            ? "w-[150px] overflow-x-auto overflow-y-hidden whitespace-nowrap rounded bg-muted px-2 py-1 font-mono text-xs"
+                            : "w-[150px] overflow-hidden truncate rounded bg-muted px-2 py-1 font-mono text-xs"
+                        }
+                      >
                         {secret
                           ? secretVisible
                             ? secret
                             : SECRET_PLACEHOLDER
-                          : "Not available"}
+                          : hasSecret
+                            ? SECRET_PLACEHOLDER
+                            : "Not available"}
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
-                        onClick={() => toggleSecretVisibility(credential.id)}
-                        disabled={!secret}
+                        onClick={() => void toggleSecretVisibility(credential)}
+                        disabled={!canReadSecret || isLoadingSecret}
+                        aria-label={`${
+                          secretVisible ? "Hide" : "Show"
+                        } secret for ${credential.name}`}
                       >
-                        {secretVisible ? (
+                        {isLoadingSecret ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : secretVisible ? (
                           <EyeOff className="h-3 w-3" />
                         ) : (
                           <Eye className="h-3 w-3" />
@@ -169,8 +307,9 @@ export function CredentialsTable({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
-                        onClick={() => secret && copySecret(credential)}
-                        disabled={!secret}
+                        onClick={() => void copySecret(credential)}
+                        disabled={!canReadSecret}
+                        aria-label={`Copy secret for ${credential.name}`}
                       >
                         <Copy className="h-3 w-3" />
                       </Button>
@@ -181,8 +320,11 @@ export function CredentialsTable({
                   </TableCell>
                   <TableCell>
                     <CredentialActionsMenu
-                      credentialId={credential.id}
+                      canEdit={Boolean(onUpdateCredential)}
+                      onEdit={() => void openCredentialEditor(credential)}
                       onDeleteCredential={onDeleteCredential}
+                      credentialId={credential.id}
+                      credentialName={credential.name}
                     />
                   </TableCell>
                 </TableRow>
@@ -190,29 +332,50 @@ export function CredentialsTable({
             })}
         </TableBody>
       </Table>
+      <EditCredentialDialog
+        credential={editingCredential}
+        open={editingCredential !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingCredential(null);
+          }
+        }}
+        onUpdateCredential={onUpdateCredential}
+      />
     </div>
   );
 }
 
 interface CredentialActionsMenuProps {
+  canEdit: boolean;
+  onEdit: () => void;
   credentialId: string;
+  credentialName: string;
   onDeleteCredential?: (id: string) => Promise<void> | void;
 }
 
 function CredentialActionsMenu({
+  canEdit,
+  onEdit,
   credentialId,
+  credentialName,
   onDeleteCredential,
 }: CredentialActionsMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          aria-label={`Credential actions for ${credentialName}`}
+        >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-        <DropdownMenuItem>
+        <DropdownMenuItem onClick={onEdit} disabled={!canEdit}>
           <Edit className="h-4 w-4 mr-2" />
           Edit
         </DropdownMenuItem>

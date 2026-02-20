@@ -16,7 +16,9 @@ export default function Settings() {
     credentials,
     isLoading: isCredentialsLoading,
     onAddCredential,
+    onUpdateCredential,
     onDeleteCredential,
+    onRevealCredentialSecret,
   } = useCredentialVault();
 
   return (
@@ -25,7 +27,9 @@ export default function Settings() {
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
         onAddCredential={onAddCredential}
+        onUpdateCredential={onUpdateCredential}
         onDeleteCredential={onDeleteCredential}
+        onRevealCredentialSecret={onRevealCredentialSecret}
       />
 
       <div className="flex-1 space-y-4 p-8 pt-6 mx-auto w-full max-w-7xl">

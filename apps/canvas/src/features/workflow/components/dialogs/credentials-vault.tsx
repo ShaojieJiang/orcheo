@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import type {
   Credential,
   CredentialInput,
+  CredentialUpdateInput,
 } from "@features/workflow/types/credential-vault";
 import { AddCredentialDialog } from "./add-credential-dialog";
 import { CredentialsTable } from "./credentials-table";
@@ -12,7 +13,12 @@ interface CredentialsVaultProps {
   credentials?: Credential[];
   isLoading?: boolean;
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
+  onUpdateCredential?: (
+    id: string,
+    updates: CredentialUpdateInput,
+  ) => Promise<void> | void;
   onDeleteCredential?: (id: string) => Promise<void> | void;
+  onRevealCredentialSecret?: (id: string) => Promise<string | null>;
   className?: string;
 }
 
@@ -20,7 +26,9 @@ export default function CredentialsVault({
   credentials = [],
   isLoading = false,
   onAddCredential,
+  onUpdateCredential,
   onDeleteCredential,
+  onRevealCredentialSecret,
   className,
 }: CredentialsVaultProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,7 +64,9 @@ export default function CredentialsVault({
         credentials={credentials}
         isLoading={isLoading}
         searchQuery={searchQuery}
+        onUpdateCredential={onUpdateCredential}
         onDeleteCredential={onDeleteCredential}
+        onRevealCredentialSecret={onRevealCredentialSecret}
       />
     </div>
   );

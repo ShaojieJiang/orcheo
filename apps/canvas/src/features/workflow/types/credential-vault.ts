@@ -5,6 +5,8 @@ export type CredentialVaultHealthStatus = "healthy" | "unhealthy" | "unknown";
 export interface Credential {
   id: string;
   name: string;
+  provider?: string;
+  /** @deprecated Use provider. */
   type?: string;
   createdAt: string;
   updatedAt: string;
@@ -12,14 +14,27 @@ export interface Credential {
   access: CredentialVaultAccessLevel;
   secrets?: Record<string, string>;
   status?: CredentialVaultHealthStatus;
+  secretPreview?: string | null;
 }
 
-export type CredentialInput = Omit<
-  Credential,
-  "id" | "createdAt" | "updatedAt" | "owner"
-> & {
+export interface CredentialInput {
+  name: string;
+  provider: string;
+  /** @deprecated Use provider. */
+  type?: string;
+  access: CredentialVaultAccessLevel;
+  secrets?: Record<string, string>;
   owner?: string;
-};
+}
+
+export interface CredentialUpdateInput {
+  name?: string;
+  provider?: string;
+  /** @deprecated Use provider. */
+  type?: string;
+  access?: CredentialVaultAccessLevel;
+  secrets?: Record<string, string>;
+}
 
 export interface CredentialVaultEntryResponse {
   id: string;
@@ -33,4 +48,9 @@ export interface CredentialVaultEntryResponse {
   access: CredentialVaultAccessLevel;
   status: CredentialVaultHealthStatus;
   secret_preview?: string | null;
+}
+
+export interface CredentialSecretResponse {
+  id: string;
+  secret: string;
 }

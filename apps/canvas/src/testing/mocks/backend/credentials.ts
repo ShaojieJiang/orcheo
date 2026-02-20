@@ -7,6 +7,7 @@ import {
 } from "@/testing/mocks/backend/request-utils";
 
 const credentialStore = new Map<string, CredentialVaultEntryResponse>();
+const credentialSecretStore = new Map<string, string>();
 
 let credentialCounter = 0;
 
@@ -14,6 +15,22 @@ export const handleCredentialRequest = async (
   request: Request,
   url: URL,
 ): Promise<Response> => {
+  const segments = url.pathname.split("/");
+  const targetId = segments.at(-1) ?? null;
+  const isSecretEndpoint = segments.at(-1) === "secret";
+  const credentialIdForSecret = isSecretEndpoint ? segments.at(-2) : null;
+
+  if (request.method === "GET" && isSecretEndpoint && credentialIdForSecret) {
+    const secret = credentialSecretStore.get(credentialIdForSecret);
+    if (!secret) {
+      return jsonResponse({ detail: "Credential not found" }, { status: 404 });
+    }
+    return jsonResponse({
+      id: credentialIdForSecret,
+      secret,
+    });
+  }
+
   if (request.method === "GET") {
     return jsonResponse(Array.from(credentialStore.values()));
   }
@@ -44,14 +61,41 @@ export const handleCredentialRequest = async (
     };
 
     credentialStore.set(id, entry);
+    if (payload?.secret) {
+      credentialSecretStore.set(id, payload.secret);
+    }
     return jsonResponse(entry, { status: 201 });
   }
 
+  if (request.method === "PATCH" && targetId) {
+    const existing = credentialStore.get(targetId);
+    if (!existing) {
+      return jsonResponse({ detail: "Credential not found" }, { status: 404 });
+    }
+    const payload = await parseRequestBody<{
+      name?: string;
+      provider?: string;
+      secret?: string;
+      access?: CredentialVaultEntryResponse["access"];
+    }>(request);
+    const updated: CredentialVaultEntryResponse = {
+      ...existing,
+      name: payload?.name ?? existing.name,
+      provider: payload?.provider ?? existing.provider,
+      access: payload?.access ?? existing.access,
+      updated_at: new Date().toISOString(),
+    };
+    credentialStore.set(targetId, updated);
+    if (payload?.secret) {
+      credentialSecretStore.set(targetId, payload.secret);
+    }
+    return jsonResponse(updated);
+  }
+
   if (request.method === "DELETE") {
-    const segments = url.pathname.split("/");
-    const targetId = segments.at(-1);
     if (targetId) {
       credentialStore.delete(targetId);
+      credentialSecretStore.delete(targetId);
     }
     return emptyResponse({ status: 204 });
   }

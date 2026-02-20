@@ -39,7 +39,9 @@ export default function HelpSupport() {
     credentials,
     isLoading: isCredentialsLoading,
     onAddCredential,
+    onUpdateCredential,
     onDeleteCredential,
+    onRevealCredentialSecret,
   } = useCredentialVault({ actorName: user.name });
 
   return (
@@ -48,7 +50,9 @@ export default function HelpSupport() {
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
         onAddCredential={onAddCredential}
+        onUpdateCredential={onUpdateCredential}
         onDeleteCredential={onDeleteCredential}
+        onRevealCredentialSecret={onRevealCredentialSecret}
       />
 
       <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-8 pt-6">
