@@ -17,6 +17,7 @@ from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
     get_authorization_policy,
 )
+from orcheo_backend.app.authentication.settings import load_auth_settings
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
@@ -432,8 +433,11 @@ async def create_workflow_chatkit_session(
     issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
 ) -> ChatKitSessionResponse:
     """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
-    context = policy.require_authenticated()
-    policy.require_scopes("workflows:read", "workflows:execute")
+    auth_enforced = load_auth_settings().enforce
+    context = policy.context
+    if auth_enforced:
+        context = policy.require_authenticated()
+        policy.require_scopes("workflows:read", "workflows:execute")
 
     try:
         workflow = await repository.get_workflow(workflow_id)
@@ -442,35 +446,36 @@ async def create_workflow_chatkit_session(
     if workflow.is_archived:
         raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
-    workflow_workspaces = _extract_workflow_workspace_ids(workflow)
-    if workflow_workspaces:
-        if not context.workspace_ids:
-            raise AuthorizationError(
-                "Workspace access required for workflow.",
-                code="auth.workspace_forbidden",
-            )
-        if not workflow_workspaces.intersection(context.workspace_ids):
-            raise AuthorizationError(
-                "Workspace access denied for workflow.",
-                code="auth.workspace_forbidden",
-            )
-    else:
-        owner = _resolve_workflow_owner(workflow)
-        if owner is not None and owner != context.subject:
-            if context.identity_type == "developer":
-                logger.debug(
-                    "Bypassing workflow owner check for developer context",
-                    extra={
-                        "workflow_id": str(workflow.id),
-                        "owner": owner,
-                        "subject": context.subject,
-                    },
-                )
-            else:
+    if auth_enforced:
+        workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+        if workflow_workspaces:
+            if not context.workspace_ids:
                 raise AuthorizationError(
-                    "Workflow access denied for caller.",
-                    code="auth.forbidden",
+                    "Workspace access required for workflow.",
+                    code="auth.workspace_forbidden",
                 )
+            if not workflow_workspaces.intersection(context.workspace_ids):
+                raise AuthorizationError(
+                    "Workspace access denied for workflow.",
+                    code="auth.workspace_forbidden",
+                )
+        else:
+            owner = _resolve_workflow_owner(workflow)
+            if owner is not None and owner != context.subject:
+                if context.identity_type == "developer":
+                    logger.debug(
+                        "Bypassing workflow owner check for developer context",
+                        extra={
+                            "workflow_id": str(workflow.id),
+                            "owner": owner,
+                            "subject": context.subject,
+                        },
+                    )
+                else:
+                    raise AuthorizationError(
+                        "Workflow access denied for caller.",
+                        code="auth.forbidden",
+                    )
 
     metadata = {
         "workflow_id": str(workflow.id),
