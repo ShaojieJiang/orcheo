@@ -39,6 +39,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
 )
+from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
 
 router = APIRouter()
@@ -95,6 +96,26 @@ def _serialize_public_workflow(
         require_login=workflow.require_login,
         share_url=workflow.share_url,
     )
+
+
+def _attach_mermaid(version: WorkflowVersion) -> WorkflowVersion:
+    """Attach Mermaid output to a workflow version payload."""
+    mermaid: str | None = None
+    try:
+        mermaid = _mermaid_from_graph(version.graph)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Failed to render Mermaid for workflow version %s: %s",
+            version.id,
+            exc,
+            exc_info=True,
+        )
+    return version.model_copy(update={"mermaid": mermaid})
+
+
+def _attach_mermaid_many(versions: list[WorkflowVersion]) -> list[WorkflowVersion]:
+    """Attach Mermaid output to a list of workflow versions."""
+    return [_attach_mermaid(version) for version in versions]
 
 
 @public_router.get("/workflows/{workflow_id}/public", response_model=PublicWorkflow)
@@ -210,7 +231,7 @@ async def create_workflow_version(
 ) -> WorkflowVersion:
     """Create a new version for the specified workflow."""
     try:
-        return await repository.create_version(
+        version = await repository.create_version(
             workflow_id,
             graph=request.graph,
             metadata=request.metadata,
@@ -218,6 +239,7 @@ async def create_workflow_version(
             created_by=request.created_by,
             runnable_config=_serialize_runnable_config(request.runnable_config),
         )
+        return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -245,7 +267,7 @@ async def ingest_workflow_version(
         ) from exc
 
     try:
-        return await repository.create_version(
+        version = await repository.create_version(
             workflow_id,
             graph=graph_payload,
             metadata=request.metadata,
@@ -253,6 +275,7 @@ async def ingest_workflow_version(
             created_by=request.created_by,
             runnable_config=_serialize_runnable_config(request.runnable_config),
         )
+        return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -267,7 +290,8 @@ async def list_workflow_versions(
 ) -> list[WorkflowVersion]:
     """Return the versions associated with a workflow."""
     try:
-        return await repository.list_versions(workflow_id)
+        versions = await repository.list_versions(workflow_id)
+        return _attach_mermaid_many(versions)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -283,7 +307,8 @@ async def get_workflow_version(
 ) -> WorkflowVersion:
     """Return a specific workflow version by number."""
     try:
-        return await repository.get_version_by_number(workflow_id, version_number)
+        version = await repository.get_version_by_number(workflow_id, version_number)
+        return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:

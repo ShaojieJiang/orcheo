@@ -28,6 +28,20 @@ import type {
   StoredWorkflow,
 } from "./workflow-storage.types";
 
+interface ListWorkflowsOptions {
+  forceRefresh?: boolean;
+}
+
+interface WorkflowListCacheEntry {
+  items: StoredWorkflow[];
+  cachedAt: number;
+}
+
+const WORKFLOW_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+let workflowListCache: WorkflowListCacheEntry | undefined;
+let workflowListInflight: Promise<StoredWorkflow[]> | undefined;
+let workflowListRequestId = 0;
+
 const emitUpdate = () => {
   if (typeof window === "undefined") {
     return;
@@ -35,18 +49,60 @@ const emitUpdate = () => {
   window.dispatchEvent(new CustomEvent(WORKFLOW_STORAGE_EVENT));
 };
 
-export const listWorkflows = async (): Promise<StoredWorkflow[]> => {
-  const workflows = await request<ApiWorkflow[]>(API_BASE);
-  const activeWorkflows = workflows.filter(
-    (workflow) => workflow.is_archived !== true,
-  );
-  const items = await Promise.all(
-    activeWorkflows.map(async (workflow) => {
-      const versions = await fetchWorkflowVersions(workflow.id);
-      return toStoredWorkflow(workflow, versions);
-    }),
-  );
-  return items.filter((workflow) => workflow.isArchived !== true);
+export const invalidateWorkflowListCache = () => {
+  workflowListCache = undefined;
+  workflowListInflight = undefined;
+};
+
+export const listWorkflows = async (
+  options: ListWorkflowsOptions = {},
+): Promise<StoredWorkflow[]> => {
+  const forceRefresh = options.forceRefresh ?? false;
+  const now = Date.now();
+  const cacheAge = workflowListCache ? now - workflowListCache.cachedAt : null;
+  const cacheIsFresh =
+    cacheAge !== null && cacheAge < WORKFLOW_LIST_CACHE_TTL_MS;
+
+  if (!forceRefresh && cacheIsFresh && workflowListCache) {
+    return workflowListCache.items;
+  }
+
+  if (!forceRefresh && workflowListInflight) {
+    return workflowListInflight;
+  }
+
+  workflowListRequestId += 1;
+  const requestId = workflowListRequestId;
+
+  const inflightPromise = (async () => {
+    const workflows = await request<ApiWorkflow[]>(API_BASE);
+    const activeWorkflows = workflows.filter(
+      (workflow) => workflow.is_archived !== true,
+    );
+    const items = await Promise.all(
+      activeWorkflows.map(async (workflow) => {
+        const versions = await fetchWorkflowVersions(workflow.id);
+        return toStoredWorkflow(workflow, versions);
+      }),
+    );
+    const filteredItems = items.filter(
+      (workflow) => workflow.isArchived !== true,
+    );
+    if (requestId === workflowListRequestId) {
+      workflowListCache = { items: filteredItems, cachedAt: Date.now() };
+    }
+    return filteredItems;
+  })();
+
+  workflowListInflight = inflightPromise;
+
+  try {
+    return await inflightPromise;
+  } finally {
+    if (workflowListInflight === inflightPromise) {
+      workflowListInflight = undefined;
+    }
+  }
 };
 
 export const getWorkflowById = async (
@@ -73,8 +129,17 @@ export const saveWorkflow = async (
   };
 
   const diff = computeWorkflowDiff(previousSnapshot, currentSnapshot);
+  const latestRunnableConfig =
+    existing?.versions.at(-1)?.runnableConfig ?? null;
+  const runnableConfigToPersist =
+    options?.runnableConfig === undefined
+      ? latestRunnableConfig
+      : options.runnableConfig;
   const needsVersion =
-    !existing || existing.versions.length === 0 || diff.entries.length > 0;
+    !existing ||
+    existing.versions.length === 0 ||
+    diff.entries.length > 0 ||
+    options?.forceVersion === true;
 
   const workflowId = await upsertWorkflow(input, actor);
 
@@ -87,6 +152,7 @@ export const saveWorkflow = async (
       diff,
       actor,
       message,
+      runnableConfigToPersist,
     );
   }
 
@@ -95,6 +161,7 @@ export const saveWorkflow = async (
     throw new Error("Failed to load persisted workflow");
   }
 
+  invalidateWorkflowListCache();
   emitUpdate();
   return stored;
 };
@@ -170,6 +237,7 @@ export const deleteWorkflow = async (
     `${API_BASE}/${workflowId}?actor=${encodeURIComponent(actor)}`,
     { method: "DELETE", expectJson: false },
   );
+  invalidateWorkflowListCache();
   emitUpdate();
 };
 

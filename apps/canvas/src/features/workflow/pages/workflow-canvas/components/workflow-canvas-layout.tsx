@@ -2,36 +2,16 @@ import React from "react";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 
 import TopNavigation from "@features/shared/components/top-navigation";
-import NodeInspector from "@features/workflow/components/panels/node-inspector";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import { CanvasChatBubble } from "@features/chatkit/components/canvas-chat-bubble";
-
-import type {
-  CanvasEdge,
-  CanvasNode,
-  NodeData,
-  NodeRuntimeCacheEntry,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
-import type { CanvasTabContentProps } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
-import type { ExecutionTabContentProps } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
+import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
 
-import { CanvasTabContent } from "@features/workflow/pages/workflow-canvas/components/canvas-tab-content";
-import { ExecutionTabContent } from "@features/workflow/pages/workflow-canvas/components/execution-tab-content";
 import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
-
-interface NodeInspectorState {
-  selectedNode: CanvasNode | null;
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-  onClose: () => void;
-  onSave: (nodeId: string, data: Partial<NodeData>) => void;
-  runtimeCache: Record<string, NodeRuntimeCacheEntry>;
-  onCacheRuntime: (nodeId: string, runtime: NodeRuntimeCacheEntry) => void;
-}
+import { WorkflowTabContent } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
 
 interface ChatState {
   isChatOpen: boolean;
@@ -57,6 +37,7 @@ interface ChatState {
   sessionStatus: "idle" | "loading" | "ready" | "error";
   sessionError: string | null;
   handleCloseChat: () => void;
+  setIsChatOpen: (open: boolean) => void;
 }
 
 interface WorkflowCanvasLayoutProps {
@@ -66,24 +47,20 @@ interface WorkflowCanvasLayoutProps {
     onTabChange: (value: string) => void;
     readinessAlertCount: number;
   };
-  canvasProps: CanvasTabContentProps;
-  executionProps: ExecutionTabContentProps;
+  workflowProps: WorkflowTabContentProps;
   traceProps: React.ComponentProps<typeof TraceTabContent>;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
-  nodeInspector: NodeInspectorState | null;
   chat: ChatState | null;
 }
 
 export function WorkflowCanvasLayout({
   topNavigationProps,
   tabsProps,
-  canvasProps,
-  executionProps,
+  workflowProps,
   traceProps,
   readinessProps,
   settingsProps,
-  nodeInspector,
   chat,
 }: WorkflowCanvasLayoutProps) {
   return (
@@ -103,17 +80,10 @@ export function WorkflowCanvasLayout({
           className="w-full flex flex-col flex-1 min-h-0"
         >
           <TabsContent
-            value="canvas"
+            value="workflow"
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
-            <CanvasTabContent {...canvasProps} />
-          </TabsContent>
-
-          <TabsContent
-            value="execution"
-            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
-          >
-            <ExecutionTabContent {...executionProps} />
+            <WorkflowTabContent {...workflowProps} />
           </TabsContent>
 
           <TabsContent
@@ -135,23 +105,6 @@ export function WorkflowCanvasLayout({
           </TabsContent>
         </Tabs>
       </div>
-
-      {nodeInspector?.selectedNode && (
-        <NodeInspector
-          node={{
-            id: nodeInspector.selectedNode.id,
-            type: nodeInspector.selectedNode.type || "default",
-            data: nodeInspector.selectedNode.data,
-          }}
-          nodes={nodeInspector.nodes}
-          edges={nodeInspector.edges}
-          onClose={nodeInspector.onClose}
-          onSave={nodeInspector.onSave}
-          runtimeCache={nodeInspector.runtimeCache}
-          onCacheRuntime={nodeInspector.onCacheRuntime}
-          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
-        />
-      )}
 
       {chat && (
         <CanvasChatBubble

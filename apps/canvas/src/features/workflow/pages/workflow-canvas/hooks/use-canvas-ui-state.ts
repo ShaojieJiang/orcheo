@@ -3,7 +3,7 @@ import { useState } from "react";
 export function useCanvasUiState() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("canvas");
+  const [activeTab, setActiveTab] = useState("workflow");
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
 
   return {

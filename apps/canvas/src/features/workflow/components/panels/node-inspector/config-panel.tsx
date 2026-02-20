@@ -4,12 +4,11 @@ import { Label } from "@/design-system/ui/label";
 import { Input } from "@/design-system/ui/input";
 import { Textarea } from "@/design-system/ui/textarea";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import Form from "@rjsf/core";
-import { customTemplates, customWidgets, validator } from "../rjsf-theme";
 import {
   getNodeSchema,
   getNodeUiSchema,
 } from "@features/workflow/lib/node-schemas";
+import { SchemaConfigForm } from "@features/workflow/components/forms/schema-config-form";
 import type { NodeInspectorProps } from "./types";
 import type { Dispatch, SetStateAction } from "react";
 
@@ -109,21 +108,14 @@ export function ConfigPanel({
   return (
     <ScrollArea className="h-full">
       <div className="p-6">
-        <Form
+        <SchemaConfigForm
           schema={schema}
           uiSchema={uiSchema}
           formData={draftData}
-          onChange={(data) => {
-            if (data.formData) {
-              setDraftData(data.formData);
-            }
+          onChange={(nextFormData) => {
+            setDraftData(nextFormData);
           }}
-          validator={validator}
-          widgets={customWidgets}
-          templates={customTemplates}
-        >
-          <div className="hidden" />
-        </Form>
+        />
       </div>
     </ScrollArea>
   );

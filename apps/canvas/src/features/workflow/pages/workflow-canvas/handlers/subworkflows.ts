@@ -200,7 +200,7 @@ export const createHandleInsertSubworkflow =
 
     if (canvasNodes.length > 0) {
       setSelectedNodeId(canvasNodes[0].id);
-      setActiveTab("canvas");
+      setActiveTab("workflow");
 
       const instance = reactFlowInstance.current;
       if (instance) {
