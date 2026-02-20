@@ -5,9 +5,15 @@ import json
 import sys
 from types import ModuleType
 import pytest
+from fastapi import Request
 from orcheo_backend.app import _create_repository, create_app, get_repository
 from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
-from orcheo_backend.app.factory import _DEFAULT_ALLOWED_ORIGINS, _load_allowed_origins
+from orcheo_backend.app.authentication import AuthenticationError
+from orcheo_backend.app.factory import (
+    _DEFAULT_ALLOWED_ORIGINS,
+    _authentication_error_handler,
+    _load_allowed_origins,
+)
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -138,3 +144,14 @@ def test_load_allowed_origins_defaults_when_unset(
     origins = _load_allowed_origins()
     assert origins == list(_DEFAULT_ALLOWED_ORIGINS)
     assert origins is not _DEFAULT_ALLOWED_ORIGINS
+
+
+@pytest.mark.asyncio
+async def test_authentication_error_handler_maps_to_http_response() -> None:
+    """Authentication errors should map to FastAPI's HTTP exception handler."""
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    error = AuthenticationError("missing token")
+
+    response = await _authentication_error_handler(request, error)
+
+    assert response.status_code == 401

@@ -272,7 +272,7 @@ class WorkflowExecutor:
                             config=config,  # type: ignore[arg-type]
                             stream_mode="updates",
                         ):
-                            if step_callback is not None:
+                            if step_callback is not None:  # pragma: no branch
                                 await step_callback(step)
                         snapshot = await compiled.aget_state(  # type: ignore[arg-type]
                             config

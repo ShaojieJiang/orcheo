@@ -9,7 +9,14 @@ import pytest
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
-from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+from orcheo_backend.app.chatkit.workflow_executor import (
+    WorkflowExecutor,
+    _append_chatkit_history_step,
+    _mark_chatkit_history_completed,
+    _mark_chatkit_history_failed,
+    _start_chatkit_history,
+)
+from orcheo_backend.app.history import RunHistoryError
 
 
 class CustomMapping(Mapping[str, object]):
@@ -249,3 +256,110 @@ async def test_run_streams_progress_updates(
     history_store.start_run.assert_awaited_once()
     assert history_store.append_step.await_count >= len(steps)
     history_store.mark_completed.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_chatkit_history_logs_run_history_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.start_run.side_effect = RunHistoryError("boom")
+    merged_config = Mock()
+    merged_config.to_json_config.return_value = {"configurable": {"thread_id": "x"}}
+    merged_config.tags = []
+    merged_config.callbacks = []
+    merged_config.metadata = {}
+    merged_config.run_name = None
+    logger = Mock()
+    monkeypatch.setattr(workflow_executor_module, "logger", logger)
+
+    await _start_chatkit_history(
+        history_store=history_store,
+        workflow_id=uuid4(),
+        execution_id="exec-1",
+        inputs={"a": 1},
+        merged_config=merged_config,
+    )
+
+    logger.exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_append_history_step_logs_run_history_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.append_step.side_effect = RunHistoryError("boom")
+    logger = Mock()
+    monkeypatch.setattr(workflow_executor_module, "logger", logger)
+
+    await _append_chatkit_history_step(history_store, "exec-1", {"node": "x"})
+
+    logger.exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_mark_history_completed_logs_run_history_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.append_step.side_effect = RunHistoryError("boom")
+    logger = Mock()
+    monkeypatch.setattr(workflow_executor_module, "logger", logger)
+
+    await _mark_chatkit_history_completed(history_store, "exec-1")
+
+    logger.exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_mark_history_failed_logs_run_history_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.append_step.side_effect = RunHistoryError("boom")
+    logger = Mock()
+    monkeypatch.setattr(workflow_executor_module, "logger", logger)
+
+    await _mark_chatkit_history_failed(history_store, "exec-1", "failed")
+
+    logger.exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_build_step_callback_without_progress_callback() -> None:
+    history_store = AsyncMock()
+    executor = WorkflowExecutor(repository=AsyncMock(), vault_provider=lambda: None)
+
+    step_callback = executor._build_step_callback(
+        history_store=history_store,
+        execution_id="exec-1",
+        progress_callback=None,
+    )
+    await step_callback({"node": {"ok": True}})
+
+    history_store.append_step.assert_awaited_once_with("exec-1", {"node": {"ok": True}})
+
+
+@pytest.mark.asyncio
+async def test_record_run_failure_returns_early_when_run_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = AsyncMock()
+    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
+    history_store = AsyncMock()
+    mark_failed = AsyncMock()
+    monkeypatch.setattr(
+        workflow_executor_module, "_mark_chatkit_history_failed", mark_failed
+    )
+
+    await executor._record_run_failure(
+        run=None,
+        actor="chatkit",
+        history_store=history_store,
+        execution_id="exec-1",
+        error_message="failed",
+    )
+
+    mark_failed.assert_awaited_once_with(history_store, "exec-1", "failed")
+    repository.mark_run_failed.assert_not_called()

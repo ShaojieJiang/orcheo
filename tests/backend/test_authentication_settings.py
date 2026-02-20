@@ -7,6 +7,7 @@ from orcheo_backend.app.authentication import (
     load_auth_settings,
     reset_authentication_state,
 )
+from orcheo_backend.app.authentication.settings import _parse_bool
 from tests.backend.authentication_test_utils import reset_auth_state
 
 
@@ -141,3 +142,9 @@ def test_load_auth_settings_with_repository_path_fallback(
     assert settings.service_token_db_path is not None
     assert settings.service_token_db_path.endswith("service_tokens.sqlite")
     assert str(temp_dir) in settings.service_token_db_path
+
+
+def test_parse_bool_unrecognized_string_uses_default() -> None:
+    """Unrecognized string input should return the provided default value."""
+    assert _parse_bool("not-a-bool", True) is True
+    assert _parse_bool("not-a-bool", False) is False

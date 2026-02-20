@@ -276,6 +276,31 @@ async def test_postgres_store_start_run_extracts_from_config(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_start_run_wraps_non_list_callbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses: list[Any] = [{}]
+    store = make_store(monkeypatch, responses)
+
+    original_normalize = pg_store.normalize_json_value
+
+    def _normalize_with_scalar(value: Any) -> Any:
+        if value == ["config-callback"]:
+            return "config-callback"
+        return original_normalize(value)
+
+    monkeypatch.setattr(pg_store, "normalize_json_value", _normalize_with_scalar)
+
+    record = await store.start_run(
+        workflow_id="wf-123",
+        execution_id="exec-456",
+        runnable_config={"callbacks": ["config-callback"]},
+    )
+
+    assert record.callbacks == ["config-callback"]
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_start_run_duplicate_raises_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

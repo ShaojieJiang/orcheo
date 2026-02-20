@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import status
 from fastapi.testclient import TestClient
 from orcheo.models import CredentialHealthStatus
-from orcheo.vault import InMemoryCredentialVault
+from orcheo.vault import InMemoryCredentialVault, WorkflowScopeError
 
 
 def test_credential_template_crud_and_issuance(api_client: TestClient) -> None:
@@ -228,6 +228,39 @@ def test_update_credential_rejects_private_access_without_workflow(
 
     assert update_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "workflow_id is required" in update_response.json()["detail"]
+
+
+def test_update_credential_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    missing_id = uuid4()
+    response = api_client.patch(
+        f"/api/credentials/{missing_id}",
+        json={"actor": "tester", "name": "missing"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Credential not found"
+
+
+def test_update_credential_scope_error_returns_403(
+    api_client: TestClient,
+    monkeypatch,
+) -> None:
+    vault = api_client.app.state.vault
+
+    def _raise_scope_error(**kwargs):
+        raise WorkflowScopeError("Access denied")
+
+    monkeypatch.setattr(vault, "update_credential", _raise_scope_error)
+
+    response = api_client.patch(
+        f"/api/credentials/{uuid4()}",
+        json={"actor": "tester", "name": "blocked"},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json()["detail"] == "Access denied"
 
 
 def test_create_credential_duplicate_name_returns_409(

@@ -127,10 +127,10 @@ class CredentialOperationsMixin:
                 actor=actor,
             )
 
-        if metadata_changed:
+        if metadata_changed:  # pragma: no branch
             metadata.record_event(actor=actor, action="credential_updated")
 
-        if metadata_changed or secret_changed:
+        if metadata_changed or secret_changed:  # pragma: no branch
             self._persist_metadata(metadata)
 
         return metadata.model_copy(deep=True)

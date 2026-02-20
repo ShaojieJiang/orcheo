@@ -90,6 +90,33 @@ async def test_sqlite_store_persists_runnable_config(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sqlite_store_wraps_non_list_callbacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "history-config-wrap.sqlite"
+    store = SqliteRunHistoryStore(str(db_path))
+    original_normalize = sqlite_store_module.normalize_json_value
+
+    def _normalize_with_scalar(value):
+        if value == ["config-callback"]:
+            return "config-callback"
+        return original_normalize(value)
+
+    monkeypatch.setattr(
+        sqlite_store_module, "normalize_json_value", _normalize_with_scalar
+    )
+
+    await store.start_run(
+        workflow_id="wf",
+        execution_id="exec",
+        runnable_config={"callbacks": ["config-callback"]},
+    )
+
+    history = await store.get_history("exec")
+    assert history.callbacks == ["config-callback"]
+
+
+@pytest.mark.asyncio
 async def test_sqlite_store_duplicate_execution_id_raises(
     tmp_path: Path,
 ) -> None:
