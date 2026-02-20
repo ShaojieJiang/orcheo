@@ -88,11 +88,10 @@ We welcome contributions from the community:
 If you use Orcheo in your research, please cite it as:
 
 ```bibtex
-@software{jiang2025orcheo,
-  author       = {Jiang, Shaojie},
-  title        = {Orcheo: A Workflow Orchestration Platform for Vibe Coding},
-  year         = {2025},
-  publisher    = {GitHub},
-  url          = {https://github.com/ShaojieJiang/orcheo}
+@article{jiang2026orcheo,
+  author       = {Jiang, Shaojie and Vakulenko, Svitlana and de Rijke, Maarten},
+  title        = {Orcheo: A Modular Full-Stack Platform for Conversational Search},
+  journal      = {arXiv preprint arXiv:2602.14710},
+  year         = {2026}
 }
 ```
