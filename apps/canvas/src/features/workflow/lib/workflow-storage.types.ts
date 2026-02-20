@@ -29,12 +29,25 @@ export interface PublicWorkflowMetadata {
   share_url: string | null;
 }
 
+export interface WorkflowRunnableConfig {
+  configurable?: Record<string, unknown>;
+  run_name?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  callbacks?: unknown[];
+  recursion_limit?: number;
+  max_concurrency?: number;
+  prompts?: Record<string, unknown>;
+}
+
 export interface ApiWorkflowVersion {
   id: string;
   workflow_id: string;
   version: number;
   graph: Record<string, unknown>;
+  mermaid?: string | null;
   metadata: unknown;
+  runnable_config?: WorkflowRunnableConfig | null;
   notes: string | null;
   created_by: string;
   created_at: string;
@@ -62,6 +75,8 @@ export interface WorkflowVersionRecord {
   author: Workflow["owner"];
   summary: WorkflowDiffResult["summary"];
   snapshot: WorkflowSnapshot;
+  mermaid?: string | null;
+  runnableConfig?: WorkflowRunnableConfig | null;
   graphToCanvas?: Record<string, string>;
 }
 
@@ -82,4 +97,6 @@ export interface SaveWorkflowInput {
 export interface SaveWorkflowOptions {
   versionMessage?: string;
   actor?: string;
+  forceVersion?: boolean;
+  runnableConfig?: WorkflowRunnableConfig | null;
 }

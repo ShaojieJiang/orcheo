@@ -226,3 +226,25 @@ def test_workflow_mermaid_with_complex_edge_scenarios() -> None:
     assert "start_node" in mermaid
     assert "middle_node" in mermaid
     assert "end_node" in mermaid
+
+
+def test_workflow_mermaid_parallel_branches() -> None:
+    """Parallel START branches should still produce Mermaid output."""
+    from orcheo_sdk.cli.workflow import _compiled_mermaid
+
+    graph = {
+        "nodes": [{"id": "a"}, {"id": "b"}],
+        "edges": [
+            {"from": "START", "to": "a"},
+            {"from": "START", "to": "b"},
+            {"from": "a", "to": "END"},
+            {"from": "b", "to": "END"},
+        ],
+    }
+
+    mermaid = _compiled_mermaid(graph)
+    assert "__start__ --> a" in mermaid
+    assert "__start__ --> b" in mermaid
+    assert "a --> __end__" in mermaid
+    assert "b --> __end__" in mermaid
+    assert "classDef default fill:#f2f0ff,line-height:1.2" in mermaid

@@ -15,6 +15,8 @@ def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
 
 
 def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
+    """Render a Mermaid diagram from a lightweight graph summary."""
+    from langgraph.errors import InvalidUpdateError
     from langgraph.graph import END, START, StateGraph
 
     nodes = list(graph.get("nodes", []))
@@ -29,15 +31,12 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
 
     compiled_edges: list[tuple[Any, Any]] = []
     for source, target in normalised_edges:
-        try:
-            compiled_edges.append(
-                (
-                    _normalise_vertex(source, START, END),
-                    _normalise_vertex(target, START, END),
-                )
+        compiled_edges.append(
+            (
+                _normalise_vertex(source, START, END),
+                _normalise_vertex(target, START, END),
             )
-        except ValueError:  # pragma: no cover - handled via continue
-            continue
+        )
 
     if not compiled_edges:
         if node_names:
@@ -57,7 +56,12 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
         stub.add_edge(source, target)
 
     compiled = stub.compile()
-    return compiled.get_graph().draw_mermaid()
+    try:
+        return compiled.get_graph().draw_mermaid()
+    except InvalidUpdateError:
+        # Parallel branches can fan out from START and trigger concurrent
+        # root-state writes during LangGraph rendering.
+        return _render_mermaid_fallback(compiled_edges, node_names)
 
 
 def _identity_state(state: dict[str, Any], *_: Any, **__: Any) -> dict[str, Any]:
@@ -136,6 +140,49 @@ def _normalise_vertex(value: Any, start: Any, end: Any) -> Any:
     return text
 
 
+def _render_mermaid_fallback(
+    edges: Sequence[tuple[Any, Any]],
+    node_names: set[str],
+) -> str:
+    lines = [
+        "---",
+        "config:",
+        "  flowchart:",
+        "    curve: linear",
+        "---",
+        "graph TD;",
+        "\t__start__([<p>__start__</p>]):::first",
+    ]
+    referenced_nodes: set[str] = set()
+    edge_lines: list[str] = []
+
+    for source, target in edges:
+        source_text = str(source)
+        target_text = str(target)
+        edge_lines.append(f"\t{source_text} --> {target_text};")
+        referenced_nodes.add(source_text)
+        referenced_nodes.add(target_text)
+
+    fallback_nodes = sorted(
+        {
+            node
+            for node in {*(str(value) for value in node_names), *referenced_nodes}
+            if node not in {"__start__", "__end__"}
+        }
+    )
+    for node in fallback_nodes:
+        if node in {"__start__", "__end__"}:
+            continue
+        lines.append(f"\t{node}({node})")
+
+    lines.append("\t__end__([<p>__end__</p>]):::last")
+    lines.extend(edge_lines)
+    lines.append("\tclassDef default fill:#f2f0ff,line-height:1.2")
+    lines.append("\tclassDef first fill-opacity:0")
+    lines.append("\tclassDef last fill:#bfb6fc")
+    return "\n".join(lines)
+
+
 __all__ = [
     "_mermaid_from_graph",
     "_compiled_mermaid",
@@ -145,5 +192,6 @@ __all__ = [
     "_resolve_edge",
     "_register_endpoint",
     "_normalise_vertex",
+    "_render_mermaid_fallback",
     "_identity_state",
 ]

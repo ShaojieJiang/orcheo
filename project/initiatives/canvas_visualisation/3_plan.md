@@ -11,7 +11,7 @@
 
 ## Overview
 
-Deliver a LangGraph-first workflow-visualization Canvas experience by removing Editor/Execution tabs from active UI, introducing a Workflow Mermaid tab with reusable workflow config form, and making gallery cards directly clickable. Preserve removed tab code in the confirmed legacy folder for rollback/reference.
+Deliver a LangGraph-first workflow-visualization Canvas experience by removing Editor/Execution tabs from active UI, introducing a Workflow Mermaid tab with reusable workflow config form, making gallery cards directly clickable, and ensuring Workflow-tab config matches CLI upload runnable config (`--config` / `--config-file`). Preserve removed tab code in the confirmed legacy folder for rollback/reference.
 
 **Related Documents:**
 - Requirements: `./1_requirements.md`
@@ -27,15 +27,15 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 
 #### Task Checklist
 
-- [ ] Task 1.1: Add `Workflow` tab trigger and remove `Editor`/`Execution` triggers in `workflow-tabs.tsx`
+- [x] Task 1.1: Add `Workflow` tab trigger and remove `Editor`/`Execution` triggers in `workflow-tabs.tsx`
   - Dependencies: None
-- [ ] Task 1.2: Update `workflow-canvas-layout.tsx` to mount `workflow` tab content and remove active `canvas`/`execution` tab content
+- [x] Task 1.2: Update `workflow-canvas-layout.tsx` to mount `workflow` tab content and remove active `canvas`/`execution` tab content
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Change default active tab from `"canvas"` to `"workflow"` in `use-canvas-ui-state.ts`
+- [x] Task 1.3: Change default active tab from `"canvas"` to `"workflow"` in `use-canvas-ui-state.ts`
   - Dependencies: Task 1.1
-- [ ] Task 1.4: Move old `canvas-tab-content` and `execution-tab-content` implementations into `apps/canvas/src/features/workflow/legacy/`
+- [x] Task 1.4: Move old `canvas-tab-content` and `execution-tab-content` implementations into `apps/canvas/src/features/workflow/legacy/`
   - Dependencies: Task 1.2
-- [ ] Task 1.5: Remove active imports of moved legacy modules and ensure build passes
+- [x] Task 1.5: Remove active imports of moved legacy modules and ensure build passes
   - Dependencies: Task 1.4
 
 ---
@@ -46,18 +46,22 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 
 #### Task Checklist
 
-- [ ] Task 2.1: Add backend Mermaid generation for workflow version responses using CLI-aligned logic
+- [x] Task 2.1: Add backend Mermaid generation for workflow version responses using CLI-aligned logic
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add `mermaid` to Canvas workflow version typings and storage adapters
+- [x] Task 2.2: Add `mermaid` to Canvas workflow version typings and storage adapters
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Implement `workflow-tab-content` component with loading/empty/error states and Mermaid rendering from API payload
+- [x] Task 2.3: Implement `workflow-tab-content` component with loading/empty/error states and Mermaid rendering from API payload
   - Dependencies: Task 2.2
-- [ ] Task 2.4: Extract shared schema form wrapper from node inspector config usage
+- [x] Task 2.4: Extract shared schema form wrapper from node inspector config usage
   - Dependencies: Milestone 1
-- [ ] Task 2.5: Implement workflow config sheet/dialog opened by Workflow tab `Config` button using shared schema form wrapper
+- [x] Task 2.5: Implement workflow config sheet/dialog opened by Workflow tab `Config` button using shared schema form wrapper
   - Dependencies: Task 2.4
-- [ ] Task 2.6: Wire workflow config persistence mapping to `runnable_config` on explicit config save action only
+- [x] Task 2.6: Wire workflow config persistence mapping to `runnable_config` on explicit config save action only
   - Dependencies: Task 2.5
+- [x] Task 2.7: Align Workflow config sheet schema and serialization with CLI upload runnable config fields (`configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`)
+  - Dependencies: Task 2.6
+- [x] Task 2.8: Add tests for workflow config round-trip parity in Canvas form utilities
+  - Dependencies: Task 2.7
 
 ---
 
@@ -67,15 +71,15 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 
 #### Task Checklist
 
-- [ ] Task 3.1: Make non-template workflow cards clickable in `workflow-card.tsx`
+- [x] Task 3.1: Make non-template workflow cards clickable in `workflow-card.tsx`
   - Dependencies: None
-- [ ] Task 3.2: Guard dropdown/menu/button interactions with event propagation controls
+- [x] Task 3.2: Guard dropdown/menu/button interactions with event propagation controls
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Add/update component tests for card click behavior and action controls
+- [x] Task 3.3: Add/update component tests for card click behavior and action controls
   - Dependencies: Task 3.2
-- [ ] Task 3.4: Update workflow canvas tests for tab changes (`Workflow` present, `Editor`/`Execution` absent)
+- [x] Task 3.4: Update workflow canvas tests for tab changes (`Workflow` present, `Editor`/`Execution` absent)
   - Dependencies: Milestone 2
-- [ ] Task 3.5: Run formatting, linting, and targeted tests for Canvas changes
+- [x] Task 3.5: Run formatting, linting, and targeted tests for Canvas changes
   - Dependencies: Tasks 3.3, 3.4
 
 ---
@@ -86,11 +90,11 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 
 #### Task Checklist
 
-- [ ] Task 4.1: Manual QA of workflow open, tab switching, Mermaid rendering, config editing, and gallery navigation
+- [x] Task 4.1: Manual QA of workflow open, tab switching, Mermaid rendering, config editing, and gallery navigation
   - Dependencies: Milestone 3
-- [ ] Task 4.2: Verify legacy code is preserved and isolated from production import graph
+- [x] Task 4.2: Verify legacy code is preserved and isolated from production import graph
   - Dependencies: Milestone 1
-- [ ] Task 4.3: Document release notes and known limitations (if any)
+- [x] Task 4.3: Document release notes and known limitations (if any)
   - Dependencies: Task 4.1
 
 ---
@@ -108,3 +112,20 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 - Keep the legacy folder with original Editor/Execution implementations intact for quick recovery.
 - If Workflow tab rollout causes regressions, switch active tab wiring back to prior components while preserving new code behind branch/flag.
 - Card click behavior can be safely reverted by removing card-level click handlers while keeping button/menu actions unchanged.
+
+---
+
+## Release Notes (Draft)
+
+- Replaced active `Editor`/`Execution` tabs with `Workflow`, `Trace`, `Readiness`, and `Settings`.
+- Added backend-generated `mermaid` payload on workflow version API responses.
+- Added Workflow tab Mermaid visualization surface with empty/loading/error handling.
+- Added workflow-level runnable config editing from the Workflow tab via a shared RJSF schema form wrapper.
+- Persisted workflow runnable config to workflow version `runnable_config` only on explicit config save.
+- Made non-template gallery cards clickable while preserving button/menu behaviors through propagation guards.
+- Moved former canvas/execution tab implementations into `apps/canvas/src/features/workflow/legacy/workflow-canvas/components/`.
+- Added/updated tests for workflow tab regression and gallery card interaction behavior.
+
+## Known Limitations
+
+- Manual UI QA checklist in Task 4.1 remains pending; current validation is based on linting, build, and automated tests.

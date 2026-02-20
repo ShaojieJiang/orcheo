@@ -14,6 +14,7 @@ import {
 import type {
   SaveWorkflowInput,
   StoredWorkflow,
+  WorkflowRunnableConfig,
 } from "./workflow-storage.types";
 
 export const defaultVersionMessage = () =>
@@ -39,6 +40,7 @@ export const persistVersion = async (
   diff: WorkflowDiffResult,
   actor: string,
   message: string,
+  runnableConfig?: WorkflowRunnableConfig | null,
 ) => {
   const canvasNodes = toCanvasNodes(snapshot.nodes);
   const canvasEdges = toCanvasEdges(snapshot.edges);
@@ -66,6 +68,7 @@ export const persistVersion = async (
       },
       notes: message,
       created_by: actor,
+      runnable_config: runnableConfig,
     }),
   });
 };

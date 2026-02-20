@@ -13,11 +13,14 @@ export function useWorkflowCanvasLifecycle(
 ) {
   useWorkflowLoader({
     workflowId,
+    loadExecutionHistory: core.ui.activeTab === "trace",
     setCurrentWorkflowId: core.metadata.setCurrentWorkflowId,
     setWorkflowName: core.metadata.setWorkflowName,
     setWorkflowDescription: core.metadata.setWorkflowDescription,
     setWorkflowTags: core.metadata.setWorkflowTags,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
+    setIsWorkflowLoading: core.metadata.setIsWorkflowLoading,
+    setWorkflowLoadError: core.metadata.setWorkflowLoadError,
     setExecutions: core.execution.setExecutions,
     setActiveExecutionId: core.execution.setActiveExecutionId,
     convertPersistedNodesToCanvas: core.convertPersistedNodesToCanvas,

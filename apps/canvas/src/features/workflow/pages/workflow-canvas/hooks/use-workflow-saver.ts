@@ -19,6 +19,7 @@ import {
   saveWorkflow as persistWorkflow,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
+import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
 
 interface WorkflowSaverOptions {
   createSnapshot: () => { nodes: CanvasNode[]; edges: CanvasEdge[] };
@@ -47,6 +48,9 @@ interface WorkflowSaverOptions {
 
 interface WorkflowSaverHandlers {
   handleSaveWorkflow: () => Promise<void>;
+  handleSaveWorkflowConfig: (
+    runnableConfig: WorkflowRunnableConfig | null,
+  ) => Promise<void>;
   handleTagsChange: (value: string) => void;
   handleRestoreVersion: (versionId: string) => Promise<void>;
 }
@@ -72,15 +76,25 @@ export function useWorkflowSaver(
     applySnapshot,
   } = options;
 
-  const handleSaveWorkflow = useCallback(async () => {
-    const snapshot = createSnapshot();
-    const persistedNodes = snapshot.nodes.map(toPersistedNode);
-    const persistedEdges = snapshot.edges.map(toPersistedEdge);
-    const timestampLabel = new Date().toLocaleString();
+  const persistCurrentWorkflow = useCallback(
+    async ({
+      versionMessage,
+      forceVersion = false,
+      runnableConfig,
+      successTitle,
+      successDescription,
+    }: {
+      versionMessage: string;
+      forceVersion?: boolean;
+      runnableConfig?: WorkflowRunnableConfig | null;
+      successTitle: string;
+      successDescription: (saved: StoredWorkflow) => string;
+    }) => {
+      const snapshot = createSnapshot();
+      const persistedNodes = snapshot.nodes.map(toPersistedNode);
+      const persistedEdges = snapshot.edges.map(toPersistedEdge);
+      const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
 
-    const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
-
-    try {
       const saved = await persistWorkflow(
         {
           id: currentWorkflowId ?? undefined,
@@ -90,7 +104,11 @@ export function useWorkflowSaver(
           nodes: persistedNodes,
           edges: persistedEdges,
         },
-        { versionMessage: `Manual save (${timestampLabel})` },
+        {
+          versionMessage,
+          forceVersion,
+          runnableConfig,
+        },
       );
 
       setCurrentWorkflowId(saved.id);
@@ -100,8 +118,8 @@ export function useWorkflowSaver(
       setWorkflowVersions(saved.versions ?? []);
 
       toast({
-        title: "Workflow saved",
-        description: `"${saved.name}" has been updated.`,
+        title: successTitle,
+        description: successDescription(saved),
       });
 
       if (!workflowIdFromRoute || workflowIdFromRoute !== saved.id) {
@@ -109,6 +127,34 @@ export function useWorkflowSaver(
           replace: !!workflowIdFromRoute,
         });
       }
+
+      return saved;
+    },
+    [
+      createSnapshot,
+      currentWorkflowId,
+      navigate,
+      setCurrentWorkflowId,
+      setWorkflowDescription,
+      setWorkflowName,
+      setWorkflowTags,
+      setWorkflowVersions,
+      workflowDescription,
+      workflowIdFromRoute,
+      workflowName,
+      workflowTags,
+    ],
+  );
+
+  const handleSaveWorkflow = useCallback(async () => {
+    const timestampLabel = new Date().toLocaleString();
+
+    try {
+      await persistCurrentWorkflow({
+        versionMessage: `Manual save (${timestampLabel})`,
+        successTitle: "Workflow saved",
+        successDescription: (saved) => `"${saved.name}" has been updated.`,
+      });
     } catch (error) {
       toast({
         title: "Failed to save workflow",
@@ -117,20 +163,32 @@ export function useWorkflowSaver(
         variant: "destructive",
       });
     }
-  }, [
-    createSnapshot,
-    currentWorkflowId,
-    navigate,
-    setCurrentWorkflowId,
-    setWorkflowDescription,
-    setWorkflowName,
-    setWorkflowTags,
-    setWorkflowVersions,
-    workflowDescription,
-    workflowIdFromRoute,
-    workflowName,
-    workflowTags,
-  ]);
+  }, [persistCurrentWorkflow]);
+
+  const handleSaveWorkflowConfig = useCallback(
+    async (runnableConfig: WorkflowRunnableConfig | null) => {
+      const timestampLabel = new Date().toLocaleString();
+
+      try {
+        await persistCurrentWorkflow({
+          versionMessage: `Workflow config updated (${timestampLabel})`,
+          forceVersion: true,
+          runnableConfig,
+          successTitle: "Workflow config saved",
+          successDescription: (saved) =>
+            `Saved config for "${saved.name}" as a new version.`,
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to save workflow config",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
+    },
+    [persistCurrentWorkflow],
+  );
 
   const handleTagsChange = useCallback(
     (value: string) => {
@@ -198,6 +256,7 @@ export function useWorkflowSaver(
 
   return {
     handleSaveWorkflow,
+    handleSaveWorkflowConfig,
     handleTagsChange,
     handleRestoreVersion,
   };

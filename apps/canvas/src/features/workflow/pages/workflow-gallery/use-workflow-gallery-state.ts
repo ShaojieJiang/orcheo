@@ -73,9 +73,9 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   useEffect(() => {
     let isMounted = true;
 
-    const load = async () => {
+    const load = async (forceRefresh = false) => {
       try {
-        const items = await listWorkflows();
+        const items = await listWorkflows({ forceRefresh });
         if (isMounted) {
           setWorkflows(items);
         }
@@ -99,7 +99,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     const targetWindow = typeof window !== "undefined" ? window : undefined;
     if (targetWindow) {
       const handler = () => {
-        void load();
+        void load(true);
       };
       targetWindow.addEventListener(WORKFLOW_STORAGE_EVENT, handler);
 

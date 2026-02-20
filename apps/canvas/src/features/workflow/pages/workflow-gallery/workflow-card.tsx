@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useRef, useState } from "react";
+import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
@@ -30,6 +31,7 @@ import {
   Star,
   Trash,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
@@ -55,15 +57,82 @@ export const WorkflowCard = ({
   const updatedLabel = new Date(
     workflow.updatedAt || workflow.createdAt,
   ).toLocaleDateString();
+  const isClickable = !isTemplate;
+  const suppressCardOpenRef = useRef(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const suppressCardOpen = () => {
+    suppressCardOpenRef.current = true;
+    setTimeout(() => {
+      suppressCardOpenRef.current = false;
+    }, 0);
+  };
+
+  const handleCardOpen = (event: MouseEvent<HTMLDivElement>) => {
+    if (isClickable) {
+      if (isMenuOpen) {
+        return;
+      }
+      if (suppressCardOpenRef.current) {
+        return;
+      }
+      const target = event.target as HTMLElement;
+      if (target.closest('[data-card-action="true"]')) {
+        return;
+      }
+      onOpenWorkflow(workflow.id);
+    }
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!isClickable) {
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpenWorkflow(workflow.id);
+    }
+  };
+
+  const stopPropagation = (event: SyntheticEvent) => {
+    event.stopPropagation();
+    suppressCardOpen();
+  };
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={cn(
+        "overflow-hidden",
+        isClickable && "cursor-pointer transition-colors hover:bg-muted/20",
+      )}
+      data-testid="workflow-card"
+      onClick={handleCardOpen}
+      onKeyDown={handleCardKeyDown}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+    >
       <CardHeader className="px-3 pb-2 pt-3">
         <div className="flex items-start justify-between">
           <CardTitle className="text-base">{workflow.name}</CardTitle>
-          <DropdownMenu>
+          <DropdownMenu
+            open={isMenuOpen}
+            onOpenChange={(open) => {
+              setIsMenuOpen(open);
+              if (!open) {
+                suppressCardOpen();
+              }
+            }}
+          >
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={stopPropagation}
+                onPointerDown={stopPropagation}
+                aria-label="Workflow actions"
+                data-card-action="true"
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -73,6 +142,7 @@ export const WorkflowCard = ({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onUseTemplate(workflow.id);
                     }}
                   >
@@ -82,6 +152,7 @@ export const WorkflowCard = ({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onExportWorkflow(workflow);
                     }}
                   >
@@ -94,6 +165,7 @@ export const WorkflowCard = ({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onOpenWorkflow(workflow.id);
                     }}
                   >
@@ -103,6 +175,7 @@ export const WorkflowCard = ({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onDuplicateWorkflow(workflow.id);
                     }}
                   >
@@ -112,6 +185,7 @@ export const WorkflowCard = ({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onExportWorkflow(workflow);
                     }}
                   >
@@ -123,6 +197,7 @@ export const WorkflowCard = ({
                     className="text-red-600"
                     onSelect={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       onDeleteWorkflow(workflow.id, workflow.name);
                     }}
                   >
@@ -187,7 +262,12 @@ export const WorkflowCard = ({
             <Button
               size="sm"
               className="h-7 px-3 text-xs"
-              onClick={() => onUseTemplate(workflow.id)}
+              data-card-action="true"
+              onClick={(event) => {
+                stopPropagation(event);
+                onUseTemplate(workflow.id);
+              }}
+              onPointerDown={stopPropagation}
             >
               <FolderPlus className="mr-1 h-3 w-3" />
               Use template
@@ -198,21 +278,32 @@ export const WorkflowCard = ({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={() =>
+                aria-label="Favorite workflow"
+                data-card-action="true"
+                onClick={(event) => {
+                  stopPropagation(event);
                   toast({
                     title: "Favorites coming soon",
                     description: `We'll remember ${workflow.name} as a favorite soon.`,
-                  })
-                }
+                  });
+                }}
+                onPointerDown={stopPropagation}
               >
                 <Star className="h-3 w-3" />
               </Button>
-              <Link to={`/workflow-canvas/${workflow.id}`}>
-                <Button size="sm" className="h-7 px-2 text-xs">
-                  <Pencil className="mr-1 h-3 w-3" />
-                  Edit
-                </Button>
-              </Link>
+              <Button
+                size="sm"
+                className="h-7 px-2 text-xs"
+                data-card-action="true"
+                onClick={(event) => {
+                  stopPropagation(event);
+                  onOpenWorkflow(workflow.id);
+                }}
+                onPointerDown={stopPropagation}
+              >
+                <Pencil className="mr-1 h-3 w-3" />
+                Edit
+              </Button>
             </>
           )}
         </div>

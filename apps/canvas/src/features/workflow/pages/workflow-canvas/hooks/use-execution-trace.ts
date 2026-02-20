@@ -28,6 +28,7 @@ export interface UseExecutionTraceParams {
   activeExecutionId: string | null;
   isMountedRef: MutableRefObject<boolean>;
   executionIds?: string[];
+  enabled?: boolean;
 }
 
 export interface ExecutionTraceResult {
@@ -150,6 +151,7 @@ export function useExecutionTrace({
   activeExecutionId,
   isMountedRef,
   executionIds,
+  enabled = true,
 }: UseExecutionTraceParams): ExecutionTraceResult {
   const [traces, setTraces] = useState<ExecutionTraceState>({});
   const fetchingModesRef = useRef(new Map<string, TraceFetchMode>());
@@ -203,6 +205,9 @@ export function useExecutionTrace({
       replaceSpans?: boolean;
       forceNoStore?: boolean;
     }) => {
+      if (!enabled) {
+        return;
+      }
       const executionId = targetExecutionId ?? activeExecutionId;
       if (!executionId) {
         return;
@@ -317,11 +322,14 @@ export function useExecutionTrace({
         }
       }
     },
-    [activeExecutionId, backendBaseUrl, isMountedRef],
+    [activeExecutionId, backendBaseUrl, enabled, isMountedRef],
   );
 
   const refresh = useCallback(
     async (targetExecutionId?: string) => {
+      if (!enabled) {
+        return;
+      }
       if (targetExecutionId) {
         await fetchTracePage({
           targetExecutionId,
@@ -368,6 +376,7 @@ export function useExecutionTrace({
     },
     [
       activeExecutionId,
+      enabled,
       executionIds,
       fetchTracePage,
       loadLatestExecutionIds,
@@ -377,6 +386,9 @@ export function useExecutionTrace({
 
   const loadMore = useCallback(
     async (targetExecutionId?: string) => {
+      if (!enabled) {
+        return;
+      }
       const executionId = targetExecutionId ?? activeExecutionId;
       if (!executionId) {
         return;
@@ -392,7 +404,7 @@ export function useExecutionTrace({
         forceNoStore: true,
       });
     },
-    [activeExecutionId, fetchTracePage, traces],
+    [activeExecutionId, enabled, fetchTracePage, traces],
   );
 
   const handleTraceUpdate = useCallback((update: TraceUpdateMessage) => {
@@ -408,7 +420,7 @@ export function useExecutionTrace({
   }, []);
 
   useEffect(() => {
-    if (!executionIds?.length) {
+    if (!enabled || !executionIds?.length) {
       return;
     }
     setTraces((prev) => {
@@ -431,17 +443,17 @@ export function useExecutionTrace({
       primedExecutionsRef.current.add(executionId);
       void refresh(executionId);
     }
-  }, [executionIds, refresh]);
+  }, [enabled, executionIds, refresh]);
 
   useEffect(() => {
-    if (!activeExecutionId) {
+    if (!enabled || !activeExecutionId) {
       return;
     }
     const entry = traces[activeExecutionId];
     if (!entry || entry.status === "idle" || entry.status === "error") {
       void refresh(activeExecutionId);
     }
-  }, [activeExecutionId, refresh, traces]);
+  }, [activeExecutionId, enabled, refresh, traces]);
 
   const activeTrace = activeExecutionId ? traces[activeExecutionId] : undefined;
 
@@ -472,7 +484,7 @@ export function useExecutionTrace({
   );
 
   useEffect(() => {
-    if (!activeTrace) {
+    if (!enabled || !activeTrace) {
       return;
     }
     if (activeTrace.status === "ready" && !activeTrace.isComplete) {
@@ -481,7 +493,7 @@ export function useExecutionTrace({
         void refresh(activeTrace.executionId);
       }
     }
-  }, [activeTrace, refresh]);
+  }, [activeTrace, enabled, refresh]);
 
   return {
     traces,
