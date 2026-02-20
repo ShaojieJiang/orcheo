@@ -106,4 +106,21 @@ describe("WorkflowCard", () => {
     expect(handlers.onDuplicateWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
+
+  it("does not trigger card navigation for keyboard events from child actions", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+    );
+
+    const favoriteButton = screen.getByRole("button", {
+      name: /favorite workflow/i,
+    });
+    favoriteButton.focus();
+    await user.keyboard("{Enter}");
+
+    expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
+  });
 });

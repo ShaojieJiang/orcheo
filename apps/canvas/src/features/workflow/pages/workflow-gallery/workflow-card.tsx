@@ -88,6 +88,10 @@ export const WorkflowCard = ({
     if (!isClickable) {
       return;
     }
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-card-action="true"]')) {
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onOpenWorkflow(workflow.id);

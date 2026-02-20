@@ -40,6 +40,7 @@ interface WorkflowListCacheEntry {
 const WORKFLOW_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 let workflowListCache: WorkflowListCacheEntry | undefined;
 let workflowListInflight: Promise<StoredWorkflow[]> | undefined;
+let workflowListRequestId = 0;
 
 const emitUpdate = () => {
   if (typeof window === "undefined") {
@@ -66,11 +67,14 @@ export const listWorkflows = async (
     return workflowListCache.items;
   }
 
-  if (workflowListInflight) {
+  if (!forceRefresh && workflowListInflight) {
     return workflowListInflight;
   }
 
-  workflowListInflight = (async () => {
+  workflowListRequestId += 1;
+  const requestId = workflowListRequestId;
+
+  const inflightPromise = (async () => {
     const workflows = await request<ApiWorkflow[]>(API_BASE);
     const activeWorkflows = workflows.filter(
       (workflow) => workflow.is_archived !== true,
@@ -84,14 +88,20 @@ export const listWorkflows = async (
     const filteredItems = items.filter(
       (workflow) => workflow.isArchived !== true,
     );
-    workflowListCache = { items: filteredItems, cachedAt: Date.now() };
+    if (requestId === workflowListRequestId) {
+      workflowListCache = { items: filteredItems, cachedAt: Date.now() };
+    }
     return filteredItems;
   })();
 
+  workflowListInflight = inflightPromise;
+
   try {
-    return await workflowListInflight;
+    return await inflightPromise;
   } finally {
-    workflowListInflight = undefined;
+    if (workflowListInflight === inflightPromise) {
+      workflowListInflight = undefined;
+    }
   }
 };
 

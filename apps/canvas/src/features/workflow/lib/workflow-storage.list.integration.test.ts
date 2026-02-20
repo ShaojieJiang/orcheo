@@ -208,4 +208,120 @@ describe("workflow-storage API integration - list workflows", () => {
     expect(refreshed[0]?.name).toBe("After refresh");
     expect(mockFetch).toHaveBeenCalledTimes(4);
   });
+
+  it("does not reuse in-flight request when force refresh is requested", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+    let releaseFirstList: (() => void) | undefined;
+
+    mockFetch.mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/api/workflows") && !releaseFirstList) {
+        return new Promise<Response>((resolve) => {
+          releaseFirstList = () => {
+            resolve(
+              jsonResponse([
+                {
+                  id: "workflow-stale",
+                  name: "Stale workflow",
+                  slug: "workflow-stale",
+                  description: "Stale payload",
+                  tags: [],
+                  is_archived: false,
+                  created_at: timestamp,
+                  updated_at: timestamp,
+                },
+              ]),
+            );
+          };
+        });
+      }
+
+      if (url.endsWith("/api/workflows")) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: "workflow-fresh",
+              name: "Fresh workflow",
+              slug: "workflow-fresh",
+              description: "Fresh payload",
+              tags: [],
+              is_archived: false,
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+          ]),
+        );
+      }
+
+      if (url.includes("workflow-fresh")) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: "version-fresh",
+              workflow_id: "workflow-fresh",
+              version: 1,
+              graph: {},
+              metadata: {
+                canvas: {
+                  snapshot: {
+                    name: "Fresh workflow",
+                    description: "Fresh payload",
+                    nodes: [],
+                    edges: [],
+                  },
+                  summary: { added: 0, removed: 0, modified: 0 },
+                  message: "Fresh",
+                },
+              },
+              notes: null,
+              created_by: "canvas-app",
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+          ]),
+        );
+      }
+
+      return Promise.resolve(
+        jsonResponse([
+          {
+            id: "version-stale",
+            workflow_id: "workflow-stale",
+            version: 1,
+            graph: {},
+            metadata: {
+              canvas: {
+                snapshot: {
+                  name: "Stale workflow",
+                  description: "Stale payload",
+                  nodes: [],
+                  edges: [],
+                },
+                summary: { added: 0, removed: 0, modified: 0 },
+                message: "Stale",
+              },
+            },
+            notes: null,
+            created_by: "canvas-app",
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+        ]),
+      );
+    });
+
+    const stalePromise = listWorkflows();
+    const refreshedPromise = listWorkflows({ forceRefresh: true });
+    releaseFirstList?.();
+
+    const [stale, refreshed] = await Promise.all([
+      stalePromise,
+      refreshedPromise,
+    ]);
+
+    expect(stale[0]?.name).toBe("Stale workflow");
+    expect(refreshed[0]?.name).toBe("Fresh workflow");
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
 });
