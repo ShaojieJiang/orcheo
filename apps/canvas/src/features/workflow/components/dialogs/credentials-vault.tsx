@@ -27,7 +27,7 @@ export default function CredentialsVault({
 
   const containerClassName = useMemo(
     () =>
-      ["space-y-4", className]
+      ["min-w-0 space-y-4", className]
         .filter((value): value is string => Boolean(value && value.trim()))
         .join(" "),
     [className],
@@ -35,13 +35,13 @@ export default function CredentialsVault({
 
   return (
     <div className={containerClassName}>
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-center justify-between gap-3 pr-10">
         <h2 className="text-xl font-bold">Credential Vault</h2>
         <AddCredentialDialog onAddCredential={onAddCredential} />
       </div>
 
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
+      <div className="flex min-w-0 items-center">
+        <div className="relative min-w-0 flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search credentials..."

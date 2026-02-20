@@ -9,7 +9,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import { Dialog, DialogContent } from "@/design-system/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/design-system/ui/dialog";
 import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import { clearAuthSession } from "@features/auth/lib/auth-session";
@@ -96,6 +101,10 @@ export default function AccountMenu({
       </DropdownMenu>
       <Dialog open={isVaultOpen} onOpenChange={setIsVaultOpen}>
         <DialogContent className="max-w-4xl">
+          <DialogTitle className="sr-only">Credential Vault</DialogTitle>
+          <DialogDescription className="sr-only">
+            Manage, search, add, and remove credentials.
+          </DialogDescription>
           <CredentialsVault
             credentials={credentials}
             isLoading={isCredentialsLoading}

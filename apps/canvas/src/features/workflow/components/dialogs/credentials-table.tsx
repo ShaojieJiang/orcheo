@@ -82,8 +82,8 @@ export function CredentialsTable({
   };
 
   return (
-    <div className="border rounded-md">
-      <Table>
+    <div className="min-w-0 overflow-hidden rounded-md border">
+      <Table className="min-w-[900px]">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
@@ -91,7 +91,7 @@ export function CredentialsTable({
             <TableHead>Access</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Secret</TableHead>
-            <TableHead>Last Updated</TableHead>
+            <TableHead className="whitespace-nowrap">Last Updated</TableHead>
             <TableHead className="w-[80px]" />
           </TableRow>
         </TableHeader>
@@ -126,10 +126,10 @@ export function CredentialsTable({
               const secretVisible = visibleSecrets[credential.id];
               return (
                 <TableRow key={credential.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
+                  <TableCell className="max-w-[300px] font-medium">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Key className="h-4 w-4 text-muted-foreground" />
-                      {credential.name}
+                      <span className="truncate">{credential.name}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -144,8 +144,8 @@ export function CredentialsTable({
                     <CredentialStatusBadge status={credential.status} />
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="font-mono text-xs bg-muted px-2 py-1 rounded">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="max-w-[220px] truncate rounded bg-muted px-2 py-1 font-mono text-xs">
                         {secret
                           ? secretVisible
                             ? secret
@@ -176,7 +176,7 @@ export function CredentialsTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     {new Date(credential.updatedAt).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
