@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install Node.js for MCP stdio transports (e.g., Slack node uses npx)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs=20.* \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN printf '%s\n' '#!/bin/sh' 'exec uv tool run "$@"' > /usr/local/bin/uvx \
+    && chmod +x /usr/local/bin/uvx
+
+# Always build with --no-cache to ensure latest packages are installed
+RUN uv pip install --system --no-cache -U orcheo orcheo-backend orcheo-sdk

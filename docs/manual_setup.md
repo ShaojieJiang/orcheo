@@ -2,6 +2,11 @@
 
 This guide covers manual installation and configuration of Orcheo for users who prefer direct control over their setup.
 
+## Quick Start
+
+For one-line installation, see the [Quick Start section on the landing page](index.md#quick-start).
+If you already have the SDK installed, run `orcheo install` to set up or upgrade the local stack.
+
 ## Prerequisites
 
 - **Docker**: Required for running Redis and other services via Docker Compose
@@ -14,60 +19,44 @@ For a complete containerized setup with PostgreSQL, Redis, Celery workers, and C
 
 ### Quick Start
 
-1. **Download the compose files** from [agent-skills/orcheo/assets](https://github.com/ShaojieJiang/agent-skills/tree/main/orcheo/assets):
+1. **Set up the local stack** using the CLI (this downloads compose files and creates `.env` automatically):
    ```bash
-   curl -fsSLO https://raw.githubusercontent.com/ShaojieJiang/agent-skills/main/orcheo/assets/docker-compose.yml
-   curl -fsSLO https://raw.githubusercontent.com/ShaojieJiang/agent-skills/main/orcheo/assets/Dockerfile.orcheo
-   curl -fsSL https://raw.githubusercontent.com/ShaojieJiang/agent-skills/main/orcheo/assets/.env.example -o .env
+   orcheo install --start-local-stack
    ```
 
-2. **(Optional) Configure required secrets** in `.env`:
+   The CLI syncs stack assets to `~/.orcheo/stack` (override with `ORCHEO_STACK_DIR`).
+   On fresh installs, secure values are auto-generated for `ORCHEO_POSTGRES_PASSWORD`,
+   `ORCHEO_VAULT_ENCRYPTION_KEY`, and `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY`.
 
-    !!! tip "Quick start"
-        For local testing, you can skip this step entirely. The placeholder values in `.env.example` will work out of the box. Just be aware that if you later change `ORCHEO_VAULT_ENCRYPTION_KEY`, any previously stored credentials will become unreadable.
+2. **(Optional) Configure secrets** in `~/.orcheo/stack/.env`:
 
-    ```bash
-    # Generate a secure encryption key (64 hex characters)
-    python -c "import secrets; print(secrets.token_hex(32))"
+    You only need to edit `.env` if you want custom values or need to configure
+    `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` for ChatKit. The setup flow prompts for this
+    key and allows skipping; if skipped, ChatKit UI features remain disabled
+    until you set it (or rerun `orcheo install --chatkit-domain-key <key>`). Be aware that changing
+    `ORCHEO_VAULT_ENCRYPTION_KEY` after storing credentials will make them unreadable.
 
-    # Edit .env with your values:
-    ORCHEO_POSTGRES_PASSWORD=your-secure-password
-    ORCHEO_VAULT_ENCRYPTION_KEY=your-64-hex-char-key
-    VITE_ORCHEO_CHATKIT_DOMAIN_KEY=your-chatkit-key
-    ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=your-bootstrap-token
-    ```
-
-3. **Start all services**:
-   ```bash
-   docker compose up -d
-   docker compose ps
-   ```
-
-4. **Verify services are running**:
+3. **Verify services are running**:
     - Backend API: http://localhost:8000
-    - Canvas UI: http://localhost:5173
-
-5. **Install the CLI**:
-   ```bash
-   uv tool add orcheo-sdk
-   ```
-
+    - Canvas UI: http://localhost:5173 (may take 2-3 minutes on first startup while npm installs dependencies)
 
 ### Managing Services
 
 ```bash
+STACK_DIR="${ORCHEO_STACK_DIR:-$HOME/.orcheo/stack}"
+
 # View logs
-docker compose logs -f backend
-docker compose logs -f worker
-docker compose logs -f celery-beat
-docker compose logs -f canvas
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f backend
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f worker
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f celery-beat
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f canvas
 
 # Stop all services
-docker compose down
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" down
 
 # Rebuild after changes (--no-cache ensures fresh builds with latest PyPI packages)
-docker compose build --no-cache
-docker compose up -d
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" build --no-cache
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" up -d
 ```
 
 ### Local Testing Without OAuth
@@ -133,3 +122,16 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Authentication Guide](authentication_guide.md)** — Detailed authentication configuration
 - **[Developer Guide](developer_guide.md)** — Contributing to Orcheo
+
+## Upgrade Recovery Notes
+
+If setup/upgrade is interrupted:
+
+1. Re-run `orcheo install` (idempotent reconciliation is the default path).
+2. If local stack services are inconsistent, run:
+   `STACK_DIR="${ORCHEO_STACK_DIR:-$HOME/.orcheo/stack}"` then
+   `docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" down`
+   and
+   `docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" up -d`.
+3. If local files were customized and you want a clean baseline, delete
+   `~/.orcheo/stack` and re-run `orcheo install`.

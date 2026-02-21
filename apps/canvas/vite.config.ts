@@ -2,13 +2,22 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { readFileSync } from 'fs'
 
 // ES Module equivalent of __dirname
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const packageJsonPath = path.resolve(__dirname, './package.json')
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+  version?: string
+}
+const canvasVersion = packageJson.version ?? '0.0.0'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __ORCHEO_CANVAS_VERSION__: JSON.stringify(canvasVersion),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -66,6 +66,8 @@ export const buildBackendHttpUrl = (path: string, baseUrl?: string): string => {
   return `${normalised}${suffix}`;
 };
 
+export const getCanvasVersion = (): string => __ORCHEO_CANVAS_VERSION__;
+
 export const buildWorkflowWebSocketUrl = (
   workflowId: string,
   baseUrl?: string,

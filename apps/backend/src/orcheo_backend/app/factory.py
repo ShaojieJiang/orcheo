@@ -43,6 +43,7 @@ from orcheo_backend.app.routers import (
     credentials,
     nodes,
     runs,
+    system,
     triggers,
     websocket,
     workflows,
@@ -84,10 +85,12 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(triggers.router)
     protected_router.include_router(nodes.router)
     protected_router.include_router(agentensor.router)
+    protected_router.include_router(system.router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
+    router.include_router(system.public_router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)
     # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
     # validation (HMAC signatures, shared secrets) configured per workflow.
