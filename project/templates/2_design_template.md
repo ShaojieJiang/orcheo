@@ -105,12 +105,6 @@ Or use JSON/code blocks for complex schemas:
 
 Include feature flags, migration steps, or backwards compatibility notes.
 
-## Open Issues
-
-- [ ] Unresolved question or decision
-- [ ] Dependency on external team/service
-- [ ] Future work explicitly deferred
-
 ---
 
 ## Revision History
