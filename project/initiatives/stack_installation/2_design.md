@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-02-21
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -28,22 +28,22 @@ The implementation uses a shared backend metadata contract for installed/latest 
     `uvx orcheo-sdk setup`.
   - Key dependencies: shell/Pwsh runtime, package installer commands, environment probes.
 
-- **CLI Setup Orchestrator (`packages/sdk/src/orcheo_sdk/cli/`)**
+- **CLI Setup Orchestrator (`packages/sdk/src/orcheo_sdk/cli/main.py`, new setup command module under `packages/sdk/src/orcheo_sdk/cli/commands/setup.py`)**
   - Provides `orcheo setup` command (and supports bootstrap usage via `uvx`).
   - Handles prerequisite checks, prompt collection, install/upgrade execution, and summary output.
   - Key dependencies: existing CLI config/state modules, shell command runner, package managers (uv/npm).
 
-- **CLI Update Notifier (`packages/sdk/src/orcheo_sdk/cli/`)**
+- **CLI Update Notifier (`packages/sdk/src/orcheo_sdk/cli/main.py`, cache helper under `packages/sdk/src/orcheo_sdk/cli/cache.py`, version-check helper under `packages/sdk/src/orcheo_sdk/cli/update_check.py`)**
   - Runs once per 24h window at CLI startup.
   - Compares installed CLI/backend versions against latest known versions.
   - Key dependencies: cache manager, backend system info endpoint, version parser.
 
-- **Backend System Info Router (`apps/backend/src/orcheo_backend/app/routers/`)**
+- **Backend System Info Router (`apps/backend/src/orcheo_backend/app/routers/system.py`, wired from `apps/backend/src/orcheo_backend/app/main.py`)**
   - Exposes version/update metadata used by Canvas and CLI.
   - Caches upstream registry checks to avoid repeated outbound requests.
   - Key dependencies: `importlib.metadata`, HTTP client for PyPI/npm registry calls.
 
-- **Canvas Version Status UI (`apps/canvas/src/`)**
+- **Canvas Version Status UI (`apps/canvas/src/components/VersionStatus.tsx`, API client integration in `apps/canvas/src/lib/api.ts`)**
   - Displays running Canvas version and connected backend version in a persistent UI location.
   - Shows reminder when newer versions are available.
   - Key dependencies: top navigation/settings UI, API client, local storage.
@@ -183,7 +183,11 @@ Behavior:
   returning version metadata.
 - Sanitize/validate all registry response payloads before returning to clients.
 - Add timeout and bounded retries for outbound registry calls.
-- Apply lightweight rate limits if endpoint becomes externally abused.
+- Apply endpoint-specific rate limits at the API gateway and app layer:
+  - Authenticated callers: 30 requests/minute per user token (`sub` claim).
+  - Unauthenticated/invalid-token callers: 10 requests/minute per source IP.
+  - Burst allowance: token bucket with burst size 10, refill over 60 seconds.
+  - On limit exceed, return `429 Too Many Requests` with `Retry-After` seconds header.
 
 ## Performance Considerations
 
