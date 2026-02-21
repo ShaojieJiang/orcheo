@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { executeNode } from "./api";
+import { executeNode, getSystemInfo } from "./api";
 
 describe("executeNode", () => {
   beforeEach(() => {
@@ -132,6 +132,47 @@ describe("executeNode", () => {
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("http://custom-backend:9000"),
       expect.any(Object),
+    );
+  });
+
+  it("should fetch system info", async () => {
+    const mockResponse = {
+      backend: {
+        package: "orcheo-backend",
+        current_version: "0.1.0",
+        latest_version: "0.2.0",
+        minimum_recommended_version: null,
+        release_notes_url: null,
+        update_available: true,
+      },
+      cli: {
+        package: "orcheo-sdk",
+        current_version: "0.1.0",
+        latest_version: "0.2.0",
+        minimum_recommended_version: null,
+        release_notes_url: null,
+        update_available: true,
+      },
+      canvas: {
+        package: "orcheo-canvas",
+        current_version: "0.1.0",
+        latest_version: "0.2.0",
+        minimum_recommended_version: null,
+        release_notes_url: null,
+        update_available: true,
+      },
+      checked_at: "2026-02-21T12:00:00Z",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await getSystemInfo();
+    expect(result.backend.package).toBe("orcheo-backend");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/system/info"),
+      expect.objectContaining({ method: "GET" }),
     );
   });
 });

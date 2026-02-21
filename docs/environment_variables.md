@@ -23,6 +23,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
 | `ORCHEO_PORT` | `8000` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). |
+| `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
+| `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_TRACING_EXPORTER` | `none` | `none`, `console`, or `otlp` | Selects the tracing exporter configured by `tracing/provider.py`. |
 | `ORCHEO_TRACING_ENDPOINT` | _none_ | HTTP(S) URL | Optional OTLP/HTTP collector endpoint (include `/v1/traces`) consumed by `tracing/provider.py`. |
 | `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | String | Resource attribute attached to every span (`config/defaults.py`). |
@@ -48,7 +50,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
-| `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | Override the ChatKit domain key for Canvas if needed. |
+| `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ALLOWED_HOSTS` | _none_ | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Required when Canvas is served on a custom domain or behind a reverse proxy. |
 
 ## Vault configuration
@@ -137,6 +139,10 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_API_URL` | `http://localhost:8000` | HTTP(S) URL | URL of the Orcheo backend used by the CLI/SDK and validated by `mcp_server/config.py`. |
 | `ORCHEO_SERVICE_TOKEN` | _none_ | Bearer token string | Service authentication token used by the CLI/SDK and emitted in generated code snippets (`cli/config.py`, `services/codegen.py`). |
 | `ORCHEO_HUMAN` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When set to a truthy value, the CLI uses human-friendly Rich output (colored tables, panels) instead of machine-readable format (JSON, Markdown tables). Equivalent to passing `--human` (`cli/main.py`). |
+| `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |
+| `ORCHEO_UPDATE_CHECK_TTL_HOURS` | `24` (CLI), `12` (backend cache) | Positive integer | Controls update-check cadence for CLI reminder gating and backend `/api/system/info` registry-cache TTL (`cli/update_check.py`, `app/versioning.py`). |
+| `ORCHEO_STACK_DIR` | `~/.orcheo/stack` | Directory path | Target directory for `orcheo install` stack assets and generated `.env` updates (`cli/setup.py`). |
+| `ORCHEO_STACK_ASSET_BASE_URL` | `https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack` | HTTP(S) URL | Base URL used by setup to sync local-stack compose assets (downloads when missing, updates when changed) (`cli/setup.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID for CLI login. Can also be set in a `cli.toml` profile via `auth_client_id` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | OAuth scopes requested during CLI login. Can also be set in a `cli.toml` profile via `auth_scopes` (`cli/auth/config.py`). |

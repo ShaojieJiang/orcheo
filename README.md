@@ -21,15 +21,61 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
-## Prerequisites
-
-- **Docker** — for running Redis and other services
-- **Python 3.12+** — required for the backend
-- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
-
 ## Quick Start
 
-The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
+Use the installation path that matches your setup:
+
+> Prerequisite: Docker Desktop/Engine must be installed to run the local stack (`orcheo install --start-local-stack`).
+
+<details open>
+<summary>macOS/Linux (bootstrap)</summary>
+
+```bash
+curl -fsSL https://ai-colleagues.com/install.sh | sh
+```
+
+```bash
+# Unattended full local stack from scratch
+curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-local-stack
+```
+
+</details>
+
+<details>
+<summary>Windows PowerShell (bootstrap)</summary>
+
+```powershell
+irm https://ai-colleagues.com/install.ps1 | iex
+```
+
+</details>
+
+<details>
+<summary>SDK tooling (skip bootstrap)</summary>
+
+```bash
+uv tool install orcheo-sdk
+orcheo install
+```
+
+</details>
+
+<details>
+<summary>Upgrade existing installation</summary>
+
+```bash
+orcheo install upgrade --yes
+```
+
+</details>
+
+`orcheo install` syncs Docker stack assets into `~/.orcheo/stack` (or
+`ORCHEO_STACK_DIR`), updates `.env` with setup-selected values, and can start the
+stack with Docker Compose. Setup will prompt for
+`VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip it and continue, but ChatKit UI
+features will stay disabled until you set a valid key.
+
+The fastest way to get started with workflow building is still the **Agent Skill** approach.
 
 > **Note:** Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.
 

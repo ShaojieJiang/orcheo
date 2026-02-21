@@ -23,15 +23,22 @@ The implementation uses a shared backend metadata contract for installed/latest 
 
 - **Bootstrap Entrypoints (`scripts/bootstrap/` or release assets)**
   - Unix bootstrap (`curl ... | sh`) is P0 and targets macOS/Linux.
-  - PowerShell bootstrap is P1 and follows after Unix stabilization.
+  - PowerShell bootstrap path is available and follows the same handoff model.
   - Bootstrap is intentionally thin: detect/install `uv` if missing, then hand off to
-    `uvx orcheo-sdk setup`.
+    `uvx orcheo-sdk install` with stack asset base URL defaults.
   - Key dependencies: shell/Pwsh runtime, package installer commands, environment probes.
 
-- **CLI Setup Orchestrator (`packages/sdk/src/orcheo_sdk/cli/main.py`, new setup command module under `packages/sdk/src/orcheo_sdk/cli/commands/setup.py`)**
-  - Provides `orcheo setup` command (and supports bootstrap usage via `uvx`).
+- **CLI Setup Orchestrator (`packages/sdk/src/orcheo_sdk/cli/main.py`, setup command module under `packages/sdk/src/orcheo_sdk/cli/setup.py`)**
+  - Provides `orcheo install` command (and supports bootstrap usage via `uvx`).
   - Handles prerequisite checks, prompt collection, install/upgrade execution, and summary output.
   - Key dependencies: existing CLI config/state modules, shell command runner, package managers (uv/npm).
+
+- **Local Stack Asset Bundle (`deploy/local-stack/`)**
+  - Stores source-of-truth compose assets (`docker-compose.yml`, `Dockerfile.orcheo`,
+    `.env.example`, `chatkit_widgets/*`).
+  - Consumed by setup flow via raw-content download into a user-local stack directory
+    (`ORCHEO_STACK_DIR`, default `~/.orcheo/stack`).
+  - Key dependencies: GitHub raw delivery (or mirror override via `ORCHEO_STACK_ASSET_BASE_URL`).
 
 - **CLI Update Notifier (`packages/sdk/src/orcheo_sdk/cli/main.py`, cache helper under `packages/sdk/src/orcheo_sdk/cli/cache.py`, version-check helper under `packages/sdk/src/orcheo_sdk/cli/update_check.py`)**
   - Runs once per 24h window at CLI startup.
@@ -43,7 +50,7 @@ The implementation uses a shared backend metadata contract for installed/latest 
   - Caches upstream registry checks to avoid repeated outbound requests.
   - Key dependencies: `importlib.metadata`, HTTP client for PyPI/npm registry calls.
 
-- **Canvas Version Status UI (`apps/canvas/src/components/VersionStatus.tsx`, API client integration in `apps/canvas/src/lib/api.ts`)**
+- **Canvas Version Status UI (`apps/canvas/src/features/shared/components/top-navigation/version-status.tsx`, API client integration in `apps/canvas/src/lib/api.ts`)**
   - Displays running Canvas version and connected backend version in a persistent UI location.
   - Shows reminder when newer versions are available.
   - Key dependencies: top navigation/settings UI, API client, local storage.
@@ -52,22 +59,21 @@ The implementation uses a shared backend metadata contract for installed/latest 
 
 ### Flow 1: Guided setup or upgrade
 
-1. User runs `orcheo setup` (or bootstrap equivalent).
+1. User runs `orcheo install` (or bootstrap equivalent).
 2. Bootstrap (if used) ensures `uv` exists; if missing, it installs `uv` or prints exact
    install commands and retries handoff.
-3. CLI checks prerequisites (Python, Node/npm, optional Docker).
+3. CLI checks prerequisites (Docker for local stack startup).
 4. CLI prompts for mode and key inputs, defaulting sensible values on Enter.
    - Mode: fresh install or in-place upgrade.
    - Backend URL.
    - Auth mode.
-   - Optional Canvas install.
    - Optional local stack startup.
    - If Docker is missing: default prompt is to install Docker, with explicit skip option for
      remote-backend-only usage.
 4. CLI performs install or upgrade steps:
-   - Python packages (`orcheo-sdk`, `orcheo-backend`)
-   - Optional Canvas package (`orcheo-canvas`)
-   - Optional config initialization
+   - Local-stack asset bootstrap/sync (`deploy/local-stack` -> `ORCHEO_STACK_DIR`)
+   - `.env` reconciliation with setup-selected values
+   - Optional `docker compose ... up -d --build` against the provisioned stack directory
 5. In upgrade mode, CLI reconciles state idempotently and preserves existing configuration.
 6. CLI validates resulting versions and backend reachability (if configured).
 7. CLI prints summary and next steps.
@@ -223,6 +229,8 @@ Behavior:
 Feature flags/config:
 - `ORCHEO_DISABLE_UPDATE_CHECK=1` disables CLI update reminders.
 - `ORCHEO_UPDATE_CHECK_TTL_HOURS` controls backend cache/check windows.
+- `ORCHEO_STACK_DIR` controls local stack project directory for compose assets.
+- `ORCHEO_STACK_ASSET_BASE_URL` controls raw asset source for stack provisioning.
 
 ## P1 Extensions
 
