@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Purpose: Bootstrap an Ubuntu machine for Orcheo by installing required packages
 # (Docker, cloudflared), enabling Docker, installing cloudflared as a service,
-# running Orcheo setup for a local stack, and configuring Bash history/search ergonomics.
+# running Orcheo setup for a stack, and configuring Bash history/search ergonomics.
 # Requirement: Set CLOUDFLARED_TOKEN in the environment before running.
 
 set -euo pipefail
@@ -82,22 +82,22 @@ install_uv_and_orcheo_sdk() {
   uv tool install -U orcheo-sdk
 }
 
-setup_local_stack() {
+setup_stack() {
   if [[ -n "${ORCHEO_STACK_ASSET_BASE_URL:-}" ]]; then
     export ORCHEO_STACK_ASSET_BASE_URL
   fi
   if id -nG "$USER" | grep -qw docker; then
-    sg docker -c "orcheo install --yes --start-local-stack"
+    sg docker -c "orcheo install --yes --start-stack"
     return
   fi
-  orcheo install --yes --start-local-stack
+  orcheo install --yes --start-stack
 }
 
 main() {
   install_dependencies
   install_cloudflared
   install_uv_and_orcheo_sdk
-  setup_local_stack
+  setup_stack
   configure_bash_history
 }
 

@@ -7,12 +7,10 @@ import re
 import secrets
 import shutil
 import subprocess
-import tarfile
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import BytesIO
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 from urllib.request import urlopen
@@ -25,13 +23,12 @@ SetupMode = Literal["install", "upgrade"]
 _STACK_ASSET_BASE_URL = (
     "https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/stack"
 )
-_STACK_RELEASE_TAG_PREFIX = "stack-v"
-_STACK_RELEASE_ARCHIVE_NAME = "orcheo-stack.tar.gz"
-_GITHUB_RELEASE_URL_TEMPLATE = (
-    "https://github.com/ShaojieJiang/orcheo/releases/download"
-    "/stack-v{version}/orcheo-stack.tar.gz"
+_STACK_ASSET_BASE_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/{ref}/deploy/stack"
 )
-_GITHUB_RELEASES_API_URL = "https://api.github.com/repos/ShaojieJiang/orcheo/releases"
+_STACK_RELEASE_TAG_PREFIX = "stack-v"
+_GITHUB_TAGS_API_URL = "https://api.github.com/repos/ShaojieJiang/orcheo/tags"
+_STACK_IMAGE_REPOSITORY = "ghcr.io/shaojiejiang/orcheo-stack"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Dockerfile.orcheo",
@@ -51,10 +48,10 @@ class SetupConfig:
     auth_mode: AuthMode
     api_key: str | None
     chatkit_domain_key: str | None
-    start_local_stack: bool
+    start_stack: bool
     install_docker_if_missing: bool
-    local_stack_project_dir: str | None = None
-    local_stack_env_file: str | None = None
+    stack_project_dir: str | None = None
+    stack_env_file: str | None = None
 
 
 def _run_command(command: list[str], *, console: Console) -> None:
@@ -170,11 +167,18 @@ def _resolve_stack_project_dir() -> Path:
     return Path.home() / ".orcheo" / "stack"
 
 
-def _resolve_stack_asset_base_url() -> str:
+def _resolve_stack_asset_base_url(*, stack_version: str | None = None) -> str:
     configured = os.getenv("ORCHEO_STACK_ASSET_BASE_URL")
     if configured:
         return configured.rstrip("/")
-    return _STACK_ASSET_BASE_URL
+    if stack_version is None:
+        return _STACK_ASSET_BASE_URL
+    ref = f"{_STACK_RELEASE_TAG_PREFIX}{stack_version}"
+    return _STACK_ASSET_BASE_URL_TEMPLATE.format(ref=ref)
+
+
+def _is_prerelease_stack_version(version: str) -> bool:
+    return "-" in version
 
 
 def _normalize_stack_version(version: str | None) -> str | None:
@@ -194,127 +198,101 @@ def _resolve_stack_version(explicit: str | None) -> str | None:
 
 
 def _discover_latest_stack_version(console: Console) -> str | None:
-    releases_url = f"{_GITHUB_RELEASES_API_URL}?per_page=10"
+    tags_url = f"{_GITHUB_TAGS_API_URL}?per_page=100"
     try:
-        with urlopen(releases_url, timeout=10) as response:  # noqa: S310
+        with urlopen(tags_url, timeout=10) as response:  # noqa: S310
             payload = response.read().decode("utf-8")
-        releases = json.loads(payload)
+        tags = json.loads(payload)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         console.print(
-            "[yellow]Unable to discover latest stack release version; "
-            f"falling back to per-file sync: {exc}[/yellow]"
+            "[yellow]Unable to discover latest stack version from tags; "
+            f"falling back to main branch assets: {exc}[/yellow]"
         )
         return None
 
-    if not isinstance(releases, list):
+    if not isinstance(tags, list):
         console.print(
-            "[yellow]Unexpected stack releases API response; "
-            "falling back to per-file sync.[/yellow]"
+            "[yellow]Unexpected stack tags API response; "
+            "falling back to main branch assets.[/yellow]"
         )
         return None
 
-    for release in releases:
-        if not isinstance(release, dict):
+    for tag in tags:
+        if not isinstance(tag, dict):
             continue
-        if bool(release.get("prerelease")):
-            continue
-
-        tag_name = release.get("tag_name")
+        tag_name = tag.get("name")
         if not isinstance(tag_name, str):
             continue
         if not tag_name.startswith(_STACK_RELEASE_TAG_PREFIX):
             continue
 
         version = _normalize_stack_version(tag_name)
-        if version is not None:
+        if version is not None and not _is_prerelease_stack_version(version):
             return version
 
     return None
 
 
-def _is_safe_archive_member(member_name: str) -> bool:
-    if member_name.startswith("/"):
-        return False
-    return all(part != ".." for part in PurePosixPath(member_name).parts)
-
-
-def _download_and_extract_stack_archive(
-    version: str,
-    stack_dir: Path,
+def _download_stack_asset(
+    relative_path: str,
     *,
+    stack_version: str | None,
     console: Console,
-) -> bool:
-    archive_url = _GITHUB_RELEASE_URL_TEMPLATE.format(version=version)
-    console.print(
-        "[cyan]Fetching local stack archive: "
-        f"{_STACK_RELEASE_ARCHIVE_NAME} (stack-v{version})[/cyan]"
+) -> bytes:
+    asset_url = (
+        f"{_resolve_stack_asset_base_url(stack_version=stack_version)}"
+        f"/{quote(relative_path, safe='/')}"
     )
-    try:
-        with urlopen(archive_url, timeout=30) as response:  # noqa: S310
-            archive_bytes = response.read()
-    except OSError as exc:
-        console.print(
-            "[yellow]Failed to download stack archive; "
-            f"falling back to per-file sync: {exc}[/yellow]"
-        )
-        return False
-
-    try:
-        with tarfile.open(fileobj=BytesIO(archive_bytes), mode="r:gz") as archive:
-            for member in archive.getmembers():
-                if not _is_safe_archive_member(member.name):
-                    console.print(
-                        "[yellow]Rejected unsafe file path in stack archive: "
-                        f"{member.name}[/yellow]"
-                    )
-                    return False
-            archive.extractall(path=stack_dir, filter="data")  # noqa: S202
-    except (tarfile.TarError, OSError, ValueError) as exc:
-        console.print(
-            "[yellow]Failed to extract stack archive; "
-            f"falling back to per-file sync: {exc}[/yellow]"
-        )
-        return False
-
-    console.print(
-        f"[green]Downloaded local stack archive assets for stack-v{version}[/green]"
-    )
-    return True
-
-
-def _download_stack_asset(relative_path: str, *, console: Console) -> bytes:
-    asset_url = f"{_resolve_stack_asset_base_url()}/{quote(relative_path, safe='/')}"
-    console.print(f"[cyan]Fetching local stack asset: {relative_path}[/cyan]")
+    console.print(f"[cyan]Fetching stack asset: {relative_path}[/cyan]")
     try:
         with urlopen(asset_url, timeout=30) as response:  # noqa: S310
             return response.read()
     except OSError as exc:
         raise typer.BadParameter(
-            "Failed to download local stack asset "
-            f"'{relative_path}' from {asset_url}: {exc}"
+            f"Failed to download stack asset '{relative_path}' from {asset_url}: {exc}"
         ) from exc
 
 
-def _sync_stack_asset(relative_path: str, stack_dir: Path, *, console: Console) -> None:
+def _sync_stack_asset(
+    relative_path: str,
+    stack_dir: Path,
+    *,
+    stack_version: str | None,
+    console: Console,
+) -> None:
     destination = stack_dir / relative_path
-    remote_payload = _download_stack_asset(relative_path, console=console)
+    remote_payload = _download_stack_asset(
+        relative_path,
+        stack_version=stack_version,
+        console=console,
+    )
 
     if destination.exists():
         local_payload = destination.read_bytes()
         if local_payload == remote_payload:
             return
         destination.write_bytes(remote_payload)
-        console.print(f"[green]Updated local stack asset: {relative_path}[/green]")
+        console.print(f"[green]Updated stack asset: {relative_path}[/green]")
         return
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(remote_payload)
-    console.print(f"[green]Downloaded local stack asset: {relative_path}[/green]")
+    console.print(f"[green]Downloaded stack asset: {relative_path}[/green]")
 
 
-def _sync_stack_assets_per_file(stack_dir: Path, *, console: Console) -> None:
+def _sync_stack_assets_per_file(
+    stack_dir: Path,
+    *,
+    stack_version: str | None,
+    console: Console,
+) -> None:
     for relative_path in _STACK_ASSET_FILES:
-        _sync_stack_asset(relative_path, stack_dir, console=console)
+        _sync_stack_asset(
+            relative_path,
+            stack_dir,
+            stack_version=stack_version,
+            console=console,
+        )
 
 
 def _sync_stack_assets_with_best_source(
@@ -322,26 +300,20 @@ def _sync_stack_assets_with_best_source(
     *,
     stack_version: str | None,
     console: Console,
-) -> None:
+) -> str | None:
+    resolved_stack_version = _resolve_stack_version(stack_version)
     configured_stack_asset_base_url = _normalize_optional_value(
         os.getenv("ORCHEO_STACK_ASSET_BASE_URL")
     )
-    if configured_stack_asset_base_url is not None:
-        _sync_stack_assets_per_file(stack_dir, console=console)
-        return
-
-    resolved_stack_version = _resolve_stack_version(stack_version)
-    if resolved_stack_version is None:
+    if configured_stack_asset_base_url is None and resolved_stack_version is None:
         resolved_stack_version = _discover_latest_stack_version(console)
 
-    if resolved_stack_version is not None and _download_and_extract_stack_archive(
-        resolved_stack_version,
+    _sync_stack_assets_per_file(
         stack_dir,
+        stack_version=resolved_stack_version,
         console=console,
-    ):
-        return
-
-    _sync_stack_assets_per_file(stack_dir, console=console)
+    )
+    return resolved_stack_version
 
 
 _ENV_KEY_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
@@ -349,6 +321,8 @@ _ENV_KEY_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 def _build_env_updates(
     config: SetupConfig,
+    *,
+    requested_stack_version: str | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Return ``(updates, defaults)`` for .env upsert.
 
@@ -366,6 +340,10 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = ""
     if config.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = config.chatkit_domain_key
+    if requested_stack_version:
+        updates["ORCHEO_STACK_IMAGE"] = (
+            f"{_STACK_IMAGE_REPOSITORY}:{requested_stack_version}"
+        )
 
     defaults: dict[str, str] = {
         "ORCHEO_POSTGRES_PASSWORD": secrets.token_urlsafe(16),
@@ -442,10 +420,10 @@ def _upsert_env_values(
         return
 
     env_file.write_text(updated, encoding="utf-8")
-    console.print(f"[green]Updated local stack env file at {env_file}[/green]")
+    console.print(f"[green]Updated stack env file at {env_file}[/green]")
 
 
-def _ensure_local_stack_assets(
+def _ensure_stack_assets(
     *,
     config: SetupConfig,
     console: Console,
@@ -454,9 +432,10 @@ def _ensure_local_stack_assets(
     stack_dir = _resolve_stack_project_dir()
     stack_dir.mkdir(parents=True, exist_ok=True)
 
-    _sync_stack_assets_with_best_source(
+    requested_stack_version = _resolve_stack_version(stack_version)
+    synced_stack_version = _sync_stack_assets_with_best_source(
         stack_dir,
-        stack_version=stack_version,
+        stack_version=requested_stack_version,
         console=console,
     )
 
@@ -465,11 +444,19 @@ def _ensure_local_stack_assets(
     if env_created:
         env_template = stack_dir / ".env.example"
         if not env_template.exists():
-            _sync_stack_asset(".env.example", stack_dir, console=console)
+            _sync_stack_asset(
+                ".env.example",
+                stack_dir,
+                stack_version=synced_stack_version,
+                console=console,
+            )
         shutil.copyfile(env_template, env_file)
-        console.print(f"[green]Created local stack env file at {env_file}[/green]")
+        console.print(f"[green]Created stack env file at {env_file}[/green]")
 
-    updates, defaults = _build_env_updates(config)
+    updates, defaults = _build_env_updates(
+        config,
+        requested_stack_version=requested_stack_version,
+    )
     if env_created:
         # Fresh install: overwrite template placeholders with generated secrets.
         _upsert_env_values(env_file, updates, defaults=defaults, console=console)
@@ -493,7 +480,7 @@ def run_setup(
     auth_mode: AuthMode | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
-    start_local_stack: bool | None,
+    start_stack: bool | None,
     install_docker: bool | None,
     yes: bool,
     manual_secrets: bool,
@@ -503,10 +490,10 @@ def run_setup(
     resolved_mode = _resolve_mode(mode, yes=yes)
     resolved_backend_url = _resolve_backend_url(backend_url, yes=yes)
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
-    resolved_start_local_stack = _resolve_bool(
-        start_local_stack,
+    resolved_start_stack = _resolve_bool(
+        start_stack,
         yes_default=yes,
-        prompt="Start local stack with docker compose after install?",
+        prompt="Start stack with docker compose after install?",
         default=True,
     )
     resolved_install_docker = _resolve_bool(
@@ -550,7 +537,7 @@ def run_setup(
         auth_mode=resolved_auth_mode,
         api_key=resolved_api_key,
         chatkit_domain_key=resolved_chatkit_domain_key,
-        start_local_stack=resolved_start_local_stack,
+        start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
     )
 
@@ -606,31 +593,31 @@ def execute_setup(
     stack_version: str | None = None,
 ) -> None:
     """Run setup/upgrade actions based on the selected options."""
-    stack_dir, env_file = _ensure_local_stack_assets(
+    stack_dir, env_file = _ensure_stack_assets(
         config=config,
         console=console,
         stack_version=stack_version,
     )
-    config.local_stack_project_dir = str(stack_dir)
-    config.local_stack_env_file = str(env_file)
+    config.stack_project_dir = str(stack_dir)
+    config.stack_env_file = str(env_file)
     _warn_chatkit_domain_key_missing(env_file=env_file, console=console)
 
-    if config.start_local_stack and not _has_binary("docker"):
+    if config.start_stack and not _has_binary("docker"):
         if config.install_docker_if_missing:
             console.print(
                 "[yellow]Docker is missing and automatic installation is not "
-                "available yet. Continuing without starting the local stack. "
+                "available yet. Continuing without starting the stack. "
                 "Install Docker Desktop (https://docs.docker.com/get-docker/) "
-                "and rerun with --start-local-stack.[/yellow]"
+                "and rerun with --start-stack.[/yellow]"
             )
-            config.start_local_stack = False
+            config.start_stack = False
         else:
             raise typer.BadParameter(
-                "Docker is required to start the local stack, and you chose "
+                "Docker is required to start the stack, and you chose "
                 "--skip-docker-install. Install Docker and rerun setup."
             )
 
-    if config.start_local_stack and _has_binary("docker"):
+    if config.start_stack and _has_binary("docker"):
         compose_args = [
             "docker",
             "compose",
@@ -640,11 +627,8 @@ def execute_setup(
             str(stack_dir),
         ]
 
-        if config.mode == "upgrade":
-            _run_command([*compose_args, "build", "--no-cache"], console=console)
-            _run_command([*compose_args, "up", "-d"], console=console)
-        else:
-            _run_command([*compose_args, "up", "-d", "--build"], console=console)
+        _run_command([*compose_args, "pull"], console=console)
+        _run_command([*compose_args, "up", "-d"], console=console)
 
         if not _poll_backend_health(config.backend_url, console=console):
             compose_file = stack_dir / "docker-compose.yml"
@@ -664,16 +648,16 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         "backend_url": config.backend_url,
         "auth_mode": config.auth_mode,
         "stack_assets_synced": True,
-        "local_stack_started": config.start_local_stack,
-        "local_stack_project_dir": config.local_stack_project_dir,
-        "local_stack_env_file": config.local_stack_env_file,
+        "stack_started": config.start_stack,
+        "stack_project_dir": config.stack_project_dir,
+        "stack_env_file": config.stack_env_file,
         "completed_at": datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
     }
 
     console.print("\n[bold green]Setup complete[/bold green]")
     console.print_json(json.dumps(summary))
 
-    if config.start_local_stack:
+    if config.start_stack:
         console.print(
             "\n[yellow]Note:[/yellow] Canvas may take 2-3 minutes on first "
             "startup while npm installs dependencies."

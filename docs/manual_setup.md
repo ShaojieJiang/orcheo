@@ -5,7 +5,7 @@ This guide covers manual installation and configuration of Orcheo for users who 
 ## Quick Start
 
 For one-line installation, see the [Quick Start section on the landing page](index.md#quick-start).
-If you already have the SDK installed, run `orcheo install` to set up or upgrade the local stack.
+If you already have the SDK installed, run `orcheo install` to set up or upgrade the stack.
 
 ## Prerequisites
 
@@ -19,9 +19,9 @@ For a complete containerized setup with PostgreSQL, Redis, Celery workers, and C
 
 ### Quick Start
 
-1. **Set up the local stack** using the CLI (this downloads compose files and creates `.env` automatically):
+1. **Set up the stack** using the CLI (this downloads compose files and creates `.env` automatically):
    ```bash
-   orcheo install --start-local-stack
+   orcheo install --start-stack
    ```
 
    The CLI syncs stack assets to `~/.orcheo/stack` (override with `ORCHEO_STACK_DIR`).
@@ -54,8 +54,8 @@ docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DI
 # Stop all services
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" down
 
-# Rebuild after changes (--no-cache ensures fresh builds with latest PyPI packages)
-docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" build --no-cache
+# Refresh to the latest published stack image
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" pull
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" up -d
 ```
 
@@ -128,7 +128,7 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 If setup/upgrade is interrupted:
 
 1. Re-run `orcheo install` (idempotent reconciliation is the default path).
-2. If local stack services are inconsistent, run:
+2. If stack services are inconsistent, run:
    `STACK_DIR="${ORCHEO_STACK_DIR:-$HOME/.orcheo/stack}"` then
    `docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" down`
    and

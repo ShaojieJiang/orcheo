@@ -33,7 +33,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
   - Dependencies: Task 1.1
 - [x] Task 1.3: Implement prerequisite checks and actionable error messaging
   - Dependencies: Task 1.1
-- [x] Task 1.4: Implement guided prompts (install/upgrade mode, backend URL, auth mode, optional local stack start)
+- [x] Task 1.4: Implement guided prompts (install/upgrade mode, backend URL, auth mode, optional stack start)
   - Dependencies: Task 1.1
 - [x] Task 1.4a: Implement secret prompt behavior defaults (auto-generate locally for eligible secrets, explicit manual-entry opt-out)
   - Dependencies: Task 1.4
@@ -45,7 +45,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
   - Dependencies: Task 1.4
 - [x] Task 1.8: Add summary output with installed versions and next steps
   - Dependencies: Task 1.6
-- [x] Task 1.9: Provision local-stack compose assets from canonical repo path (`deploy/stack`) before Docker startup
+- [x] Task 1.9: Provision stack compose assets from canonical repo path (`deploy/stack`) before Docker startup
   - Dependencies: Tasks 1.2, 1.6
 
 ---
@@ -125,7 +125,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
   - Dependencies: Milestones 1, 2, 4
 - [x] Task 5.5: Update Canvas and CLI docs/screenshots for version/reminder UX
   - Dependencies: Milestones 3, 4
-- [x] Task 5.5a: Align setup docs and env-var docs with canonical local-stack asset source (`deploy/stack`) and override knobs
+- [x] Task 5.5a: Align setup docs and env-var docs with canonical stack asset source (`deploy/stack`) and override knobs
   - Dependencies: Milestone 1
 - [ ] Task 5.6: Run end-to-end QA matrix (fresh install, upgrade, stale version reminders)
   - Dependencies: Milestones 1, 3, 4

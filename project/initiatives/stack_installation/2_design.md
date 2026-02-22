@@ -33,10 +33,10 @@ The implementation uses a shared backend metadata contract for installed/latest 
   - Handles prerequisite checks, prompt collection, install/upgrade execution, and summary output.
   - Key dependencies: existing CLI config/state modules, shell command runner, package managers (uv/npm).
 
-- **Local Stack Asset Bundle (`deploy/stack/`)**
+- **Stack Asset Bundle (`deploy/stack/`)**
   - Stores source-of-truth compose assets (`docker-compose.yml`, `Dockerfile.orcheo`,
     `.env.example`, `chatkit_widgets/*`).
-  - Consumed by setup flow via raw-content download into a user-local stack directory
+  - Consumed by setup flow via raw-content download into a user-managed stack directory
     (`ORCHEO_STACK_DIR`, default `~/.orcheo/stack`).
   - Key dependencies: GitHub raw delivery (or mirror override via `ORCHEO_STACK_ASSET_BASE_URL`).
 
@@ -62,18 +62,18 @@ The implementation uses a shared backend metadata contract for installed/latest 
 1. User runs `orcheo install` (or bootstrap equivalent).
 2. Bootstrap (if used) ensures `uv` exists; if missing, it installs `uv` or prints exact
    install commands and retries handoff.
-3. CLI checks prerequisites (Docker for local stack startup).
+3. CLI checks prerequisites (Docker for stack startup).
 4. CLI prompts for mode and key inputs, defaulting sensible values on Enter.
    - Mode: fresh install or in-place upgrade.
    - Backend URL.
    - Auth mode.
-   - Optional local stack startup.
+   - Optional stack startup.
    - If Docker is missing: default prompt is to install Docker, with explicit skip option for
      remote-backend-only usage.
 4. CLI performs install or upgrade steps:
-   - Local-stack asset bootstrap/sync (`deploy/stack` -> `ORCHEO_STACK_DIR`)
+   - Stack asset bootstrap/sync (`deploy/stack` -> `ORCHEO_STACK_DIR`)
    - `.env` reconciliation with setup-selected values
-   - Optional `docker compose ... up -d --build` against the provisioned stack directory
+   - Optional `docker compose ... pull` then `docker compose ... up -d` against the provisioned stack directory
 5. In upgrade mode, CLI reconciles state idempotently and preserves existing configuration.
 6. CLI validates resulting versions and backend reachability (if configured).
 7. CLI prints summary and next steps.
@@ -229,7 +229,7 @@ Behavior:
 Feature flags/config:
 - `ORCHEO_DISABLE_UPDATE_CHECK=1` disables CLI update reminders.
 - `ORCHEO_UPDATE_CHECK_TTL_HOURS` controls backend cache/check windows.
-- `ORCHEO_STACK_DIR` controls local stack project directory for compose assets.
+- `ORCHEO_STACK_DIR` controls stack project directory for compose assets.
 - `ORCHEO_STACK_ASSET_BASE_URL` controls raw asset source for stack provisioning.
 
 ## P1 Extensions
