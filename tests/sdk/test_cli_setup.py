@@ -22,7 +22,7 @@ def test_install_command_non_interactive_defaults(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key=None,
-            start_local_stack=True,
+            start_stack=True,
             install_docker_if_missing=True,
         )
 
@@ -66,7 +66,7 @@ def test_install_command_respects_no_update_check(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key=None,
-            start_local_stack=True,
+            start_stack=True,
             install_docker_if_missing=True,
         ),
     )
@@ -99,7 +99,7 @@ def test_install_upgrade_subcommand_forces_upgrade(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key=None,
-            start_local_stack=True,
+            start_stack=True,
             install_docker_if_missing=True,
         )
 
@@ -132,7 +132,7 @@ def test_install_command_passes_chatkit_domain_key(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key="domain_pk_test",
-            start_local_stack=False,
+            start_stack=False,
             install_docker_if_missing=True,
         )
 
@@ -176,7 +176,7 @@ def test_install_command_passes_stack_version(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key=None,
-            start_local_stack=False,
+            start_stack=False,
             install_docker_if_missing=True,
         ),
     )
@@ -214,7 +214,7 @@ def test_install_upgrade_command_passes_stack_version(
             auth_mode="api-key",
             api_key="generated",
             chatkit_domain_key=None,
-            start_local_stack=False,
+            start_stack=False,
             install_docker_if_missing=True,
         ),
     )

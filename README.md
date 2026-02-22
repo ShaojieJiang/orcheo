@@ -25,7 +25,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 Use the installation path that matches your setup:
 
-> Prerequisite: Docker Desktop/Engine must be installed to run the local stack (`orcheo install --start-local-stack`).
+> Prerequisite: Docker Desktop/Engine must be installed to run the stack (`orcheo install --start-stack`).
 
 <details open>
 <summary>macOS/Linux (bootstrap)</summary>
@@ -35,8 +35,8 @@ curl -fsSL https://ai-colleagues.com/install.sh | sh
 ```
 
 ```bash
-# Unattended full local stack from scratch
-curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-local-stack
+# Unattended full stack from scratch
+curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
 ```
 
 </details>

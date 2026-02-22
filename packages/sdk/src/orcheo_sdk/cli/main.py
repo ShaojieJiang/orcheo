@@ -220,7 +220,7 @@ def _run_install_flow(
     auth_mode: str | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
-    start_local_stack: bool | None,
+    start_stack: bool | None,
     install_docker: bool | None,
     manual_secrets: bool,
     forced_mode: SetupMode | None = None,
@@ -234,7 +234,7 @@ def _run_install_flow(
         auth_mode=auth_value,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
-        start_local_stack=start_local_stack,
+        start_stack=start_stack,
         install_docker=install_docker,
         yes=yes,
         manual_secrets=manual_secrets,
@@ -291,10 +291,10 @@ def install_command(
             ),
         ),
     ] = None,
-    start_local_stack: Annotated[
+    start_stack: Annotated[
         bool | None,
         typer.Option(
-            "--start-local-stack/--skip-local-stack",
+            "--start-stack/--skip-stack",
             help="Start or skip docker compose stack startup after syncing assets.",
         ),
     ] = None,
@@ -325,7 +325,7 @@ def install_command(
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
-        start_local_stack=start_local_stack,
+        start_stack=start_stack,
         install_docker=install_docker,
         manual_secrets=manual_secrets,
     )
@@ -369,10 +369,10 @@ def install_upgrade_command(
             ),
         ),
     ] = None,
-    start_local_stack: Annotated[
+    start_stack: Annotated[
         bool | None,
         typer.Option(
-            "--start-local-stack/--skip-local-stack",
+            "--start-stack/--skip-stack",
             help="Start or skip docker compose stack startup after syncing assets.",
         ),
     ] = None,
@@ -401,7 +401,7 @@ def install_upgrade_command(
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
-        start_local_stack=start_local_stack,
+        start_stack=start_stack,
         install_docker=install_docker,
         manual_secrets=manual_secrets,
         forced_mode="upgrade",

@@ -95,11 +95,11 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade (asset sync, `.env` updates, optional compose startup). |
 | `orcheo install upgrade [--yes] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
 
-`orcheo install` syncs local stack assets into `~/.orcheo/stack` (or
+`orcheo install` syncs stack assets into `~/.orcheo/stack` (or
 `ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.
 Use `--stack-version` (or `ORCHEO_STACK_VERSION`) to pin stack assets to a
-specific `stack-v*` release.
-When startup is enabled (`--start-local-stack`), setup then runs Docker Compose
+specific `stack-v*` tag and set `ORCHEO_STACK_IMAGE` accordingly.
+When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
 features stay disabled until the key is set.

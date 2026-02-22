@@ -23,7 +23,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 Use the installation path that matches your setup:
 
-> Prerequisite: Docker Desktop/Engine must be installed to run the local stack (`orcheo install --start-local-stack`).
+> Prerequisite: Docker Desktop/Engine must be installed to run the stack (`orcheo install --start-stack`).
 
 === "macOS/Linux (bootstrap)"
 
@@ -47,11 +47,11 @@ Use the installation path that matches your setup:
 === "Scripts/CI (non-interactive)"
 
     ```bash
-    orcheo install --yes --start-local-stack
-    orcheo install upgrade --yes --start-local-stack
+    orcheo install --yes --start-stack
+    orcheo install upgrade --yes --start-stack
     ```
 
-`orcheo install` syncs local stack assets into `~/.orcheo/stack` (or
+`orcheo install` syncs stack assets into `~/.orcheo/stack` (or
 `ORCHEO_STACK_DIR`), updates `.env` with setup-selected values, and can start
 the stack with Docker Compose. Setup prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI

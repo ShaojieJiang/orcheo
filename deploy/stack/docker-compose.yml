@@ -33,10 +33,7 @@ services:
       retries: 5
 
   backend:
-    image: orcheo-app:local
-    build:
-      context: .
-      dockerfile: Dockerfile.orcheo
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/shaojiejiang/orcheo-stack:latest}
     env_file: .env
     ports:
       - "8000:8000"
@@ -69,10 +66,7 @@ services:
     command: python -m uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000
 
   worker:
-    image: orcheo-app:local
-    build:
-      context: .
-      dockerfile: Dockerfile.orcheo
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/shaojiejiang/orcheo-stack:latest}
     env_file: .env
     volumes:
       - orcheo_data:/data
@@ -101,10 +95,7 @@ services:
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
   celery-beat:
-    image: orcheo-app:local
-    build:
-      context: .
-      dockerfile: Dockerfile.orcheo
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/shaojiejiang/orcheo-stack:latest}
     env_file: .env
     volumes:
       - orcheo_data:/data

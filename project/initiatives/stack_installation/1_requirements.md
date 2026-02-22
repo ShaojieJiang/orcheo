@@ -39,7 +39,7 @@ Ship a single guided setup/upgrade command so users can install or upgrade Orche
 | CLI user | receive update reminders on CLI use, at most once per 24 hours | I stay up to date without noisy output | P0 | Update checks run only when CLI commands are invoked, and at most once every 24h |
 
 ### Context, Problems, Opportunities
-Current setup historically relied on manual steps and guide-following. The current canonical bootstrap path and guided CLI flow improve this, but documentation and implementation need to stay aligned around one source of truth for local-stack assets and startup behavior. Canvas currently does not expose its own version and connected backend version side-by-side, and CLI has no periodic update reminder flow. This creates avoidable support load and version skew between `orcheo-sdk`, `orcheo-backend`, and `orcheo-canvas`.
+Current setup historically relied on manual steps and guide-following. The current canonical bootstrap path and guided CLI flow improve this, but documentation and implementation need to stay aligned around one source of truth for stack assets and startup behavior. Canvas currently does not expose its own version and connected backend version side-by-side, and CLI has no periodic update reminder flow. This creates avoidable support load and version skew between `orcheo-sdk`, `orcheo-backend`, and `orcheo-canvas`.
 
 ### Product goals and Non-goals
 Goals:
@@ -61,13 +61,13 @@ P0 installation flow:
 - Keep install/upgrade orchestration logic in a single CLI implementation (bootstrap only handles environment detection, prerequisite setup, and handoff).
 - Windows support is P1 for full validation/hardening; a PowerShell bootstrap entrypoint exists and follows the same thin handoff pattern.
 - Support two primary modes: fresh install and in-place upgrade.
-- Prompt for key inputs with defaults (backend URL, auth mode, optional local stack start). Supported auth modes (e.g., API key, OAuth) and credential handling during setup should be defined in the design doc.
-- For secrets that can be safely generated on the local machine (for example, local stack `SECRET_KEY` values), setup should default to generating them for the user. Prompt for manual entry only when required by explicit user choice or external integration constraints.
+- Prompt for key inputs with defaults (backend URL, auth mode, optional stack start). Supported auth modes (e.g., API key, OAuth) and credential handling during setup should be defined in the design doc.
+- For secrets that can be safely generated on the local machine (for example, stack `SECRET_KEY` values), setup should default to generating them for the user. Prompt for manual entry only when required by explicit user choice or external integration constraints.
 - Support non-interactive mode (`--yes` + flags) for CI/scripts.
 - Validate prerequisites and print actionable remediation (Docker for stack startup).
 - If `uv` is missing, bootstrap should install it (or provide exact install commands) and continue.
 - If Docker is missing, prompt users to either install Docker (default choice) or skip Docker-dependent steps when they plan to use a remote backend. Without Docker, users can still install and use the CLI and SDK against a remote backend; local full-stack mode (backend + Canvas + Redis + worker) requires Docker.
-- For local full-stack startup, provision required compose assets from a canonical source (`deploy/stack/`) into a user-local stack directory (default `~/.orcheo/stack`) before running Docker Compose.
+- For local full-stack startup, provision required compose assets from a canonical source (`deploy/stack/`) into a user-managed stack directory (default `~/.orcheo/stack`) before running Docker Compose.
 - Allow stack asset source and target overrides via environment variables (`ORCHEO_STACK_ASSET_BASE_URL`, `ORCHEO_STACK_DIR`) for mirrors and custom environments.
 - Be idempotent: rerunning should reconcile state safely rather than duplicate/conflict.
 - End with a summary that includes synced stack location, `.env` path, and next commands.
@@ -115,7 +115,7 @@ Use a shared version metadata contract exposed by backend and consumed by Canvas
   - Unix shell bootstrap (`sh`) as the only P0 bootstrap entrypoint.
   - Windows PowerShell bootstrap is P1.
   - Bootstrap remains thin and delegates install/upgrade decisions to CLI flow.
-- Local stack assets:
+- Stack assets:
   - Source-of-truth assets are stored in-repo under `deploy/stack/`.
   - Setup downloads missing assets from a configurable raw content base URL into
     `ORCHEO_STACK_DIR` (default `~/.orcheo/stack`) before compose startup.
@@ -177,4 +177,4 @@ Risk Mitigation:
 
 ## APPENDIX
 - Canonical bootstrap entrypoint: `https://ai-colleagues.com/install.sh`
-- Canonical local-stack asset path: `deploy/stack/`
+- Canonical stack asset path: `deploy/stack/`
