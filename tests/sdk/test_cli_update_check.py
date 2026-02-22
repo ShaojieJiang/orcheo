@@ -24,12 +24,8 @@ def test_should_check_once_per_ttl_window(tmp_path: Path) -> None:
     assert should_check(cache, profile="other", api_url="http://other.test")
 
 
-def test_should_check_false_when_recent_entry_exists(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_should_check_false_when_recent_entry_exists(tmp_path: Path) -> None:
     cache = _cache(tmp_path)
-
-    monkeypatch.setenv("ORCHEO_UPDATE_CHECK_TTL_HOURS", "24")
     from orcheo_sdk.cli import update_check
 
     key = update_check._cache_key("default", "http://api.test")

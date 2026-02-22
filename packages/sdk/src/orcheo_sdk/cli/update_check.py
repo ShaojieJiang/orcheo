@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import hashlib
-import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
@@ -15,7 +14,7 @@ from orcheo_sdk.cli.http import ApiClient
 
 
 _CHECK_CACHE_PREFIX = "update_check"
-_DEFAULT_TTL_HOURS = 24
+_UPDATE_CHECK_TTL_HOURS = 24
 
 
 @dataclass(slots=True)
@@ -62,16 +61,7 @@ def _cache_key(profile: str | None, api_url: str) -> str:
 
 
 def _read_ttl() -> timedelta:
-    raw = os.getenv("ORCHEO_UPDATE_CHECK_TTL_HOURS")
-    if not raw:
-        return timedelta(hours=_DEFAULT_TTL_HOURS)
-    try:
-        hours = int(raw)
-    except ValueError:
-        hours = _DEFAULT_TTL_HOURS
-    if hours <= 0:
-        hours = _DEFAULT_TTL_HOURS
-    return timedelta(hours=hours)
+    return timedelta(hours=_UPDATE_CHECK_TTL_HOURS)
 
 
 def should_check(cache: CacheManager, *, profile: str | None, api_url: str) -> bool:

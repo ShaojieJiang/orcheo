@@ -404,7 +404,20 @@ def run_setup(
 
 
 _HEALTH_POLL_INTERVAL_SECONDS = 5
-_HEALTH_POLL_TIMEOUT_SECONDS = 60
+_DEFAULT_HEALTH_POLL_TIMEOUT_SECONDS = 60
+
+
+def _read_health_poll_timeout_seconds() -> int:
+    raw = os.getenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS")
+    if not raw:
+        return _DEFAULT_HEALTH_POLL_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_HEALTH_POLL_TIMEOUT_SECONDS
+    if value < 0:
+        return _DEFAULT_HEALTH_POLL_TIMEOUT_SECONDS
+    return value
 
 
 def _poll_backend_health(
@@ -414,11 +427,12 @@ def _poll_backend_health(
 ) -> bool:
     """Poll the backend until it responds or the timeout expires."""
     health_url = f"{backend_url.rstrip('/')}/api/system/health"
+    timeout_seconds = _read_health_poll_timeout_seconds()
     console.print(
         f"[cyan]Waiting for backend at {health_url} "
-        f"(up to {_HEALTH_POLL_TIMEOUT_SECONDS}s)...[/cyan]"
+        f"(up to {timeout_seconds}s)...[/cyan]"
     )
-    deadline = time.monotonic() + _HEALTH_POLL_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
             with urlopen(health_url, timeout=_HEALTH_POLL_INTERVAL_SECONDS) as resp:  # noqa: S310
@@ -473,9 +487,10 @@ def execute_setup(config: SetupConfig, *, console: Console) -> None:
 
         if not _poll_backend_health(config.backend_url, console=console):
             compose_file = stack_dir / "docker-compose.yml"
+            timeout_seconds = _read_health_poll_timeout_seconds()
             console.print(
                 "[yellow]Backend did not become healthy within "
-                f"{_HEALTH_POLL_TIMEOUT_SECONDS} seconds.\n"
+                f"{timeout_seconds} seconds.\n"
                 "Check service logs with:[/yellow]\n"
                 f"  docker compose -f {compose_file} logs"
             )

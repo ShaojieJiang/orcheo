@@ -336,7 +336,7 @@ def test_poll_backend_health_success(
 
     monkeypatch.setattr("orcheo_sdk.cli.setup.urlopen", _urlopen)
     monkeypatch.setattr("orcheo_sdk.cli.setup._HEALTH_POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr("orcheo_sdk.cli.setup._HEALTH_POLL_TIMEOUT_SECONDS", 5)
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "5")
 
     console = Console(record=True)
     assert _poll_backend_health("http://localhost:8000", console=console)
@@ -357,7 +357,7 @@ def test_poll_backend_health_timeout(
 
     monkeypatch.setattr("orcheo_sdk.cli.setup.urlopen", _urlopen)
     monkeypatch.setattr("orcheo_sdk.cli.setup._HEALTH_POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr("orcheo_sdk.cli.setup._HEALTH_POLL_TIMEOUT_SECONDS", 0)
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "0")
 
     console = Console(record=True)
     assert not _poll_backend_health("http://localhost:8000", console=console)

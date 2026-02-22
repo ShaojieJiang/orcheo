@@ -16,7 +16,7 @@ _PYPI_API_URL = "https://pypi.org/pypi"
 _NPM_LATEST_URL = "https://registry.npmjs.org"
 _DEFAULT_TIMEOUT_SECONDS = 3.0
 _DEFAULT_RETRIES = 1
-_DEFAULT_TTL_HOURS = 12
+_UPDATE_CHECK_TTL_HOURS = 24
 
 
 @dataclass(slots=True)
@@ -75,7 +75,7 @@ def _read_canvas_current_version() -> str | None:
 
 
 def _fetch_json(url: str, *, timeout: float, retries: int) -> dict[str, Any]:
-    last_exc: Exception | None = None
+    last_exc: httpx.HTTPError | ValueError | None = None
     for _ in range(max(1, retries + 1)):
         try:
             response = httpx.get(url, timeout=timeout)
@@ -85,7 +85,7 @@ def _fetch_json(url: str, *, timeout: float, retries: int) -> dict[str, Any]:
                 return payload
             msg = f"Unexpected registry payload from {url}."
             raise ValueError(msg)
-        except Exception as exc:  # pragma: no cover - exercised via callers
+        except (httpx.HTTPError, ValueError) as exc:  # pragma: no cover
             last_exc = exc
     assert last_exc is not None
     raise last_exc
@@ -100,7 +100,7 @@ def _fetch_pypi_latest(
             timeout=timeout,
             retries=retries,
         )
-    except Exception:
+    except (httpx.HTTPError, ValueError):
         return None
 
     info = payload.get("info")
@@ -118,22 +118,11 @@ def _fetch_npm_latest(package_name: str, *, timeout: float, retries: int) -> str
             timeout=timeout,
             retries=retries,
         )
-    except Exception:
+    except (httpx.HTTPError, ValueError):
         return None
 
     version_value = payload.get("version")
     return version_value if isinstance(version_value, str) else None
-
-
-def _read_ttl_hours() -> int:
-    raw = os.getenv("ORCHEO_UPDATE_CHECK_TTL_HOURS")
-    if not raw:
-        return _DEFAULT_TTL_HOURS
-    try:
-        value = int(raw)
-    except ValueError:
-        return _DEFAULT_TTL_HOURS
-    return value if value > 0 else _DEFAULT_TTL_HOURS
 
 
 def _read_timeout_seconds() -> float:
@@ -206,7 +195,7 @@ def _build_payload() -> dict[str, Any]:
 def get_system_info_payload() -> dict[str, Any]:
     """Return cached system version metadata payload."""
     now = datetime.now(tz=UTC)
-    ttl = timedelta(hours=_read_ttl_hours())
+    ttl = timedelta(hours=_UPDATE_CHECK_TTL_HOURS)
 
     with _cache_lock:
         entry = _cache_state["entry"]

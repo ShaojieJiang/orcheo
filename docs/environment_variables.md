@@ -140,9 +140,9 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_SERVICE_TOKEN` | _none_ | Bearer token string | Service authentication token used by the CLI/SDK and emitted in generated code snippets (`cli/config.py`, `services/codegen.py`). |
 | `ORCHEO_HUMAN` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When set to a truthy value, the CLI uses human-friendly Rich output (colored tables, panels) instead of machine-readable format (JSON, Markdown tables). Equivalent to passing `--human` (`cli/main.py`). |
 | `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |
-| `ORCHEO_UPDATE_CHECK_TTL_HOURS` | `24` (CLI), `12` (backend cache) | Positive integer | Controls update-check cadence for CLI reminder gating and backend `/api/system/info` registry-cache TTL (`cli/update_check.py`, `app/versioning.py`). |
 | `ORCHEO_STACK_DIR` | `~/.orcheo/stack` | Directory path | Target directory for `orcheo install` stack assets and generated `.env` updates (`cli/setup.py`). |
 | `ORCHEO_STACK_ASSET_BASE_URL` | `https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack` | HTTP(S) URL | Base URL used by setup to sync local-stack compose assets (downloads when missing, updates when changed) (`cli/setup.py`). |
+| `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID for CLI login. Can also be set in a `cli.toml` profile via `auth_client_id` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | OAuth scopes requested during CLI login. Can also be set in a `cli.toml` profile via `auth_scopes` (`cli/auth/config.py`). |

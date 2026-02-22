@@ -199,10 +199,10 @@ export default function VersionStatus() {
     if (!systemInfo) {
       return false;
     }
-    if (compareSemver(canvasVersion, systemInfo.canvas.latest_version) < 0) {
+    if (systemInfo.canvas.update_available) {
       return true;
     }
-    return systemInfo.canvas.update_available;
+    return compareSemver(canvasVersion, systemInfo.canvas.latest_version) < 0;
   }, [canvasVersion, systemInfo]);
 
   const showReminder =
