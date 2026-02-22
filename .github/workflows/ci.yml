@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.cursor/**'
+      - '.cursorrules'
+      - '.cursorignore'
+      - '.devcontainer/**'
+      - '.readthedocs.yaml'
+      - 'mkdocs.yml'
+      - '.github/ISSUE_TEMPLATE/**'
     tags:
       - 'core-v*'
       - 'backend-v*'
@@ -14,6 +25,17 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.cursor/**'
+      - '.cursorrules'
+      - '.cursorignore'
+      - '.devcontainer/**'
+      - '.readthedocs.yaml'
+      - 'mkdocs.yml'
+      - '.github/ISSUE_TEMPLATE/**'
     types:
       - opened
       - synchronize
