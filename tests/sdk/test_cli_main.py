@@ -342,3 +342,21 @@ def test_run_human_skips_inject_when_flag_present(
         "node",
         "list",
     ]
+
+
+def test_parse_setup_mode_branches() -> None:
+    from orcheo_sdk.cli.main import _parse_setup_mode
+
+    assert _parse_setup_mode(None) is None
+    assert _parse_setup_mode("  install ") == "install"
+    with pytest.raises(typer.BadParameter, match="--mode must be one of"):
+        _parse_setup_mode("invalid")
+
+
+def test_parse_auth_mode_branches() -> None:
+    from orcheo_sdk.cli.main import _parse_auth_mode
+
+    assert _parse_auth_mode(None) is None
+    assert _parse_auth_mode("  oauth ") == "oauth"
+    with pytest.raises(typer.BadParameter, match="--auth-mode must be one of"):
+        _parse_auth_mode("invalid")

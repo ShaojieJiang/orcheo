@@ -1,14 +1,17 @@
 # Releasing Orcheo Packages
 
-This repository now publishes three Python distributions independently:
+This repository now publishes three Python distributions independently, plus a
+versioned stack container image release:
 
 - `orcheo` – core orchestration engine (`core-v*` tags)
 - `orcheo-sdk` – Python SDK helpers (`sdk-v*` tags)
 - `orcheo-backend` – deployable FastAPI wrapper (`backend-v*` tags)
+- `ghcr.io/shaojiejiang/orcheo-stack` – stack runtime image (`stack-v*` tags)
 
-The `build-and-release` job inside `.github/workflows/ci.yml` builds and uploads the
-correct package whenever a matching tag is pushed. Follow the steps below to prepare
-and cut a release.
+The `build-and-release` and `stack-release` jobs inside
+`.github/workflows/ci.yml` publish the matching package/image whenever a tag
+with the corresponding prefix is pushed. Follow the steps below to prepare and
+cut a release.
 
 ## Prerequisites
 - `uv` installed locally, matching the version used in CI.
@@ -25,6 +28,7 @@ and cut a release.
    bump2version patch           # core package; produces tag core-vX.Y.Z
    (cd apps/backend && bump2version minor)   # tag backend-vX.Y.Z
    (cd packages/sdk && bump2version patch)   # tag sdk-vX.Y.Z
+   (cd deploy/stack && bump2version patch)   # tag stack-vX.Y.Z
    ```
 
    Each config now commits and creates the tag with the correct prefix; remove
@@ -47,10 +51,12 @@ and cut a release.
 | `orcheo`         | `core-vX.Y.Z`|
 | `orcheo-backend` | `backend-vX.Y.Z` |
 | `orcheo-sdk`     | `sdk-vX.Y.Z` |
+| stack image | `stack-vX.Y.Z` |
 
-CI automatically runs the lint, coverage, and Postgres checks, then executes the
-`build-and-release` job to publish the tagged package to PyPI. No manual uploads are
-necessary.
+CI automatically runs checks, then executes `build-and-release` for Python tags
+or `stack-release` for stack tags. The stack release job publishes
+`ghcr.io/shaojiejiang/orcheo-stack:<version>` and
+`ghcr.io/shaojiejiang/orcheo-stack:latest`.
 
 ## Package-specific Notes
 ### orcheo (core)
@@ -68,6 +74,11 @@ necessary.
 1. Run `(cd packages/sdk && bump2version <part>)` to update the version.
 2. Update SDK documentation or examples if interfaces changed.
 3. Push the release commit and tag: `git push origin HEAD && git push origin sdk-vX.Y.Z`.
+
+### stack image
+1. Run `(cd deploy/stack && bump2version <part>)` to create `stack-vX.Y.Z`.
+2. Ensure `deploy/stack/` contains the intended compose and widget assets.
+3. Push the release commit and tag: `git push origin HEAD && git push origin stack-vX.Y.Z`.
 
 ## Post-release Follow-up
 - Announce the release, update sample code, and communicate dependency expectations

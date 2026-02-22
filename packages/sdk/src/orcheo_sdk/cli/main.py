@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 import click
 import typer
 from rich.console import Console
@@ -23,7 +23,15 @@ from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
 from orcheo_sdk.cli.service_token import app as service_token_app
+from orcheo_sdk.cli.setup import (
+    AuthMode,
+    SetupMode,
+    execute_setup,
+    print_summary,
+    run_setup,
+)
 from orcheo_sdk.cli.state import CLIState
+from orcheo_sdk.cli.update_check import maybe_print_update_notice
 from orcheo_sdk.cli.workflow import workflow_app
 
 
@@ -60,6 +68,28 @@ def _version_callback(value: bool) -> None:
     raise typer.Exit()
 
 
+def _parse_setup_mode(value: str | None) -> str | None:
+    """Normalize setup mode option values."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"install", "upgrade"}:
+        msg = "--mode must be one of: install, upgrade."
+        raise typer.BadParameter(msg)
+    return normalized
+
+
+def _parse_auth_mode(value: str | None) -> str | None:
+    """Normalize auth mode option values."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"api-key", "oauth"}:
+        msg = "--auth-mode must be one of: api-key, oauth."
+        raise typer.BadParameter(msg)
+    return normalized
+
+
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
 app.add_typer(auth_app, name="auth")
 app.add_typer(node_app, name="node")
@@ -70,6 +100,12 @@ app.add_typer(code_app, name="code")
 app.add_typer(config_app, name="config")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
+install_app = typer.Typer(
+    help="Install or upgrade the Orcheo stack components.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+app.add_typer(install_app, name="install")
 
 
 def _create_token_provider(profile: str | None) -> Callable[[], str | None]:
@@ -122,6 +158,13 @@ def main(
             help="Use human-friendly Rich output instead of machine-readable JSON.",
         ),
     ] = False,
+    no_update_check: Annotated[
+        bool,
+        typer.Option(
+            "--no-update-check",
+            help="Skip startup update checks for this invocation.",
+        ),
+    ] = False,
 ) -> None:
     """Configure shared CLI state and validate configuration."""
     # Skip expensive initialization during shell completion
@@ -157,6 +200,211 @@ def main(
         cache=cache,
         console=console,
         human=resolved_human,
+    )
+    if not no_update_check and not _env_bool("ORCHEO_DISABLE_UPDATE_CHECK"):
+        maybe_print_update_notice(
+            cache=cache,
+            client=client,
+            profile=settings.profile,
+            console=console,
+        )
+
+
+def _run_install_flow(
+    *,
+    console: Console,
+    yes: bool,
+    mode: str | None,
+    stack_version: str | None,
+    backend_url: str | None,
+    auth_mode: str | None,
+    api_key: str | None,
+    chatkit_domain_key: str | None,
+    start_stack: bool | None,
+    install_docker: bool | None,
+    manual_secrets: bool,
+    forced_mode: SetupMode | None = None,
+) -> None:
+    """Run guided install/upgrade for Orcheo components."""
+    mode_value = forced_mode or cast(SetupMode | None, _parse_setup_mode(mode))
+    auth_value = cast(AuthMode | None, _parse_auth_mode(auth_mode))
+    config = run_setup(
+        mode=mode_value,
+        backend_url=backend_url,
+        auth_mode=auth_value,
+        api_key=api_key,
+        chatkit_domain_key=chatkit_domain_key,
+        start_stack=start_stack,
+        install_docker=install_docker,
+        yes=yes,
+        manual_secrets=manual_secrets,
+        console=console,
+    )
+    execute_setup(config, console=console, stack_version=stack_version)
+    print_summary(config, console=console)
+
+
+def _resolve_install_console(ctx: typer.Context) -> Console:
+    state = ctx.obj if isinstance(ctx.obj, CLIState) else None
+    return state.console if state is not None else Console()
+
+
+@install_app.callback(invoke_without_command=True)
+def install_command(
+    ctx: typer.Context,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Accept defaults and run non-interactive install."),
+    ] = False,
+    mode: Annotated[
+        str | None,
+        typer.Option("--mode", help="Install mode: install or upgrade."),
+    ] = None,
+    stack_version: Annotated[
+        str | None,
+        typer.Option(
+            "--stack-version",
+            help=(
+                "Pin stack assets to a specific release version (for example, 0.1.0)."
+            ),
+        ),
+    ] = None,
+    backend_url: Annotated[
+        str | None,
+        typer.Option("--backend-url", help="Backend URL for CLI config."),
+    ] = None,
+    auth_mode: Annotated[
+        str | None,
+        typer.Option("--auth-mode", help="Auth mode: api-key or oauth."),
+    ] = None,
+    api_key: Annotated[
+        str | None,
+        typer.Option("--api-key", help="API key used when --auth-mode api-key."),
+    ] = None,
+    chatkit_domain_key: Annotated[
+        str | None,
+        typer.Option(
+            "--chatkit-domain-key",
+            help=(
+                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Canvas ChatKit. "
+                "Leave unset to skip for now."
+            ),
+        ),
+    ] = None,
+    start_stack: Annotated[
+        bool | None,
+        typer.Option(
+            "--start-stack/--skip-stack",
+            help="Start or skip docker compose stack startup after syncing assets.",
+        ),
+    ] = None,
+    install_docker: Annotated[
+        bool | None,
+        typer.Option(
+            "--install-docker/--skip-docker-install",
+            help="Install Docker when missing, or skip docker-dependent steps.",
+        ),
+    ] = None,
+    manual_secrets: Annotated[
+        bool,
+        typer.Option(
+            "--manual-secrets",
+            help="Prompt for manual secret entry instead of auto-generating.",
+        ),
+    ] = False,
+) -> None:
+    """Run guided install/upgrade for Orcheo components."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_install_flow(
+        console=_resolve_install_console(ctx),
+        yes=yes,
+        mode=mode,
+        stack_version=stack_version,
+        backend_url=backend_url,
+        auth_mode=auth_mode,
+        api_key=api_key,
+        chatkit_domain_key=chatkit_domain_key,
+        start_stack=start_stack,
+        install_docker=install_docker,
+        manual_secrets=manual_secrets,
+    )
+
+
+@install_app.command("upgrade")
+def install_upgrade_command(
+    ctx: typer.Context,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Accept defaults and run non-interactive upgrade."),
+    ] = False,
+    stack_version: Annotated[
+        str | None,
+        typer.Option(
+            "--stack-version",
+            help=(
+                "Pin stack assets to a specific release version (for example, 0.1.0)."
+            ),
+        ),
+    ] = None,
+    backend_url: Annotated[
+        str | None,
+        typer.Option("--backend-url", help="Backend URL for CLI config."),
+    ] = None,
+    auth_mode: Annotated[
+        str | None,
+        typer.Option("--auth-mode", help="Auth mode: api-key or oauth."),
+    ] = None,
+    api_key: Annotated[
+        str | None,
+        typer.Option("--api-key", help="API key used when --auth-mode api-key."),
+    ] = None,
+    chatkit_domain_key: Annotated[
+        str | None,
+        typer.Option(
+            "--chatkit-domain-key",
+            help=(
+                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Canvas ChatKit. "
+                "Leave unset to skip for now."
+            ),
+        ),
+    ] = None,
+    start_stack: Annotated[
+        bool | None,
+        typer.Option(
+            "--start-stack/--skip-stack",
+            help="Start or skip docker compose stack startup after syncing assets.",
+        ),
+    ] = None,
+    install_docker: Annotated[
+        bool | None,
+        typer.Option(
+            "--install-docker/--skip-docker-install",
+            help="Install Docker when missing, or skip docker-dependent steps.",
+        ),
+    ] = None,
+    manual_secrets: Annotated[
+        bool,
+        typer.Option(
+            "--manual-secrets",
+            help="Prompt for manual secret entry instead of auto-generating.",
+        ),
+    ] = False,
+) -> None:
+    """Run guided upgrade command with simplified syntax."""
+    _run_install_flow(
+        console=_resolve_install_console(ctx),
+        yes=yes,
+        mode=None,
+        stack_version=stack_version,
+        backend_url=backend_url,
+        auth_mode=auth_mode,
+        api_key=api_key,
+        chatkit_domain_key=chatkit_domain_key,
+        start_stack=start_stack,
+        install_docker=install_docker,
+        manual_secrets=manual_secrets,
+        forced_mode="upgrade",
     )
 
 

@@ -7,6 +7,7 @@
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
 [![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
+[![GHCR - Stack](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fshaojiejiang%2Forcheo-stack%2Flatest_tag%3Fignore%3Dlatest&query=tag&logo=docker&label=stack)](https://github.com/ShaojieJiang/orcheo/pkgs/container/orcheo-stack)
 [![Documentation](https://readthedocs.org/projects/orcheo/badge/?version=latest)](https://orcheo.readthedocs.io/en/latest/)
 
 Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically. Read the [full documentation](https://orcheo.readthedocs.io/en/latest/) for guides, API reference, and examples.
@@ -21,15 +22,61 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
-## Prerequisites
-
-- **Docker** — for running Redis and other services
-- **Python 3.12+** — required for the backend
-- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
-
 ## Quick Start
 
-The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
+Use the installation path that matches your setup:
+
+> Prerequisite: Docker Desktop/Engine must be installed to run the stack (`orcheo install --start-stack`).
+
+<details open>
+<summary>macOS/Linux (bootstrap)</summary>
+
+```bash
+curl -fsSL https://ai-colleagues.com/install.sh | sh
+```
+
+```bash
+# Unattended full stack from scratch
+curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
+```
+
+</details>
+
+<details>
+<summary>Windows PowerShell (bootstrap)</summary>
+
+```powershell
+irm https://ai-colleagues.com/install.ps1 | iex
+```
+
+</details>
+
+<details>
+<summary>SDK tooling (skip bootstrap)</summary>
+
+```bash
+uv tool install orcheo-sdk
+orcheo install
+```
+
+</details>
+
+<details>
+<summary>Upgrade existing installation</summary>
+
+```bash
+orcheo install upgrade --yes
+```
+
+</details>
+
+`orcheo install` syncs Docker stack assets into `~/.orcheo/stack` (or
+`ORCHEO_STACK_DIR`), updates `.env` with setup-selected values, and can start the
+stack with Docker Compose. Setup will prompt for
+`VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip it and continue, but ChatKit UI
+features will stay disabled until you set a valid key.
+
+The fastest way to get started with workflow building is still the **Agent Skill** approach.
 
 > **Note:** Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.
 

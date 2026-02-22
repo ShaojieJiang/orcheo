@@ -27,6 +27,7 @@ orcheo --version
 | `--service-token <token>` | `ORCHEO_SERVICE_TOKEN` | Override the service token. |
 | `--offline` | — | Fall back to cached data when network calls fail. |
 | `--cache-ttl <hours>` | — | Cache TTL in hours for offline data (default: 24). |
+| `--no-update-check` | `ORCHEO_DISABLE_UPDATE_CHECK=1` | Skip startup update reminders for the current invocation. |
 
 ## Output Modes
 
@@ -91,6 +92,17 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
+| `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade (asset sync, `.env` updates, optional compose startup). |
+| `orcheo install upgrade [--yes] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
+
+`orcheo install` syncs stack assets into `~/.orcheo/stack` (or
+`ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.
+Use `--stack-version` (or `ORCHEO_STACK_VERSION`) to pin stack assets to a
+specific `stack-v*` tag and set `ORCHEO_STACK_IMAGE` accordingly.
+When startup is enabled (`--start-stack`), setup then runs Docker Compose
+(Docker must be installed). Setup also prompts for
+`VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
+features stay disabled until the key is set.
 
 ## Workflow Commands
 

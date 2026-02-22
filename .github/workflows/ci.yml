@@ -4,15 +4,38 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.cursor/**'
+      - '.cursorrules'
+      - '.cursorignore'
+      - '.devcontainer/**'
+      - '.readthedocs.yaml'
+      - 'mkdocs.yml'
+      - '.github/ISSUE_TEMPLATE/**'
     tags:
       - 'core-v*'
       - 'backend-v*'
       - 'sdk-v*'
       - 'agentensor-v*'
       - 'canvas-v*'
+      - 'stack-v*'
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.cursor/**'
+      - '.cursorrules'
+      - '.cursorignore'
+      - '.devcontainer/**'
+      - '.readthedocs.yaml'
+      - 'mkdocs.yml'
+      - '.github/ISSUE_TEMPLATE/**'
     types:
       - opened
       - synchronize
@@ -172,6 +195,51 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: ${{ steps.package.outputs.dist_dir }}
+
+  stack-release:
+    needs: [lint, coverage]
+    if: "startsWith(github.ref, 'refs/tags/stack-v')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine stack image metadata
+        id: stack
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#stack-v}"
+          if [[ "$version" == "$tag" || -z "$version" ]]; then
+            echo "Invalid stack tag: $tag" >&2
+            exit 1
+          fi
+          image_repo=$(printf '%s' "ghcr.io/${GITHUB_REPOSITORY_OWNER}/orcheo-stack" | tr '[:upper:]' '[:lower:]')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "image_repo=${image_repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push stack image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/stack
+          file: deploy/stack/Dockerfile.orcheo
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.stack.outputs.image_repo }}:${{ steps.stack.outputs.version }}
+            ${{ steps.stack.outputs.image_repo }}:latest
 
   canvas:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
