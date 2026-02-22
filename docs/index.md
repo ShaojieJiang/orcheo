@@ -25,7 +25,13 @@ Use the installation path that matches your setup:
 
 > Prerequisite: Docker Desktop/Engine must be installed to run the stack (`orcheo install --start-stack`).
 
-=== "macOS/Linux (bootstrap)"
+=== "macOS (bootstrap)"
+
+    ```bash
+    bash <(curl -fsSL https://ai-colleagues.com/install.sh)
+    ```
+
+=== "Linux (bootstrap)"
 
     ```bash
     curl -fsSL https://ai-colleagues.com/install.sh | sh
