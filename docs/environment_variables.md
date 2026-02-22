@@ -141,7 +141,8 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_HUMAN` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When set to a truthy value, the CLI uses human-friendly Rich output (colored tables, panels) instead of machine-readable format (JSON, Markdown tables). Equivalent to passing `--human` (`cli/main.py`). |
 | `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |
 | `ORCHEO_STACK_DIR` | `~/.orcheo/stack` | Directory path | Target directory for `orcheo install` stack assets and generated `.env` updates (`cli/setup.py`). |
-| `ORCHEO_STACK_ASSET_BASE_URL` | `https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack` | HTTP(S) URL | Base URL used by setup to sync local-stack compose assets (downloads when missing, updates when changed) (`cli/setup.py`). |
+| `ORCHEO_STACK_VERSION` | _unset_ | Stack release version string (for example `0.1.0`) | Pins `orcheo install` to a specific `stack-v*` release when `--stack-version` is not provided (`cli/setup.py`). |
+| `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, it forces per-file sync mode and bypasses release archive downloads (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID for CLI login. Can also be set in a `cli.toml` profile via `auth_client_id` (`cli/auth/config.py`). |

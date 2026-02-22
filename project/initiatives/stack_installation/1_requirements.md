@@ -16,7 +16,7 @@
 | Project Plan | `./3_plan.md` | Shaojie Jiang | Stack Installation Plan |
 | Current Setup Guide | `docs/manual_setup.md` | Shaojie Jiang | Manual Setup |
 | Canonical Bootstrap Path | `https://ai-colleagues.com/install.sh` | Shaojie Jiang | Unix bootstrap entrypoint |
-| Local Stack Asset Source | `deploy/local-stack/` | Shaojie Jiang | Local compose/Dockerfile/env/widget assets |
+| Local Stack Asset Source | `deploy/stack/` | Shaojie Jiang | Local compose/Dockerfile/env/widget assets |
 | Canvas App | `apps/canvas/` | Shaojie Jiang | Canvas UI |
 | CLI Entrypoint | `packages/sdk/src/orcheo_sdk/cli/main.py` | Shaojie Jiang | Orcheo CLI |
 
@@ -67,7 +67,7 @@ P0 installation flow:
 - Validate prerequisites and print actionable remediation (Docker for stack startup).
 - If `uv` is missing, bootstrap should install it (or provide exact install commands) and continue.
 - If Docker is missing, prompt users to either install Docker (default choice) or skip Docker-dependent steps when they plan to use a remote backend. Without Docker, users can still install and use the CLI and SDK against a remote backend; local full-stack mode (backend + Canvas + Redis + worker) requires Docker.
-- For local full-stack startup, provision required compose assets from a canonical source (`deploy/local-stack/`) into a user-local stack directory (default `~/.orcheo/stack`) before running Docker Compose.
+- For local full-stack startup, provision required compose assets from a canonical source (`deploy/stack/`) into a user-local stack directory (default `~/.orcheo/stack`) before running Docker Compose.
 - Allow stack asset source and target overrides via environment variables (`ORCHEO_STACK_ASSET_BASE_URL`, `ORCHEO_STACK_DIR`) for mirrors and custom environments.
 - Be idempotent: rerunning should reconcile state safely rather than duplicate/conflict.
 - End with a summary that includes synced stack location, `.env` path, and next commands.
@@ -116,7 +116,7 @@ Use a shared version metadata contract exposed by backend and consumed by Canvas
   - Windows PowerShell bootstrap is P1.
   - Bootstrap remains thin and delegates install/upgrade decisions to CLI flow.
 - Local stack assets:
-  - Source-of-truth assets are stored in-repo under `deploy/local-stack/`.
+  - Source-of-truth assets are stored in-repo under `deploy/stack/`.
   - Setup downloads missing assets from a configurable raw content base URL into
     `ORCHEO_STACK_DIR` (default `~/.orcheo/stack`) before compose startup.
 - Source of truth package versions:
@@ -177,4 +177,4 @@ Risk Mitigation:
 
 ## APPENDIX
 - Canonical bootstrap entrypoint: `https://ai-colleagues.com/install.sh`
-- Canonical local-stack asset path: `deploy/local-stack/`
+- Canonical local-stack asset path: `deploy/stack/`
