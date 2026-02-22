@@ -19,15 +19,45 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
-## Prerequisites
-
-- **Docker** — for running Redis and other services
-- **Python 3.12+** — required for the backend
-- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
-
 ## Quick Start
 
-The fastest way to get started with Orcheo is through the **Agent Skill** approach — let your AI coding agent handle the setup for you.
+Use the installation path that matches your setup:
+
+> Prerequisite: Docker Desktop/Engine must be installed to run the local stack (`orcheo install --start-local-stack`).
+
+=== "macOS/Linux (bootstrap)"
+
+    ```bash
+    curl -fsSL https://ai-colleagues.com/install.sh | sh
+    ```
+
+=== "Windows PowerShell (bootstrap)"
+
+    ```powershell
+    irm https://ai-colleagues.com/install.ps1 | iex
+    ```
+
+=== "SDK tooling (skip bootstrap)"
+
+    ```bash
+    uv tool install orcheo-sdk
+    orcheo install
+    ```
+
+=== "Scripts/CI (non-interactive)"
+
+    ```bash
+    orcheo install --yes
+    orcheo install upgrade --yes
+    ```
+
+`orcheo install` syncs local stack assets into `~/.orcheo/stack` (or
+`ORCHEO_STACK_DIR`), updates `.env` with setup-selected values, and can start
+the stack with Docker Compose. Setup prompts for
+`VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
+features remain disabled until a valid key is configured.
+
+The Agent Skill flow remains a strong option for workflow authoring with coding agents.
 
 !!! info "Subscription Required"
     Most AI coding agents (Claude Code, Codex CLI, Cursor) require a paid subscription. Free alternatives may exist but have not been tested with Orcheo.

@@ -8,3 +8,5 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+declare const __ORCHEO_CANVAS_VERSION__: string;

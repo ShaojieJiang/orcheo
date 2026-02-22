@@ -27,24 +27,26 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 1.1: Finalize command contract (`orcheo setup`) and Unix bootstrap (`curl ... | sh`) UX
+- [x] Task 1.1: Finalize command contract (`orcheo install`) and Unix bootstrap (`curl ... | sh`) UX
   - Dependencies: None
-- [ ] Task 1.2: Implement thin bootstrap handoff to `uvx orcheo-sdk setup` with `uv` detection/install flow
+- [x] Task 1.2: Implement thin bootstrap handoff to `uvx orcheo-sdk install` with `uv` detection/install flow
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Implement prerequisite checks and actionable error messaging
+- [x] Task 1.3: Implement prerequisite checks and actionable error messaging
   - Dependencies: Task 1.1
-- [ ] Task 1.4: Implement guided prompts (install/upgrade mode, backend URL, auth mode, optional Canvas install, optional local stack start)
+- [x] Task 1.4: Implement guided prompts (install/upgrade mode, backend URL, auth mode, optional local stack start)
   - Dependencies: Task 1.1
-- [ ] Task 1.4a: Implement secret prompt behavior defaults (auto-generate locally for eligible secrets, explicit manual-entry opt-out)
+- [x] Task 1.4a: Implement secret prompt behavior defaults (auto-generate locally for eligible secrets, explicit manual-entry opt-out)
   - Dependencies: Task 1.4
-- [ ] Task 1.5: Implement Docker-missing decision flow (default install Docker, explicit skip for remote backend path)
+- [x] Task 1.5: Implement Docker-missing decision flow (default install Docker, explicit skip for remote backend path)
   - Dependencies: Task 1.3
-- [ ] Task 1.6: Implement install/upgrade executors and idempotent reconciliation with config preservation
+- [x] Task 1.6: Implement install/upgrade executors and idempotent reconciliation with config preservation
   - Dependencies: Task 1.1
-- [ ] Task 1.7: Add non-interactive flags (`--yes` and explicit overrides)
+- [x] Task 1.7: Add non-interactive flags (`--yes` and explicit overrides)
   - Dependencies: Task 1.4
-- [ ] Task 1.8: Add summary output with installed versions and next steps
+- [x] Task 1.8: Add summary output with installed versions and next steps
   - Dependencies: Task 1.6
+- [x] Task 1.9: Provision local-stack compose assets from canonical repo path (`deploy/local-stack`) before Docker startup
+  - Dependencies: Tasks 1.2, 1.6
 
 ---
 
@@ -54,13 +56,13 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 2.1: Implement `/api/system/info` response model and router wiring
+- [x] Task 2.1: Implement `/api/system/info` response model and router wiring
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add registry clients for PyPI (`orcheo-sdk`, `orcheo-backend`) and npm (`orcheo-canvas`)
+- [x] Task 2.2: Add registry clients for PyPI (`orcheo-sdk`, `orcheo-backend`) and npm (`orcheo-canvas`)
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Add in-memory caching with configurable TTL and timeout/retry policy
+- [x] Task 2.3: Add in-memory caching with configurable TTL and timeout/retry policy
   - Dependencies: Task 2.2
-- [ ] Task 2.4: Add API tests for success and registry-failure fallback
+- [x] Task 2.4: Add API tests for success and registry-failure fallback
   - Dependencies: Task 2.1
 
 ---
@@ -71,15 +73,15 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 3.1: Add Canvas version source to frontend build/runtime metadata
+- [x] Task 3.1: Add Canvas version source to frontend build/runtime metadata
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Build version status UI component in a persistent location (top nav/settings)
+- [x] Task 3.2: Build version status UI component in a persistent location (top nav/settings)
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Add reminder banner/toast when updates are available
+- [x] Task 3.3: Add reminder banner/toast when updates are available
   - Dependencies: Task 3.2
-- [ ] Task 3.4: Add 24h browser cache gate for update checks
+- [x] Task 3.4: Add 24h browser cache gate for update checks
   - Dependencies: Task 3.2
-- [ ] Task 3.5: Add component/integration tests for render and reminder behavior
+- [x] Task 3.5: Add component/integration tests for render and reminder behavior
   - Dependencies: Task 3.3
 
 ---
@@ -90,17 +92,17 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 4.1: Implement startup update-check hook in CLI main callback
+- [x] Task 4.1: Implement startup update-check hook in CLI main callback
   - Dependencies: Milestone 2
-- [ ] Task 4.2: Add 24h cache keying by profile + API URL
+- [x] Task 4.2: Add 24h cache keying by profile + API URL
   - Dependencies: Task 4.1
-- [ ] Task 4.3: Compare installed/local versions to latest metadata and format concise reminders
+- [x] Task 4.3: Compare installed/local versions to latest metadata and format concise reminders
   - Dependencies: Task 4.1
-- [ ] Task 4.4: Suppress reminders for non-stable/dev/private local versions
+- [x] Task 4.4: Suppress reminders for non-stable/dev/private local versions
   - Dependencies: Task 4.1
-- [ ] Task 4.5: Add opt-out controls (`ORCHEO_DISABLE_UPDATE_CHECK`, no-check flag)
+- [x] Task 4.5: Add opt-out controls (`ORCHEO_DISABLE_UPDATE_CHECK`, no-check flag)
   - Dependencies: Task 4.1
-- [ ] Task 4.6: Add CLI tests for once-per-24h gating, non-stable suppression, and soft-fail behavior
+- [x] Task 4.6: Add CLI tests for once-per-24h gating, non-stable suppression, and soft-fail behavior
   - Dependencies: Tasks 4.2, 4.4
 
 ---
@@ -111,18 +113,20 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 5.1: Update docs landing page with newest shortest installation path
+- [x] Task 5.1: Update docs landing page with newest shortest installation path
   - Dependencies: Milestones 1, 4
-- [ ] Task 5.2: Update `README.md` with new single-command install/upgrade flow
+- [x] Task 5.2: Update `README.md` with new single-command install/upgrade flow
   - Dependencies: Milestones 1, 4
-- [ ] Task 5.3: Update `homepage/` with newest shortest installation path
+- [x] Task 5.3: Update `homepage/` with newest shortest installation path
   - Dependencies: Milestones 1, 4
-- [ ] Task 5.4: Update manual setup docs with new single-command path and upgrade path
+- [x] Task 5.4: Update manual setup docs with new single-command path and upgrade path
   - Dependencies: Milestones 1, 4
-- [ ] Task 5.4a: Update `docs/environment_variables.md` with new setup/update and reminder variables (`ORCHEO_DISABLE_UPDATE_CHECK`, `ORCHEO_UPDATE_CHECK_TTL_HOURS`, plus any setup/auth env flags)
+- [x] Task 5.4a: Update `docs/environment_variables.md` with new setup/update and reminder variables (`ORCHEO_DISABLE_UPDATE_CHECK`, `ORCHEO_UPDATE_CHECK_TTL_HOURS`, plus any setup/auth env flags)
   - Dependencies: Milestones 1, 2, 4
-- [ ] Task 5.5: Update Canvas and CLI docs/screenshots for version/reminder UX
+- [x] Task 5.5: Update Canvas and CLI docs/screenshots for version/reminder UX
   - Dependencies: Milestones 3, 4
+- [x] Task 5.5a: Align setup docs and env-var docs with canonical local-stack asset source (`deploy/local-stack`) and override knobs
+  - Dependencies: Milestone 1
 - [ ] Task 5.6: Run end-to-end QA matrix (fresh install, upgrade, stale version reminders)
   - Dependencies: Milestones 1, 3, 4
 - [ ] Task 5.7: Roll out and monitor support issues related to install/update flows
@@ -136,11 +140,11 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 6.1: Implement PowerShell bootstrap equivalent with `uv` detection/install and `uvx orcheo-sdk setup` handoff
+- [x] Task 6.1: Implement PowerShell bootstrap equivalent with `uv` detection/install and `uvx orcheo-sdk install` handoff
   - Dependencies: Milestone 1
 - [ ] Task 6.2: Validate Windows paths, shell behavior, and non-interactive setup scenarios
   - Dependencies: Task 6.1
-- [ ] Task 6.3: Publish Windows-specific setup/upgrade docs and troubleshooting notes
+- [x] Task 6.3: Publish Windows-specific setup/upgrade docs and troubleshooting notes
   - Dependencies: Task 6.2
 
 ---
@@ -151,13 +155,13 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 #### Task Checklist
 
-- [ ] Task 7.1: Add compatibility matrix metadata support in backend version API and consumers
+- [x] Task 7.1: Add compatibility matrix metadata support in backend version API and consumers
   - Dependencies: Milestone 2
-- [ ] Task 7.2: Distinguish "update available" from "recommended minimum" in Canvas and CLI messaging
+- [x] Task 7.2: Distinguish "update available" from "recommended minimum" in Canvas and CLI messaging
   - Dependencies: Task 7.1
-- [ ] Task 7.3: Add optional "what changed" links to reminder output when release notes are available
+- [x] Task 7.3: Add optional "what changed" links to reminder output when release notes are available
   - Dependencies: Milestones 3, 4
-- [ ] Task 7.4: Add rollback/recovery guidance for partial or failed upgrades in setup summaries and docs
+- [x] Task 7.4: Add rollback/recovery guidance for partial or failed upgrades in setup summaries and docs
   - Dependencies: Milestones 1, 5
 
 ---

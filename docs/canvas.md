@@ -41,7 +41,7 @@ Canvas connects to the Orcheo backend API. Configure the connection via environm
 
 ```bash
 # Backend API URL
-VITE_ORCHEO_API_URL=http://localhost:8000
+VITE_ORCHEO_BACKEND_URL=http://localhost:8000
 
 # Authentication (optional)
 VITE_ORCHEO_AUTH_ISSUER=https://your-idp.com/
@@ -67,3 +67,5 @@ See [Manual Setup Guide](manual_setup.md#docker-compose-full-stack) for the comp
 - **Node library**: Browse and add nodes from the built-in library
 - **Workflow management**: Create, edit, delete, and version workflows
 - **ChatKit integration**: Test conversational workflows directly in Canvas
+- **Version awareness**: Top navigation shows Canvas + backend versions
+- **Update reminders**: Non-blocking reminder appears when updates are available (checked at most once every 24 hours per browser profile)

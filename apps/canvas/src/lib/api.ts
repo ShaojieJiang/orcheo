@@ -13,6 +13,22 @@ export interface NodeExecutionResponse {
   error?: string;
 }
 
+export interface PackageVersionStatus {
+  package: string;
+  current_version: string | null;
+  latest_version: string | null;
+  minimum_recommended_version: string | null;
+  release_notes_url: string | null;
+  update_available: boolean;
+}
+
+export interface SystemInfoResponse {
+  backend: PackageVersionStatus;
+  cli: PackageVersionStatus;
+  canvas: PackageVersionStatus;
+  checked_at: string;
+}
+
 /**
  * Execute a single node in isolation for testing/preview purposes.
  *
@@ -38,6 +54,27 @@ export async function executeNode(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({
       detail: "Failed to execute node",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getSystemInfo(
+  baseUrl?: string,
+): Promise<SystemInfoResponse> {
+  const url = buildBackendHttpUrl("/api/system/info", baseUrl);
+  const response = await authFetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to fetch system info",
     }));
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }
