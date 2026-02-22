@@ -47,8 +47,8 @@ Use the installation path that matches your setup:
 === "Scripts/CI (non-interactive)"
 
     ```bash
-    orcheo install --yes
-    orcheo install upgrade --yes
+    orcheo install --yes --start-local-stack
+    orcheo install upgrade --yes --start-local-stack
     ```
 
 `orcheo install` syncs local stack assets into `~/.orcheo/stack` (or

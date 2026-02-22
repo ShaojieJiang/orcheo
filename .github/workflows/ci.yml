@@ -10,6 +10,7 @@ on:
       - 'sdk-v*'
       - 'agentensor-v*'
       - 'canvas-v*'
+      - 'stack-v*'
   pull_request:
     branches:
       - main
@@ -172,6 +173,25 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: ${{ steps.package.outputs.dist_dir }}
+
+  stack-release:
+    needs: [lint, coverage]
+    if: "startsWith(github.ref, 'refs/tags/stack-v')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build stack archive
+        run: |
+          tar -czf orcheo-stack.tar.gz -C deploy/stack .
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: orcheo-stack.tar.gz
 
   canvas:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

@@ -12,7 +12,6 @@ set -euo pipefail
 readonly BASHRC="${HOME}/.bashrc"
 readonly CLOUDFLARE_KEYRING="/usr/share/keyrings/cloudflare-public-v2.gpg"
 readonly CLOUDFLARE_REPO="/etc/apt/sources.list.d/cloudflared.list"
-readonly STACK_ASSET_BASE_URL="https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack"
 
 install_dependencies() {
   sudo apt update
@@ -84,7 +83,9 @@ install_uv_and_orcheo_sdk() {
 }
 
 setup_local_stack() {
-  export ORCHEO_STACK_ASSET_BASE_URL="${ORCHEO_STACK_ASSET_BASE_URL:-$STACK_ASSET_BASE_URL}"
+  if [[ -n "${ORCHEO_STACK_ASSET_BASE_URL:-}" ]]; then
+    export ORCHEO_STACK_ASSET_BASE_URL
+  fi
   if id -nG "$USER" | grep -qw docker; then
     sg docker -c "orcheo install --yes --start-local-stack"
     return

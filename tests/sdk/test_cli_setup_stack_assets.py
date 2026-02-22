@@ -1,7 +1,9 @@
 """Tests for local-stack bootstrap assets in `orcheo install`."""
 
 from __future__ import annotations
+import json
 import subprocess
+import tarfile
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,7 @@ def test_default_stack_asset_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert (
         setup_mod._resolve_stack_asset_base_url()
-        == "https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack"
+        == "https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/stack"
     )
 
 
@@ -53,6 +55,16 @@ def _default_assets() -> dict[str, bytes]:
         "chatkit_widgets/Single-choice list.widget": b"single",
         "chatkit_widgets/Multi-choice Selector.widget": b"multi",
     }
+
+
+def _build_test_archive(assets: dict[str, bytes]) -> bytes:
+    archive_buffer = BytesIO()
+    with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+        for relative_path, payload in assets.items():
+            archive_member = tarfile.TarInfo(name=relative_path)
+            archive_member.size = len(payload)
+            archive.addfile(archive_member, BytesIO(payload))
+    return archive_buffer.getvalue()
 
 
 def _setup_config() -> SetupConfig:
@@ -855,3 +867,297 @@ def test_ensure_local_stack_assets_syncs_env_example_when_not_in_asset_list(
     )
 
     assert ".env.example" in sync_calls
+
+
+def test_ensure_local_stack_assets_prefers_stack_archive_when_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-release"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_STACK_VERSION", raising=False)
+
+    assets = _default_assets()
+    archive_bytes = _build_test_archive(assets)
+    releases_payload = json.dumps(
+        [{"tag_name": "stack-v0.3.0", "prerelease": False}]
+    ).encode("utf-8")
+
+    def _urlopen(url: str, timeout: int) -> _Response:
+        del timeout
+        if url == f"{setup_mod._GITHUB_RELEASES_API_URL}?per_page=10":
+            return _Response(releases_payload)
+        if url == setup_mod._GITHUB_RELEASE_URL_TEMPLATE.format(version="0.3.0"):
+            return _Response(archive_bytes)
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(setup_mod, "urlopen", _urlopen)
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+    )
+
+    for relative_path, payload in assets.items():
+        assert (stack_dir / relative_path).read_bytes() == payload
+
+
+def test_ensure_local_stack_assets_falls_back_to_per_file_when_archive_download_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-fallback"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_STACK_VERSION", raising=False)
+
+    assets = _default_assets()
+    releases_payload = json.dumps(
+        [{"tag_name": "stack-v0.4.0", "prerelease": False}]
+    ).encode("utf-8")
+
+    def _urlopen(url: str, timeout: int) -> _Response:
+        del timeout
+        if url == f"{setup_mod._GITHUB_RELEASES_API_URL}?per_page=10":
+            return _Response(releases_payload)
+        if url == setup_mod._GITHUB_RELEASE_URL_TEMPLATE.format(version="0.4.0"):
+            raise OSError("archive unavailable")
+        base_url = setup_mod._STACK_ASSET_BASE_URL
+        if url.startswith(f"{base_url}/"):
+            relative_path = unquote(url.removeprefix(f"{base_url}/"))
+            return _Response(assets[relative_path])
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(setup_mod, "urlopen", _urlopen)
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+    )
+
+    for relative_path, payload in assets.items():
+        assert (stack_dir / relative_path).read_bytes() == payload
+
+
+def test_ensure_local_stack_assets_uses_explicit_stack_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-explicit-version"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_STACK_VERSION", raising=False)
+
+    captured_versions: list[str] = []
+    assets = _default_assets()
+
+    def _download(
+        version: str,
+        target_stack_dir: Path,
+        *,
+        console: Console,
+    ) -> bool:
+        del console
+        captured_versions.append(version)
+        for relative_path, payload in assets.items():
+            destination = target_stack_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(payload)
+        return True
+
+    def _discover(console: Console) -> str | None:
+        del console
+        raise AssertionError("Latest release discovery should not run.")
+
+    monkeypatch.setattr(setup_mod, "_download_and_extract_stack_archive", _download)
+    monkeypatch.setattr(setup_mod, "_discover_latest_stack_version", _discover)
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+        stack_version="0.5.0",
+    )
+
+    assert captured_versions == ["0.5.0"]
+
+
+def test_ensure_local_stack_assets_uses_env_stack_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-env-version"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.setenv("ORCHEO_STACK_VERSION", "stack-v0.6.1")
+
+    captured_versions: list[str] = []
+    assets = _default_assets()
+
+    def _download(
+        version: str,
+        target_stack_dir: Path,
+        *,
+        console: Console,
+    ) -> bool:
+        del console
+        captured_versions.append(version)
+        for relative_path, payload in assets.items():
+            destination = target_stack_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(payload)
+        return True
+
+    def _discover(console: Console) -> str | None:
+        del console
+        raise AssertionError("Latest release discovery should not run.")
+
+    monkeypatch.setattr(setup_mod, "_download_and_extract_stack_archive", _download)
+    monkeypatch.setattr(setup_mod, "_discover_latest_stack_version", _discover)
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+    )
+
+    assert captured_versions == ["0.6.1"]
+
+
+def test_ensure_local_stack_assets_custom_base_url_forces_per_file_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-custom-base-url"
+    base_url = "https://mirror.example.test/orcheo-stack"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.setenv("ORCHEO_STACK_ASSET_BASE_URL", base_url)
+    monkeypatch.setenv("ORCHEO_STACK_VERSION", "0.9.0")
+
+    assets = _default_assets()
+
+    def _unexpected_archive_download(
+        version: str,
+        target_stack_dir: Path,
+        *,
+        console: Console,
+    ) -> bool:
+        del version, target_stack_dir, console
+        raise AssertionError("Archive download should not run when base URL is set.")
+
+    def _urlopen(url: str, timeout: int) -> _Response:
+        del timeout
+        relative_path = unquote(url.removeprefix(f"{base_url}/"))
+        return _Response(assets[relative_path])
+
+    monkeypatch.setattr(
+        setup_mod, "_download_and_extract_stack_archive", _unexpected_archive_download
+    )
+    monkeypatch.setattr(setup_mod, "urlopen", _urlopen)
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+    )
+
+    for relative_path, payload in assets.items():
+        assert (stack_dir / relative_path).read_bytes() == payload
+
+
+def test_resolve_stack_version_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setenv("ORCHEO_STACK_VERSION", "0.7.0")
+    assert setup_mod._resolve_stack_version("0.8.0") == "0.8.0"
+    assert setup_mod._resolve_stack_version(None) == "0.7.0"
+
+    monkeypatch.setenv("ORCHEO_STACK_VERSION", "stack-v0.9.1")
+    assert setup_mod._resolve_stack_version(None) == "0.9.1"
+
+
+def test_discover_latest_stack_version_from_releases_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    payload = json.dumps(
+        [
+            {"tag_name": "stack-v1.0.0-rc1", "prerelease": True},
+            {"tag_name": "core-v9.9.9", "prerelease": False},
+            {"tag_name": "stack-v0.8.2", "prerelease": False},
+        ]
+    ).encode("utf-8")
+    calls: list[str] = []
+
+    def _urlopen(url: str, timeout: int) -> _Response:
+        del timeout
+        calls.append(url)
+        return _Response(payload)
+
+    monkeypatch.setattr(setup_mod, "urlopen", _urlopen)
+
+    version = setup_mod._discover_latest_stack_version(Console(record=True))
+    assert version == "0.8.2"
+    assert calls == [f"{setup_mod._GITHUB_RELEASES_API_URL}?per_page=10"]
+
+
+def test_discover_latest_stack_version_soft_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    def _raise(url: str, timeout: int) -> _Response:
+        del url, timeout
+        raise OSError("network down")
+
+    monkeypatch.setattr(setup_mod, "urlopen", _raise)
+    assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
+
+    monkeypatch.setattr(setup_mod, "urlopen", lambda url, timeout: _Response(b"{bad"))
+    assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
+
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(b'{"tag_name":"stack-v0.1.0"}'),
+    )
+    assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
+
+
+def test_download_and_extract_stack_archive_rejects_path_traversal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-safe-extract"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    malicious_archive = BytesIO()
+    with tarfile.open(fileobj=malicious_archive, mode="w:gz") as archive:
+        payload = b"pwnd"
+        archive_member = tarfile.TarInfo(name="../pwnd.txt")
+        archive_member.size = len(payload)
+        archive.addfile(archive_member, BytesIO(payload))
+
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(malicious_archive.getvalue()),
+    )
+
+    ok = setup_mod._download_and_extract_stack_archive(
+        "0.1.0",
+        stack_dir,
+        console=Console(record=True),
+    )
+    assert ok is False
+    assert not (tmp_path / "pwnd.txt").exists()

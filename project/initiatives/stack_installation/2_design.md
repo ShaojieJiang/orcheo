@@ -33,7 +33,7 @@ The implementation uses a shared backend metadata contract for installed/latest 
   - Handles prerequisite checks, prompt collection, install/upgrade execution, and summary output.
   - Key dependencies: existing CLI config/state modules, shell command runner, package managers (uv/npm).
 
-- **Local Stack Asset Bundle (`deploy/local-stack/`)**
+- **Local Stack Asset Bundle (`deploy/stack/`)**
   - Stores source-of-truth compose assets (`docker-compose.yml`, `Dockerfile.orcheo`,
     `.env.example`, `chatkit_widgets/*`).
   - Consumed by setup flow via raw-content download into a user-local stack directory
@@ -71,7 +71,7 @@ The implementation uses a shared backend metadata contract for installed/latest 
    - If Docker is missing: default prompt is to install Docker, with explicit skip option for
      remote-backend-only usage.
 4. CLI performs install or upgrade steps:
-   - Local-stack asset bootstrap/sync (`deploy/local-stack` -> `ORCHEO_STACK_DIR`)
+   - Local-stack asset bootstrap/sync (`deploy/stack` -> `ORCHEO_STACK_DIR`)
    - `.env` reconciliation with setup-selected values
    - Optional `docker compose ... up -d --build` against the provisioned stack directory
 5. In upgrade mode, CLI reconciles state idempotently and preserves existing configuration.

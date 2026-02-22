@@ -215,6 +215,7 @@ def _run_install_flow(
     console: Console,
     yes: bool,
     mode: str | None,
+    stack_version: str | None,
     backend_url: str | None,
     auth_mode: str | None,
     api_key: str | None,
@@ -239,7 +240,7 @@ def _run_install_flow(
         manual_secrets=manual_secrets,
         console=console,
     )
-    execute_setup(config, console=console)
+    execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
 
 
@@ -258,6 +259,15 @@ def install_command(
     mode: Annotated[
         str | None,
         typer.Option("--mode", help="Install mode: install or upgrade."),
+    ] = None,
+    stack_version: Annotated[
+        str | None,
+        typer.Option(
+            "--stack-version",
+            help=(
+                "Pin stack assets to a specific release version (for example, 0.1.0)."
+            ),
+        ),
     ] = None,
     backend_url: Annotated[
         str | None,
@@ -310,6 +320,7 @@ def install_command(
         console=_resolve_install_console(ctx),
         yes=yes,
         mode=mode,
+        stack_version=stack_version,
         backend_url=backend_url,
         auth_mode=auth_mode,
         api_key=api_key,
@@ -327,6 +338,15 @@ def install_upgrade_command(
         bool,
         typer.Option("--yes", help="Accept defaults and run non-interactive upgrade."),
     ] = False,
+    stack_version: Annotated[
+        str | None,
+        typer.Option(
+            "--stack-version",
+            help=(
+                "Pin stack assets to a specific release version (for example, 0.1.0)."
+            ),
+        ),
+    ] = None,
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
@@ -376,6 +396,7 @@ def install_upgrade_command(
         console=_resolve_install_console(ctx),
         yes=yes,
         mode=None,
+        stack_version=stack_version,
         backend_url=backend_url,
         auth_mode=auth_mode,
         api_key=api_key,
