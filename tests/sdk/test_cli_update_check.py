@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import pytest
 from rich.console import Console
@@ -117,3 +118,85 @@ def test_maybe_print_update_notice_prints_when_update_available(
     assert entry is not None
     checked_at = datetime.fromisoformat(entry.payload["checked_at"])
     assert checked_at.tzinfo == UTC
+
+
+def test_update_check_version_helpers_cover_invalid_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import update_check
+
+    assert update_check._is_stable(None) is False
+    assert update_check._is_stable("bad") is False
+    assert update_check._compare_versions("1.0.0", "bad") is False
+
+    def _raise(_name: str) -> str:
+        raise PackageNotFoundError("missing")
+
+    monkeypatch.setattr(update_check, "package_version", _raise)
+    assert update_check._read_cli_version() is None
+
+
+def test_evaluate_update_advice_includes_minimums_and_release_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.update_check._read_cli_version", lambda: "1.0.0"
+    )
+    advice = evaluate_update_advice(
+        {
+            "cli": {
+                "latest_version": "1.0.1",
+                "minimum_recommended_version": "1.0.0",
+                "release_notes_url": "https://example.test/cli-notes",
+            },
+            "backend": {
+                "current_version": "1.0.0",
+                "latest_version": "1.0.0",
+                "minimum_recommended_version": "0.9.0",
+                "release_notes_url": "https://example.test/backend-notes",
+            },
+        }
+    )
+    assert advice.cli_update_available is True
+    assert advice.backend_update_available is False
+    assert any(
+        "Recommended minimum CLI version: 1.0.0" in line
+        for line in advice.message_lines
+    )
+    assert any(
+        "Recommended minimum backend version: 0.9.0" in line
+        for line in advice.message_lines
+    )
+    assert any(
+        "CLI release notes: https://example.test/cli-notes" in line
+        for line in advice.message_lines
+    )
+    assert any(
+        "Backend release notes: https://example.test/backend-notes" in line
+        for line in advice.message_lines
+    )
+
+
+def test_maybe_print_update_notice_non_dict_payload_stores_cache_without_print(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = _cache(tmp_path)
+    client = ApiClient(base_url="http://api.test", token="token")
+    console = Console(record=True)
+    client.get = lambda _path: ["unexpected"]  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.update_check.evaluate_update_advice",
+        lambda payload: evaluate_update_advice(payload),
+    )
+
+    maybe_print_update_notice(
+        cache=cache,
+        client=client,
+        profile="default",
+        console=console,
+    )
+    assert "Orcheo update reminder" not in console.export_text()
+    from orcheo_sdk.cli import update_check
+
+    assert cache.load(update_check._cache_key("default", "http://api.test")) is not None

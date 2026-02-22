@@ -3,6 +3,19 @@ $ErrorActionPreference = 'Stop'
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   Write-Host 'uv not found. Installing uv...'
   irm https://astral.sh/uv/install.ps1 | iex
+  $uvBinDir = if ($env:UV_INSTALL_DIR) {
+    $env:UV_INSTALL_DIR
+  }
+  elseif ($env:XDG_BIN_HOME) {
+    $env:XDG_BIN_HOME
+  }
+  elseif ($env:XDG_DATA_HOME) {
+    [System.IO.Path]::GetFullPath((Join-Path $env:XDG_DATA_HOME '../bin'))
+  }
+  else {
+    Join-Path $HOME '.local/bin'
+  }
+  $env:PATH = "$uvBinDir;$env:PATH"
 }
 
 if (-not $env:ORCHEO_STACK_ASSET_BASE_URL) {

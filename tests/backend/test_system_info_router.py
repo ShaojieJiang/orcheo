@@ -1,6 +1,9 @@
 """Tests for the /api/system/info endpoint."""
 
 from __future__ import annotations
+from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError
+import httpx
 import pytest
 from orcheo_backend.app import versioning
 from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
@@ -121,3 +124,131 @@ def test_system_health_is_public_when_auth_required(
     health_response = client.get("/api/system/health")
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
+
+
+def test_versioning_private_helpers_cover_error_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert versioning._is_stable(None) is False
+    assert versioning._is_stable("not-a-version") is False
+    assert versioning._safe_parse("bad-version") is None
+    assert versioning._update_available("1.0.0rc1", "1.0.0") is False
+
+    def _missing(_name: str) -> str:
+        raise PackageNotFoundError("missing")
+
+    monkeypatch.setattr(versioning, "package_version", _missing)
+    assert versioning._read_current_version("missing") is None
+
+
+def test_versioning_registry_fetch_helpers_cover_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise(url: str, timeout: float) -> object:
+        del url, timeout
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(versioning.httpx, "get", _raise)
+    with pytest.raises(httpx.ConnectError):
+        versioning._fetch_json("https://example.test", timeout=1.0, retries=0)
+
+    monkeypatch.setattr(
+        versioning,
+        "_fetch_json",
+        lambda _url, *, timeout, retries: {"info": {"version": "1.2.3"}},
+    )
+    assert (
+        versioning._fetch_pypi_latest("orcheo-sdk", timeout=1.0, retries=0) == "1.2.3"
+    )
+    monkeypatch.setattr(
+        versioning,
+        "_fetch_json",
+        lambda _url, *, timeout, retries: {"info": {"version": 123}},
+    )
+    assert versioning._fetch_pypi_latest("orcheo-sdk", timeout=1.0, retries=0) is None
+    monkeypatch.setattr(
+        versioning, "_fetch_json", lambda _url, *, timeout, retries: {"info": "bad"}
+    )
+    assert versioning._fetch_pypi_latest("orcheo-sdk", timeout=1.0, retries=0) is None
+    monkeypatch.setattr(
+        versioning,
+        "_fetch_json",
+        lambda _url, *, timeout, retries: (_ for _ in ()).throw(ValueError("bad")),
+    )
+    assert versioning._fetch_pypi_latest("orcheo-sdk", timeout=1.0, retries=0) is None
+
+    monkeypatch.setattr(
+        versioning,
+        "_fetch_json",
+        lambda _url, *, timeout, retries: {"version": "9.9.9"},
+    )
+    assert (
+        versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) == "9.9.9"
+    )
+    monkeypatch.setattr(
+        versioning, "_fetch_json", lambda _url, *, timeout, retries: {"version": 1}
+    )
+    assert versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) is None
+    monkeypatch.setattr(
+        versioning,
+        "_fetch_json",
+        lambda _url, *, timeout, retries: (_ for _ in ()).throw(httpx.HTTPError("bad")),
+    )
+    assert versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) is None
+
+
+def test_fetch_json_accepts_dict_and_rejects_non_dict_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            return {"ok": True}
+
+    monkeypatch.setattr(versioning.httpx, "get", lambda url, timeout: _Response())
+    assert versioning._fetch_json("https://example.test", timeout=1.0, retries=0) == {
+        "ok": True
+    }
+
+    class _ListResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            return ["not", "a", "dict"]
+
+    monkeypatch.setattr(versioning.httpx, "get", lambda url, timeout: _ListResponse())
+    with pytest.raises(ValueError, match="Unexpected registry payload"):
+        versioning._fetch_json("https://example.test", timeout=1.0, retries=0)
+
+
+def test_versioning_timeout_retries_and_cache_hit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS", raising=False)
+    assert versioning._read_timeout_seconds() == 3.0
+    monkeypatch.setenv("ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS", "abc")
+    assert versioning._read_timeout_seconds() == 3.0
+    monkeypatch.setenv("ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS", "-1")
+    assert versioning._read_timeout_seconds() == 3.0
+
+    monkeypatch.delenv("ORCHEO_UPDATE_CHECK_RETRIES", raising=False)
+    assert versioning._read_retries() == 1
+    monkeypatch.setenv("ORCHEO_UPDATE_CHECK_RETRIES", "abc")
+    assert versioning._read_retries() == 1
+    monkeypatch.setenv("ORCHEO_UPDATE_CHECK_RETRIES", "-2")
+    assert versioning._read_retries() == 1
+
+    cached = {"ok": True}
+    versioning._cache_state["entry"] = versioning._CacheEntry(  # type: ignore[attr-defined]
+        payload=cached,
+        expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+    )
+    monkeypatch.setattr(
+        versioning,
+        "_build_payload",
+        lambda: (_ for _ in ()).throw(RuntimeError("must not build")),
+    )
+    assert versioning.get_system_info_payload() == cached

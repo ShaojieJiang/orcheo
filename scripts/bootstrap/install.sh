@@ -10,4 +10,14 @@ fi
 : "${ORCHEO_STACK_ASSET_BASE_URL:=https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/local-stack}"
 export ORCHEO_STACK_ASSET_BASE_URL
 
-exec uvx orcheo-sdk install "$@"
+if [ "$#" -gt 0 ]; then
+  exec uvx orcheo-sdk install "$@"
+fi
+
+if [ -n "${ORCHEO_INSTALL_ARGS:-}" ]; then
+  # Match install.ps1 behavior: split env var by whitespace into args.
+  # shellcheck disable=SC2086
+  exec uvx orcheo-sdk install $ORCHEO_INSTALL_ARGS
+fi
+
+exec uvx orcheo-sdk install

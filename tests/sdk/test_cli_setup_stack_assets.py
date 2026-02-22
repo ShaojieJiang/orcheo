@@ -1,6 +1,7 @@
 """Tests for local-stack bootstrap assets in `orcheo install`."""
 
 from __future__ import annotations
+import subprocess
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -464,3 +465,393 @@ def test_execute_setup_clears_bootstrap_token_for_oauth_mode(
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=\n" in env_content
+
+
+def test_setup_low_level_resolvers_and_command_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(
+        setup_mod.subprocess,
+        "run",
+        lambda command, check: subprocess.CompletedProcess(command, returncode=7),
+    )
+    with pytest.raises(typer.BadParameter, match="Command failed with exit code 7"):
+        setup_mod._run_command(["echo", "x"], console=Console(record=True))
+
+    monkeypatch.setattr(setup_mod.shutil, "which", lambda _name: None)
+    assert setup_mod._has_binary("docker") is False
+
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "upgrade")
+    assert setup_mod._resolve_mode(None, yes=False) == "upgrade"
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "http://x")
+    assert setup_mod._resolve_backend_url(None, yes=False) == "http://x"
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "oauth")
+    assert setup_mod._resolve_auth_mode(None, yes=False) == "oauth"
+    monkeypatch.setattr(setup_mod.typer, "confirm", lambda _p, default: False)
+    assert (
+        setup_mod._resolve_bool(None, yes_default=False, prompt="ok?", default=True)
+        is False
+    )
+
+
+def test_setup_api_key_and_optional_normalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    assert (
+        setup_mod._resolve_api_key("oauth", None, mode="install", manual=True) is None
+    )
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: " ")
+    assert (
+        setup_mod._resolve_api_key("api-key", None, mode="upgrade", manual=True) is None
+    )
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "entered")
+    assert (
+        setup_mod._resolve_api_key("api-key", None, mode="install", manual=True)
+        == "entered"
+    )
+
+    assert setup_mod._normalize_optional_value("  ") is None
+    assert setup_mod._normalize_optional_value(" v ") == "v"
+
+    assert setup_mod._resolve_chatkit_domain_key("  key ", yes=True) == "key"
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "  ")
+    assert setup_mod._resolve_chatkit_domain_key(None, yes=False) is None
+
+
+def test_setup_stack_dir_default_and_sync_no_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.delenv("ORCHEO_STACK_DIR", raising=False)
+    monkeypatch.setattr(setup_mod.Path, "home", lambda: tmp_path / "home")
+    assert (
+        setup_mod._resolve_stack_project_dir()
+        == tmp_path / "home" / ".orcheo" / "stack"
+    )
+
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    local_file = stack_dir / "docker-compose.yml"
+    local_file.write_bytes(b"same")
+    monkeypatch.setattr(
+        setup_mod, "_download_stack_asset", lambda path, *, console: b"same"
+    )
+    setup_mod._sync_stack_asset(
+        "docker-compose.yml", stack_dir, console=Console(record=True)
+    )
+    assert local_file.read_bytes() == b"same"
+
+
+def test_setup_build_env_updates_and_warn_missing_branch(
+    tmp_path: Path,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    config = SetupConfig(
+        mode="install",
+        backend_url="http://localhost:8000",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key="domain_pk_live",
+        start_local_stack=False,
+        install_docker_if_missing=True,
+    )
+    updates, defaults = setup_mod._build_env_updates(config)
+    assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
+    assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain_pk_live"
+    assert defaults["ORCHEO_POSTGRES_PASSWORD"]
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_live\n", encoding="utf-8"
+    )
+    console = Console(record=True)
+    setup_mod._warn_chatkit_domain_key_missing(env_file=env_file, console=console)
+    assert "not configured" not in console.export_text()
+
+
+def test_setup_upsert_no_change_and_append_defaults(tmp_path: Path) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("UNCHANGED=value\n", encoding="utf-8")
+    console = Console(record=True)
+    setup_mod._upsert_env_values(
+        env_file,
+        {},
+        defaults={"NEW_DEFAULT": "x"},
+        console=console,
+    )
+    assert "NEW_DEFAULT=x\n" in env_file.read_text(encoding="utf-8")
+
+    original = env_file.read_text(encoding="utf-8")
+    setup_mod._upsert_env_values(env_file, {}, console=console)
+    assert env_file.read_text(encoding="utf-8") == original
+
+
+def test_execute_setup_env_example_sync_and_chatkit_backfill_skip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (stack_dir / "Dockerfile.orcheo").write_text("FROM x\n", encoding="utf-8")
+    (stack_dir / "chatkit_widgets").mkdir(parents=True, exist_ok=True)
+    (stack_dir / "chatkit_widgets/Single-choice list.widget").write_text(
+        "s", encoding="utf-8"
+    )
+    (stack_dir / "chatkit_widgets/Multi-choice Selector.widget").write_text(
+        "m", encoding="utf-8"
+    )
+    (stack_dir / ".env").write_text(
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_live\n",
+        encoding="utf-8",
+    )
+    assets = _default_assets()
+    _patch_common(monkeypatch, stack_dir=stack_dir, assets=assets, has_docker=False)
+    sync_calls: list[str] = []
+    from orcheo_sdk.cli import setup as setup_mod
+
+    original_sync = setup_mod._sync_stack_asset
+    monkeypatch.setattr(
+        setup_mod,
+        "_sync_stack_asset",
+        lambda relative_path, target_stack_dir, *, console: (
+            sync_calls.append(relative_path),
+            original_sync(relative_path, target_stack_dir, console=console),
+        )[1],
+    )
+
+    config = _setup_config()
+    config.start_local_stack = False
+    execute_setup(config, console=Console(record=True))
+    assert ".env.example" in sync_calls
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert env_content.count("VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_live") == 1
+
+
+def test_run_setup_prints_generated_key_and_oauth_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.typer, "confirm", lambda _prompt, default: False)
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        setup_mod.secrets, "token_urlsafe", lambda _n: "generated-token"
+    )
+
+    console = Console(record=True)
+    setup_mod.run_setup(
+        mode="install",
+        backend_url="http://localhost:8000",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        start_local_stack=None,
+        install_docker=None,
+        yes=False,
+        manual_secrets=False,
+        console=console,
+    )
+    assert "Generated API key locally" in console.export_text()
+
+    oauth_console = Console(record=True)
+    setup_mod.run_setup(
+        mode="install",
+        backend_url="http://localhost:8000",
+        auth_mode="oauth",
+        api_key=None,
+        chatkit_domain_key=None,
+        start_local_stack=False,
+        install_docker=False,
+        yes=True,
+        manual_secrets=False,
+        console=oauth_console,
+    )
+    assert "OAuth mode selected" in oauth_console.export_text()
+
+
+def test_setup_read_health_timeout_invalid_negative_and_print_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "bad")
+    assert setup_mod._read_health_poll_timeout_seconds() == 60
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "-1")
+    assert setup_mod._read_health_poll_timeout_seconds() == 60
+
+    config = _setup_config()
+    config.start_local_stack = True
+    config.local_stack_project_dir = "/tmp/stack"
+    config.local_stack_env_file = "/tmp/stack/.env"
+    console = Console(record=True)
+    setup_mod.print_summary(config, console=console)
+    output = console.export_text()
+    assert "Setup complete" in output
+    assert "Canvas may take 2-3 minutes" in output
+    assert "orcheo workflow list" in output
+
+
+def test_poll_backend_health_non_200_sleeps(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    sleeps: list[float] = []
+    monotonic_values = iter([0.0, 0.1, 0.2, 2.0])
+
+    monkeypatch.setattr(setup_mod.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(setup_mod.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(b"{}", status=500),
+    )
+    monkeypatch.setattr(setup_mod, "_HEALTH_POLL_INTERVAL_SECONDS", 5)
+    assert (
+        setup_mod._poll_backend_health(
+            "http://localhost:8000", console=Console(record=True)
+        )
+        is False
+    )
+    assert sleeps
+
+
+def test_setup_misc_uncovered_branches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    assert setup_mod._resolve_mode(None, yes=True) == "install"
+
+    monkeypatch.setattr(
+        setup_mod.subprocess,
+        "run",
+        lambda command, check: subprocess.CompletedProcess(command, returncode=0),
+    )
+    setup_mod._run_command(["echo", "ok"], console=Console(record=True))
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    setup_mod._upsert_env_values(env_file, {}, console=Console(record=True))
+    assert env_file.read_text(encoding="utf-8") == ""
+
+    stack_dir = tmp_path / "stack-no-env-example"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    for relative_path in setup_mod._STACK_ASSET_FILES:
+        if relative_path == ".env.example":
+            continue
+        target = stack_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    def _sync(relative_path: str, target_stack_dir: Path, *, console: Console) -> None:
+        del console
+        destination = target_stack_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("downloaded", encoding="utf-8")
+
+    monkeypatch.setattr(setup_mod, "_sync_stack_asset", _sync)
+    monkeypatch.setattr(
+        setup_mod.shutil,
+        "copyfile",
+        lambda src, dst: Path(dst).write_text(
+            Path(src).read_text(encoding="utf-8"), encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_build_env_updates",
+        lambda _config: ({"ORCHEO_API_URL": "http://localhost:8000"}, {}),
+    )
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(), console=Console(record=True)
+    )
+    assert (stack_dir / ".env.example").exists()
+    assert (stack_dir / ".env").exists()
+
+    config = _setup_config()
+    config.start_local_stack = False
+    console = Console(record=True)
+    setup_mod.print_summary(config, console=console)
+    assert "Canvas may take 2-3 minutes" not in console.export_text()
+
+    monotonic_values = iter([0.0, 0.5, 1.0, 1.1, 1.2])
+    sleeps: list[float] = []
+    monkeypatch.setattr(setup_mod.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(setup_mod.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(b"{}", status=500),
+    )
+    monkeypatch.setattr(setup_mod, "_HEALTH_POLL_INTERVAL_SECONDS", 5)
+    assert (
+        setup_mod._poll_backend_health(
+            "http://localhost:8000", console=Console(record=True)
+        )
+        is False
+    )
+    assert sleeps == []
+
+
+def test_ensure_local_stack_assets_syncs_env_example_when_not_in_asset_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-missing-env-example"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.setattr(
+        setup_mod,
+        "_STACK_ASSET_FILES",
+        (
+            "docker-compose.yml",
+            "Dockerfile.orcheo",
+            "chatkit_widgets/Single-choice list.widget",
+            "chatkit_widgets/Multi-choice Selector.widget",
+        ),
+    )
+
+    sync_calls: list[str] = []
+
+    def _sync(relative_path: str, target_stack_dir: Path, *, console: Console) -> None:
+        del console
+        sync_calls.append(relative_path)
+        destination = target_stack_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("payload", encoding="utf-8")
+
+    monkeypatch.setattr(setup_mod, "_sync_stack_asset", _sync)
+    monkeypatch.setattr(
+        setup_mod.shutil,
+        "copyfile",
+        lambda src, dst: Path(dst).write_text(
+            Path(src).read_text(encoding="utf-8"), encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_build_env_updates",
+        lambda _config: ({"ORCHEO_API_URL": "http://localhost:8000"}, {}),
+    )
+
+    setup_mod._ensure_local_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+    )
+
+    assert ".env.example" in sync_calls
