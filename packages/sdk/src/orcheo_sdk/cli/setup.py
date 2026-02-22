@@ -332,7 +332,6 @@ def _build_env_updates(
     updates: dict[str, str] = {
         "ORCHEO_API_URL": config.backend_url,
         "VITE_ORCHEO_BACKEND_URL": config.backend_url,
-        "ORCHEO_AUTH_MODE": "required",
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key

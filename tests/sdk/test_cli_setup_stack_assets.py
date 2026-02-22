@@ -627,6 +627,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
     )
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
+    assert "ORCHEO_AUTH_MODE" not in updates
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain_pk_live"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"]
 
