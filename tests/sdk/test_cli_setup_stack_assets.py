@@ -1192,3 +1192,24 @@ def test_discover_latest_stack_version_skips_invalid_tag_entries(
 
     version = setup_mod._discover_latest_stack_version(Console(record=True))
     assert version == "0.8.3"
+
+
+def test_discover_latest_stack_version_returns_none_when_no_stable_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    payload = json.dumps(
+        [
+            {"name": "core-v9.9.9"},
+            {"name": "stack-v1.0.0-rc1"},
+            {"name": "stack-v"},
+        ]
+    ).encode("utf-8")
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(payload),
+    )
+
+    assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
