@@ -8,6 +8,7 @@ This module provides nodes for integrating with WeCom (企业微信) APIs:
 - WeComCustomerServiceSendNode: Sends messages via Customer Service API
 """
 
+from __future__ import annotations
 import base64
 import hashlib
 import hmac
@@ -17,16 +18,18 @@ import os
 import struct
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree
 import httpx
-import redis.asyncio as redis
-from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+if TYPE_CHECKING:
+    import redis.asyncio as redis
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +102,8 @@ def decrypt_wecom_message(
     Raises:
         ValueError: If decryption or validation fails.
     """
+    from Crypto.Cipher import AES
+
     aes_key = base64.b64decode(encoding_aes_key + "=")
     cipher = AES.new(aes_key, AES.MODE_CBC, aes_key[:16])
     decrypted = cipher.decrypt(base64.b64decode(encrypt))
@@ -149,6 +154,8 @@ def encrypt_wecom_message(message: str, encoding_aes_key: str, receive_id: str) 
     Returns:
         Base64-encoded encrypted message.
     """
+    from Crypto.Cipher import AES
+
     aes_key = base64.b64decode(encoding_aes_key + "=")
     random_bytes = os.urandom(RANDOM_PREFIX_LEN)
     msg_bytes = message.encode("utf-8")
@@ -1489,6 +1496,8 @@ async def _process_cs_page(
     open_kf_id: str,
     redis_client: redis.Redis | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, bool, bool]:
+    import redis.asyncio as redis
+
     new_messages: list[dict[str, Any]] = []
     latest_message: dict[str, Any] | None = None
     saw_existing = False
@@ -1532,6 +1541,8 @@ def _resolve_cs_sync_inputs(
 
 
 def _create_cs_redis_client() -> redis.Redis | None:
+    import redis.asyncio as redis
+
     try:
         return redis.from_url(REDIS_URL, decode_responses=True)
     except redis.RedisError as exc:
@@ -1548,6 +1559,8 @@ def _create_cs_redis_client() -> redis.Redis | None:
 
 
 async def _close_cs_redis_client(redis_client: redis.Redis | None) -> None:
+    import redis.asyncio as redis
+
     if redis_client is None:
         return
     try:
@@ -1640,6 +1653,8 @@ async def _resolve_cs_history(
     latest_message: dict[str, Any] | None,
     new_user_messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
+    import redis.asyncio as redis
+
     if latest_message is None:
         return "", []
     external_userid = latest_message.get("external_userid", "")
@@ -1962,6 +1977,8 @@ class WeComCustomerServiceSendNode(TaskNode):
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         """Send a customer service message."""
+        import redis.asyncio as redis
+
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg"
         params: dict[str, str] = {"access_token": access_token}
 
