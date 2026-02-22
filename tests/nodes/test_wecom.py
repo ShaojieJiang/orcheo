@@ -191,7 +191,7 @@ def fake_redis() -> FakeRedis:
 
 @pytest.fixture
 def patch_redis(fake_redis: FakeRedis) -> FakeRedis:
-    with patch("orcheo.nodes.wecom.redis.from_url", return_value=fake_redis):
+    with patch("redis.asyncio.from_url", return_value=fake_redis):
         yield fake_redis
 
 
@@ -1964,7 +1964,7 @@ class TestWeComCustomerServiceSendNode:
         fake_redis.close = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
-            with patch("orcheo.nodes.wecom.redis.from_url", return_value=fake_redis):
+            with patch("redis.asyncio.from_url", return_value=fake_redis):
                 result = await node.run(state, RunnableConfig())
 
         assert result["is_error"] is False
@@ -2270,7 +2270,7 @@ class TestWeComHelperFunctions:
 
     def test_create_cs_redis_client_handles_unavailable(self):
         with patch(
-            "orcheo.nodes.wecom.redis.from_url",
+            "redis.asyncio.from_url",
             side_effect=redis.RedisError("unavailable"),
         ):
             assert _create_cs_redis_client() is None
