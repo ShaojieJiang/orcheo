@@ -98,6 +98,8 @@ export default defineConfig({
       'zustand',
       'zustand/traditional',
       'zustand/middleware',
+      // @braintree/sanitize-url (CJS transitive dep of mermaid)
+      '@braintree/sanitize-url',
     ]
   },
   build: {
