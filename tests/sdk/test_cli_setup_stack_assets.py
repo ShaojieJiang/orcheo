@@ -1133,6 +1133,29 @@ def test_discover_latest_stack_version_soft_fails(
     assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
 
 
+def test_discover_latest_stack_version_skips_invalid_release_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    payload = json.dumps(
+        [
+            "not-a-dict",
+            {"tag_name": 123, "prerelease": False},
+            {"tag_name": "stack-v", "prerelease": False},
+            {"tag_name": "stack-v0.8.3", "prerelease": False},
+        ]
+    ).encode("utf-8")
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(payload),
+    )
+
+    version = setup_mod._discover_latest_stack_version(Console(record=True))
+    assert version == "0.8.3"
+
+
 def test_download_and_extract_stack_archive_rejects_path_traversal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1161,3 +1184,34 @@ def test_download_and_extract_stack_archive_rejects_path_traversal(
     )
     assert ok is False
     assert not (tmp_path / "pwnd.txt").exists()
+
+
+def test_is_safe_archive_member_rejects_absolute_path() -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    assert setup_mod._is_safe_archive_member("/etc/passwd") is False
+
+
+def test_download_and_extract_stack_archive_handles_extract_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-bad-archive"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(b"not-a-gzip-archive"),
+    )
+
+    console = Console(record=True)
+    ok = setup_mod._download_and_extract_stack_archive(
+        "0.1.0",
+        stack_dir,
+        console=console,
+    )
+
+    assert ok is False
+    assert "Failed to extract stack archive" in console.export_text()
