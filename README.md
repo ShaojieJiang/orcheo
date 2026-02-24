@@ -29,7 +29,7 @@ Use the installation path that matches your setup:
 > Prerequisite: Docker Desktop/Engine must be installed to run the stack (`orcheo install --start-stack`).
 
 <details open>
-<summary>macOS (bootstrap)</summary>
+<summary>macOS / Linux</summary>
 
 ```bash
 bash <(curl -fsSL https://ai-colleagues.com/install.sh)
@@ -38,29 +38,7 @@ bash <(curl -fsSL https://ai-colleagues.com/install.sh)
 </details>
 
 <details>
-<summary>Linux (bootstrap)</summary>
-
-```bash
-curl -fsSL https://ai-colleagues.com/install.sh | sh
-```
-
-</details>
-
-<details>
-<summary>Scripts/CI (non-interactive)</summary>
-
-```bash
-# macOS
-bash <(curl -fsSL https://ai-colleagues.com/install.sh) --yes --start-stack
-
-# Linux
-curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
-```
-
-</details>
-
-<details>
-<summary>Windows PowerShell (bootstrap)</summary>
+<summary>Windows PowerShell</summary>
 
 ```powershell
 irm https://ai-colleagues.com/install.ps1 | iex
@@ -69,17 +47,17 @@ irm https://ai-colleagues.com/install.ps1 | iex
 </details>
 
 <details>
-<summary>SDK tooling (skip bootstrap)</summary>
+<summary>SDK</summary>
 
 ```bash
-uv tool install orcheo-sdk
+uv tool install -U orcheo-sdk
 orcheo install
 ```
 
 </details>
 
 <details>
-<summary>Upgrade existing installation</summary>
+<summary>Upgrade</summary>
 
 ```bash
 orcheo install upgrade --yes
