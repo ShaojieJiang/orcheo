@@ -10,11 +10,16 @@ import websockets
 
 
 def create_workflow() -> dict[str, Any]:
-    """Create a simple workflow with a code node."""
+    """Create a simple workflow with a TaskNode-based transform."""
     return {
         "nodes": [
             {"name": "START", "type": "START"},
-            {"name": "code", "type": "PythonCode", "code": "return 'Hello, world!'"},
+            {
+                "name": "code",
+                "type": "DataTransformNode",
+                "input_data": {"value": "Hello, world!"},
+                "transforms": [{"source": "value", "target": "message"}],
+            },
             {"name": "END", "type": "END"},
         ],
         "edges": [("START", "code"), ("code", "END")],

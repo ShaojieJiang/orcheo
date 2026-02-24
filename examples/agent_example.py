@@ -18,13 +18,15 @@
 # %%
 import asyncio
 import os
+from typing import Any
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.code import PythonCode
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.telegram import MessageTelegram
 
 
@@ -35,6 +37,17 @@ model_settings = {
     "model": "gpt-4o-mini",
     "api_key": os.getenv("OPENAI_API_KEY"),
 }
+
+
+class GreetingTaskNode(TaskNode):
+    """Simple in-file task node used by the sub-graph tool example."""
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Run the task node."""
+        del config
+        name = state["results"]["initial"]
+        return {"messages": [{"role": "ai", "content": f"Hello, {name}."}]}
+
 
 # %% [markdown]
 # ## Structured output with vanilla JSON dict
@@ -272,13 +285,7 @@ print(result["messages"][-1].content)
 # ### Define a sub-graph
 
 # %%
-python_code_node = PythonCode(
-    name="PythonCode",
-    code=(
-        "return {'messages': [{'role': 'ai', "
-        "'content': 'Hello, ' + state['results']['initial'] + '.'}]}"
-    ),  # noqa: E501
-)
+python_code_node = GreetingTaskNode(name="greeting_task")
 
 tool_graph = StateGraph(State)
 tool_graph.add_node("python_code", python_code_node)
@@ -310,7 +317,7 @@ def greet(name: str) -> dict:
             config={},
         )
     )
-    return result["results"]["PythonCode"]
+    return result["results"]["greeting_task"]
 
 
 # %% [markdown]

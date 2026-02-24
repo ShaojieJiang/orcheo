@@ -1,6 +1,6 @@
 # Built-in Node Catalog
 
-Orcheo currently ships with **96 built-in nodes** across **14 categories**.
+Orcheo currently ships with **95 built-in nodes** across **13 categories**.
 
 This catalog is sourced from runtime node registry metadata. Run `orcheo node list` to inspect the nodes available in your environment, including custom registrations.
 
@@ -10,7 +10,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---:|
 | Agentensor (`agentensor`) | 1 |
 | AI (`ai`) | 2 |
-| Code (`code`) | 1 |
 | Communication (`communication`) | 2 |
 | Conversational Search (`conversational_search`) | 46 |
 | Data (`data`) | 4 |
@@ -35,12 +34,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---|
 | **AgentNode** | Execute an AI agent with tools |
 | **LLMNode** | Execute a text-only LLM call |
-
-## Code Nodes
-
-| Node | Description |
-|---|---|
-| **PythonCode** | Execute Python code |
 
 ## Communication Nodes
 
@@ -171,7 +164,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | **DebugNode** | Capture state snapshots and emit debug information. |
 | **DelayNode** | Pause execution for a fixed duration |
 | **JavaScriptSandboxNode** | Execute JavaScript using js2py sandboxing. |
-| **PythonSandboxNode** | Execute Python code using RestrictedPython sandboxing. |
 | **SetVariableNode** | Store variables for downstream nodes |
 | **SubWorkflowNode** | Execute a mini workflow inline using the node registry. |
 

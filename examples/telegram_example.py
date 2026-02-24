@@ -1,4 +1,4 @@
-"""Example graph demonstrating Python code and Telegram integration."""
+"""Example graph demonstrating TaskNode-based data mapping and Telegram integration."""
 
 import asyncio
 import os
@@ -14,17 +14,16 @@ graph_config = {
         {"name": "START", "type": "START"},
         {
             "name": "print",
-            "type": "PythonCode",
-            "code": """
-return {"message": "Hello Orcheo!"}
-""",
+            "type": "DataTransformNode",
+            "input_data": {"message": "Hello Orcheo!"},
+            "transforms": [{"source": "message", "target": "message"}],
         },
         {
             "name": "telegram",
             "type": "MessageTelegram",
             "token": os.getenv("TELEGRAM_TOKEN"),
             "chat_id": os.getenv("TELEGRAM_CHAT_ID"),
-            "message": "{{print.message}}",
+            "message": "{{print.result.message}}",
         },
         {"name": "END", "type": "END"},
     ],

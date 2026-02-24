@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
+from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.runtime.credentials import (
     CredentialReference,
     CredentialResolverUnavailableError,
@@ -179,8 +180,17 @@ class AINode(BaseNode):
         pass  # pragma: no cover
 
 
+@registry.register(
+    NodeMetadata(
+        name="TaskNode",
+        description=(
+            "Base task node that executes custom logic and stores outputs in results."
+        ),
+        category="base",
+    )
+)
 class TaskNode(BaseNode):
-    """Base class for all non-AI task nodes in the flow."""
+    """Base class for all nodes that need to define their own run method."""
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""

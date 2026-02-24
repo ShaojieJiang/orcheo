@@ -22,42 +22,59 @@ from orcheo_sdk import (
 )
 
 
-class PythonCodeConfig(BaseModel):
-    """Configuration schema for the PythonCode node."""
+class FieldTransformConfig(BaseModel):
+    """Single field mapping for DataTransformNode."""
 
-    code: str
+    source: str
+    target: str
+    transform: str = "identity"
 
 
-class PythonCodeNode(WorkflowNode[PythonCodeConfig]):
-    """Convenience wrapper that exports PythonCode nodes from the SDK."""
+class DataTransformConfig(BaseModel):
+    """Configuration schema for the DataTransformNode node."""
 
-    type_name = "PythonCode"
+    input_data: dict[str, str]
+    transforms: list[FieldTransformConfig]
+
+
+class DataTransformWorkflowNode(WorkflowNode[DataTransformConfig]):
+    """Convenience wrapper that exports DataTransformNode nodes from the SDK."""
+
+    type_name = "DataTransformNode"
 
 
 def build_workflow() -> Workflow:
-    """Create a multi-step workflow that greets and formats a user name."""
+    """Create a multi-step workflow that maps and formats a user name."""
     workflow = Workflow(name="sdk-websocket-demo")
 
     workflow.add_node(
-        PythonCodeNode(
+        DataTransformWorkflowNode(
             "greet_user",
-            PythonCodeConfig(
-                code=(
-                    "return {'message': "
-                    "f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
-                ),
+            DataTransformConfig(
+                input_data={"name": "{{inputs.name}}"},
+                transforms=[
+                    FieldTransformConfig(
+                        source="name",
+                        target="message",
+                        transform="string",
+                    )
+                ],
             ),
         )
     )
 
     workflow.add_node(
-        PythonCodeNode(
+        DataTransformWorkflowNode(
             "format_message",
-            PythonCodeConfig(
-                code=(
-                    "greeting = state['results']['greet_user']['message']\n"
-                    "return {'shout': greeting.upper()}"
-                ),
+            DataTransformConfig(
+                input_data={"greeting": "{{results.greet_user.result.message}}"},
+                transforms=[
+                    FieldTransformConfig(
+                        source="greeting",
+                        target="shout",
+                        transform="upper",
+                    )
+                ],
             ),
         ),
         depends_on=["greet_user"],
