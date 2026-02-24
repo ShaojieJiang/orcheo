@@ -310,6 +310,64 @@ def test_workflow_mermaid_top_level_conditional_edges() -> None:
     assert "decision --> __end__" in mermaid
 
 
+def test_collect_conditional_edges_skips_non_mapping_branch() -> None:
+    """Non-mapping branches are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(["not-a-mapping", 42], node_names)
+    assert result == []
+    assert node_names == set()
+
+
+def test_collect_conditional_edges_skips_branch_without_source() -> None:
+    """Branches missing both 'source' and 'from' are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(
+        [{"mapping": {"ok": "target"}}],
+        node_names,
+    )
+    assert result == []
+    assert node_names == set()
+
+
+def test_collect_conditional_edges_non_mapping_mapping_field() -> None:
+    """When the 'mapping' field is not a Mapping, only the default target is used."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(
+        [{"source": "decision", "mapping": "not-a-dict", "default": "fallback"}],
+        node_names,
+    )
+    assert len(result) == 1
+    assert result[0] == ("decision", "fallback")
+
+
+def test_collect_conditional_edges_skips_unresolvable_target() -> None:
+    """Targets that _resolve_edge cannot resolve are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    # mapping value is empty string → _resolve_edge returns None
+    result = _collect_conditional_edges(
+        [{"source": "src", "mapping": {"key": ""}}],
+        node_names,
+    )
+    assert result == []
+
+
+def test_deduplicate_edges_removes_duplicates() -> None:
+    """Duplicate edges are removed, preserving first occurrence order."""
+    from orcheo_sdk.cli.workflow.mermaid import _deduplicate_edges
+
+    edges = [("a", "b"), ("c", "d"), ("a", "b"), ("c", "d"), ("e", "f")]
+    result = _deduplicate_edges(edges)
+    assert result == [("a", "b"), ("c", "d"), ("e", "f")]
+
+
 def test_workflow_mermaid_fallback_skips_sentinel_node_definitions(
     monkeypatch,
 ) -> None:
