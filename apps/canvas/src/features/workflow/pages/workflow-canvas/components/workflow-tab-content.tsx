@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mermaid from "mermaid";
 
 import { Button } from "@/design-system/ui/button";
@@ -18,6 +18,10 @@ export interface WorkflowTabContentProps {
 }
 
 const defaultMermaid = "flowchart TD\n  START([Start]) --> END([End])";
+const DEFAULT_ZOOM_PERCENT = 100;
+const MIN_ZOOM_PERCENT = 40;
+const MAX_ZOOM_PERCENT = 300;
+const ZOOM_STEP_PERCENT = 20;
 
 let mermaidInitialized = false;
 
@@ -33,6 +37,9 @@ const ensureMermaidInitialized = () => {
   mermaidInitialized = true;
 };
 
+const clampZoom = (zoom: number) =>
+  Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, zoom));
+
 export function WorkflowTabContent({
   workflowId,
   workflowName,
@@ -45,6 +52,8 @@ export function WorkflowTabContent({
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
+  const [zoomPercent, setZoomPercent] = useState(DEFAULT_ZOOM_PERCENT);
+  const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
 
   const mermaidSource = useMemo(() => {
     if (!latestVersion?.mermaid || latestVersion.mermaid.trim().length === 0) {
@@ -71,6 +80,7 @@ export function WorkflowTabContent({
         }
         setDiagramSvg(result.svg);
         setDiagramError(null);
+        setZoomPercent(DEFAULT_ZOOM_PERCENT);
       } catch (error) {
         if (!isMounted) {
           return;
@@ -88,6 +98,58 @@ export function WorkflowTabContent({
       isMounted = false;
     };
   }, [latestVersion?.id, mermaidSource]);
+
+  const updateSvgPresentation = useCallback(() => {
+    const wrapper = mermaidContainerRef.current;
+    if (!wrapper) {
+      return;
+    }
+    const svg = wrapper.querySelector("svg");
+    if (!(svg instanceof SVGSVGElement)) {
+      return;
+    }
+
+    svg.style.display = "block";
+    svg.style.width = `${zoomPercent}%`;
+    svg.style.height = "auto";
+    svg.style.maxWidth = "none";
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    const graphGroup =
+      (svg.querySelector("g.output") as SVGGElement | null) ??
+      (svg.querySelector("g.root") as SVGGElement | null) ??
+      (svg.querySelector("g") as SVGGElement | null);
+    if (!graphGroup || typeof graphGroup.getBBox !== "function") {
+      return;
+    }
+
+    try {
+      const box = graphGroup.getBBox();
+      if (box.width <= 0 || box.height <= 0) {
+        return;
+      }
+      const padding = Math.max(box.width, box.height) * 0.08;
+      const viewBox = [
+        box.x - padding,
+        box.y - padding,
+        box.width + padding * 2,
+        box.height + padding * 2,
+      ].join(" ");
+      svg.setAttribute("viewBox", viewBox);
+    } catch {
+      // Keep Mermaid's generated viewBox if bbox measurement is unavailable.
+    }
+  }, [zoomPercent]);
+
+  useEffect(() => {
+    if (!diagramSvg) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(updateSvgPresentation);
+    return () => window.cancelAnimationFrame(frame);
+  }, [diagramSvg, updateSvgPresentation]);
 
   if (isLoading) {
     return (
@@ -148,20 +210,65 @@ export function WorkflowTabContent({
       )}
 
       {latestVersion && mermaidSource && !diagramError && (
-        <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted/10 p-4">
-          <div className="flex min-h-full min-w-full items-center justify-center">
-            {diagramSvg ? (
-              <div
-                className="workflow-mermaid [&_svg]:mx-auto [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full"
-                dangerouslySetInnerHTML={{
-                  __html: diagramSvg,
-                }}
-              />
-            ) : (
-              <pre className="max-w-full overflow-auto rounded-md border bg-background p-3 text-xs text-muted-foreground">
-                {defaultMermaid}
-              </pre>
-            )}
+        <div className="min-h-0 flex flex-1 flex-col rounded-md border bg-muted/10 p-3">
+          <div className="mb-2 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setZoomPercent((current) =>
+                  clampZoom(current - ZOOM_STEP_PERCENT),
+                );
+              }}
+              disabled={zoomPercent <= MIN_ZOOM_PERCENT}
+            >
+              -
+            </Button>
+            <span className="w-12 text-center text-xs text-muted-foreground">
+              {zoomPercent}%
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setZoomPercent((current) =>
+                  clampZoom(current + ZOOM_STEP_PERCENT),
+                );
+              }}
+              disabled={zoomPercent >= MAX_ZOOM_PERCENT}
+            >
+              +
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setZoomPercent(DEFAULT_ZOOM_PERCENT);
+              }}
+              disabled={zoomPercent === DEFAULT_ZOOM_PERCENT}
+            >
+              Fit
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-background/70 p-4">
+            <div className="flex min-h-full min-w-full items-center justify-center">
+              {diagramSvg ? (
+                <div
+                  ref={mermaidContainerRef}
+                  className="workflow-mermaid flex w-full justify-center [&_svg]:mx-auto [&_svg]:block"
+                  dangerouslySetInnerHTML={{
+                    __html: diagramSvg,
+                  }}
+                />
+              ) : (
+                <pre className="max-w-full overflow-auto rounded-md border bg-background p-3 text-xs text-muted-foreground">
+                  {defaultMermaid}
+                </pre>
+              )}
+            </div>
           </div>
         </div>
       )}
