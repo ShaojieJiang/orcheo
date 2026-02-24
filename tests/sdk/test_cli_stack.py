@@ -93,6 +93,46 @@ def test_stack_start_shortcut_runs_compose_up_detached(
     ]
 
 
+def test_stack_logs_treats_sigint_exit_as_success(
+    runner: Any,
+    env: dict[str, str],
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    executed: list[str] = []
+
+    def _run(command: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+        del check
+        executed[:] = command
+        return subprocess.CompletedProcess(command, 130)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.subprocess.run", _run)
+    monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
+
+    result = runner.invoke(
+        app,
+        ["--no-update-check", "stack", "--logs"],
+        env=_stack_env(env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    assert executed == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "logs",
+        "-f",
+    ]
+
+
 def test_stack_rejects_multiple_actions(
     runner: Any,
     env: dict[str, str],

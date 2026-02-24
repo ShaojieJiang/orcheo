@@ -276,11 +276,19 @@ def _stack_compose_base_args() -> list[str]:
     ]
 
 
-def _run_stack_command(command: list[str], *, console: Console) -> None:
+def _run_stack_command(
+    command: list[str],
+    *,
+    console: Console,
+    expected_exit_codes: set[int] | None = None,
+) -> None:
+    if expected_exit_codes is None:
+        expected_exit_codes = {0}
+
     command_text = " ".join(command)
     console.print(f"[cyan]$ {command_text}[/cyan]")
     result = subprocess.run(command, check=False)
-    if result.returncode != 0:
+    if result.returncode not in expected_exit_codes:
         raise typer.BadParameter(
             f"Command failed with exit code {result.returncode}: {command_text}"
         )
@@ -520,6 +528,7 @@ def stack_command(
     _run_stack_command(
         command_by_action[action],
         console=_resolve_install_console(ctx),
+        expected_exit_codes={0, 130} if action == "logs" else {0},
     )
 
 
