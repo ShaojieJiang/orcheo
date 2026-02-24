@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import mermaid from "mermaid";
+import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
 import type {
@@ -17,11 +19,18 @@ export interface WorkflowTabContentProps {
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
 }
 
+interface MermaidSvgNodeData {
+  svg: string;
+  width: number;
+  height: number;
+}
+
 const defaultMermaid = "flowchart TD\n  START([Start]) --> END([End])";
-const DEFAULT_ZOOM_PERCENT = 100;
-const MIN_ZOOM_PERCENT = 40;
-const MAX_ZOOM_PERCENT = 300;
-const ZOOM_STEP_PERCENT = 20;
+const DEFAULT_SVG_SIZE = { width: 960, height: 560 };
+const MIN_SVG_WIDTH = 320;
+const MIN_SVG_HEIGHT = 220;
+const MAX_SVG_WIDTH = 2400;
+const MAX_SVG_HEIGHT = 1800;
 
 let mermaidInitialized = false;
 
@@ -29,6 +38,7 @@ const ensureMermaidInitialized = () => {
   if (mermaidInitialized) {
     return;
   }
+
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
@@ -37,8 +47,113 @@ const ensureMermaidInitialized = () => {
   mermaidInitialized = true;
 };
 
-const clampZoom = (zoom: number) =>
-  Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, zoom));
+const sanitizeMermaidIdPart = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9_-]/g, "-");
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const parseSvgDimension = (rawValue: string | undefined): number | null => {
+  if (!rawValue) {
+    return null;
+  }
+
+  const match = rawValue.match(/-?\d*\.?\d+/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(match[0]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const resolveSvgSize = (svg: string) => {
+  const viewBoxMatch = svg.match(/\bviewBox\s*=\s*"([^"]+)"/i);
+  if (viewBoxMatch) {
+    const values = viewBoxMatch[1]
+      .trim()
+      .split(/[\s,]+/)
+      .map((value) => Number.parseFloat(value));
+
+    if (
+      values.length === 4 &&
+      values.every((value) => Number.isFinite(value)) &&
+      values[2] > 0 &&
+      values[3] > 0
+    ) {
+      return {
+        width: clamp(values[2], MIN_SVG_WIDTH, MAX_SVG_WIDTH),
+        height: clamp(values[3], MIN_SVG_HEIGHT, MAX_SVG_HEIGHT),
+      };
+    }
+  }
+
+  const width = parseSvgDimension(svg.match(/\bwidth\s*=\s*"([^"]+)"/i)?.[1]);
+  const height = parseSvgDimension(svg.match(/\bheight\s*=\s*"([^"]+)"/i)?.[1]);
+
+  if (width && height) {
+    return {
+      width: clamp(width, MIN_SVG_WIDTH, MAX_SVG_WIDTH),
+      height: clamp(height, MIN_SVG_HEIGHT, MAX_SVG_HEIGHT),
+    };
+  }
+
+  return DEFAULT_SVG_SIZE;
+};
+
+const makeMermaidSvgTransparent = (svg: string): string => {
+  const svgWithTransparentRoot = svg.replace(
+    /<svg\b([^>]*)>/i,
+    (match, attributes: string) => {
+      const styleMatch = attributes.match(/\sstyle="([^"]*)"/i);
+      if (!styleMatch) {
+        return `<svg${attributes} style="background-color: transparent;">`;
+      }
+
+      const cleanedStyle = styleMatch[1]
+        .split(";")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .filter(
+          (entry) =>
+            !entry.toLowerCase().startsWith("background-color") &&
+            !entry.toLowerCase().startsWith("background"),
+        )
+        .join("; ");
+      const nextStyle = ` style="background-color: transparent${cleanedStyle ? `; ${cleanedStyle}` : ""};"`;
+
+      return match.replace(styleMatch[0], nextStyle);
+    },
+  );
+
+  return svgWithTransparentRoot
+    .replace(
+      /<rect\b([^>]*\bclass="[^"]*\b(background|canvas)\b[^"]*"[^>]*)\/?>/gi,
+      "",
+    )
+    .replace(
+      /<rect\b([^>]*\bid="[^"]*(background|canvas)[^"]*"[^>]*)\/?>/gi,
+      "",
+    );
+};
+
+const MermaidSvgNode = ({ data }: NodeProps<Node<MermaidSvgNodeData>>) => {
+  const nodeData = data as MermaidSvgNodeData;
+
+  return (
+    <div className="p-1">
+      <div
+        className="workflow-mermaid-svg pointer-events-none [&_svg]:block [&_svg]:h-full [&_svg]:w-full [&_svg]:max-w-none"
+        style={{ width: nodeData.width, height: nodeData.height }}
+        dangerouslySetInnerHTML={{ __html: nodeData.svg }}
+      />
+    </div>
+  );
+};
+
+const nodeTypes = {
+  mermaidSvg: MermaidSvgNode,
+};
 
 export function WorkflowTabContent({
   workflowId,
@@ -52,8 +167,6 @@ export function WorkflowTabContent({
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
-  const [zoomPercent, setZoomPercent] = useState(DEFAULT_ZOOM_PERCENT);
-  const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
 
   const mermaidSource = useMemo(() => {
     if (!latestVersion?.mermaid || latestVersion.mermaid.trim().length === 0) {
@@ -70,21 +183,28 @@ export function WorkflowTabContent({
     }
 
     let isMounted = true;
+
     const renderMermaid = async () => {
       try {
         ensureMermaidInitialized();
-        const renderId = `workflow-mermaid-${latestVersion?.id ?? "latest"}`;
+        const workflowIdPart = sanitizeMermaidIdPart(workflowId ?? "workflow");
+        const versionIdPart = sanitizeMermaidIdPart(
+          latestVersion?.id ?? "latest",
+        );
+        const renderId = `workflow-mermaid-svg-${workflowIdPart}-${versionIdPart}`;
         const result = await mermaid.render(renderId, mermaidSource);
+
         if (!isMounted) {
           return;
         }
-        setDiagramSvg(result.svg);
+
+        setDiagramSvg(makeMermaidSvgTransparent(result.svg));
         setDiagramError(null);
-        setZoomPercent(DEFAULT_ZOOM_PERCENT);
       } catch (error) {
         if (!isMounted) {
           return;
         }
+
         setDiagramSvg(null);
         setDiagramError(
           error instanceof Error ? error.message : "Unable to render diagram.",
@@ -97,59 +217,30 @@ export function WorkflowTabContent({
     return () => {
       isMounted = false;
     };
-  }, [latestVersion?.id, mermaidSource]);
+  }, [latestVersion?.id, mermaidSource, workflowId]);
 
-  const updateSvgPresentation = useCallback(() => {
-    const wrapper = mermaidContainerRef.current;
-    if (!wrapper) {
-      return;
-    }
-    const svg = wrapper.querySelector("svg");
-    if (!(svg instanceof SVGSVGElement)) {
-      return;
-    }
-
-    svg.style.display = "block";
-    svg.style.width = `${zoomPercent}%`;
-    svg.style.height = "auto";
-    svg.style.maxWidth = "none";
-    svg.removeAttribute("width");
-    svg.removeAttribute("height");
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
-    const graphGroup =
-      (svg.querySelector("g.output") as SVGGElement | null) ??
-      (svg.querySelector("g.root") as SVGGElement | null) ??
-      (svg.querySelector("g") as SVGGElement | null);
-    if (!graphGroup || typeof graphGroup.getBBox !== "function") {
-      return;
-    }
-
-    try {
-      const box = graphGroup.getBBox();
-      if (box.width <= 0 || box.height <= 0) {
-        return;
-      }
-      const padding = Math.max(box.width, box.height) * 0.08;
-      const viewBox = [
-        box.x - padding,
-        box.y - padding,
-        box.width + padding * 2,
-        box.height + padding * 2,
-      ].join(" ");
-      svg.setAttribute("viewBox", viewBox);
-    } catch {
-      // Keep Mermaid's generated viewBox if bbox measurement is unavailable.
-    }
-  }, [zoomPercent]);
-
-  useEffect(() => {
+  const diagramNodes = useMemo(() => {
     if (!diagramSvg) {
-      return;
+      return [] as Node[];
     }
-    const frame = window.requestAnimationFrame(updateSvgPresentation);
-    return () => window.cancelAnimationFrame(frame);
-  }, [diagramSvg, updateSvgPresentation]);
+
+    const size = resolveSvgSize(diagramSvg);
+
+    return [
+      {
+        id: "mermaid-svg-root",
+        type: "mermaidSvg",
+        position: { x: 0, y: 0 },
+        data: {
+          svg: diagramSvg,
+          width: size.width,
+          height: size.height,
+        },
+        draggable: false,
+        selectable: false,
+      } satisfies Node,
+    ];
+  }, [diagramSvg]);
 
   if (isLoading) {
     return (
@@ -210,65 +301,32 @@ export function WorkflowTabContent({
       )}
 
       {latestVersion && mermaidSource && !diagramError && (
-        <div className="min-h-0 flex flex-1 flex-col rounded-md border bg-muted/10 p-3">
-          <div className="mb-2 flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setZoomPercent((current) =>
-                  clampZoom(current - ZOOM_STEP_PERCENT),
-                );
-              }}
-              disabled={zoomPercent <= MIN_ZOOM_PERCENT}
-            >
-              -
-            </Button>
-            <span className="w-12 text-center text-xs text-muted-foreground">
-              {zoomPercent}%
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setZoomPercent((current) =>
-                  clampZoom(current + ZOOM_STEP_PERCENT),
-                );
-              }}
-              disabled={zoomPercent >= MAX_ZOOM_PERCENT}
-            >
-              +
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setZoomPercent(DEFAULT_ZOOM_PERCENT);
-              }}
-              disabled={zoomPercent === DEFAULT_ZOOM_PERCENT}
-            >
-              Fit
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-background/70 p-4">
-            <div className="flex min-h-full min-w-full items-center justify-center">
-              {diagramSvg ? (
-                <div
-                  ref={mermaidContainerRef}
-                  className="workflow-mermaid flex w-full justify-center [&_svg]:mx-auto [&_svg]:block"
-                  dangerouslySetInnerHTML={{
-                    __html: diagramSvg,
-                  }}
-                />
-              ) : (
-                <pre className="max-w-full overflow-auto rounded-md border bg-background p-3 text-xs text-muted-foreground">
-                  {defaultMermaid}
-                </pre>
-              )}
-            </div>
+        <div className="min-h-0 flex flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {diagramNodes.length > 0 ? (
+              <ReactFlow
+                key={`${latestVersion.id}-mermaid-svg`}
+                nodes={diagramNodes}
+                edges={[]}
+                nodeTypes={nodeTypes}
+                fitView
+                minZoom={0.2}
+                maxZoom={2}
+                nodesDraggable={false}
+                nodesConnectable={false}
+                elementsSelectable={false}
+                zoomOnDoubleClick={false}
+                className="h-full w-full"
+                proOptions={{ hideAttribution: true }}
+                style={{ background: "transparent" }}
+              >
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            ) : (
+              <pre className="h-full overflow-auto p-3 text-xs text-muted-foreground">
+                {defaultMermaid}
+              </pre>
+            )}
           </div>
         </div>
       )}
