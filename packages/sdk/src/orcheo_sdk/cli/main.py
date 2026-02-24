@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 import os
+import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
+from pathlib import Path
 from typing import Annotated, Any, cast
 import click
 import typer
@@ -249,6 +252,40 @@ def _resolve_install_console(ctx: typer.Context) -> Console:
     return state.console if state is not None else Console()
 
 
+def _resolve_stack_project_dir() -> Path:
+    configured = os.getenv("ORCHEO_STACK_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".orcheo" / "stack"
+
+
+def _stack_compose_base_args() -> list[str]:
+    stack_dir = _resolve_stack_project_dir()
+    compose_file = stack_dir / "docker-compose.yml"
+    if not compose_file.exists():
+        raise typer.BadParameter(
+            "Stack docker-compose file not found. Run 'orcheo install --yes' first."
+        )
+    return [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+    ]
+
+
+def _run_stack_command(command: list[str], *, console: Console) -> None:
+    command_text = " ".join(command)
+    console.print(f"[cyan]$ {command_text}[/cyan]")
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        raise typer.BadParameter(
+            f"Command failed with exit code {result.returncode}: {command_text}"
+        )
+
+
 @install_app.callback(invoke_without_command=True)
 def install_command(
     ctx: typer.Context,
@@ -405,6 +442,84 @@ def install_upgrade_command(
         install_docker=install_docker,
         manual_secrets=manual_secrets,
         forced_mode="upgrade",
+    )
+
+
+@app.command("stack")
+def stack_command(
+    ctx: typer.Context,
+    logs: Annotated[
+        bool,
+        typer.Option("--logs", help="Stream stack logs (docker compose logs -f)."),
+    ] = False,
+    start: Annotated[
+        bool,
+        typer.Option("--start", help="Start stack services in detached mode."),
+    ] = False,
+    stop: Annotated[
+        bool,
+        typer.Option("--stop", help="Stop running stack services."),
+    ] = False,
+    restart: Annotated[
+        bool,
+        typer.Option("--restart", help="Restart stack services."),
+    ] = False,
+    ps: Annotated[
+        bool,
+        typer.Option("--ps", help="List stack service status."),
+    ] = False,
+    pull: Annotated[
+        bool,
+        typer.Option("--pull", help="Pull latest stack images."),
+    ] = False,
+    down: Annotated[
+        bool,
+        typer.Option("--down", help="Stop and remove stack resources."),
+    ] = False,
+) -> None:
+    """Run common Docker Compose actions for the local Orcheo stack."""
+    if shutil.which("docker") is None:
+        raise typer.BadParameter(
+            "Docker is not installed or not in PATH. Install Docker and retry."
+        )
+
+    selected_actions = [
+        action
+        for action, enabled in (
+            ("logs", logs),
+            ("start", start),
+            ("stop", stop),
+            ("restart", restart),
+            ("ps", ps),
+            ("pull", pull),
+            ("down", down),
+        )
+        if enabled
+    ]
+
+    if not selected_actions:
+        raise typer.BadParameter(
+            "Choose one action: --logs, --start, --stop, --restart, "
+            "--ps, --pull, or --down."
+        )
+
+    if len(selected_actions) > 1:
+        raise typer.BadParameter("Choose only one stack action at a time.")
+
+    action = selected_actions[0]
+    compose_base_args = _stack_compose_base_args()
+    command_by_action = {
+        "logs": [*compose_base_args, "logs", "-f"],
+        "start": [*compose_base_args, "up", "-d"],
+        "stop": [*compose_base_args, "stop"],
+        "restart": [*compose_base_args, "restart"],
+        "ps": [*compose_base_args, "ps"],
+        "pull": [*compose_base_args, "pull"],
+        "down": [*compose_base_args, "down"],
+    }
+    _run_stack_command(
+        command_by_action[action],
+        console=_resolve_install_console(ctx),
     )
 
 
