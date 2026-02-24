@@ -21,9 +21,13 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
 
     nodes = list(graph.get("nodes", []))
     edges = list(graph.get("edges", []))
+    conditional_edges = list(graph.get("conditional_edges", []))
+    has_conditional_edges = bool(conditional_edges)
 
     node_names = _collect_node_names(nodes)
     normalised_edges = _collect_edges(edges, node_names)
+    normalised_edges.extend(_collect_conditional_edges(conditional_edges, node_names))
+    normalised_edges = _deduplicate_edges(normalised_edges)
 
     stub: StateGraph[Any] = StateGraph(dict)  # type: ignore[type-var]
     for name in sorted(node_names):
@@ -37,23 +41,16 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
                 _normalise_vertex(target, START, END),
             )
         )
-
-    if not compiled_edges:
-        if node_names:
-            compiled_edges.append((START, sorted(node_names)[0]))
-        else:
-            compiled_edges.append((START, END))
-    elif not any(source is START for source, _ in compiled_edges):
-        targets = {target for _, target in compiled_edges}
-        for candidate in sorted(node_names):
-            if candidate not in targets:
-                compiled_edges.append((START, candidate))
-                break
-        else:
-            compiled_edges.append((START, compiled_edges[0][0]))
+    compiled_edges = _ensure_entry_edges(compiled_edges, node_names, START, END)
 
     for source, target in compiled_edges:
         stub.add_edge(source, target)
+
+    if has_conditional_edges:
+        # LangGraph can collapse branch exits in cyclic graphs (for example,
+        # while-loops) when rendering Mermaid. Use deterministic fallback so
+        # every conditional route in the summary is represented.
+        return _render_mermaid_fallback(compiled_edges, node_names)
 
     compiled = stub.compile()
     try:
@@ -66,6 +63,27 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
 
 def _identity_state(state: dict[str, Any], *_: Any, **__: Any) -> dict[str, Any]:
     return state
+
+
+def _ensure_entry_edges(
+    edges: list[tuple[Any, Any]],
+    node_names: set[str],
+    start: Any,
+    end: Any,
+) -> list[tuple[Any, Any]]:
+    if not edges:
+        if node_names:
+            return [(start, sorted(node_names)[0])]
+        return [(start, end)]
+
+    if any(source is start for source, _ in edges):
+        return edges
+
+    targets = {target for _, target in edges}
+    for candidate in sorted(node_names):
+        if candidate not in targets:
+            return [*edges, (start, candidate)]
+    return [*edges, (start, edges[0][0])]
 
 
 def _collect_node_names(nodes: Sequence[Any]) -> set[str]:
@@ -91,6 +109,49 @@ def _collect_edges(edges: Sequence[Any], node_names: set[str]) -> list[tuple[Any
         _register_endpoint(node_names, source)
         _register_endpoint(node_names, target)
     return pairs
+
+
+def _collect_conditional_edges(
+    branches: Sequence[Any], node_names: set[str]
+) -> list[tuple[Any, Any]]:
+    pairs: list[tuple[Any, Any]] = []
+    for branch in branches:
+        if not isinstance(branch, Mapping):
+            continue
+
+        source = branch.get("source") or branch.get("from")
+        if not source:
+            continue
+
+        targets: list[Any] = []
+        mapping = branch.get("mapping")
+        if isinstance(mapping, Mapping):
+            targets.extend(mapping.values())
+        default_target = branch.get("default") or branch.get("then")
+        if default_target:
+            targets.append(default_target)
+
+        for target in targets:
+            resolved = _resolve_edge({"from": source, "to": target})
+            if not resolved:
+                continue
+            pair_source, pair_target = resolved
+            pairs.append((pair_source, pair_target))
+            _register_endpoint(node_names, pair_source)
+            _register_endpoint(node_names, pair_target)
+    return pairs
+
+
+def _deduplicate_edges(edges: Sequence[tuple[Any, Any]]) -> list[tuple[Any, Any]]:
+    unique: list[tuple[Any, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for source, target in edges:
+        key = (str(source), str(target))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((source, target))
+    return unique
 
 
 def _node_identifier(node: Any) -> str | None:
@@ -188,10 +249,12 @@ __all__ = [
     "_compiled_mermaid",
     "_collect_node_names",
     "_collect_edges",
+    "_collect_conditional_edges",
     "_node_identifier",
     "_resolve_edge",
     "_register_endpoint",
     "_normalise_vertex",
     "_render_mermaid_fallback",
+    "_deduplicate_edges",
     "_identity_state",
 ]

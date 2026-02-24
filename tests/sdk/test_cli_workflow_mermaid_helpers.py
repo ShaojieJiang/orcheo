@@ -23,6 +23,43 @@ def test_workflow_mermaid_with_langgraph_summary() -> None:
     assert "store_secret --> __end__" in mermaid
 
 
+def test_workflow_mermaid_with_langgraph_conditional_edges() -> None:
+    """Conditional edges from LangGraph summary should be rendered."""
+    from orcheo_sdk.cli.workflow import _mermaid_from_graph
+
+    graph = {
+        "format": "langgraph-script",
+        "source": "def build(): ...",
+        "summary": {
+            "nodes": [
+                {"name": "prepare_iteration", "type": "PrepareIterationNode"},
+                {"name": "select_current_user", "type": "SelectCurrentUserNode"},
+                {"name": "increment_counter", "type": "IncrementCounterNode"},
+            ],
+            "edges": [
+                ["START", "prepare_iteration"],
+                ["select_current_user", "increment_counter"],
+            ],
+            "conditional_edges": [
+                {
+                    "source": "prepare_iteration",
+                    "mapping": {"continue": "select_current_user", "exit": "END"},
+                },
+                {
+                    "source": "increment_counter",
+                    "mapping": {"continue": "select_current_user", "exit": "END"},
+                },
+            ],
+        },
+    }
+
+    mermaid = _mermaid_from_graph(graph)
+    assert "prepare_iteration --> select_current_user" in mermaid
+    assert "prepare_iteration --> __end__" in mermaid
+    assert "increment_counter --> select_current_user" in mermaid
+    assert "increment_counter --> __end__" in mermaid
+
+
 def test_workflow_mermaid_node_identifier_none() -> None:
     """Test node identifier returns None for nodes without id/name/label/type."""
     from orcheo_sdk.cli.workflow import _node_identifier
@@ -248,6 +285,87 @@ def test_workflow_mermaid_parallel_branches() -> None:
     assert "a --> __end__" in mermaid
     assert "b --> __end__" in mermaid
     assert "classDef default fill:#f2f0ff,line-height:1.2" in mermaid
+
+
+def test_workflow_mermaid_top_level_conditional_edges() -> None:
+    """Conditional edges should be rendered when present at graph top level."""
+    from orcheo_sdk.cli.workflow import _compiled_mermaid
+
+    graph = {
+        "nodes": [{"id": "decision"}, {"id": "left"}, {"id": "right"}],
+        "edges": [{"from": "START", "to": "decision"}],
+        "conditional_edges": [
+            {
+                "source": "decision",
+                "mapping": {"true": "left", "false": "right"},
+                "default": "END",
+            }
+        ],
+    }
+
+    mermaid = _compiled_mermaid(graph)
+    assert "__start__ --> decision" in mermaid
+    assert "decision --> left" in mermaid
+    assert "decision --> right" in mermaid
+    assert "decision --> __end__" in mermaid
+
+
+def test_collect_conditional_edges_skips_non_mapping_branch() -> None:
+    """Non-mapping branches are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(["not-a-mapping", 42], node_names)
+    assert result == []
+    assert node_names == set()
+
+
+def test_collect_conditional_edges_skips_branch_without_source() -> None:
+    """Branches missing both 'source' and 'from' are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(
+        [{"mapping": {"ok": "target"}}],
+        node_names,
+    )
+    assert result == []
+    assert node_names == set()
+
+
+def test_collect_conditional_edges_non_mapping_mapping_field() -> None:
+    """When the 'mapping' field is not a Mapping, only the default target is used."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    result = _collect_conditional_edges(
+        [{"source": "decision", "mapping": "not-a-dict", "default": "fallback"}],
+        node_names,
+    )
+    assert len(result) == 1
+    assert result[0] == ("decision", "fallback")
+
+
+def test_collect_conditional_edges_skips_unresolvable_target() -> None:
+    """Targets that _resolve_edge cannot resolve are skipped."""
+    from orcheo_sdk.cli.workflow.mermaid import _collect_conditional_edges
+
+    node_names: set[str] = set()
+    # mapping value is empty string → _resolve_edge returns None
+    result = _collect_conditional_edges(
+        [{"source": "src", "mapping": {"key": ""}}],
+        node_names,
+    )
+    assert result == []
+
+
+def test_deduplicate_edges_removes_duplicates() -> None:
+    """Duplicate edges are removed, preserving first occurrence order."""
+    from orcheo_sdk.cli.workflow.mermaid import _deduplicate_edges
+
+    edges = [("a", "b"), ("c", "d"), ("a", "b"), ("c", "d"), ("e", "f")]
+    result = _deduplicate_edges(edges)
+    assert result == [("a", "b"), ("c", "d"), ("e", "f")]
 
 
 def test_workflow_mermaid_fallback_skips_sentinel_node_definitions(
