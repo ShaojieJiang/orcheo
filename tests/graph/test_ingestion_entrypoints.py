@@ -33,7 +33,7 @@ def test_ingest_script_with_entrypoint() -> None:
     assert payload["entrypoint"] == "build_graph"
     summary = payload["summary"]
     assert summary["edges"] == [("START", "rss"), ("rss", "END")]
-    assert summary["nodes"][0]["type"] == "TaskNode"
+    assert summary["nodes"][0]["type"] == "RSSNode"
 
     graph = build_graph(payload)
     assert set(graph.nodes.keys()) == {"rss"}

@@ -180,15 +180,6 @@ class AINode(BaseNode):
         pass  # pragma: no cover
 
 
-@registry.register(
-    NodeMetadata(
-        name="TaskNode",
-        description=(
-            "Base task node that executes custom logic and stores outputs in results."
-        ),
-        category="base",
-    )
-)
 class TaskNode(BaseNode):
     """Base class for all nodes that need to define their own run method."""
 
@@ -207,4 +198,26 @@ class TaskNode(BaseNode):
         pass  # pragma: no cover
 
 
-__all__ = ["BaseRunnable", "BaseNode", "AINode", "TaskNode"]
+@registry.register(
+    NodeMetadata(
+        name="NoOpTaskNode",
+        description=(
+            "A no-op node for developers to use as a template for custom nodes. "
+            "Do not use this node directly, but inherit from this with your own "
+            "`run` method."
+        ),
+        category="base",
+    )
+)
+class NoOpTaskNode(TaskNode):
+    """No-op concrete task node for developer discovery and scaffolding."""
+
+    async def run(
+        self, state: State, config: RunnableConfig
+    ) -> dict[str, Any] | list[Any]:
+        """Run the no-op task node and return an empty payload."""
+        del state, config
+        return {}
+
+
+__all__ = ["BaseRunnable", "BaseNode", "AINode", "TaskNode", "NoOpTaskNode"]
