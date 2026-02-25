@@ -278,6 +278,7 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default() -> None:
     assert config.mode == "upgrade"
     assert config.auth_mode == "api-key"
     assert config.api_key is None
+    assert config.preserve_existing_backend_url is True
 
 
 def test_run_setup_upgrade_honors_explicit_api_key() -> None:
@@ -327,6 +328,77 @@ def test_execute_setup_preserves_secrets_on_upgrade(
     assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=my-signing-key" in env_content
     # Config updates still applied.
     assert "ORCHEO_API_URL=http://localhost:8000" in env_content
+
+
+def test_execute_setup_preserves_backend_urls_on_upgrade_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upgrade defaults should preserve existing backend URL values."""
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=http://existing-api.test\n"
+        "VITE_ORCHEO_BACKEND_URL=http://existing-vite.test\n",
+        encoding="utf-8",
+    )
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert "ORCHEO_API_URL=http://existing-api.test" in env_content
+    assert "VITE_ORCHEO_BACKEND_URL=http://existing-vite.test" in env_content
+    assert config.backend_url == "http://existing-api.test"
+
+
+def test_execute_setup_upgrade_preserve_backend_when_existing_urls_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upgrade preserve mode should fall back to config URL if env URLs are absent."""
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text("UNRELATED_KEY=value\n", encoding="utf-8")
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert "ORCHEO_API_URL=http://localhost:8000" in env_content
+    assert "VITE_ORCHEO_BACKEND_URL=http://localhost:8000" in env_content
+    assert config.backend_url == "http://localhost:8000"
+
+
+def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserved backend URL should be unquoted before health checks and summary."""
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text(
+        'ORCHEO_API_URL="https://api.example.com"\n'
+        'VITE_ORCHEO_BACKEND_URL="https://api.example.com"\n',
+        encoding="utf-8",
+    )
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    assert config.backend_url == "https://api.example.com"
 
 
 def test_execute_setup_raises_when_asset_download_fails(
@@ -544,7 +616,20 @@ def test_setup_low_level_resolvers_and_command_errors(
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "upgrade")
     assert setup_mod._resolve_mode(None, yes=False) == "upgrade"
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "http://x")
-    assert setup_mod._resolve_backend_url(None, yes=False) == "http://x"
+    assert setup_mod._resolve_backend_url(None, mode="install", yes=False) == (
+        "http://x",
+        False,
+    )
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: " ")
+    assert setup_mod._resolve_backend_url(None, mode="upgrade", yes=False) == (
+        "http://localhost:8000",
+        True,
+    )
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "http://u")
+    assert setup_mod._resolve_backend_url(None, mode="upgrade", yes=False) == (
+        "http://u",
+        False,
+    )
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda _p, default: "oauth")
     assert setup_mod._resolve_auth_mode(None, yes=False) == "oauth"
     monkeypatch.setattr(setup_mod.typer, "confirm", lambda _p, default: False)
@@ -574,10 +659,20 @@ def test_setup_api_key_and_optional_normalization(
 
     assert setup_mod._normalize_optional_value("  ") is None
     assert setup_mod._normalize_optional_value(" v ") == "v"
+    assert setup_mod._normalize_dotenv_value(None) is None
 
     assert setup_mod._resolve_chatkit_domain_key("  key ", yes=True) == "key"
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "  ")
     assert setup_mod._resolve_chatkit_domain_key(None, yes=False) is None
+
+
+def test_resolve_backend_url_install_yes_uses_default() -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    assert setup_mod._resolve_backend_url(None, mode="install", yes=True) == (
+        "http://localhost:8000",
+        False,
+    )
 
 
 def test_setup_stack_dir_default_and_sync_no_change(

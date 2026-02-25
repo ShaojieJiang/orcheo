@@ -50,6 +50,7 @@ class SetupConfig:
     chatkit_domain_key: str | None
     start_stack: bool
     install_docker_if_missing: bool
+    preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
 
@@ -77,12 +78,31 @@ def _resolve_mode(mode: SetupMode | None, *, yes: bool) -> SetupMode:
     return "upgrade" if selected == "upgrade" else "install"
 
 
-def _resolve_backend_url(backend_url: str | None, *, yes: bool) -> str:
+def _resolve_backend_url(
+    backend_url: str | None,
+    *,
+    mode: SetupMode,
+    yes: bool,
+) -> tuple[str, bool]:
+    default_backend_url = "http://localhost:8000"
     if backend_url:
-        return backend_url
+        return backend_url, False
+    if mode == "upgrade":
+        if yes:
+            return default_backend_url, True
+        selected = _normalize_optional_value(
+            typer.prompt(
+                "Backend URL (Enter to keep existing)",
+                default="",
+                show_default=False,
+            )
+        )
+        if selected is None:
+            return default_backend_url, True
+        return selected, False
     if yes:
-        return "http://localhost:8000"
-    return typer.prompt("Backend URL", default="http://localhost:8000")
+        return default_backend_url, False
+    return typer.prompt("Backend URL", default=default_backend_url), False
 
 
 def _resolve_auth_mode(auth_mode: AuthMode | None, *, yes: bool) -> AuthMode:
@@ -138,6 +158,27 @@ def _normalize_optional_value(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_dotenv_value(value: str | None) -> str | None:
+    """Normalize a value read from a dotenv line.
+
+    This strips whitespace and unwraps matching single or double quotes.
+    """
+    normalized = _normalize_optional_value(value)
+    if normalized is None:
+        return None
+    if (
+        len(normalized) >= 2
+        and normalized[0] == normalized[-1]
+        and normalized[0]
+        in {
+            '"',
+            "'",
+        }
+    ):
+        normalized = normalized[1:-1].strip()
     return normalized or None
 
 
@@ -358,8 +399,7 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
         if not match or match.group(1) != key:
             continue
         _, _, value = line.partition("=")
-        stripped = value.strip()
-        return stripped or None
+        return _normalize_dotenv_value(value)
     return None
 
 
@@ -456,6 +496,19 @@ def _ensure_stack_assets(
         config,
         requested_stack_version=requested_stack_version,
     )
+    if (
+        config.mode == "upgrade"
+        and config.preserve_existing_backend_url
+        and not env_created
+    ):
+        preserved_orcheo_api_url = _read_env_value(env_file, "ORCHEO_API_URL")
+        if preserved_orcheo_api_url is not None:
+            updates.pop("ORCHEO_API_URL", None)
+            config.backend_url = preserved_orcheo_api_url
+
+        if _read_env_value(env_file, "VITE_ORCHEO_BACKEND_URL") is not None:
+            updates.pop("VITE_ORCHEO_BACKEND_URL", None)
+
     if env_created:
         # Fresh install: overwrite template placeholders with generated secrets.
         _upsert_env_values(env_file, updates, defaults=defaults, console=console)
@@ -487,7 +540,11 @@ def run_setup(
 ) -> SetupConfig:
     """Collect interactive/non-interactive setup options."""
     resolved_mode = _resolve_mode(mode, yes=yes)
-    resolved_backend_url = _resolve_backend_url(backend_url, yes=yes)
+    resolved_backend_url, preserve_existing_backend_url = _resolve_backend_url(
+        backend_url,
+        mode=resolved_mode,
+        yes=yes,
+    )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
     resolved_start_stack = _resolve_bool(
         start_stack,
@@ -523,6 +580,11 @@ def run_setup(
             "[cyan]Keeping existing API bootstrap token. "
             "Pass --api-key to rotate it.[/cyan]"
         )
+    if resolved_mode == "upgrade" and preserve_existing_backend_url:
+        console.print(
+            "[cyan]Keeping existing backend URL. "
+            "Pass --backend-url to update it.[/cyan]"
+        )
     if resolved_auth_mode == "oauth":
         console.print(
             "[yellow]OAuth mode selected. Configure ORCHEO_AUTH_ISSUER, "
@@ -538,6 +600,7 @@ def run_setup(
         chatkit_domain_key=resolved_chatkit_domain_key,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
+        preserve_existing_backend_url=preserve_existing_backend_url,
     )
 
 
