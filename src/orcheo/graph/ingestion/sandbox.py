@@ -89,6 +89,7 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "math",
     "operator",
     "pydantic",
+    "re",
     "uuid",
 )
 

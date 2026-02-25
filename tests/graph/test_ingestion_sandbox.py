@@ -93,3 +93,13 @@ def test_create_sandbox_namespace_allows_html_import() -> None:
     module = restricted_import("html")
 
     assert module is importlib.import_module("html")
+
+
+def test_create_sandbox_namespace_allows_re_import() -> None:
+    """Ensure restricted imports allow the re module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("re")
+
+    assert module is importlib.import_module("re")
