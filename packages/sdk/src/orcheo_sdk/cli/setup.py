@@ -161,6 +161,27 @@ def _normalize_optional_value(value: str | None) -> str | None:
     return normalized or None
 
 
+def _normalize_dotenv_value(value: str | None) -> str | None:
+    """Normalize a value read from a dotenv line.
+
+    This strips whitespace and unwraps matching single or double quotes.
+    """
+    normalized = _normalize_optional_value(value)
+    if normalized is None:
+        return None
+    if (
+        len(normalized) >= 2
+        and normalized[0] == normalized[-1]
+        and normalized[0]
+        in {
+            '"',
+            "'",
+        }
+    ):
+        normalized = normalized[1:-1].strip()
+    return normalized or None
+
+
 def _resolve_chatkit_domain_key(
     chatkit_domain_key: str | None,
     *,
@@ -378,8 +399,7 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
         if not match or match.group(1) != key:
             continue
         _, _, value = line.partition("=")
-        stripped = value.strip()
-        return stripped or None
+        return _normalize_dotenv_value(value)
     return None
 
 

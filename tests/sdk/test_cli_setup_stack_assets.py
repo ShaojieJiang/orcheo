@@ -356,6 +356,29 @@ def test_execute_setup_preserves_backend_urls_on_upgrade_by_default(
     assert config.backend_url == "http://existing-api.test"
 
 
+def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserved backend URL should be unquoted before health checks and summary."""
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text(
+        'ORCHEO_API_URL="https://api.example.com"\n'
+        'VITE_ORCHEO_BACKEND_URL="https://api.example.com"\n',
+        encoding="utf-8",
+    )
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    assert config.backend_url == "https://api.example.com"
+
+
 def test_execute_setup_raises_when_asset_download_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
