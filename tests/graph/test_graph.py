@@ -1,13 +1,13 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.builder import build_graph
 from orcheo.graph.state import State
-from orcheo.nodes.code import PythonCode
+from orcheo.nodes.logic import SetVariableNode
 
 
 graph_config = {
     "nodes": [
         {"name": "START", "type": "START"},
-        {"name": "code", "type": "PythonCode", "code": "print('Hello, world!')"},
+        {"name": "code", "type": "SetVariableNode", "variables": {"message": "hello"}},
         {"name": "END", "type": "END"},
     ],
     "edges": [("START", "code"), ("code", "END")],
@@ -17,7 +17,7 @@ graph_config = {
 def build_lang_graph():
     """Build a reference graph for testing."""
     graph = StateGraph(State)
-    graph.add_node("code", PythonCode(name="code", code="print('Hello, world!')"))
+    graph.add_node("code", SetVariableNode(name="code", variables={"message": "hello"}))
     graph.add_edge(START, "code")
     graph.add_edge("code", END)
     return graph.compile()
@@ -37,28 +37,28 @@ def test_build_graph_supports_branching_parallel_and_loops():
             {"name": "START", "type": "START"},
             {
                 "name": "router",
-                "type": "PythonCode",
-                "code": "return {'route': 'left'}",
+                "type": "SetVariableNode",
+                "variables": {"route": "left"},
             },
             {
                 "name": "fanout",
-                "type": "PythonCode",
-                "code": "return state",
+                "type": "SetVariableNode",
+                "variables": {"fanout": True},
             },
             {
                 "name": "left_worker",
-                "type": "PythonCode",
-                "code": "return {'result': 'left'}",
+                "type": "SetVariableNode",
+                "variables": {"result": "left"},
             },
             {
                 "name": "right_worker",
-                "type": "PythonCode",
-                "code": "return {'result': 'right'}",
+                "type": "SetVariableNode",
+                "variables": {"result": "right"},
             },
             {
                 "name": "joiner",
-                "type": "PythonCode",
-                "code": "return state",
+                "type": "SetVariableNode",
+                "variables": {"joined": True},
             },
             {"name": "END", "type": "END"},
         ],

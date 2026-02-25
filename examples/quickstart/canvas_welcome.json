@@ -1,12 +1,15 @@
 {
   "name": "Welcome Bot",
-  "description": "Visual path example that greets a new teammate via PythonCode.",
+  "description": "Visual path example that maps an input name with DataTransformNode.",
   "nodes": [
     {"name": "START", "type": "START"},
     {
       "name": "greet_user",
-      "type": "PythonCode",
-      "code": "return {'message': f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
+      "type": "DataTransformNode",
+      "input_data": {"name": "{{inputs.name}}"},
+      "transforms": [
+        {"source": "name", "target": "message", "transform": "string"}
+      ]
     },
     {"name": "END", "type": "END"}
   ],

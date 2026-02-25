@@ -11,6 +11,7 @@ def test_node_list_shows_registered_nodes(
     result = runner.invoke(app, ["node", "list"], env=env)
     assert result.exit_code == 0
     assert "WebhookTriggerNode" in result.stdout
+    assert "NoOpTaskNode" in result.stdout
 
 
 def test_node_show_displays_schema(runner: CliRunner, env: dict[str, str]) -> None:

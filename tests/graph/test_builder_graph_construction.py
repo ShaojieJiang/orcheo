@@ -36,16 +36,20 @@ def test_build_graph_with_edge_nodes_integration() -> None:
 
     graph_config = {
         "nodes": [
-            {"name": "start_node", "type": "PythonCode", "code": "return {'value': 1}"},
+            {
+                "name": "start_node",
+                "type": "SetVariableNode",
+                "variables": {"value": 1},
+            },
             {
                 "name": "true_branch",
-                "type": "PythonCode",
-                "code": "return {'result': 'yes'}",
+                "type": "SetVariableNode",
+                "variables": {"result": "yes"},
             },
             {
                 "name": "false_branch",
-                "type": "PythonCode",
-                "code": "return {'result': 'no'}",
+                "type": "SetVariableNode",
+                "variables": {"result": "no"},
             },
         ],
         "edge_nodes": [
@@ -81,9 +85,9 @@ def test_build_graph_with_regular_nodes_and_edges() -> None:
 
     graph_config = {
         "nodes": [
-            {"name": "node_a", "type": "PythonCode", "code": "return {'x': 1}"},
-            {"name": "node_b", "type": "PythonCode", "code": "return {'y': 2}"},
-            {"name": "node_c", "type": "PythonCode", "code": "return {'z': 3}"},
+            {"name": "node_a", "type": "SetVariableNode", "variables": {"x": 1}},
+            {"name": "node_b", "type": "SetVariableNode", "variables": {"y": 2}},
+            {"name": "node_c", "type": "SetVariableNode", "variables": {"z": 3}},
         ],
         "edges": [
             {"source": "START", "target": "node_a"},
@@ -107,7 +111,7 @@ def test_build_graph_skips_start_and_end_nodes() -> None:
     graph_config = {
         "nodes": [
             {"name": "START", "type": "START"},
-            {"name": "actual_node", "type": "PythonCode", "code": "return {}"},
+            {"name": "actual_node", "type": "SetVariableNode", "variables": {}},
             {"name": "END", "type": "END"},
         ],
         "edges": [

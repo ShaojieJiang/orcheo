@@ -2,7 +2,6 @@
 
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode, LLMNode
-from orcheo.nodes.code import PythonCode
 from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
 from orcheo.nodes.conversational_search import (
     ChunkEmbeddingNode,
@@ -36,7 +35,6 @@ from orcheo.nodes.mongodb import (
     MongoDBNode,
     MongoDBUpdateManyNode,
 )
-from orcheo.nodes.python_sandbox import PythonSandboxNode
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 from orcheo.nodes.storage import PostgresNode, SQLiteNode
@@ -62,7 +60,6 @@ __all__ = [
     "AgentNode",
     "LLMNode",
     "AgentensorNode",
-    "PythonCode",
     "HttpRequestNode",
     "JsonProcessingNode",
     "DataTransformNode",
@@ -84,7 +81,6 @@ __all__ = [
     "EmailNode",
     "DiscordWebhookNode",
     "MessageTelegram",
-    "PythonSandboxNode",
     "JavaScriptSandboxNode",
     "DebugNode",
     "SubWorkflowNode",

@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
+from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.runtime.credentials import (
     CredentialReference,
     CredentialResolverUnavailableError,
@@ -180,7 +181,7 @@ class AINode(BaseNode):
 
 
 class TaskNode(BaseNode):
-    """Base class for all non-AI task nodes in the flow."""
+    """Base class for all nodes that need to define their own run method."""
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
@@ -197,4 +198,26 @@ class TaskNode(BaseNode):
         pass  # pragma: no cover
 
 
-__all__ = ["BaseRunnable", "BaseNode", "AINode", "TaskNode"]
+@registry.register(
+    NodeMetadata(
+        name="NoOpTaskNode",
+        description=(
+            "A no-op node for developers to use as a template for custom nodes. "
+            "Do not use this node directly, but inherit from this with your own "
+            "`run` method."
+        ),
+        category="base",
+    )
+)
+class NoOpTaskNode(TaskNode):
+    """No-op concrete task node for developer discovery and scaffolding."""
+
+    async def run(
+        self, state: State, config: RunnableConfig
+    ) -> dict[str, Any] | list[Any]:
+        """Run the no-op task node and return an empty payload."""
+        del state, config
+        return {}
+
+
+__all__ = ["BaseRunnable", "BaseNode", "AINode", "TaskNode", "NoOpTaskNode"]

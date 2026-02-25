@@ -13,11 +13,15 @@ def build_quickstart_graph() -> dict[str, Any]:
             {"name": "START", "type": "START"},
             {
                 "name": "greet_user",
-                "type": "PythonCode",
-                "code": (
-                    "return {'message': "
-                    "f\"Welcome {state['inputs']['name']} to Orcheo!\"}"
-                ),
+                "type": "DataTransformNode",
+                "input_data": {"name": "{{inputs.name}}"},
+                "transforms": [
+                    {
+                        "source": "name",
+                        "target": "message",
+                        "transform": "string",
+                    }
+                ],
             },
             {"name": "END", "type": "END"},
         ],
@@ -36,7 +40,7 @@ async def run() -> None:
             "results": {},
         }
     )
-    print(result["results"]["greet_user"]["message"])  # noqa: T201 - demo output
+    print(result["results"]["greet_user"]["result"]["message"])  # noqa: T201 - demo output
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import sys
 from types import SimpleNamespace
 import pytest
 from orcheo.graph.ingestion import sandbox
+from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 
 
 def test_resolve_compiler_prefers_ingestion_module(
@@ -40,6 +41,32 @@ def test_async_allowing_transformer_visit_await() -> None:
 
     # The result should be the visited node
     assert isinstance(result, ast.Await)
+
+
+def test_async_allowing_transformer_visit_async_function_def() -> None:
+    """AsyncAllowingTransformer should allow async function definitions."""
+    transformer = sandbox.AsyncAllowingTransformer()
+
+    function_node = ast.AsyncFunctionDef(
+        name="do_work",
+        args=ast.arguments(
+            posonlyargs=[],
+            args=[],
+            vararg=None,
+            kwonlyargs=[],
+            kw_defaults=[],
+            kwarg=None,
+            defaults=[],
+        ),
+        body=[ast.Pass()],
+        decorator_list=[],
+        returns=None,
+        type_comment=None,
+    )
+
+    result = transformer.visit_AsyncFunctionDef(function_node)
+
+    assert isinstance(result, ast.AsyncFunctionDef)
 
 
 def test_async_allowing_transformer_visit_annassign() -> None:
@@ -76,6 +103,18 @@ def test_async_allowing_transformer_visit_name_dunder_name() -> None:
     assert result.id == "__name__"
 
 
+def test_async_allowing_transformer_visit_name_non_dunder() -> None:
+    """AsyncAllowingTransformer should still process regular names."""
+    transformer = sandbox.AsyncAllowingTransformer()
+
+    name_node = ast.Name(id="regular_name", ctx=ast.Load())
+
+    result = transformer.visit_Name(name_node)
+
+    assert isinstance(result, ast.Name)
+    assert result.id == "regular_name"
+
+
 def test_create_sandbox_namespace_allows_common_builtins() -> None:
     """Ensure restricted namespace exposes safe aggregate builtins."""
     namespace = sandbox.create_sandbox_namespace()
@@ -93,3 +132,135 @@ def test_create_sandbox_namespace_allows_html_import() -> None:
     module = restricted_import("html")
 
     assert module is importlib.import_module("html")
+
+
+def test_create_sandbox_namespace_allows_re_import() -> None:
+    """Ensure restricted imports allow the re module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("re")
+
+    assert module is importlib.import_module("re")
+
+
+def test_create_sandbox_namespace_allows_asyncio_import() -> None:
+    """Ensure restricted imports allow the asyncio module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("asyncio")
+
+    assert module is importlib.import_module("asyncio")
+
+
+def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:
+    """Ensure allow-listed prefixes include submodule imports."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("html.parser")
+
+    assert module is importlib.import_module("html.parser")
+
+
+def test_create_sandbox_namespace_rejects_relative_imports() -> None:
+    """Relative imports should be denied in the sandbox."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    with pytest.raises(
+        ScriptIngestionError,
+        match="Relative imports are not supported in LangGraph scripts",
+    ):
+        restricted_import("html", level=1)
+
+
+def test_create_sandbox_namespace_rejects_disallowed_import() -> None:
+    """Imports outside the allow-list should be denied."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    with pytest.raises(
+        ScriptIngestionError,
+        match="Import of module 'os' is not permitted",
+    ):
+        restricted_import("os")
+
+
+def test_validate_script_size_accepts_equal_limit() -> None:
+    """Script size validation should allow payloads equal to the limit."""
+    source = "hello"
+
+    sandbox.validate_script_size(source, max_script_bytes=len(source.encode("utf-8")))
+
+
+def test_validate_script_size_rejects_payload_above_limit() -> None:
+    """Script size validation should reject payloads above the configured limit."""
+    with pytest.raises(
+        ScriptIngestionError,
+        match="LangGraph script exceeds the permitted size of 1 bytes",
+    ):
+        sandbox.validate_script_size("ab", max_script_bytes=1)
+
+
+def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
+    """Signal-based timeout mode should arm and restore signal state."""
+
+    class FakeSignal:
+        SIGALRM = 14
+        ITIMER_REAL = 0
+
+        def __init__(self) -> None:
+            self.previous_handler = object()
+            self.installed_handler: object | None = None
+            self.itimer_calls: list[float] = []
+            self.signal_calls: list[object] = []
+
+        def getsignal(self, signum: int) -> object:
+            assert signum == self.SIGALRM
+            return self.previous_handler
+
+        def signal(self, signum: int, handler: object) -> None:
+            assert signum == self.SIGALRM
+            self.signal_calls.append(handler)
+            self.installed_handler = handler
+
+        def setitimer(self, which: int, seconds: float) -> None:
+            assert which == self.ITIMER_REAL
+            self.itimer_calls.append(seconds)
+
+    class FakeThreading:
+        def __init__(self) -> None:
+            self._main = object()
+
+        def current_thread(self) -> object:
+            return self._main
+
+        def main_thread(self) -> object:
+            return self._main
+
+        def gettrace(self) -> object | None:
+            return None
+
+        def settrace(self, trace: object | None) -> None:
+            del trace
+
+    fake_signal = FakeSignal()
+    fake_threading = FakeThreading()
+
+    original_signal = sandbox.signal
+    try:
+        sandbox.signal = fake_signal  # type: ignore[assignment]
+        with sandbox.execution_timeout(
+            0.25,
+            threading_module=fake_threading,
+            sys_module=SimpleNamespace(gettrace=lambda: None, settrace=lambda _: None),
+            time_module=SimpleNamespace(perf_counter=lambda: 0.0),
+        ):
+            assert callable(fake_signal.installed_handler)
+    finally:
+        sandbox.signal = original_signal  # type: ignore[assignment]
+
+    assert fake_signal.itimer_calls == [0.25, 0]
+    assert fake_signal.signal_calls[-1] is fake_signal.previous_handler
