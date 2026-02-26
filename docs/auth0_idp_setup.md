@@ -39,6 +39,12 @@ In the same API:
 2. For **User Access**, choose one:
    - `Allow` (simpler for development)
    - `Allow via client-grant` (stricter production option; then explicitly authorize your SPA app and selected permissions)
+3. In **User Access permissions** for your Canvas SPA app, explicitly add:
+   - `workflows:read`
+   - `workflows:execute`
+   - `chatkit:session`
+
+Critical: even when Canvas requests these scopes, Auth0 will not include them in the access token unless API user access/client-grant permissions allow them for that application.
 
 For RBAC:
 
@@ -120,6 +126,7 @@ Update your stack `.env` (derived from `deploy/stack/.env.example`):
 ## Troubleshooting checklist
 
 - `401 Missing required scopes`: requested scopes in Canvas env do not match API permissions or token lacks those scopes.
+- `401 Workflow access denied for caller.`: token scopes are valid, but the caller is not authorized for the specific workflow. For untagged workflows, Orcheo checks workflow owner against the token `sub`. For workspace-tagged workflows (`workspace:<id>`), Orcheo checks workspace claim intersection. Recreate the workflow as the logged-in user, or align workflow tags and workspace claims.
 - `401/403` with org enabled: user is not a member of the specified organization or org/connection setup is incomplete.
 - `invalid_token` issuer/audience: `ORCHEO_AUTH_ISSUER` and `ORCHEO_AUTH_AUDIENCE` mismatch Auth0 token values.
 - ChatKit session issuance errors unrelated to OAuth: missing `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY`.

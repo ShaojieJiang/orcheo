@@ -121,4 +121,99 @@ describe("workflow-storage API integration - save workflow", () => {
       "/api/workflows/workflow-123/versions",
     );
   });
+
+  it("uses JWT subject as actor when no explicit actor is provided", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+    const subject = "auth0|user-123";
+    const tokenPayload = btoa(
+      JSON.stringify({
+        sub: subject,
+        scope: "workflows:read workflows:execute",
+      }),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const token = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${tokenPayload}.sig`;
+    window.localStorage.setItem(
+      "orcheo_canvas_auth_tokens",
+      JSON.stringify({ accessToken: token }),
+    );
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-actor",
+        name: "Workflow with token subject actor",
+        slug: "workflow-actor",
+        description: "",
+        tags: ["draft"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "version-1",
+        workflow_id: "workflow-actor",
+        version: 1,
+        graph: { nodes: [], edges: [] },
+        metadata: {},
+        notes: "Initial draft",
+        created_by: subject,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-actor",
+        name: "Workflow with token subject actor",
+        slug: "workflow-actor",
+        description: "",
+        tags: ["draft"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "version-1",
+          workflow_id: "workflow-actor",
+          version: 1,
+          graph: { nodes: [], edges: [] },
+          metadata: {
+            canvas: {
+              snapshot: {
+                name: "Workflow with token subject actor",
+                description: "",
+                nodes: [],
+                edges: [],
+              },
+              summary: { added: 0, removed: 0, modified: 0 },
+              message: "Initial draft",
+            },
+          },
+          notes: "Initial draft",
+          created_by: subject,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await saveWorkflow(
+      {
+        name: "Workflow with token subject actor",
+        description: "",
+        tags: ["draft"],
+        nodes: [],
+        edges: [],
+      },
+      { versionMessage: "Initial draft" },
+    );
+
+    const createPayload = JSON.parse(
+      (mockFetch.mock.calls[0]?.[1]?.body ?? "{}") as string,
+    ) as { actor?: string };
+    expect(createPayload.actor).toBe(subject);
+    window.localStorage.removeItem("orcheo_canvas_auth_tokens");
+  });
 });

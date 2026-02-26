@@ -1,4 +1,5 @@
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import { getAccessTokenSubject } from "@features/auth/lib/auth-session";
 import { computeWorkflowDiff, type WorkflowSnapshot } from "./workflow-diff";
 import {
   DEFAULT_ACTOR,
@@ -41,6 +42,15 @@ const WORKFLOW_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 let workflowListCache: WorkflowListCacheEntry | undefined;
 let workflowListInflight: Promise<StoredWorkflow[]> | undefined;
 let workflowListRequestId = 0;
+
+const resolveActor = (actor?: string): string => {
+  const explicitActor = actor?.trim();
+  if (explicitActor) {
+    return explicitActor;
+  }
+
+  return getAccessTokenSubject() ?? DEFAULT_ACTOR;
+};
 
 const emitUpdate = () => {
   if (typeof window === "undefined") {
@@ -115,7 +125,7 @@ export const saveWorkflow = async (
   input: SaveWorkflowInput,
   options?: SaveWorkflowOptions,
 ): Promise<StoredWorkflow> => {
-  const actor = options?.actor ?? DEFAULT_ACTOR;
+  const actor = resolveActor(options?.actor);
   const existing = input.id ? await ensureWorkflow(input.id) : undefined;
   const previousSnapshot: WorkflowSnapshot =
     existing?.versions.at(-1)?.snapshot ??
@@ -231,10 +241,11 @@ export const getVersionSnapshot = async (
 
 export const deleteWorkflow = async (
   workflowId: string,
-  actor: string = DEFAULT_ACTOR,
+  actor?: string,
 ): Promise<void> => {
+  const resolvedActor = resolveActor(actor);
   await request<void>(
-    `${API_BASE}/${workflowId}?actor=${encodeURIComponent(actor)}`,
+    `${API_BASE}/${workflowId}?actor=${encodeURIComponent(resolvedActor)}`,
     { method: "DELETE", expectJson: false },
   );
   invalidateWorkflowListCache();
