@@ -31,6 +31,7 @@ nav:
   - Getting Started:
       - Manual Setup: manual_setup.md
       - Canvas: canvas.md
+      - Auth0 IdP Setup: auth0_idp_setup.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
   - Examples:
