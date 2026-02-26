@@ -23,7 +23,7 @@ from orcheo.nodes.agent_tools.context import (
     tool_execution_context,
 )
 from orcheo.nodes.agent_tools.registry import tool_registry
-from orcheo.nodes.base import AINode
+from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -370,6 +370,44 @@ class AgentNode(AINode):
         if isinstance(self.system_prompt, TextTensor):
             return self.system_prompt.text
         return self.system_prompt
+
+
+@registry.register(
+    NodeMetadata(
+        name="AgentReplyExtractorNode",
+        description="Extract the final assistant reply from agent messages",
+        category="ai",
+    )
+)
+class AgentReplyExtractorNode(TaskNode):
+    """Extract the last assistant message from the agent output.
+
+    After an :class:`AgentNode` runs, the workflow state contains a
+    ``messages`` list mixing user and assistant turns.  This node scans
+    that list in reverse and returns the most recent assistant reply as
+    plain text.
+    """
+
+    fallback_message: str = Field(
+        default="Sorry, something went wrong. Please try again later.",
+        description="Message returned when no assistant reply is found",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return ``{"agent_reply": "..."}`` from the last AI message."""
+        messages = state.get("messages", [])
+        for msg in reversed(messages):
+            if isinstance(msg, dict):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "")
+                    if content:
+                        return {"agent_reply": str(content)}
+            elif isinstance(msg, BaseMessage) and msg.type == "ai" and msg.content:
+                content = msg.content
+                return {
+                    "agent_reply": content if isinstance(content, str) else str(content)
+                }
+        return {"agent_reply": self.fallback_message}
 
 
 @registry.register(

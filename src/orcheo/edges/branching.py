@@ -146,7 +146,17 @@ class Switch(BaseEdge):
     )
 )
 class While(BaseEdge):
-    """Evaluate a condition and loop until it fails or a limit is reached."""
+    """Evaluate a condition and loop until it fails or a limit is reached.
+
+    The iteration counter is read from ``state["results"][self.name]``
+    which must be maintained by a node in the loop body (e.g. a
+    :class:`~orcheo.nodes.logic.ForLoopNode` or a custom counter node
+    whose ``name`` matches this edge's ``name``).
+
+    When no ``left`` operand is specified on the conditions, the current
+    iteration count is used as the default left-hand value, enabling
+    concise ``iteration < total`` style checks.
+    """
 
     conditions: list[Condition] = Field(
         default_factory=lambda: [Condition(operator="less_than")],
@@ -163,8 +173,12 @@ class While(BaseEdge):
         description="Optional guard to stop after this many iterations",
     )
 
-    def _previous_iteration(self, state: State) -> int:
-        """Return the iteration count persisted in the workflow state."""
+    def _current_iteration(self, state: State) -> int:
+        """Return the iteration count persisted in the workflow state.
+
+        The value is expected at ``results[self.name]["iteration"]``
+        (written by a companion node such as :class:`ForLoopNode`).
+        """
         results = state.get("results")
         if isinstance(results, Mapping):
             edge_state = results.get(self.name)
@@ -175,37 +189,19 @@ class While(BaseEdge):
         return 0
 
     async def run(self, state: State, config: RunnableConfig) -> str:
-        """Return the branch key for loop continuation."""
-        previous_iteration = self._previous_iteration(state)
-        outcome, evaluations = _combine_condition_results(
+        """Return ``"continue"`` or ``"exit"`` based on the condition."""
+        iteration = self._current_iteration(state)
+        outcome, _evaluations = _combine_condition_results(
             conditions=self.conditions,
             combinator=self.condition_logic,
-            default_left=previous_iteration,
+            default_left=iteration,
         )
         should_continue = outcome
 
-        if (
-            self.max_iterations is not None
-            and previous_iteration >= self.max_iterations
-        ):
+        if self.max_iterations is not None and iteration >= self.max_iterations:
             should_continue = False
 
-        if should_continue:
-            next_iteration = previous_iteration + 1
-        else:
-            next_iteration = previous_iteration
-
-        results = state.get("results")
-        if not isinstance(results, dict):
-            results = state["results"] = {}
-        edge_state = results.get(self.name)
-        if not isinstance(edge_state, dict):
-            edge_state = {}
-        edge_state["iteration"] = next_iteration
-        results[self.name] = edge_state
-
-        branch = "continue" if should_continue else "exit"
-        return branch
+        return "continue" if should_continue else "exit"
 
 
 __all__ = [

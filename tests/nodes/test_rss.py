@@ -1,6 +1,6 @@
 """Tests for RSS node implementation."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.nodes.rss import RSSNode
@@ -9,87 +9,91 @@ from orcheo.nodes.rss import RSSNode
 @pytest.mark.asyncio
 async def test_rss_node_run():
     """Test RSS node run method."""
-    # Setup
     sources = ["https://example.com/feed1.xml", "https://example.com/feed2.xml"]
     node = RSSNode(name="test_rss", sources=sources)
     state = {}
     config = RunnableConfig()
 
-    # Mock feed data
-    mock_entry1 = Mock()
-    mock_entry1.title = "Test Entry 1"
-    mock_entry1.link = "https://example.com/1"
+    feed1_xml = (
+        "<rss><channel>"
+        "<item><title>Test Entry 1</title><link>https://example.com/1</link></item>"
+        "<item><title>Test Entry 2</title><link>https://example.com/2</link></item>"
+        "</channel></rss>"
+    )
+    feed2_xml = (
+        "<rss><channel>"
+        "<item><title>Test Entry 3</title><link>https://example.com/3</link></item>"
+        "</channel></rss>"
+    )
 
-    mock_entry2 = Mock()
-    mock_entry2.title = "Test Entry 2"
-    mock_entry2.link = "https://example.com/2"
+    mock_resp1 = Mock()
+    mock_resp1.text = feed1_xml
+    mock_resp2 = Mock()
+    mock_resp2.text = feed2_xml
 
-    mock_entry3 = Mock()
-    mock_entry3.title = "Test Entry 3"
-    mock_entry3.link = "https://example.com/3"
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [mock_resp1, mock_resp2]
 
-    # Mock feedparser responses
-    mock_feed1 = Mock()
-    mock_feed1.entries = [mock_entry1, mock_entry2]
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    mock_feed2 = Mock()
-    mock_feed2.entries = [mock_entry3]
-
-    # Mock feedparser.parse to return different feeds for different URLs
-    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
-        mock_parse.side_effect = [mock_feed1, mock_feed2]
-
-        # Execute
         result = await node.run(state, config)
 
-        # Verify
-        assert len(result) == 3
-        assert result[0] == mock_entry1
-        assert result[1] == mock_entry2
-        assert result[2] == mock_entry3
-
-        # Verify feedparser.parse was called with correct URLs
-        assert mock_parse.call_count == 2
-        mock_parse.assert_any_call("https://example.com/feed1.xml")
-        mock_parse.assert_any_call("https://example.com/feed2.xml")
+    assert result["fetched_count"] == 3
+    assert len(result["documents"]) == 3
+    assert result["documents"][0]["title"] == "Test Entry 1"
+    assert result["documents"][0]["link"] == "https://example.com/1"
+    assert result["documents"][1]["title"] == "Test Entry 2"
+    assert result["documents"][2]["title"] == "Test Entry 3"
+    assert mock_client.get.call_count == 2
+    mock_client.get.assert_any_call("https://example.com/feed1.xml", timeout=15.0)
+    mock_client.get.assert_any_call("https://example.com/feed2.xml", timeout=15.0)
 
 
 @pytest.mark.asyncio
 async def test_rss_node_run_empty_feeds():
     """Test RSS node run method with empty feeds."""
-    # Setup
     sources = ["https://example.com/empty.xml"]
     node = RSSNode(name="test_rss", sources=sources)
     state = {}
     config = RunnableConfig()
 
-    # Mock empty feed
-    mock_feed = Mock()
-    mock_feed.entries = []
+    mock_resp = Mock()
+    mock_resp.text = ""
 
-    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
-        mock_parse.return_value = mock_feed
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
 
-        # Execute
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
         result = await node.run(state, config)
 
-        # Verify
-        assert result == []
-        mock_parse.assert_called_once_with("https://example.com/empty.xml")
+    assert result["documents"] == []
+    assert result["fetched_count"] == 0
+    assert len(result["errors"]) == 1
+    mock_client.get.assert_called_once_with(
+        "https://example.com/empty.xml", timeout=15.0
+    )
 
 
 @pytest.mark.asyncio
 async def test_rss_node_run_no_sources():
     """Test RSS node run method with no sources."""
-    # Setup
     node = RSSNode(name="test_rss", sources=[])
     state = {}
     config = RunnableConfig()
 
-    with patch("orcheo.nodes.rss.feedparser.parse") as mock_parse:
-        # Execute
+    mock_client = AsyncMock()
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
         result = await node.run(state, config)
 
-        # Verify
-        assert result == []
-        mock_parse.assert_not_called()
+    assert result["documents"] == []
+    assert result["fetched_count"] == 0
+    mock_client.get.assert_not_called()

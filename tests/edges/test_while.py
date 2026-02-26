@@ -6,36 +6,38 @@ from orcheo.graph.state import State
 
 @pytest.mark.asyncio
 async def test_while_node_iterations_and_limit() -> None:
-    state = State({"results": {}})
     node = While(
         name="loop",
         conditions=[{"operator": "less_than", "right": 2}],
         max_iterations=2,
     )
 
+    # Iteration 0: 0 < 2 is True, 0 < max_iterations=2, continue
+    state = State({"results": {"loop": {"iteration": 0}}})
     first = await node(state, RunnableConfig())
     assert first == "continue"
-    assert state["results"]["loop"]["iteration"] == 1
 
+    # Iteration 1: 1 < 2 is True, 1 < max_iterations=2, continue
+    state = State({"results": {"loop": {"iteration": 1}}})
     second = await node(state, RunnableConfig())
     assert second == "continue"
-    assert state["results"]["loop"]["iteration"] == 2
 
+    # Iteration 2: at max_iterations=2, exit
+    state = State({"results": {"loop": {"iteration": 2}}})
     third = await node(state, RunnableConfig())
     assert third == "exit"
-    assert state["results"]["loop"]["iteration"] == 2
 
 
-def test_while_node_previous_iteration_reads_state() -> None:
+def test_while_node_current_iteration_reads_state() -> None:
     node = While(name="loop")
     state = {"results": {"loop": {"iteration": 5}}}
-    assert node._previous_iteration(state) == 5
+    assert node._current_iteration(state) == 5
 
     empty_state = {"results": {"loop": {"iteration": "x"}}}
-    assert node._previous_iteration(empty_state) == 0
+    assert node._current_iteration(empty_state) == 0
 
-    missing_results_state = {}
-    assert node._previous_iteration(missing_results_state) == 0
+    missing_results_state: dict = {}
+    assert node._current_iteration(missing_results_state) == 0
 
 
 @pytest.mark.asyncio
@@ -67,8 +69,8 @@ async def test_while_node_without_max_iterations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_while_node_initializes_results_dict_when_missing() -> None:
-    """Test that While edge initializes results dict when it doesn't exist."""
+async def test_while_node_missing_results_handled_gracefully() -> None:
+    """Test that While edge handles missing results dict gracefully."""
     state = State({"inputs": {}})  # No results dict
     node = While(
         name="loop",
@@ -76,7 +78,5 @@ async def test_while_node_initializes_results_dict_when_missing() -> None:
     )
 
     first = await node(state, RunnableConfig())
+    # iteration defaults to 0, 0 < 5 → continue
     assert first == "continue"
-    assert "results" in state
-    assert isinstance(state["results"], dict)
-    assert state["results"]["loop"]["iteration"] == 1

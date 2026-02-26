@@ -1,8 +1,10 @@
-"""Telegram messaging node for Orcheo."""
+"""Telegram messaging and event parsing nodes for Orcheo."""
 
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field
 from telegram import Bot
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
@@ -95,3 +97,173 @@ class MessageTelegram(TaskNode):
             return {"message_id": result.message_id, "status": "sent"}
         except Exception as e:
             raise ValueError(f"Telegram API error: {str(e)}") from e
+
+
+@registry.register(
+    NodeMetadata(
+        name="TelegramEventsParserNode",
+        description="Validate and parse Telegram Bot webhook updates",
+        category="telegram",
+    )
+)
+class TelegramEventsParserNode(TaskNode):
+    """Parse Telegram Bot API webhook updates into a structured event.
+
+    Extracts message metadata (chat ID, username, text) from the
+    ``Update`` JSON payload delivered by the Telegram webhook.
+    Optionally validates the ``X-Telegram-Bot-Api-Secret-Token`` header
+    and filters by allowed update / chat types.
+    """
+
+    secret_token: str | None = Field(
+        default=None,
+        description=(
+            "Expected value of the X-Telegram-Bot-Api-Secret-Token header. "
+            "When set, updates with a missing or mismatched token are rejected."
+        ),
+    )
+    allowed_update_types: list[str] = Field(
+        default_factory=lambda: ["message"],
+        description="Telegram update types allowed to pass through",
+    )
+    allowed_chat_types: list[str] = Field(
+        default_factory=lambda: ["private", "group", "supergroup"],
+        description="Chat types allowed to pass through",
+    )
+    body_key: str = Field(
+        default="body",
+        description="Key in inputs that contains the webhook payload",
+    )
+
+    def _extract_inputs(self, state: State) -> dict[str, Any]:
+        """Extract webhook inputs from state."""
+        if isinstance(state, BaseModel):
+            state_dict = state.model_dump()
+        elif isinstance(state, Mapping):
+            state_dict = dict(state)
+        else:
+            return {}
+        raw_inputs = state_dict.get("inputs")
+        if isinstance(raw_inputs, Mapping):
+            return dict(raw_inputs)
+        return state_dict
+
+    def _verify_secret_token(self, headers: dict[str, str]) -> None:
+        """Verify the secret token header if configured."""
+        if not self.secret_token:
+            return
+        normalized = {k.lower(): v for k, v in headers.items()}
+        token = normalized.get("x-telegram-bot-api-secret-token")
+        if token != self.secret_token:
+            raise ValueError("Telegram secret token verification failed")
+
+    def _detect_update_type(self, payload: dict[str, Any]) -> str | None:
+        """Return the update type present in the payload."""
+        for candidate in (
+            "message",
+            "edited_message",
+            "channel_post",
+            "edited_channel_post",
+            "callback_query",
+            "inline_query",
+            "my_chat_member",
+            "chat_member",
+            "chat_join_request",
+        ):
+            if candidate in payload:
+                return candidate
+        return None
+
+    def _parse_body(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Return the webhook body payload as a dict."""
+        body = inputs.get(self.body_key, {})
+        if isinstance(body, str):
+            import json
+
+            try:
+                body = json.loads(body)
+            except json.JSONDecodeError:
+                return {}
+        if isinstance(body, dict):
+            return body
+        return {}
+
+    def _extract_update_details(
+        self,
+        payload: dict[str, Any],
+        update_type: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
+        """Extract message, chat, sender, and text for the update."""
+        msg = payload.get(update_type, {})
+        if not isinstance(msg, dict):
+            msg = {}
+
+        if update_type == "callback_query":
+            callback_msg = msg.get("message", {})
+            chat = (
+                callback_msg.get("chat", {}) if isinstance(callback_msg, dict) else {}
+            )
+            sender = msg.get("from", {})
+            text = msg.get("data", "")
+        else:
+            chat = msg.get("chat", {})
+            sender = msg.get("from", {})
+            text = msg.get("text", "")
+
+        if not isinstance(chat, dict):
+            chat = {}
+        if not isinstance(sender, dict):
+            sender = {}
+        if not isinstance(text, str):
+            text = str(text)
+
+        return msg, chat, sender, text
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Parse a Telegram webhook update and return structured event data."""
+        inputs = self._extract_inputs(state)
+        headers = inputs.get("headers", {})
+        if isinstance(headers, dict):
+            self._verify_secret_token(headers)
+
+        body = self._parse_body(inputs)
+
+        update_type = self._detect_update_type(body)
+        if update_type is None or update_type not in self.allowed_update_types:
+            return {
+                "update_type": update_type,
+                "should_process": False,
+                "chat_id": None,
+                "username": None,
+                "text": None,
+            }
+
+        msg, chat, sender, text = self._extract_update_details(body, update_type)
+
+        chat_type = chat.get("type", "")
+        if self.allowed_chat_types and chat_type not in self.allowed_chat_types:
+            return {
+                "update_type": update_type,
+                "should_process": False,
+                "chat_id": str(chat.get("id", "")),
+                "username": None,
+                "text": None,
+            }
+
+        chat_id = str(chat.get("id", ""))
+        username = sender.get("first_name") or sender.get("username") or ""
+        should_process = bool(chat_id and text)
+
+        return {
+            "update_type": update_type,
+            "chat_id": chat_id,
+            "chat_type": chat_type,
+            "username": username,
+            "user_id": str(sender.get("id", "")),
+            "text": text or "",
+            "message_id": msg.get("message_id"),
+            "should_process": should_process,
+        }
+
+
+__all__ = ["MessageTelegram", "TelegramEventsParserNode", "escape_markdown"]
