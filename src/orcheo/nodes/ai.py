@@ -328,11 +328,30 @@ class AgentNode(AINode):
                 return messages[i:]
         return messages
 
-    def _build_messages(self, state: State) -> list[BaseMessage]:
+    def _build_messages(
+        self,
+        state: State,
+        config: RunnableConfig | None = None,
+    ) -> list[BaseMessage]:
         """Construct the message list for the agent invocation."""
         existing_messages = self._normalize_messages(state.get("messages"))
         if existing_messages:
             messages = self._apply_reset_command(existing_messages)
+
+            configurable = (
+                config.get("configurable", {}) if isinstance(config, Mapping) else {}
+            )
+            has_checkpointer = (
+                isinstance(configurable, Mapping)
+                and "thread_id" in configurable
+                and "__pregel_checkpointer" in configurable
+            )
+            if has_checkpointer:
+                inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
+                new_messages = self._messages_from_inputs(inputs)
+                if new_messages:
+                    messages.extend(new_messages)
+
             return messages[-self.max_messages :]
 
         inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
@@ -358,7 +377,7 @@ class AgentNode(AINode):
         )
         # TODO: for models that don't support ProviderStrategy, use ToolStrategy
 
-        messages = self._build_messages(state)
+        messages = self._build_messages(state, config)
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
@@ -454,7 +473,11 @@ class LLMNode(AgentNode):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
         return result
 
-    def _build_messages(self, _state: State) -> list[BaseMessage]:
+    def _build_messages(
+        self,
+        _state: State,
+        config: RunnableConfig | None = None,
+    ) -> list[BaseMessage]:
         """Construct a single-turn message list for the LLM."""
         draft_reply = self._normalize_text(self.draft_reply)
         input_text = self._normalize_text(self.input_text)

@@ -145,6 +145,7 @@ class RSSNode(TaskNode):
         """Fetch a single source, returning (documents, error_or_None)."""
         try:
             response = await client.get(url, timeout=self.timeout)
+            response.raise_for_status()
             body = response.text
         except httpx.HTTPError as exc:
             return [], {"source": url, "error": str(exc)}

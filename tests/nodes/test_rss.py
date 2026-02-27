@@ -1,6 +1,7 @@
 """Tests for RSS node implementation."""
 
 from unittest.mock import AsyncMock, Mock, patch
+import httpx
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.nodes.rss import RSSNode
@@ -97,3 +98,37 @@ async def test_rss_node_run_no_sources():
     assert result["documents"] == []
     assert result["fetched_count"] == 0
     mock_client.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rss_node_run_non_2xx_response_is_reported_as_error():
+    """Test RSS node run reports non-2xx responses as source failures."""
+    sources = ["https://example.com/protected.xml"]
+    node = RSSNode(name="test_rss", sources=sources)
+    state = {}
+    config = RunnableConfig()
+
+    mock_resp = Mock()
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Unauthorized",
+        request=httpx.Request("GET", "https://example.com/protected.xml"),
+        response=httpx.Response(401),
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await node.run(state, config)
+
+    assert result["documents"] == []
+    assert result["fetched_count"] == 0
+    assert len(result["errors"]) == 1
+    assert result["failed_sources"] == 1
+    assert result["errors"][0]["source"] == "https://example.com/protected.xml"
+    mock_client.get.assert_called_once_with(
+        "https://example.com/protected.xml", timeout=15.0
+    )
