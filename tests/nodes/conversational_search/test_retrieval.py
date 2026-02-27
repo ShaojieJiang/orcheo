@@ -1,3 +1,5 @@
+import builtins
+import types
 from types import SimpleNamespace
 from typing import Any
 import pytest
@@ -12,7 +14,9 @@ from orcheo.nodes.conversational_search.retrieval import (
     DenseSearchNode,
     HybridFusionNode,
     PineconeRerankNode,
+    ReRankerNode,
     SearchResultAdapterNode,
+    SourceRouterNode,
     SparseSearchNode,
     _resolve_retrieval_results,
 )
@@ -665,6 +669,46 @@ async def test_pinecone_rerank_handles_async_inference() -> None:
     assert result["results"][0].metadata == entry.metadata
 
 
+@pytest.mark.asyncio
+async def test_pinecone_rerank_handles_sync_inference_with_data_attr() -> None:
+    entry = SearchResult(
+        id="doc-1",
+        score=1.0,
+        text="passage",
+        metadata={},
+        source="fusion",
+        sources=["fusion"],
+    )
+
+    class _SyncResponse:
+        def __init__(self) -> None:
+            self.data = [
+                {
+                    "document": {"_id": "doc-1", "chunk_text": "sync text"},
+                    "score": 3.0,
+                }
+            ]
+
+    class _SyncInference:
+        def rerank(self, **__: Any) -> _SyncResponse:
+            return _SyncResponse()
+
+    node = PineconeRerankNode(
+        name="pinecone",
+        client=SimpleNamespace(inference=_SyncInference()),
+    )
+    state = State(
+        inputs={"query": "what"},
+        results={"fusion": [entry]},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].text == "sync text"
+    assert result["results"][0].score == pytest.approx(3.0)
+
+
 def test_pinecone_rerank_requires_query_string() -> None:
     node = PineconeRerankNode(name="pinecone")
 
@@ -701,6 +745,50 @@ def test_pinecone_rerank_uses_provided_client() -> None:
     assert node._resolve_client() is stub
 
 
+def test_pinecone_rerank_resolve_client_import_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = PineconeRerankNode(name="pinecone", client=None)
+    original_import = builtins.__import__
+
+    def _failing_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "pinecone":
+            raise ImportError("missing pinecone")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _failing_import)
+
+    with pytest.raises(ImportError, match="requires the 'pinecone-client' dependency"):
+        node._resolve_client()
+
+
+def test_pinecone_rerank_resolve_client_constructs_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakePinecone:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    fake_module = types.SimpleNamespace(Pinecone=_FakePinecone)
+    original_import = builtins.__import__
+
+    def _import_with_fake_pinecone(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "pinecone":
+            return fake_module
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _import_with_fake_pinecone)
+
+    node = PineconeRerankNode(name="pinecone", client_kwargs={"api_key": "pc-key"})
+    client = node._resolve_client()
+
+    assert isinstance(client, _FakePinecone)
+    assert captured["kwargs"] == {"api_key": "pc-key"}
+    assert node.client is client
+
+
 def test_resolve_retrieval_results_returns_empty_for_missing_entries() -> None:
     state = State(inputs={}, results={"fusion": None}, structured_response=None)
     assert _resolve_retrieval_results(state, "fusion", "results") == []
@@ -724,6 +812,182 @@ def test_resolve_retrieval_results_skips_null_items() -> None:
     resolved = _resolve_retrieval_results(state, "fusion", "results")
 
     assert len(resolved) == 1
+
+
+def test_resolve_retrieval_results_supports_nested_results_field() -> None:
+    entry_payload = {
+        "id": "a",
+        "score": 1.0,
+        "text": "x",
+        "metadata": {},
+        "source": "source",
+        "sources": ["source"],
+    }
+    state = State(
+        inputs={},
+        results={"fusion": {"results": [entry_payload]}},
+        structured_response=None,
+    )
+
+    resolved = _resolve_retrieval_results(state, "fusion", "results")
+
+    assert len(resolved) == 1
+    assert resolved[0].id == "a"
+
+
+def test_resolve_retrieval_results_raises_for_non_list_entries() -> None:
+    state = State(
+        inputs={},
+        results={"fusion": {"results": "invalid"}},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError, match="Retrieved results must be provided as a list"
+    ):
+        _resolve_retrieval_results(state, "fusion", "results")
+
+
+@pytest.mark.asyncio
+async def test_reranker_node_scores_and_sorts_entries() -> None:
+    entries = [
+        SearchResult(
+            id="short",
+            score=1.0,
+            text="short",
+            metadata={},
+            source="dense",
+            sources=["dense"],
+        ),
+        SearchResult(
+            id="long",
+            score=2.0,
+            text="a much longer passage",
+            metadata={},
+            source="dense",
+            sources=["dense"],
+        ),
+    ]
+    node = ReRankerNode(
+        name="reranker",
+        source_result_key="fusion",
+        top_k=1,
+        length_penalty=0.5,
+        rerank_function=lambda entry: entry.score,
+    )
+    state = State(
+        inputs={},
+        results={"fusion": {"results": entries}},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert [item.id for item in result["results"]] == ["short"]
+    assert result["results"][0].score == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_reranker_node_uses_base_score_without_custom_function() -> None:
+    entry = SearchResult(
+        id="base",
+        score=2.5,
+        text="single token",
+        metadata={},
+        source="dense",
+        sources=["dense"],
+    )
+    node = ReRankerNode(name="reranker", source_result_key="fusion", length_penalty=0.0)
+    state = State(
+        inputs={},
+        results={"fusion": {"results": [entry]}},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].score == pytest.approx(2.5)
+
+
+@pytest.mark.asyncio
+async def test_source_router_groups_and_filters_results() -> None:
+    entries = [
+        SearchResult(
+            id="a",
+            score=0.9,
+            text="keep",
+            metadata={},
+            source="dense",
+            sources=["dense"],
+        ),
+        SearchResult(
+            id="b",
+            score=0.1,
+            text="drop",
+            metadata={},
+            source="dense",
+            sources=["dense"],
+        ),
+        SearchResult(
+            id="c",
+            score=0.8,
+            text="unknown source",
+            metadata={},
+            source=None,
+            sources=[],
+        ),
+    ]
+    node = SourceRouterNode(
+        name="router",
+        source_result_key="fusion",
+        min_score=0.5,
+    )
+    state = State(
+        inputs={},
+        results={"fusion": {"results": entries}},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert [item.id for item in result["routed"]["dense"]] == ["a"]
+    assert [item.id for item in result["routed"]["unknown"]] == ["c"]
+
+
+@pytest.mark.asyncio
+async def test_source_router_accepts_list_payload_without_results_key() -> None:
+    entry = SearchResult(
+        id="x",
+        score=0.9,
+        text="payload",
+        metadata={},
+        source="dense",
+        sources=["dense"],
+    )
+    node = SourceRouterNode(name="router", source_result_key="fusion")
+    state = State(
+        inputs={},
+        results={"fusion": [entry]},
+        structured_response=None,
+    )
+
+    result = await node.run(state, {})
+
+    assert [item.id for item in result["routed"]["dense"]] == ["x"]
+
+
+def test_source_router_rejects_non_list_entries() -> None:
+    node = SourceRouterNode(name="router", source_result_key="fusion")
+    state = State(
+        inputs={},
+        results={"fusion": {"results": "bad"}},
+        structured_response=None,
+    )
+
+    with pytest.raises(
+        ValueError, match="SourceRouterNode requires a list of retrieval results"
+    ):
+        node._resolve_results(state)
 
 
 # --- SearchResultAdapterNode tests ---
@@ -953,6 +1217,21 @@ async def test_adapter_extract_source_from_entry() -> None:
     result = await node.run(state, {})
 
     assert result["results"][0].source == "my_source"
+
+
+@pytest.mark.asyncio
+async def test_adapter_source_name_overrides_mapping_source() -> None:
+    entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "from-entry"}]
+    state = State(
+        inputs={},
+        results={"retriever": {"results": entries}},
+        structured_response=None,
+    )
+    node = SearchResultAdapterNode(name="adapter", source_name="override")
+
+    result = await node.run(state, {})
+
+    assert result["results"][0].source == "override"
 
 
 @pytest.mark.asyncio
