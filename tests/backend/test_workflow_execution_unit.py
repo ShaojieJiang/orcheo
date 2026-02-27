@@ -114,6 +114,7 @@ def test_build_initial_state_langgraph_formats() -> None:
     assert state["inputs"] == inputs
     assert state["results"] == {}
     assert state["messages"] == []
+    assert state["config"] == {}
 
     state_with_config = workflow_execution._build_initial_state(
         {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, runtime_config
@@ -303,10 +304,21 @@ async def test_execute_workflow_reports_history_store_failure(
     )
 
     class DummyGraph:
-        def compile(self, *, checkpointer: object) -> object:
+        def compile(
+            self,
+            *,
+            checkpointer: object,
+            store: object | None = None,
+        ) -> object:
+            del checkpointer, store
             return object()
 
     monkeypatch.setattr(backend_app_module, "build_graph", lambda config: DummyGraph())
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_graph_store",
+        lambda settings: DummyCheckpointer(),
+    )
     monkeypatch.setattr(workflow_execution, "get_tracer", lambda name: object())
 
     class StubSpanContext:
@@ -423,7 +435,13 @@ async def test_safe_send_json_propagates_other_errors() -> None:
 
 def _patch_graph_and_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyGraph:
-        def compile(self, *, checkpointer: object) -> object:
+        def compile(
+            self,
+            *,
+            checkpointer: object,
+            store: object | None = None,
+        ) -> object:
+            del checkpointer, store
             return object()
 
     class DummyCheckpointer:
@@ -437,6 +455,11 @@ def _patch_graph_and_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         backend_app_module,
         "create_checkpointer",
+        lambda settings: DummyCheckpointer(),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_graph_store",
         lambda settings: DummyCheckpointer(),
     )
 

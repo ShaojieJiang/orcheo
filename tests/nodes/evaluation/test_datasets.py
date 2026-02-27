@@ -334,11 +334,11 @@ async def test_qrecc_dataset_node_resolves_templated_max_conversations() -> None
         name="qrecc",
         max_conversations="{{config.configurable.qrecc.max_conversations}}",
     )
-    state = State(inputs={"qrecc_data": QRECC_SAMPLE})
-    node.decode_variables(
-        state,
+    state = State(
+        inputs={"qrecc_data": QRECC_SAMPLE},
         config={"configurable": {"qrecc": {"max_conversations": 1}}},
     )
+    node.decode_variables(state)
     result = await node.run(state, {})
     assert result["total_conversations"] == 1
 
@@ -497,11 +497,11 @@ async def test_md2d_corpus_loader_node_resolves_templated_max_documents() -> Non
         name="md2d_corpus_loader",
         max_documents="{{config.configurable.corpus.max_documents}}",
     )
-    state = State(inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE})
-    node.decode_variables(
-        state,
+    state = State(
+        inputs={"md2d_corpus": MD2D_CORPUS_SAMPLE},
         config={"configurable": {"corpus": {"max_documents": 1}}},
     )
+    node.decode_variables(state)
 
     result = await node.run(state, {})
 

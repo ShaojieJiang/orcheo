@@ -13,6 +13,7 @@ from .credentials import (
     get_active_credential_resolver,
     parse_credential_reference,
 )
+from .state_builder import build_initial_state
 
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "credential_resolution",
     "get_active_credential_resolver",
     "parse_credential_reference",
+    "build_initial_state",
 ]

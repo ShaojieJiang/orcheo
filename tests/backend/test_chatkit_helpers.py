@@ -117,6 +117,7 @@ def testbuild_initial_state_langgraph_script() -> None:
     assert result["inputs"] == inputs
     assert result["messages"] == []
     assert result["results"] == {}
+    assert result["config"] == {}
 
 
 def testbuild_initial_state_default() -> None:
@@ -127,6 +128,7 @@ def testbuild_initial_state_default() -> None:
     assert result["messages"] == []
     assert result["results"] == {}
     assert result["inputs"] == {"message": "test"}
+    assert result["config"] == {}
 
 
 def testextract_reply_from_state_direct_reply() -> None:

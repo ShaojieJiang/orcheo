@@ -228,36 +228,46 @@ class TestExecuteWorkflow:
                             return_value=mock_checkpointer,
                         ):
                             with patch(
-                                "orcheo_backend.app.workflow_execution._build_initial_state",
-                                return_value={},
+                                "orcheo.persistence.create_graph_store",
+                                return_value=mock_checkpointer,
                             ):
-                                with patch("orcheo.config.get_settings"):
-                                    with patch(
-                                        "orcheo.runtime.runnable_config.merge_runnable_configs"
-                                    ) as mock_merge:
-                                        mock_config = MagicMock()
-                                        mock_config.to_runnable_config = MagicMock(
-                                            return_value={}
-                                        )
-                                        mock_config.to_state_config = MagicMock(
-                                            return_value={}
-                                        )
-                                        mock_config.to_json_config = MagicMock(
-                                            return_value={}
-                                        )
-                                        mock_config.tags = []
-                                        mock_config.callbacks = []
-                                        mock_config.metadata = {}
-                                        mock_config.run_name = None
-                                        mock_merge.return_value = mock_config
-
+                                with patch(
+                                    "orcheo_backend.app.workflow_execution._build_initial_state",
+                                    return_value={},
+                                ):
+                                    with patch("orcheo.config.get_settings"):
                                         with patch(
-                                            "orcheo.runtime.credentials.credential_resolution"
-                                        ):
-                                            result = await _execute_workflow(mock_run)
+                                            "orcheo.runtime.runnable_config.merge_runnable_configs"
+                                        ) as mock_merge:
+                                            mock_config = MagicMock()
+                                            mock_config.to_runnable_config = MagicMock(
+                                                return_value={}
+                                            )
+                                            mock_config.to_state_config = MagicMock(
+                                                return_value={}
+                                            )
+                                            mock_config.to_json_config = MagicMock(
+                                                return_value={}
+                                            )
+                                            mock_config.tags = []
+                                            mock_config.callbacks = []
+                                            mock_config.metadata = {}
+                                            mock_config.run_name = None
+                                            mock_merge.return_value = mock_config
+
+                                            with patch(
+                                                "orcheo.runtime.credentials.credential_resolution"
+                                            ):
+                                                result = await _execute_workflow(
+                                                    mock_run
+                                                )
 
         assert result["status"] == "succeeded"
         mock_repo.mark_run_succeeded.assert_called_once()
+        mock_graph.compile.assert_called_once_with(
+            checkpointer=mock_checkpointer,
+            store=mock_checkpointer,
+        )
         mock_history.start_run.assert_awaited_once()
         mock_history.append_step.assert_awaited()
         mock_history.mark_completed.assert_awaited_once()

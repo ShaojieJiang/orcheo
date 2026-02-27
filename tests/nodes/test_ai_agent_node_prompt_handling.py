@@ -4,6 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 import pytest
 from agentensor.tensor import TextTensor
+from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 
 
@@ -81,3 +82,28 @@ def test_model_dump_preserves_string_prompt() -> None:
     payload = node.model_dump(mode="json")
 
     assert payload["system_prompt"] == "literal prompt"
+
+
+def test_decode_variables_interpolates_mixed_system_prompt_templates() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="provider:model",
+        system_prompt=(
+            "internal={{resolve_attendee_id.internal_user_id}} "
+            "external={{resolve_attendee_id.external_userid}}"
+        ),
+    )
+    state = State(
+        {
+            "results": {
+                "resolve_attendee_id": {
+                    "internal_user_id": "alice",
+                    "external_userid": "wxid_42",
+                }
+            }
+        }
+    )
+
+    node.decode_variables(state)
+
+    assert node.system_prompt == "internal=alice external=wxid_42"

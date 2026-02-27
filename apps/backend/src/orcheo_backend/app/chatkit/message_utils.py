@@ -28,7 +28,7 @@ with warnings.catch_warnings():
         WidgetRoot,
     )
 from langchain_core.messages import BaseMessage
-from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.runtime.state_builder import build_initial_state as build_runtime_state
 
 
 def collect_text_from_user_content(content: list[UserMessageContent]) -> str:
@@ -77,19 +77,10 @@ def stringify_langchain_message(message: Any) -> str:
 def build_initial_state(
     graph_config: Mapping[str, Any],
     inputs: Mapping[str, Any],
+    runtime_config: Mapping[str, Any] | None = None,
 ) -> Mapping[str, Any]:
     """Create the initial workflow state for the configured format."""
-    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-        state = dict(inputs)
-        state.setdefault("inputs", dict(inputs))
-        state.setdefault("results", {})
-        state.setdefault("messages", [])
-        return state
-    return {
-        "messages": [],
-        "results": {},
-        "inputs": dict(inputs),
-    }
+    return build_runtime_state(graph_config, inputs, runtime_config)
 
 
 def extract_reply_from_state(state: Mapping[str, Any]) -> str | None:

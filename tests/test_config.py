@@ -50,6 +50,8 @@ def test_settings_defaults(
 
     assert settings.checkpoint_backend == "sqlite"
     assert settings.sqlite_path == "~/.orcheo/checkpoints.sqlite"
+    assert settings.graph_store_backend == "sqlite"
+    assert settings.graph_store_sqlite_path == str(_DEFAULTS["GRAPH_STORE_SQLITE_PATH"])
     assert settings.chatkit_backend == "sqlite"
     assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
     assert settings.host == "0.0.0.0"
@@ -95,6 +97,17 @@ def test_settings_invalid_chatkit_backend(
         config.get_settings(refresh=True)
 
 
+def test_settings_invalid_graph_store_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph store backend validation enforces supported options."""
+
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "unsupported")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
 def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Using Postgres without a DSN should fail fast."""
 
@@ -135,6 +148,45 @@ def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.chatkit_backend == "postgres"
     assert settings.postgres_dsn == "postgresql://example"
+
+
+def test_postgres_graph_store_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Graph-store postgres backend also requires a DSN."""
+
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+    assert settings.graph_store_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
+
+
+def test_graph_store_sqlite_path_must_be_absolute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph-store sqlite paths reject non-absolute values."""
+
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", "relative/path.sqlite")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+
+def test_graph_store_sqlite_path_rejects_tilde(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph-store sqlite paths reject tilde-prefixed values."""
+
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", "~/graph_store.sqlite")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
 
 
 def test_normalize_backend_none() -> None:
