@@ -15,6 +15,7 @@ from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
+    RequestContext,
     get_authorization_policy,
 )
 from orcheo_backend.app.authentication.settings import load_auth_settings
@@ -45,6 +46,11 @@ from orcheo_sdk.cli.workflow import _mermaid_from_graph
 router = APIRouter()
 public_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _normalize_workspace_id(value: str) -> str:
+    """Normalize workspace identifiers for case-insensitive comparisons."""
+    return value.strip().lower()
 
 
 def _resolve_chatkit_public_base_url() -> str | None:
@@ -159,14 +165,19 @@ async def list_workflows(
 async def create_workflow(
     request: WorkflowCreateRequest,
     repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Create a new workflow entry."""
+    context = _resolve_authenticated_context(policy)
+    actor = _resolve_actor(request.actor, context)
+    tags = _append_workspace_tags(request.tags, context)
+
     workflow = await repository.create_workflow(
         name=request.name,
         slug=request.slug,
         description=request.description,
-        tags=request.tags,
-        actor=request.actor,
+        tags=tags,
+        actor=actor,
     )
     return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
 
@@ -189,16 +200,21 @@ async def update_workflow(
     workflow_id: UUID,
     request: WorkflowUpdateRequest,
     repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Update attributes of an existing workflow."""
+    context = _resolve_authenticated_context(policy)
+    actor = _resolve_actor(request.actor, context)
+    tags = _append_workspace_tags(request.tags, context, preserve_none=True)
+
     try:
         workflow = await repository.update_workflow(
             workflow_id,
             name=request.name,
             description=request.description,
-            tags=request.tags,
+            tags=tags,
             is_archived=request.is_archived,
-            actor=request.actor,
+            actor=actor,
         )
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
@@ -210,10 +226,14 @@ async def archive_workflow(
     workflow_id: UUID,
     repository: RepositoryDep,
     actor: str = Query("system"),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Archive a workflow via the delete verb."""
+    context = _resolve_authenticated_context(policy)
+    resolved_actor = _resolve_actor(actor, context)
+
     try:
-        workflow = await repository.archive_workflow(workflow_id, actor=actor)
+        workflow = await repository.archive_workflow(workflow_id, actor=resolved_actor)
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -360,13 +380,17 @@ async def publish_workflow(
     workflow_id: UUID,
     request: WorkflowPublishRequest,
     repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowPublishResponse:
     """Publish a workflow and expose it for ChatKit access."""
+    context = _resolve_authenticated_context(policy)
+    actor = _resolve_actor(request.actor, context)
+
     try:
         workflow = await repository.publish_workflow(
             workflow_id,
             require_login=request.require_login,
-            actor=request.actor,
+            actor=actor,
         )
         workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
@@ -381,7 +405,7 @@ async def publish_workflow(
         "Workflow published",
         extra={
             "workflow_id": str(workflow.id),
-            "actor": request.actor,
+            "actor": actor,
             "require_login": request.require_login,
         },
     )
@@ -399,10 +423,14 @@ async def revoke_workflow_publish(
     workflow_id: UUID,
     request: WorkflowPublishRevokeRequest,
     repository: RepositoryDep,
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Revoke public access to the workflow."""
+    context = _resolve_authenticated_context(policy)
+    actor = _resolve_actor(request.actor, context)
+
     try:
-        workflow = await repository.revoke_publish(workflow_id, actor=request.actor)
+        workflow = await repository.revoke_publish(workflow_id, actor=actor)
         workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -416,7 +444,7 @@ async def revoke_workflow_publish(
         "Workflow publish access revoked",
         extra={
             "workflow_id": str(workflow.id),
-            "actor": request.actor,
+            "actor": actor,
         },
     )
 
@@ -432,9 +460,9 @@ def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
 def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
     """Return workspace identifiers encoded within workflow tags."""
     workspaces = {
-        tag.split(":", 1)[1]
+        _normalize_workspace_id(tag.split(":", 1)[1])
         for tag in workflow.tags
-        if tag.startswith("workspace:") and ":" in tag
+        if tag.lower().startswith("workspace:") and ":" in tag
     }
     return frozenset(workspaces)
 
@@ -444,6 +472,51 @@ def _resolve_workflow_owner(workflow: Workflow) -> str | None:
     if not workflow.audit_log:
         return None
     return workflow.audit_log[0].actor
+
+
+def _resolve_authenticated_context(
+    policy: AuthorizationPolicy | object,
+) -> RequestContext | None:
+    """Return authenticated context when auth enforcement is enabled."""
+    if not isinstance(policy, AuthorizationPolicy):
+        return None
+    if not load_auth_settings().enforce:
+        return None
+    return policy.require_authenticated()
+
+
+def _resolve_actor(request_actor: str, context: RequestContext | None) -> str:
+    """Prefer authenticated subject over client-provided actor."""
+    if context is None:
+        return request_actor
+    return context.subject
+
+
+def _append_workspace_tags(
+    tags: list[str] | None,
+    context: RequestContext | None,
+    *,
+    preserve_none: bool = False,
+) -> list[str] | None:
+    """Append workspace tags derived from auth context claims."""
+    if context is None or not context.workspace_ids:
+        return tags
+    if tags is None:
+        if preserve_none:
+            return None
+        return [
+            f"workspace:{_normalize_workspace_id(workspace_id)}"
+            for workspace_id in sorted(context.workspace_ids)
+        ]
+
+    merged = [tag.strip() for tag in tags if tag and tag.strip()]
+    existing = {tag.lower() for tag in merged}
+    for workspace_id in sorted(context.workspace_ids):
+        workspace_tag = f"workspace:{_normalize_workspace_id(workspace_id)}"
+        if workspace_tag not in existing:
+            merged.append(workspace_tag)
+            existing.add(workspace_tag)
+    return merged
 
 
 @router.post(
@@ -473,13 +546,18 @@ async def create_workflow_chatkit_session(
 
     if auth_enforced:
         workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+        request_workspaces = frozenset(
+            _normalize_workspace_id(workspace_id)
+            for workspace_id in context.workspace_ids
+            if workspace_id
+        )
         if workflow_workspaces:
-            if not context.workspace_ids:
+            if not request_workspaces:
                 raise AuthorizationError(
                     "Workspace access required for workflow.",
                     code="auth.workspace_forbidden",
                 )
-            if not workflow_workspaces.intersection(context.workspace_ids):
+            if not workflow_workspaces.intersection(request_workspaces):
                 raise AuthorizationError(
                     "Workspace access denied for workflow.",
                     code="auth.workspace_forbidden",
@@ -507,12 +585,17 @@ async def create_workflow_chatkit_session(
         "workflow_name": workflow.name,
         "source": "canvas",
     }
-    primary_workspace = _select_primary_workspace(context.workspace_ids)
+    normalized_workspace_ids = frozenset(
+        _normalize_workspace_id(workspace_id)
+        for workspace_id in context.workspace_ids
+        if workspace_id
+    )
+    primary_workspace = _select_primary_workspace(normalized_workspace_ids)
     token, expires_at = issuer.mint_session(
         subject=context.subject,
         identity_type=context.identity_type,
         token_id=context.token_id,
-        workspace_ids=context.workspace_ids,
+        workspace_ids=normalized_workspace_ids,
         primary_workspace_id=primary_workspace,
         workflow_id=workflow.id,
         scopes=context.scopes,

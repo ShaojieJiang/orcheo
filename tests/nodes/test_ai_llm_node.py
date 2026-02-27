@@ -56,3 +56,77 @@ def test_llmnode_build_messages_skips_empty_input() -> None:
     node = LLMNode(name="llm", ai_model="test-model", input_text="  ")
     state = State(inputs={}, results={}, structured_response=None)
     assert node._build_messages(state) == []
+
+
+def test_llmnode_build_messages_no_user_message_no_instruction() -> None:
+    """input_text without user_message or instruction hits the else
+    branches (lines 493, 499).
+    """
+    node = LLMNode(name="llm", ai_model="test-model", input_text="plain text")
+    state = State(inputs={}, results={}, structured_response=None)
+    messages = node._build_messages(state)
+    assert len(messages) == 1
+    assert isinstance(messages[0], HumanMessage)
+    assert messages[0].content == "plain text"
+
+
+@pytest.mark.asyncio
+async def test_llmnode_run_returns_empty_when_no_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLMNode.run returns early with empty messages when _build_messages
+    yields [] (line 455).
+    """
+
+    async def fake_prepare_tools(self: LLMNode):  # type: ignore[unused-argument]
+        return []
+
+    monkeypatch.setattr(LLMNode, "_prepare_tools", fake_prepare_tools)
+
+    node = LLMNode(name="llm", ai_model="test-model")
+    state = State(inputs={}, results={}, structured_response=None)
+    result = await node.run(state, {})
+    assert result == {"messages": []}
+
+
+@pytest.mark.asyncio
+async def test_llmnode_run_with_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLMNode.run sets response_format_strategy when response_format is
+    provided (line 461).
+    """
+    from pydantic import BaseModel
+
+    class Schema(BaseModel):
+        answer: str
+
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {"messages": [AIMessage(content="done")]}
+
+    async def fake_prepare_tools(self: LLMNode):  # type: ignore[unused-argument]
+        return []
+
+    def fake_init_chat_model(*args, **kwargs):
+        return "model"
+
+    captured: dict = {}
+
+    def fake_create_agent(model, tools, system_prompt=None, response_format=None):
+        captured["response_format"] = response_format
+        return fake_agent
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", fake_init_chat_model)
+    monkeypatch.setattr("orcheo.nodes.ai.create_agent", fake_create_agent)
+    monkeypatch.setattr(LLMNode, "_prepare_tools", fake_prepare_tools)
+
+    node = LLMNode(
+        name="llm",
+        ai_model="test-model",
+        input_text="hello",
+        response_format=Schema,
+    )
+    state = State(inputs={}, results={}, structured_response=None)
+    result = await node.run(state, {})
+    assert result == {"messages": [AIMessage(content="done")]}
+    assert captured["response_format"] is not None

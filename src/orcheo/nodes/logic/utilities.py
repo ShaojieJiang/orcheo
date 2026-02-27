@@ -100,7 +100,85 @@ class DelayNode(TaskNode):
         }
 
 
+@registry.register(
+    NodeMetadata(
+        name="ForLoopNode",
+        description="Iterate over a list, exposing one item per invocation",
+        category="utility",
+    )
+)
+class ForLoopNode(TaskNode):
+    """Loop controller that advances through a list one item at a time.
+
+    On each invocation the node reads its own previous output from
+    ``state["results"][self.name]`` to determine the current index,
+    exposes the item at that index as ``current_item``, and stores the
+    *next* index so subsequent invocations advance automatically.
+
+    Pair with an :class:`~orcheo.edges.branching.IfElse` edge that
+    routes on ``done`` to build a complete for-loop::
+
+        graph.add_node("for_each", ForLoopNode(
+            name="for_each",
+            items="{{find_subscribers.data}}",
+        ))
+        router = IfElse(
+            name="for_each_router",
+            conditions=[Condition(
+                left="{{for_each.done}}", operator="is_falsy",
+            )],
+        )
+        graph.add_conditional_edges(
+            "for_each", router,
+            {"true": "loop_body", "false": END},
+        )
+        graph.add_edge("loop_body", "for_each")
+    """
+
+    items: list[Any] | str = Field(
+        description="List to iterate over (may be a template string)",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return the current item and advance the index."""
+        items = self.items
+        if not isinstance(items, list):
+            return {"done": True, "index": 0, "total": 0, "current_item": None}
+
+        total = len(items)
+
+        # Read the index left by the previous invocation.
+        prev = state.get("results", {})
+        if isinstance(prev, Mapping):
+            loop_state = prev.get(self.name, {})
+        else:
+            loop_state = {}
+        if isinstance(loop_state, Mapping):
+            raw_index = loop_state.get("index", 0)
+            index = int(raw_index) if raw_index is not None else 0
+        else:
+            index = 0
+
+        if index >= total:
+            return {
+                "done": True,
+                "index": index,
+                "iteration": index,
+                "total": total,
+                "current_item": None,
+            }
+
+        return {
+            "done": False,
+            "index": index + 1,
+            "iteration": index + 1,
+            "total": total,
+            "current_item": items[index],
+        }
+
+
 __all__ = [
     "SetVariableNode",
     "DelayNode",
+    "ForLoopNode",
 ]

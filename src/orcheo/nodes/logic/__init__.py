@@ -15,6 +15,7 @@ Condition-related utilities have also moved to orcheo.edges.conditions.
 
 from orcheo.nodes.logic.utilities import (
     DelayNode,
+    ForLoopNode,
     SetVariableNode,
     _build_nested,
 )
@@ -23,5 +24,6 @@ from orcheo.nodes.logic.utilities import (
 __all__ = [
     "SetVariableNode",
     "DelayNode",
+    "ForLoopNode",
     "_build_nested",
 ]

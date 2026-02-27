@@ -230,3 +230,56 @@ def test_build_messages_respects_max_messages_limit() -> None:
     messages = node._build_messages(state)
     assert len(messages) == 1
     assert messages[0].content == "last"
+
+
+def test_build_messages_appends_current_input_when_checkpointed() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[{"role": "assistant", "content": "Previous answer"}],
+        inputs={"message": "New user turn"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert len(messages) == 2
+    assert messages[0].content == "Previous answer"
+    assert messages[1].content == "New user turn"
+
+
+def test_build_messages_keeps_existing_messages_without_checkpointer() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[{"role": "assistant", "content": "Previous answer"}],
+        inputs={"message": "Ignored user turn"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1"}},
+    )
+    assert len(messages) == 1
+    assert messages[0].content == "Previous answer"
+
+
+def test_build_messages_checkpointer_with_no_new_inputs() -> None:
+    """Checkpointer present but inputs produce no new messages – branch 352->355."""
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[{"role": "assistant", "content": "Previous answer"}],
+        inputs={},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert len(messages) == 1
+    assert messages[0].content == "Previous answer"

@@ -89,4 +89,43 @@ export const getAccessToken = (): string | null => {
   return tokens.accessToken;
 };
 
+const parseJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = atob(`${base64}${padding}`);
+    const parsed = JSON.parse(payload) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+export const getAccessTokenSubject = (): string | null => {
+  const token = getAccessToken();
+  if (!token) {
+    return null;
+  }
+
+  const payload = parseJwtPayload(token);
+  if (!payload) {
+    return null;
+  }
+
+  const subject = payload.sub;
+  if (typeof subject !== "string") {
+    return null;
+  }
+  const trimmed = subject.trim();
+  return trimmed || null;
+};
+
 export const isAuthenticated = (): boolean => Boolean(getAccessToken());

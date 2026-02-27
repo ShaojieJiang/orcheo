@@ -201,6 +201,38 @@ async def test_create_workflow_chatkit_session_requires_workspace_match() -> Non
 
 
 @pytest.mark.asyncio()
+async def test_chatkit_session_matches_workspace_case_insensitively() -> None:
+    workflow = Workflow(name="Canvas Workflow", tags=["Workspace:Team-A"])
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset({"TEAM-A"}),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        workflow.id,
+        repo,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workspace_id"] == "team-a"
+    assert decoded["chatkit"]["workspace_ids"] == ["team-a"]
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_falls_back_to_owner() -> None:
     workflow = Workflow(name="Canvas Workflow")
     workflow.record_event(actor="canvas-user", action="workflow_created")

@@ -1,7 +1,7 @@
 """Node registry and metadata definitions for Orcheo."""
 
 from orcheo.nodes.agentensor import AgentensorNode
-from orcheo.nodes.ai import AgentNode, LLMNode
+from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
 from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
 from orcheo.nodes.conversational_search import (
     ChunkEmbeddingNode,
@@ -23,6 +23,7 @@ from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.logic import (
     DelayNode,
+    ForLoopNode,
     SetVariableNode,
 )
 from orcheo.nodes.mongodb import (
@@ -39,7 +40,7 @@ from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 from orcheo.nodes.storage import PostgresNode, SQLiteNode
 from orcheo.nodes.sub_workflow import SubWorkflowNode
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.telegram import MessageTelegram, TelegramEventsParserNode
 from orcheo.nodes.triggers import (
     CronTriggerNode,
     HttpPollingTriggerNode,
@@ -58,6 +59,7 @@ __all__ = [
     "NodeRegistry",
     "registry",
     "AgentNode",
+    "AgentReplyExtractorNode",
     "LLMNode",
     "AgentensorNode",
     "HttpRequestNode",
@@ -66,6 +68,7 @@ __all__ = [
     "MergeNode",
     "SetVariableNode",
     "DelayNode",
+    "ForLoopNode",
     "MongoDBNode",
     "MongoDBAggregateNode",
     "MongoDBFindNode",
@@ -81,6 +84,7 @@ __all__ = [
     "EmailNode",
     "DiscordWebhookNode",
     "MessageTelegram",
+    "TelegramEventsParserNode",
     "JavaScriptSandboxNode",
     "DebugNode",
     "SubWorkflowNode",

@@ -2,7 +2,7 @@ from collections import OrderedDict
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.logic import SetVariableNode
+from orcheo.nodes.logic import DelayNode, ForLoopNode, SetVariableNode, _build_nested
 
 
 @pytest.mark.asyncio
@@ -98,3 +98,112 @@ async def test_set_variable_node_empty_variables() -> None:
     payload = result["results"]["assign"]
 
     assert payload == {}
+
+
+@pytest.mark.asyncio
+async def test_delay_node_runs() -> None:
+    state = State({"results": {}})
+    node = DelayNode(name="wait", duration_seconds=0.0)
+
+    result = await node(state, RunnableConfig())
+
+    assert result["results"]["wait"]["duration_seconds"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_non_list_items() -> None:
+    """Non-list items returns done immediately without iterating."""
+    node = ForLoopNode(name="loop", items="not_a_list")
+
+    result = await node.run({"results": {}}, RunnableConfig())
+
+    assert result == {"done": True, "index": 0, "total": 0, "current_item": None}
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_first_iteration() -> None:
+    """First invocation yields the item at index 0 and advances index to 1."""
+    state = State({"results": {}})
+    node = ForLoopNode(name="loop", items=["a", "b", "c"])
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["loop"]
+
+    assert payload["done"] is False
+    assert payload["current_item"] == "a"
+    assert payload["index"] == 1
+    assert payload["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_subsequent_iteration() -> None:
+    """Reads the previous index from state and advances through the list."""
+    state = State({"results": {"loop": {"index": 1}}})
+    node = ForLoopNode(name="loop", items=["a", "b", "c"])
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["loop"]
+
+    assert payload["done"] is False
+    assert payload["current_item"] == "b"
+    assert payload["index"] == 2
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_exhausted() -> None:
+    """Returns done=True when the stored index has reached or passed the end."""
+    state = State({"results": {"loop": {"index": 3}}})
+    node = ForLoopNode(name="loop", items=["a", "b", "c"])
+
+    result = await node(state, RunnableConfig())
+    payload = result["results"]["loop"]
+
+    assert payload["done"] is True
+    assert payload["current_item"] is None
+    assert payload["index"] == 3
+    assert payload["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_prev_results_not_mapping() -> None:
+    """When results is not a Mapping the index defaults to 0."""
+    node = ForLoopNode(name="loop", items=["x", "y"])
+
+    result = await node.run({"results": "not_a_dict"}, RunnableConfig())
+
+    assert result["current_item"] == "x"
+    assert result["index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_loop_state_not_mapping() -> None:
+    """When the node's own previous state is not a Mapping the index defaults to 0."""
+    node = ForLoopNode(name="loop", items=["x", "y"])
+
+    result = await node.run({"results": {"loop": "not_a_dict"}}, RunnableConfig())
+
+    assert result["current_item"] == "x"
+    assert result["index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_for_loop_node_raw_index_none() -> None:
+    """When the stored index value is None it defaults to 0."""
+    node = ForLoopNode(name="loop", items=["x", "y"])
+
+    result = await node.run({"results": {"loop": {"index": None}}}, RunnableConfig())
+
+    assert result["current_item"] == "x"
+    assert result["index"] == 1
+
+
+def test_build_nested_empty_path_raises() -> None:
+    """An empty path string raises ValueError."""
+    with pytest.raises(ValueError, match="non-empty string"):
+        _build_nested("", 42)
+
+
+def test_build_nested_whitespace_only_path_raises() -> None:
+    """A path containing only dots/whitespace (no real segments) raises ValueError."""
+    with pytest.raises(ValueError, match="at least one segment"):
+        _build_nested("...", 42)

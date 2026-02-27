@@ -79,6 +79,14 @@ def test_extract_workspace_ids_from_claims() -> None:
     assert ids == {"ws-3"}
 
 
+def test_extract_workspace_ids_normalizes_case_and_whitespace() -> None:
+    """_extract_workspace_ids normalizes claim values for comparisons."""
+    from orcheo_backend.app.authentication import _extract_workspace_ids
+
+    ids = set(_extract_workspace_ids({"workspace_ids": [" Team-A ", "TEAM-B"]}))
+    assert ids == {"team-a", "team-b"}
+
+
 def test_extract_scopes_with_nested_orcheo_claim() -> None:
     """_extract_scopes finds scopes in nested orcheo.scopes claim."""
     from orcheo_backend.app.authentication import _extract_scopes
