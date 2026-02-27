@@ -261,7 +261,11 @@ def test_execute_setup_generates_secrets_on_fresh_install(
     assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in env_content
 
 
-def test_run_setup_upgrade_preserves_existing_api_key_by_default() -> None:
+def test_run_setup_upgrade_preserves_existing_api_key_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path / "stack"))
+
     config = run_setup(
         mode="upgrade",
         backend_url=None,
@@ -281,7 +285,11 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default() -> None:
     assert config.preserve_existing_backend_url is True
 
 
-def test_run_setup_upgrade_honors_explicit_api_key() -> None:
+def test_run_setup_upgrade_honors_explicit_api_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path / "stack"))
+
     config = run_setup(
         mode="upgrade",
         backend_url=None,
@@ -298,6 +306,42 @@ def test_run_setup_upgrade_honors_explicit_api_key() -> None:
     assert config.mode == "upgrade"
     assert config.auth_mode == "api-key"
     assert config.api_key == "explicit-token"
+
+
+def test_run_setup_install_preserves_existing_env_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=http://existing-api.test\n"
+        "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=existing-token\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    console = Console(record=True)
+    config = run_setup(
+        mode="install",
+        backend_url=None,
+        auth_mode=None,
+        api_key=None,
+        chatkit_domain_key=None,
+        start_stack=False,
+        install_docker=False,
+        yes=True,
+        manual_secrets=False,
+        console=console,
+    )
+
+    output = console.export_text()
+    assert "Detected existing stack env file" in output
+    assert "Keeping existing backend URL" in output
+    assert "Keeping existing API bootstrap token" in output
+    assert config.mode == "install"
+    assert config.auth_mode == "api-key"
+    assert config.preserve_existing_backend_url is True
+    assert config.api_key is None
 
 
 def test_execute_setup_preserves_secrets_on_upgrade(
@@ -346,6 +390,32 @@ def test_execute_setup_preserves_backend_urls_on_upgrade_by_default(
 
     config = _setup_config()
     config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert "ORCHEO_API_URL=http://existing-api.test" in env_content
+    assert "VITE_ORCHEO_BACKEND_URL=http://existing-vite.test" in env_content
+    assert config.backend_url == "http://existing-api.test"
+
+
+def test_execute_setup_preserves_backend_urls_on_install_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Install preserve mode should keep existing backend URL values."""
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=http://existing-api.test\n"
+        "VITE_ORCHEO_BACKEND_URL=http://existing-vite.test\n",
+        encoding="utf-8",
+    )
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "install"
     config.start_stack = False
     config.preserve_existing_backend_url = True
     execute_setup(config, console=Console(record=True))
@@ -802,10 +872,12 @@ def test_execute_setup_env_example_sync_and_chatkit_backfill_skip(
 
 
 def test_run_setup_prints_generated_key_and_oauth_notice(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from orcheo_sdk.cli import setup as setup_mod
 
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path / "stack"))
     monkeypatch.setattr(setup_mod.typer, "confirm", lambda _prompt, default: False)
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "")
     monkeypatch.setattr(

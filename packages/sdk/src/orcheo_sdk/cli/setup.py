@@ -83,11 +83,12 @@ def _resolve_backend_url(
     *,
     mode: SetupMode,
     yes: bool,
+    env_exists: bool = False,
 ) -> tuple[str, bool]:
     default_backend_url = "http://localhost:8000"
     if backend_url:
         return backend_url, False
-    if mode == "upgrade":
+    if mode == "upgrade" or env_exists:
         if yes:
             return default_backend_url, True
         selected = _normalize_optional_value(
@@ -134,12 +135,13 @@ def _resolve_api_key(
     *,
     mode: SetupMode,
     manual: bool,
+    env_exists: bool = False,
 ) -> str | None:
     if auth_mode != "api-key":
         return None
     if api_key:
         return api_key
-    if mode == "upgrade":
+    if mode == "upgrade" or env_exists:
         if manual:
             provided = typer.prompt(
                 "Enter API key (Enter to keep existing)",
@@ -206,6 +208,10 @@ def _resolve_stack_project_dir() -> Path:
     if configured:
         return Path(configured).expanduser()
     return Path.home() / ".orcheo" / "stack"
+
+
+def _resolve_stack_env_file() -> Path:
+    return _resolve_stack_project_dir() / ".env"
 
 
 def _resolve_stack_asset_base_url(*, stack_version: str | None = None) -> str:
@@ -496,11 +502,7 @@ def _ensure_stack_assets(
         config,
         requested_stack_version=requested_stack_version,
     )
-    if (
-        config.mode == "upgrade"
-        and config.preserve_existing_backend_url
-        and not env_created
-    ):
+    if config.preserve_existing_backend_url and not env_created:
         preserved_orcheo_api_url = _read_env_value(env_file, "ORCHEO_API_URL")
         if preserved_orcheo_api_url is not None:
             updates.pop("ORCHEO_API_URL", None)
@@ -539,11 +541,21 @@ def run_setup(
     console: Console,
 ) -> SetupConfig:
     """Collect interactive/non-interactive setup options."""
+    stack_env_file = _resolve_stack_env_file()
+    has_existing_stack_env = stack_env_file.exists()
+    if has_existing_stack_env:
+        console.print(
+            "[cyan]Detected existing stack env file at "
+            f"{stack_env_file}. Existing values will be preserved by default "
+            "unless you explicitly override them.[/cyan]"
+        )
+
     resolved_mode = _resolve_mode(mode, yes=yes)
     resolved_backend_url, preserve_existing_backend_url = _resolve_backend_url(
         backend_url,
         mode=resolved_mode,
         yes=yes,
+        env_exists=has_existing_stack_env,
     )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
     resolved_start_stack = _resolve_bool(
@@ -564,6 +576,7 @@ def run_setup(
         api_key,
         mode=resolved_mode,
         manual=manual_secrets,
+        env_exists=has_existing_stack_env,
     )
     resolved_chatkit_domain_key = _resolve_chatkit_domain_key(
         chatkit_domain_key, yes=yes
@@ -571,16 +584,12 @@ def run_setup(
 
     if resolved_api_key and not manual_secrets and not yes:
         console.print("[green]Generated API key locally.[/green]")
-    if (
-        resolved_mode == "upgrade"
-        and resolved_auth_mode == "api-key"
-        and resolved_api_key is None
-    ):
+    if resolved_auth_mode == "api-key" and resolved_api_key is None:
         console.print(
             "[cyan]Keeping existing API bootstrap token. "
             "Pass --api-key to rotate it.[/cyan]"
         )
-    if resolved_mode == "upgrade" and preserve_existing_backend_url:
+    if preserve_existing_backend_url:
         console.print(
             "[cyan]Keeping existing backend URL. "
             "Pass --backend-url to update it.[/cyan]"
