@@ -6,7 +6,7 @@
 - **Author:** Codex
 - **Owner:** Shaojie Jiang
 - **Date:** 2026-02-26
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
