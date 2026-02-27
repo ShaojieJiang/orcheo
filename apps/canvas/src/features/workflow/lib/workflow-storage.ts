@@ -1,5 +1,4 @@
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
-import { getAccessTokenSubject } from "@features/auth/lib/auth-session";
 import { computeWorkflowDiff, type WorkflowSnapshot } from "./workflow-diff";
 import {
   DEFAULT_ACTOR,
@@ -49,7 +48,7 @@ const resolveActor = (actor?: string): string => {
     return explicitActor;
   }
 
-  return getAccessTokenSubject() ?? DEFAULT_ACTOR;
+  return DEFAULT_ACTOR;
 };
 
 const emitUpdate = () => {

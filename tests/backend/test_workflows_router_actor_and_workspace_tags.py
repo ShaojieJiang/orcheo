@@ -131,6 +131,35 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_normalizes_workspace_tag_casing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _Repository()
+    request = WorkflowCreateRequest(
+        name="Case sensitive workspace",
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="service-token-4",
+            identity_type="service",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset({"Team-X"}),
+        )
+    )
+
+    await workflows.create_workflow(request, repository, policy=policy)
+
+    assert repository.last_actor == "service-token-4"
+    assert repository.last_tags == ["workspace:team-x"]
+
+
+@pytest.mark.asyncio()
 async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -87,7 +87,11 @@ def _extract_workspace_ids(claims: Mapping[str, Any]) -> set[str]:
 
     workspaces: set[str] = set()
     for candidate in candidates:
-        workspaces.update(coerce_str_items(candidate))
+        workspaces.update(
+            workspace_id.strip().lower()
+            for workspace_id in coerce_str_items(candidate)
+            if workspace_id.strip()
+        )
     return workspaces
 
 

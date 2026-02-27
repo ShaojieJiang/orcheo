@@ -48,6 +48,11 @@ public_router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _normalize_workspace_id(value: str) -> str:
+    """Normalize workspace identifiers for case-insensitive comparisons."""
+    return value.strip().lower()
+
+
 def _resolve_chatkit_public_base_url() -> str | None:
     settings = get_settings()
     value = settings.get("CHATKIT_PUBLIC_BASE_URL")
@@ -455,9 +460,9 @@ def _select_primary_workspace(workspace_ids: frozenset[str]) -> str | None:
 def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
     """Return workspace identifiers encoded within workflow tags."""
     workspaces = {
-        tag.split(":", 1)[1]
+        _normalize_workspace_id(tag.split(":", 1)[1])
         for tag in workflow.tags
-        if tag.startswith("workspace:") and ":" in tag
+        if tag.lower().startswith("workspace:") and ":" in tag
     }
     return frozenset(workspaces)
 
@@ -500,14 +505,14 @@ def _append_workspace_tags(
         if preserve_none:
             return None
         return [
-            f"workspace:{workspace_id}".lower()
+            f"workspace:{_normalize_workspace_id(workspace_id)}"
             for workspace_id in sorted(context.workspace_ids)
         ]
 
     merged = [tag.strip() for tag in tags if tag and tag.strip()]
     existing = {tag.lower() for tag in merged}
     for workspace_id in sorted(context.workspace_ids):
-        workspace_tag = f"workspace:{workspace_id}".lower()
+        workspace_tag = f"workspace:{_normalize_workspace_id(workspace_id)}"
         if workspace_tag not in existing:
             merged.append(workspace_tag)
             existing.add(workspace_tag)
@@ -541,13 +546,18 @@ async def create_workflow_chatkit_session(
 
     if auth_enforced:
         workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+        request_workspaces = frozenset(
+            _normalize_workspace_id(workspace_id)
+            for workspace_id in context.workspace_ids
+            if workspace_id
+        )
         if workflow_workspaces:
-            if not context.workspace_ids:
+            if not request_workspaces:
                 raise AuthorizationError(
                     "Workspace access required for workflow.",
                     code="auth.workspace_forbidden",
                 )
-            if not workflow_workspaces.intersection(context.workspace_ids):
+            if not workflow_workspaces.intersection(request_workspaces):
                 raise AuthorizationError(
                     "Workspace access denied for workflow.",
                     code="auth.workspace_forbidden",
@@ -575,12 +585,17 @@ async def create_workflow_chatkit_session(
         "workflow_name": workflow.name,
         "source": "canvas",
     }
-    primary_workspace = _select_primary_workspace(context.workspace_ids)
+    normalized_workspace_ids = frozenset(
+        _normalize_workspace_id(workspace_id)
+        for workspace_id in context.workspace_ids
+        if workspace_id
+    )
+    primary_workspace = _select_primary_workspace(normalized_workspace_ids)
     token, expires_at = issuer.mint_session(
         subject=context.subject,
         identity_type=context.identity_type,
         token_id=context.token_id,
-        workspace_ids=context.workspace_ids,
+        workspace_ids=normalized_workspace_ids,
         primary_workspace_id=primary_workspace,
         workflow_id=workflow.id,
         scopes=context.scopes,

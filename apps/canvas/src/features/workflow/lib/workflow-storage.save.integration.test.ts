@@ -122,7 +122,7 @@ describe("workflow-storage API integration - save workflow", () => {
     );
   });
 
-  it("uses JWT subject as actor when no explicit actor is provided", async () => {
+  it("uses default actor when no explicit actor is provided", async () => {
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
     const subject = "auth0|user-123";
@@ -213,7 +213,7 @@ describe("workflow-storage API integration - save workflow", () => {
     const createPayload = JSON.parse(
       (mockFetch.mock.calls[0]?.[1]?.body ?? "{}") as string,
     ) as { actor?: string };
-    expect(createPayload.actor).toBe(subject);
+    expect(createPayload.actor).toBe("canvas-app");
     window.localStorage.removeItem("orcheo_canvas_auth_tokens");
   });
 });

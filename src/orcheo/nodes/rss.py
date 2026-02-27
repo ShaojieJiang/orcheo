@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 import datetime
-import re
 from typing import Any
+from xml.etree import ElementTree
 import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
@@ -39,97 +39,77 @@ class RSSNode(TaskNode):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_tag_text(xml: str, tag: str) -> str:
-        """Extract text content of the first ``<tag>…</tag>`` occurrence."""
-        open_tag = "<" + tag
-        close_tag = "</" + tag + ">"
-        start = xml.find(open_tag)
-        if start == -1:
+    def _local_name(tag: str) -> str:
+        """Return an XML tag without its namespace prefix."""
+        if not tag:
             return ""
-        gt = xml.find(">", start)
-        if gt == -1:
-            return ""
-        end = xml.find(close_tag, gt)
-        if end == -1:
-            return ""
-        content = xml[gt + 1 : end]
-        if content.strip().startswith("<![CDATA["):
-            content = content.strip()[9:]
-            if content.endswith("]]>"):
-                content = content[:-3]
-        return content.strip()
+        if "}" in tag:
+            return tag.rsplit("}", 1)[1]
+        return tag
 
     @staticmethod
-    def _extract_link(xml: str) -> str:
-        """Extract a link from RSS ``<link>`` or Atom ``<link href="…">``."""
+    def _child_text(
+        parent: ElementTree.Element,
+        names: set[str],
+    ) -> str:
+        """Return first matching child element text by local-name."""
+        lowered = {name.lower() for name in names}
+        for child in list(parent):
+            if RSSNode._local_name(child.tag).lower() not in lowered:
+                continue
+            text = "".join(child.itertext()).strip()
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _extract_link(parent: ElementTree.Element) -> str:
+        """Extract RSS/Atom links from item or entry children."""
         fallback_href = ""
-        link_start = xml.find("<link")
-        while link_start != -1:
-            tag_end = xml.find(">", link_start)
-            if tag_end == -1:
-                break
-            tag_content = xml[link_start : tag_end + 1]
-
-            attrs = {
-                m.group(1).lower(): m.group(3)
-                for m in re.finditer(
-                    r"([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(['\"])(.*?)\2",
-                    tag_content,
-                )
-            }
-
-            href = attrs.get("href", "").strip()
-            rel = attrs.get("rel", "").strip().lower()
+        for child in list(parent):
+            if RSSNode._local_name(child.tag).lower() != "link":
+                continue
+            href = (child.attrib.get("href") or "").strip()
+            rel = (child.attrib.get("rel") or "").strip().lower()
             if href:
                 if rel == "alternate":
                     return href
                 if not fallback_href:
                     fallback_href = href
-
-            close = xml.find("</link>", tag_end)
-            next_link = xml.find("<link", tag_end)
-            if not href and close != -1 and (next_link == -1 or close < next_link):
-                return xml[tag_end + 1 : close].strip()
-            link_start = next_link
+                continue
+            text = "".join(child.itertext()).strip()
+            if text:
+                return text
         return fallback_href
 
     @classmethod
     def _parse_items(cls, body: str) -> list[dict[str, str]]:
-        """Parse RSS/Atom items from an XML body using string operations."""
+        """Parse RSS/Atom items from an XML body."""
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError as exc:
+            msg = "Malformed XML feed response"
+            raise ValueError(msg) from exc
+
         items: list[dict[str, str]] = []
-        for item_tag in ("item", "entry"):
-            open_tag = "<" + item_tag
-            close_tag = "</" + item_tag + ">"
-            pos = 0
-            while True:
-                start = body.find(open_tag, pos)
-                if start == -1:
-                    break
-                end = body.find(close_tag, start)
-                if end == -1:
-                    break
-                fragment = body[start : end + len(close_tag)]
+        for element in root.iter():
+            local_name = cls._local_name(element.tag).lower()
+            if local_name not in {"item", "entry"}:
+                continue
 
-                title = cls._extract_tag_text(fragment, "title")
-                link = cls._extract_link(fragment)
-                description = cls._extract_tag_text(
-                    fragment, "description"
-                ) or cls._extract_tag_text(fragment, "summary")
-                pub_date = (
-                    cls._extract_tag_text(fragment, "pubDate")
-                    or cls._extract_tag_text(fragment, "published")
-                    or cls._extract_tag_text(fragment, "updated")
-                )
+            title = cls._child_text(element, {"title"})
+            link = cls._extract_link(element)
+            description = cls._child_text(element, {"description", "summary"})
+            pub_date = cls._child_text(element, {"pubDate", "published", "updated"})
 
-                items.append(
-                    {
-                        "title": title,
-                        "link": link,
-                        "description": description,
-                        "pubDate": pub_date,
-                    }
-                )
-                pos = end + len(close_tag)
+            items.append(
+                {
+                    "title": title,
+                    "link": link,
+                    "description": description,
+                    "pubDate": pub_date,
+                }
+            )
         return items
 
     # ------------------------------------------------------------------
@@ -153,8 +133,13 @@ class RSSNode(TaskNode):
         if not body:
             return [], {"source": url, "error": "Empty feed response"}
 
+        try:
+            parsed_items = self._parse_items(body)
+        except ValueError as exc:
+            return [], {"source": url, "error": str(exc)}
+
         documents: list[dict[str, Any]] = []
-        for item in self._parse_items(body):
+        for item in parsed_items:
             documents.append(
                 {
                     "title": item.get("title", ""),

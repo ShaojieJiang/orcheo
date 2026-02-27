@@ -53,6 +53,45 @@ async def test_rss_node_run():
 
 
 @pytest.mark.asyncio
+async def test_rss_node_parses_atom_links_with_href():
+    """Test RSS node parsing for Atom link attributes."""
+    sources = ["https://example.com/atom.xml"]
+    node = RSSNode(name="test_rss", sources=sources)
+    state = {}
+    config = RunnableConfig()
+
+    atom_xml = (
+        "<feed xmlns='http://www.w3.org/2005/Atom'>"
+        "<entry>"
+        "<title>Atom Entry</title>"
+        "<link rel='alternate' href='https://example.com/atom-entry'/>"
+        "<summary>Atom summary</summary>"
+        "<updated>2024-01-01T00:00:00Z</updated>"
+        "</entry>"
+        "</feed>"
+    )
+
+    mock_resp = Mock()
+    mock_resp.text = atom_xml
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await node.run(state, config)
+
+    assert result["fetched_count"] == 1
+    assert result["errors"] == []
+    assert result["documents"][0]["title"] == "Atom Entry"
+    assert result["documents"][0]["link"] == "https://example.com/atom-entry"
+    assert result["documents"][0]["description"] == "Atom summary"
+    assert result["documents"][0]["pubDate"] == "2024-01-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
 async def test_rss_node_run_empty_feeds():
     """Test RSS node run method with empty feeds."""
     sources = ["https://example.com/empty.xml"]
@@ -78,6 +117,37 @@ async def test_rss_node_run_empty_feeds():
     mock_client.get.assert_called_once_with(
         "https://example.com/empty.xml", timeout=15.0
     )
+
+
+@pytest.mark.asyncio
+async def test_rss_node_run_malformed_xml_returns_structured_error():
+    """Malformed XML should be captured as a per-source error."""
+    sources = ["https://example.com/bad.xml"]
+    node = RSSNode(name="test_rss", sources=sources)
+    state = {}
+    config = RunnableConfig()
+
+    mock_resp = Mock()
+    mock_resp.text = "<rss><channel><item><title>Broken"
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await node.run(state, config)
+
+    assert result["documents"] == []
+    assert result["fetched_count"] == 0
+    assert result["failed_sources"] == 1
+    assert result["errors"] == [
+        {
+            "source": "https://example.com/bad.xml",
+            "error": "Malformed XML feed response",
+        }
+    ]
 
 
 @pytest.mark.asyncio
