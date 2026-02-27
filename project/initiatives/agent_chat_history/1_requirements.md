@@ -62,16 +62,15 @@ P0:
 - Add `AgentNode` toggle (for example `use_graph_chat_history: bool = False`).
 - When toggle is `True`:
   - Resolve a stable conversation key with this precedence:
-    - Explicit override from a previous node result, config, or input (for example `{{results.resolve_history_key.session_key}}`, `{{configurable.history_key}}`, or `{{inputs.history_key}}`).
     - Channel-derived key from parsed payload fields:
       - Telegram: `telegram:{{results.telegram_events_parser.chat_id}}`
       - WeCom Customer Service: `wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}`
       - WeCom AI bot: `wecom_aibot:{{results.wecom_ai_bot_events_parser.chat_type}}:{{results.wecom_ai_bot_events_parser.user}}`
       - WeCom internal direct message: `wecom_dm:{{results.wecom_events_parser.user}}`
-    - Fallback: `{{thread_id}}` for non-webhook/manual flows.
+    - Optional workflow-specific overrides when authors explicitly add custom candidates (for example `{{results.resolve_history_key.session_key}}` or `{{config.configurable.history_key}}`).
   - Key fields (`history_key_template`, `history_key_candidates`) must support both:
     - Literal values (for example `support-room-1`)
-    - Orcheo template strings `{{...}}` (including previous node outputs via `results.*`)
+    - Orcheo template strings `{{...}}` resolved from workflow state (for example `results.*`, `inputs.*`, `config.*`)
   - Key resolution must be deterministic and validated:
     - Evaluate candidates in declared order after template rendering.
     - Reject empty keys, unresolved templates (for example values still containing `{{`), and keys with invalid characters.
@@ -117,6 +116,7 @@ Introduce a dedicated graph store factory in `src/orcheo/persistence.py`, add co
 - Agent history merge should normalize stored entries into `BaseMessage` equivalents.
 - History retrieval requires a resolved conversation key; if unavailable, skip store logic safely.
 - Key resolution must support literal values and Orcheo `{{...}}` templates for both `history_key_template` and `history_key_candidates`.
+- Runtime initial-state assembly must inject a mapping `state["config"]` consistently for mapping-based payloads (workflow execution, triggers, and ChatKit).
 - Key validation must enforce non-empty, bounded-length, and allowed-character constraints before any store operation.
 - Keep message ordering stable (oldest to newest before trimming tail).
 - Concurrency control must specify retry limits and bounded backoff behavior; persistent conflicts should degrade to warning + skip write, not run failure.
@@ -163,7 +163,7 @@ No formal A/B test; use staged workflow validation with replayed thread samples.
 - **Risk:** Storage growth and sensitive data retention.
   - **Mitigation:** Keep bounded window (`max_messages`), add retention/TTL follow-up, and avoid storing unnecessary payload fields.
 - **Risk:** Missing/unstable conversation keys lead to fragmented history.
-  - **Mitigation:** Prefer explicit/channel-derived keys, keep `thread_id` only as fallback, validate resolved keys (non-empty/format/length), and log key-resolution failures.
+  - **Mitigation:** Prefer stable channel-derived keys and explicit workflow-defined overrides only when needed, validate resolved keys (non-empty/format/length), and log key-resolution failures.
 
 ## APPENDIX
 None.

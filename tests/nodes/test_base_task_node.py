@@ -54,14 +54,24 @@ def test_decode_variables_reads_config_state() -> None:
     assert node.input_var == 0.75
 
 
-def test_decode_variables_injects_config_argument() -> None:
+def test_decode_variables_does_not_inject_config_argument() -> None:
     state = State({"results": {}})
     node = MockTaskNode(name="test", input_var="{{config.limit}}")
 
     node.decode_variables(state, config={"limit": 5})
 
-    assert node.input_var == 5
-    assert state["config"]["limit"] == 5
+    assert node.input_var == "{{config.limit}}"
+    assert "config" not in state
+
+
+def test_decode_variables_keeps_existing_state_config() -> None:
+    state = State({"results": {}, "config": {"limit": 9}})
+    node = MockTaskNode(name="test", input_var="{{config.limit}}")
+
+    node.decode_variables(state, config={"limit": 5})
+
+    assert node.input_var == 9
+    assert state["config"]["limit"] == 9
 
 
 def test_decode_variables_non_dict_traversal(
@@ -102,6 +112,46 @@ def test_decode_variables_nested_dict() -> None:
         "param2": "value2",
         "static": "unchanged",
     }
+
+
+def test_decode_variables_interpolates_multiple_templates_in_string() -> None:
+    state = State({"results": {"user": {"name": "Ada", "id": 7}}})
+    node = MockTaskNode(
+        name="test",
+        input_var="user={{user.name}}, id={{user.id}}",
+    )
+
+    node.decode_variables(state)
+
+    assert node.input_var == "user=Ada, id=7"
+
+
+def test_decode_variables_keeps_unresolved_templates_in_interpolated_string() -> None:
+    state = State({"results": {"user": {"name": "Ada"}}})
+    node = MockTaskNode(
+        name="test",
+        input_var="user={{user.name}}, org={{user.org}}",
+    )
+
+    node.decode_variables(state)
+
+    assert node.input_var == "user=Ada, org={{user.org}}"
+
+
+def test_decode_variables_single_template_keeps_native_type() -> None:
+    class MockNodeWithDictValue(TaskNode):
+        payload: Any = Field(description="Value for testing type preservation")
+
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            return {"result": self.payload}
+
+    state = State({"results": {"data": {"item": {"key": "value"}}}})
+    node = MockNodeWithDictValue(name="test", payload="{{data.item}}")
+
+    node.decode_variables(state)
+
+    assert node.payload == {"key": "value"}
+    assert isinstance(node.payload, dict)
 
 
 def test_decode_variables_nested_list() -> None:

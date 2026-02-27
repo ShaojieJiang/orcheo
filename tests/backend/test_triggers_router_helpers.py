@@ -99,7 +99,7 @@ def test_build_webhook_state_langgraph_dict_sets_config_when_present() -> None:
 
 
 def test_build_webhook_state_langgraph_dict_without_runtime_config() -> None:
-    """LangGraph inputs skip config when runtime config is missing."""
+    """LangGraph inputs include empty config when runtime config is missing."""
 
     state = triggers._build_webhook_state(
         {"format": LANGGRAPH_SCRIPT_FORMAT},
@@ -107,7 +107,7 @@ def test_build_webhook_state_langgraph_dict_without_runtime_config() -> None:
         None,
     )
 
-    assert "config" not in state
+    assert state["config"] == {}
     assert state["inputs"] == {"key": "value"}
 
 
@@ -198,8 +198,16 @@ class _DummyCompiled:
 class _DummyGraph:
     def __init__(self, compiled: _DummyCompiled) -> None:
         self._compiled = compiled
+        self.seen_store: object | None = None
 
-    def compile(self, checkpointer: object | None = None) -> _DummyCompiled:
+    def compile(
+        self,
+        *,
+        checkpointer: object | None = None,
+        store: object | None = None,
+    ) -> _DummyCompiled:
+        self.seen_store = store
+        del checkpointer, store
         return self._compiled
 
 
@@ -230,9 +238,13 @@ async def test_try_immediate_response_returns_json_response(
         }
     }
     compiled = _DummyCompiled(final_state)
-    monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
+    graph = _DummyGraph(compiled)
+    monkeypatch.setattr(triggers, "build_graph", lambda graph_config: graph)
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "create_graph_store", lambda settings: _DummyCheckpointer()
     )
     monkeypatch.setattr(
         triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
@@ -256,6 +268,7 @@ async def test_try_immediate_response_returns_json_response(
     assert should_queue is False
     assert isinstance(compiled.seen_state, dict)
     assert compiled.seen_state["inputs"] == {"message": "hi"}
+    assert graph.seen_store is not None
 
 
 @pytest.mark.asyncio()
@@ -280,6 +293,9 @@ async def test_try_immediate_response_returns_json_string_response(
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "create_graph_store", lambda settings: _DummyCheckpointer()
     )
     monkeypatch.setattr(
         triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
@@ -323,6 +339,9 @@ async def test_try_immediate_response_returns_plain_text(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
     )
     monkeypatch.setattr(
+        triggers, "create_graph_store", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
         triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()
     )
     monkeypatch.setattr(triggers, "get_settings", lambda: object())
@@ -354,6 +373,9 @@ async def test_try_immediate_response_returns_none_when_no_immediate_response(
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
+    )
+    monkeypatch.setattr(
+        triggers, "create_graph_store", lambda settings: _DummyCheckpointer()
     )
     monkeypatch.setattr(
         triggers, "merge_runnable_configs", lambda stored, runtime: _DummyMergedConfig()

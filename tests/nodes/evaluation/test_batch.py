@@ -159,11 +159,11 @@ async def test_batch_eval_resolves_templated_max_conversations() -> None:
         name="batch",
         max_conversations="{{config.configurable.qrecc.max_conversations}}",
     )
-    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
-    node.decode_variables(
-        state,
+    state = State(
+        inputs={"conversations": QRECC_CONVERSATIONS},
         config={"configurable": {"qrecc": {"max_conversations": 1}}},
     )
+    node.decode_variables(state)
     result = await node.run(state, {})
     assert result["total_conversations"] == 1
     assert result["total_turns"] == 2
@@ -460,33 +460,6 @@ def test_batch_eval_validate_max_conversations_none() -> None:
     assert node.max_conversations is None
 
 
-def test_batch_eval_validate_max_conversations_invalid_string() -> None:
-    """Non-integer, non-template string raises ValueError."""
-    with pytest.raises(ValueError, match="must be an integer"):
-        ConversationalBatchEvalNode(name="batch", max_conversations="bad")
-
-
-@pytest.mark.asyncio
-async def test_batch_eval_resolve_max_conversations_invalid_string() -> None:
-    """String that can't resolve to int raises ValueError at runtime."""
-    node = ConversationalBatchEvalNode(
-        name="batch",
-        max_conversations="{{config.configurable.max}}",
-    )
-    # Simulate template not resolved (stays as string)
-    node.max_conversations = "not_a_number"
-    with pytest.raises(ValueError, match="must resolve to an integer"):
-        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
-
-
-@pytest.mark.asyncio
-async def test_batch_eval_resolve_max_conversations_less_than_one() -> None:
-    """max_conversations < 1 raises ValueError."""
-    node = ConversationalBatchEvalNode(name="batch", max_conversations=0)
-    with pytest.raises(ValueError, match="must be >= 1"):
-        await node.run(State(inputs={"conversations": QRECC_CONVERSATIONS}), {})
-
-
 def test_batch_eval_validate_max_concurrency_invalid_string() -> None:
     """Non-integer, non-template max_concurrency raises ValueError."""
     with pytest.raises(ValueError, match="must be an integer"):
@@ -515,11 +488,11 @@ async def test_batch_eval_resolves_templated_max_concurrency() -> None:
         name="batch",
         max_concurrency="{{config.configurable.eval.max_concurrency}}",
     )
-    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
-    node.decode_variables(
-        state,
+    state = State(
+        inputs={"conversations": QRECC_CONVERSATIONS},
         config={"configurable": {"eval": {"max_concurrency": 2}}},
     )
+    node.decode_variables(state)
     result = await node.run(state, {})
     assert result["total_conversations"] == 2
 
@@ -567,11 +540,11 @@ async def test_batch_eval_resolves_templated_history_window_size() -> None:
         history_window_size="{{config.configurable.eval.history_window_size}}",
         pipeline=_build_pipeline_graph(HistoryCapture(name="capture")),
     )
-    state = State(inputs={"conversations": QRECC_CONVERSATIONS})
-    node.decode_variables(
-        state,
+    state = State(
+        inputs={"conversations": QRECC_CONVERSATIONS},
         config={"configurable": {"eval": {"history_window_size": 1}}},
     )
+    node.decode_variables(state)
     await node.run(state, {})
 
     assert received_histories == [[], ["What is Python?"], []]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from functools import lru_cache
+from pathlib import Path
 from dynaconf import Dynaconf
 from pydantic import ValidationError
 from orcheo.config.app_settings import AppSettings
@@ -27,6 +28,12 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         settings = AppSettings(
             checkpoint_backend=source.get("CHECKPOINT_BACKEND"),
             sqlite_path=source.get("SQLITE_PATH", _DEFAULTS["SQLITE_PATH"]),
+            graph_store_backend=source.get(
+                "GRAPH_STORE_BACKEND", _DEFAULTS["GRAPH_STORE_BACKEND"]
+            ),
+            graph_store_sqlite_path=source.get(
+                "GRAPH_STORE_SQLITE_PATH", _DEFAULTS["GRAPH_STORE_SQLITE_PATH"]
+            ),
             repository_backend=source.get(
                 "REPOSITORY_BACKEND", _DEFAULTS["REPOSITORY_BACKEND"]
             ),
@@ -106,6 +113,11 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     )
     normalized.set("CHECKPOINT_BACKEND", settings.checkpoint_backend)
     normalized.set("SQLITE_PATH", settings.sqlite_path)
+    normalized.set("GRAPH_STORE_BACKEND", settings.graph_store_backend)
+    normalized.set(
+        "GRAPH_STORE_SQLITE_PATH",
+        str(Path(settings.graph_store_sqlite_path).resolve(strict=False)),
+    )
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)

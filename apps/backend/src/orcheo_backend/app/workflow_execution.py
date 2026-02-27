@@ -13,7 +13,6 @@ from opentelemetry.trace import Span, Tracer
 from orcheo.agentensor.evaluation import EvaluationRequest
 from orcheo.agentensor.training import TrainingRequest
 from orcheo.config import get_settings
-from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
@@ -21,6 +20,7 @@ from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
     merge_runnable_configs,
 )
+from orcheo.runtime.state_builder import build_initial_state
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -266,22 +266,7 @@ def _build_initial_state(
     runtime_config: Mapping[str, Any] | None,
 ) -> Any:
     """Return the starting runtime state for a workflow execution."""
-    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-        if isinstance(inputs, dict):
-            state = dict(inputs)
-            state.setdefault("inputs", dict(inputs))
-            state.setdefault("results", {})
-            state.setdefault("messages", [])
-            if runtime_config is not None:
-                state["config"] = runtime_config
-            return state
-        return inputs
-    return {
-        "messages": [],
-        "results": {},
-        "inputs": inputs,
-        "config": runtime_config or {},
-    }
+    return build_initial_state(graph_config, inputs, runtime_config)
 
 
 def _prepare_runnable_config(
@@ -335,7 +320,7 @@ async def execute_workflow(
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:
     """Execute a workflow and stream results over the provided websocket."""
-    from orcheo_backend.app import build_graph, create_checkpointer
+    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
 
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
     _log_sensitive_debug("Initial inputs: %s", inputs)
@@ -391,22 +376,26 @@ async def execute_workflow(
 
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
-                graph = build_graph(graph_config)
-                compiled_graph = graph.compile(checkpointer=checkpointer)
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled_graph = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
 
-                state = _build_initial_state(graph_config, inputs, state_config)
-                _log_sensitive_debug("Initial state: %s", state)
+                    state = _build_initial_state(graph_config, inputs, state_config)
+                    _log_sensitive_debug("Initial state: %s", state)
 
-                await _run_workflow_stream(
-                    compiled_graph,
-                    state,
-                    runtime_config,
-                    history_store,
-                    execution_id,
-                    websocket,
-                    tracer,
-                    span_context.span,
-                )
+                    await _run_workflow_stream(
+                        compiled_graph,
+                        state,
+                        runtime_config,
+                        history_store,
+                        execution_id,
+                        websocket,
+                        tracer,
+                        span_context.span,
+                    )
 
         completion_payload = {"status": "completed"}
         record_workflow_completion(span_context.span)
@@ -440,7 +429,7 @@ async def _run_evaluation_node(
     span: Span,
 ) -> None:
     """Compile the graph and execute evaluation cases."""
-    from orcheo_backend.app import build_graph, create_checkpointer
+    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
 
     async def on_progress(payload: Mapping[str, Any]) -> None:
         record_workflow_step(tracer, payload)
@@ -455,83 +444,87 @@ async def _run_evaluation_node(
 
     with credential_resolution(resolver):
         async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled_graph = graph.compile(checkpointer=checkpointer)
-            node = AgentensorNode(
-                name="agentensor_evaluator",
-                mode="evaluate",
-                prompts=parsed_config.prompts or {},
-                dataset=evaluation_request.dataset,
-                evaluators=evaluation_request.evaluators,
-                max_cases=evaluation_request.max_cases,
-                compiled_graph=compiled_graph,
-                graph_config=graph_config,
-                state_config=state_config,
-                progress_callback=on_progress,
-            )
-            state = _build_initial_state(graph_config, inputs, state_config)
-            _log_sensitive_debug("Initial state: %s", state)
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
+                )
+                node = AgentensorNode(
+                    name="agentensor_evaluator",
+                    mode="evaluate",
+                    prompts=parsed_config.prompts or {},
+                    dataset=evaluation_request.dataset,
+                    evaluators=evaluation_request.evaluators,
+                    max_cases=evaluation_request.max_cases,
+                    compiled_graph=compiled_graph,
+                    graph_config=graph_config,
+                    state_config=state_config,
+                    progress_callback=on_progress,
+                )
+                state = _build_initial_state(graph_config, inputs, state_config)
+                _log_sensitive_debug("Initial state: %s", state)
 
-            try:
-                result = await node(state, runtime_config)
-                node_payload = result.get("results", {}).get(
-                    node.name, result.get("results", result)
-                )
-                final_step = await history_store.append_step(
-                    execution_id,
-                    {
-                        "node": node.name,
-                        "event": "evaluation_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _safe_send_json(
-                    websocket,
-                    {
-                        "node": node.name,
-                        "event": "evaluation_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=final_step,
-                )
-            except asyncio.CancelledError as exc:
-                reason = str(exc) or "Evaluation cancelled"
-                record_workflow_cancellation(span, reason=reason)
-                cancellation_payload = {"status": "cancelled", "reason": reason}
-                await history_store.append_step(execution_id, cancellation_payload)
-                await history_store.mark_cancelled(execution_id, reason=reason)
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
-            except Exception as exc:
-                record_workflow_failure(span, exc)
-                error_message = str(exc)
-                error_payload = {"status": "error", "error": error_message}
-                await _persist_failure_history(
-                    history_store,
-                    execution_id,
-                    error_payload,
-                    error_message,
-                    span,
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
+                try:
+                    result = await node(state, runtime_config)
+                    node_payload = result.get("results", {}).get(
+                        node.name, result.get("results", result)
+                    )
+                    final_step = await history_store.append_step(
+                        execution_id,
+                        {
+                            "node": node.name,
+                            "event": "evaluation_result",
+                            "payload": node_payload,
+                        },
+                    )
+                    await _safe_send_json(
+                        websocket,
+                        {
+                            "node": node.name,
+                            "event": "evaluation_result",
+                            "payload": node_payload,
+                        },
+                    )
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        step=final_step,
+                    )
+                except asyncio.CancelledError as exc:
+                    reason = str(exc) or "Evaluation cancelled"
+                    record_workflow_cancellation(span, reason=reason)
+                    cancellation_payload = {"status": "cancelled", "reason": reason}
+                    await history_store.append_step(execution_id, cancellation_payload)
+                    await history_store.mark_cancelled(execution_id, reason=reason)
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        include_root=True,
+                        complete=True,
+                    )
+                    raise
+                except Exception as exc:
+                    record_workflow_failure(span, exc)
+                    error_message = str(exc)
+                    error_payload = {"status": "error", "error": error_message}
+                    await _persist_failure_history(
+                        history_store,
+                        execution_id,
+                        error_payload,
+                        error_message,
+                        span,
+                    )
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        include_root=True,
+                        complete=True,
+                    )
+                    raise
 
 
 async def _run_training_node(
@@ -553,7 +546,7 @@ async def _run_training_node(
     checkpoint_store: Any,
 ) -> None:
     """Compile the graph and execute training with checkpoints."""
-    from orcheo_backend.app import build_graph, create_checkpointer
+    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
 
     async def on_progress(payload: Mapping[str, Any]) -> None:
         record_workflow_step(tracer, payload)
@@ -568,86 +561,90 @@ async def _run_training_node(
 
     with credential_resolution(resolver):
         async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled_graph = graph.compile(checkpointer=checkpointer)
-            node = AgentensorNode(
-                name="agentensor_trainer",
-                mode="train",
-                prompts=parsed_config.prompts or {},
-                dataset=training_request.dataset,
-                evaluators=training_request.evaluators,
-                max_cases=training_request.max_cases,
-                optimizer=training_request.optimizer,
-                compiled_graph=compiled_graph,
-                graph_config=graph_config,
-                state_config=state_config,
-                progress_callback=on_progress,
-                workflow_id=workflow_id,
-                checkpoint_store=checkpoint_store,
-            )
-            state = _build_initial_state(graph_config, inputs, state_config)
-            _log_sensitive_debug("Initial state: %s", state)
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
+                )
+                node = AgentensorNode(
+                    name="agentensor_trainer",
+                    mode="train",
+                    prompts=parsed_config.prompts or {},
+                    dataset=training_request.dataset,
+                    evaluators=training_request.evaluators,
+                    max_cases=training_request.max_cases,
+                    optimizer=training_request.optimizer,
+                    compiled_graph=compiled_graph,
+                    graph_config=graph_config,
+                    state_config=state_config,
+                    progress_callback=on_progress,
+                    workflow_id=workflow_id,
+                    checkpoint_store=checkpoint_store,
+                )
+                state = _build_initial_state(graph_config, inputs, state_config)
+                _log_sensitive_debug("Initial state: %s", state)
 
-            try:
-                result = await node(state, runtime_config)
-                node_payload = result.get("results", {}).get(
-                    node.name, result.get("results", result)
-                )
-                final_step = await history_store.append_step(
-                    execution_id,
-                    {
-                        "node": node.name,
-                        "event": "training_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _safe_send_json(
-                    websocket,
-                    {
-                        "node": node.name,
-                        "event": "training_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=final_step,
-                )
-            except asyncio.CancelledError as exc:
-                reason = str(exc) or "Training cancelled"
-                record_workflow_cancellation(span, reason=reason)
-                cancellation_payload = {"status": "cancelled", "reason": reason}
-                await history_store.append_step(execution_id, cancellation_payload)
-                await history_store.mark_cancelled(execution_id, reason=reason)
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
-            except Exception as exc:
-                record_workflow_failure(span, exc)
-                error_message = str(exc)
-                error_payload = {"status": "error", "error": error_message}
-                await _persist_failure_history(
-                    history_store,
-                    execution_id,
-                    error_payload,
-                    error_message,
-                    span,
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
+                try:
+                    result = await node(state, runtime_config)
+                    node_payload = result.get("results", {}).get(
+                        node.name, result.get("results", result)
+                    )
+                    final_step = await history_store.append_step(
+                        execution_id,
+                        {
+                            "node": node.name,
+                            "event": "training_result",
+                            "payload": node_payload,
+                        },
+                    )
+                    await _safe_send_json(
+                        websocket,
+                        {
+                            "node": node.name,
+                            "event": "training_result",
+                            "payload": node_payload,
+                        },
+                    )
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        step=final_step,
+                    )
+                except asyncio.CancelledError as exc:
+                    reason = str(exc) or "Training cancelled"
+                    record_workflow_cancellation(span, reason=reason)
+                    cancellation_payload = {"status": "cancelled", "reason": reason}
+                    await history_store.append_step(execution_id, cancellation_payload)
+                    await history_store.mark_cancelled(execution_id, reason=reason)
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        include_root=True,
+                        complete=True,
+                    )
+                    raise
+                except Exception as exc:
+                    record_workflow_failure(span, exc)
+                    error_message = str(exc)
+                    error_payload = {"status": "error", "error": error_message}
+                    await _persist_failure_history(
+                        history_store,
+                        execution_id,
+                        error_payload,
+                        error_message,
+                        span,
+                    )
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        include_root=True,
+                        complete=True,
+                    )
+                    raise
 
 
 async def execute_workflow_evaluation(

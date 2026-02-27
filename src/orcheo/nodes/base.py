@@ -1,6 +1,7 @@
 """Base node implementation for Orcheo."""
 
 import logging
+import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -17,6 +18,8 @@ from orcheo.runtime.credentials import (
 
 
 logger = logging.getLogger(__name__)
+_SINGLE_TEMPLATE_PATTERN = re.compile(r"^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$")
+_TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
 
 class BaseRunnable(BaseModel):
@@ -53,17 +56,51 @@ class BaseRunnable(BaseModel):
             return [self._decode_value(item, state) for item in value]
         return value
 
-    def _decode_string_value(self, value: str, state: State) -> Any:
+    def _decode_string_value(
+        self,
+        value: str,
+        state: State,
+    ) -> Any:
         """Return decoded value for placeholders or state templates."""
         reference = parse_credential_reference(value)
         if reference is not None:
             return self._resolve_credential_reference(reference)
-        if "{{" not in value:
+        if "{{" not in value or "}}" not in value:
             return value
 
-        path_str = value.strip("{}").strip()
-        path_parts = path_str.split(".")
+        single_template_match = _SINGLE_TEMPLATE_PATTERN.fullmatch(value)
+        if single_template_match is not None:
+            resolved, is_resolved = self._resolve_state_template_path(
+                single_template_match.group(1).strip(),
+                value,
+                state,
+            )
+            return resolved if is_resolved else value
 
+        def _replace(match: re.Match[str]) -> str:
+            template = match.group(0)
+            resolved, is_resolved = self._resolve_state_template_path(
+                match.group(1).strip(),
+                template,
+                state,
+            )
+            if not is_resolved or not isinstance(resolved, str | int | float | bool):
+                return template
+            return str(resolved)
+
+        return _TEMPLATE_PATTERN.sub(_replace, value)
+
+    def _resolve_state_template_path(
+        self,
+        path_str: str,
+        template_text: str,
+        state: State,
+    ) -> tuple[Any, bool]:
+        """Resolve ``path_str`` against workflow ``state``.
+
+        Returns the resolved value and whether resolution succeeded.
+        """
+        path_parts = path_str.split(".")
         result: Any = state
         for index, part in enumerate(path_parts):
             if isinstance(result, dict) and part in result:
@@ -80,11 +117,11 @@ class BaseRunnable(BaseModel):
                 "Runnable %s could not resolve template '%s' at segment '%s'; "
                 "leaving value unchanged.",
                 self.name,
-                value,
+                template_text,
                 part,
             )
-            return value
-        return result
+            return None, False
+        return result, True
 
     @staticmethod
     def _fallback_to_results(
@@ -119,8 +156,7 @@ class BaseRunnable(BaseModel):
         config: Mapping[str, Any] | None = None,
     ) -> None:
         """Decode the variables in attributes of the runnable."""
-        if config is not None and isinstance(state, dict):
-            state.setdefault("config", dict(config))
+        del config
         for key, value in self.__dict__.items():
             self.__dict__[key] = self._decode_value(value, state)
 

@@ -85,8 +85,16 @@ class DummyCompiledGraph:
 class DummyGraph:
     def __init__(self, final_state: CustomState) -> None:
         self._final_state = final_state
+        self.last_store: object | None = None
 
-    def compile(self, checkpointer: object) -> DummyCompiledGraph:
+    def compile(
+        self,
+        *,
+        checkpointer: object,
+        store: object | None = None,
+    ) -> DummyCompiledGraph:
+        self.last_store = store
+        del checkpointer, store
         return DummyCompiledGraph(self._final_state)
 
 
@@ -116,8 +124,16 @@ class DummyStreamingGraph:
     ) -> None:
         self._steps = steps
         self._final_state = final_state
+        self.last_store: object | None = None
 
-    def compile(self, checkpointer: object) -> DummyStreamingCompiledGraph:
+    def compile(
+        self,
+        *,
+        checkpointer: object,
+        store: object | None = None,
+    ) -> DummyStreamingCompiledGraph:
+        self.last_store = store
+        del checkpointer, store
         return DummyStreamingCompiledGraph(self._steps, self._final_state)
 
 
@@ -156,6 +172,11 @@ async def test_run_inserts_raw_messages_and_records_state(
     )
     monkeypatch.setattr(
         workflow_executor_module,
+        "create_graph_store",
+        fake_checkpointer,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
         "build_graph",
         lambda config: graph,
     )
@@ -182,6 +203,7 @@ async def test_run_inserts_raw_messages_and_records_state(
     assert "_messages" in state_view
     assert state_view["_messages"][0].content == "payload"
     assert run is run_record
+    assert graph.last_store is not None
     repository.mark_run_succeeded.assert_awaited_once_with(
         run_record.id, actor="chatkit", output={"reply": "final reply"}
     )
@@ -224,6 +246,11 @@ async def test_run_streams_progress_updates(
     )
     monkeypatch.setattr(
         workflow_executor_module,
+        "create_graph_store",
+        fake_checkpointer,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
         "build_graph",
         lambda config: graph,
     )
@@ -252,6 +279,7 @@ async def test_run_streams_progress_updates(
     assert reply == "final reply"
     assert "_messages" in state_view
     assert run is not None
+    assert graph.last_store is not None
     repository.mark_run_succeeded.assert_awaited_once()
     history_store.start_run.assert_awaited_once()
     assert history_store.append_step.await_count >= len(steps)

@@ -14,7 +14,7 @@ from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.nodes.agent_tools.context import tool_progress_context
-from orcheo.persistence import create_checkpointer
+from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.vault import BaseCredentialVault
@@ -133,6 +133,7 @@ class WorkflowExecutor:
         execution_id = self._resolve_execution_id(run)
         merged_config = merge_runnable_configs(version.runnable_config, None)
         config: RunnableConfig = merged_config.to_runnable_config(execution_id)
+        state_config = merged_config.to_state_config(execution_id)
 
         await _start_chatkit_history(
             history_store=history_store,
@@ -155,6 +156,7 @@ class WorkflowExecutor:
                 graph_config=version.graph,
                 inputs=inputs,
                 config=config,
+                state_config=state_config,
                 step_callback=step_callback,
             )
             reply, state_view = self._build_reply_state(final_state)
@@ -242,6 +244,7 @@ class WorkflowExecutor:
         graph_config: Mapping[str, Any],
         inputs: Mapping[str, Any],
         config: RunnableConfig,
+        state_config: Mapping[str, Any],
         step_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None,
     ) -> Any:
         """Execute the compiled graph and return the final state payload."""
@@ -251,35 +254,41 @@ class WorkflowExecutor:
         credential_resolver = CredentialResolver(vault, context=credential_context)
 
         async with create_checkpointer(settings) as checkpointer:
-            graph = build_graph(graph_config)
-            compiled = graph.compile(checkpointer=checkpointer)
-            payload: Any = build_initial_state(graph_config, inputs)
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
+                )
+                payload: Any = build_initial_state(
+                    graph_config, inputs, runtime_config=state_config
+                )
 
-            with credential_resolution(credential_resolver):
-                if (
-                    step_callback is not None
-                    and hasattr(compiled, "astream")
-                    and hasattr(compiled, "aget_state")
-                ):
-                    progress_context = (
-                        tool_progress_context(step_callback)
-                        if step_callback is not None
-                        else nullcontext()
-                    )
-                    with progress_context:
-                        async for step in compiled.astream(
-                            payload,
-                            config=config,  # type: ignore[arg-type]
-                            stream_mode="updates",
-                        ):
-                            if step_callback is not None:  # pragma: no branch
-                                await step_callback(step)
-                        snapshot = await compiled.aget_state(  # type: ignore[arg-type]
-                            config
+                with credential_resolution(credential_resolver):
+                    if (
+                        step_callback is not None
+                        and hasattr(compiled, "astream")
+                        and hasattr(compiled, "aget_state")
+                    ):
+                        progress_context = (
+                            tool_progress_context(step_callback)
+                            if step_callback is not None
+                            else nullcontext()
                         )
-                        return getattr(snapshot, "values", snapshot)
+                        with progress_context:
+                            async for step in compiled.astream(
+                                payload,
+                                config=config,  # type: ignore[arg-type]
+                                stream_mode="updates",
+                            ):
+                                if step_callback is not None:  # pragma: no branch
+                                    await step_callback(step)
+                            snapshot = await compiled.aget_state(  # type: ignore[arg-type]
+                                config
+                            )
+                            return getattr(snapshot, "values", snapshot)
 
-                return await compiled.ainvoke(payload, config=config)
+                    return await compiled.ainvoke(payload, config=config)
 
     def _build_reply_state(self, final_state: Any) -> tuple[str, Mapping[str, Any]]:
         """Extract reply text and normalized state view from final graph state."""

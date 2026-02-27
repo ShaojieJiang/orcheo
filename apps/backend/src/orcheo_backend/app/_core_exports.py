@@ -5,7 +5,7 @@ from pydantic import TypeAdapter as _PydanticTypeAdapter
 import orcheo_backend.app.workflow_execution as _workflow_execution_module
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
-from orcheo.persistence import create_checkpointer
+from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo_backend.app.authentication import (
     authenticate_request,
     authenticate_websocket,
@@ -124,6 +124,7 @@ __all__ = [
     "build_graph",
     "create_app",
     "create_checkpointer",
+    "create_graph_store",
     "execute_workflow",
     "execute_workflow_evaluation",
     "execute_workflow_training",

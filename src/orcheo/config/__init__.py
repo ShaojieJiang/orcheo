@@ -12,6 +12,7 @@ from orcheo.config.loader import (
 from orcheo.config.types import (
     ChatKitBackend,
     CheckpointBackend,
+    GraphStoreBackend,
     RepositoryBackend,
     VaultBackend,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "VaultSettings",
     "ChatKitBackend",
     "CheckpointBackend",
+    "GraphStoreBackend",
     "RepositoryBackend",
     "VaultBackend",
     "_DEFAULTS",

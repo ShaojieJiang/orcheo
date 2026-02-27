@@ -42,15 +42,21 @@ async def test_execute_workflow() -> None:
     mock_graph.compile.return_value = mock_compiled_graph
 
     mock_checkpointer = object()
+    mock_store = object()
 
     @asynccontextmanager
     async def fake_checkpointer(_settings):
         yield mock_checkpointer
 
+    @asynccontextmanager
+    async def fake_graph_store(_settings):
+        yield mock_store
+
     history_store = InMemoryRunHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
     ):
@@ -63,7 +69,10 @@ async def test_execute_workflow() -> None:
             runnable_config,
         )
 
-    mock_graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)
+    mock_graph.compile.assert_called_once_with(
+        checkpointer=mock_checkpointer,
+        store=mock_store,
+    )
     mock_websocket.send_json.assert_any_call(steps[0])
     mock_websocket.send_json.assert_any_call(steps[1])
 
@@ -118,10 +127,15 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
     async def fake_checkpointer(_settings):
         yield object()
 
+    @asynccontextmanager
+    async def fake_graph_store(_settings):
+        yield object()
+
     history_store = InMemoryRunHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
     ):
@@ -167,10 +181,15 @@ async def test_execute_workflow_failure_records_error() -> None:
     async def fake_checkpointer(_settings):
         yield object()
 
+    @asynccontextmanager
+    async def fake_graph_store(_settings):
+        yield object()
+
     history_store = InMemoryRunHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
     ):
@@ -215,10 +234,15 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
     async def fake_checkpointer(_settings):
         yield object()
 
+    @asynccontextmanager
+    async def fake_graph_store(_settings):
+        yield object()
+
     history_store = InMemoryRunHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
+        patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
     ):

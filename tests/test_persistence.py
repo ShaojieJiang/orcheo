@@ -1,12 +1,13 @@
 """Tests for the persistence helper utilities."""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from dynaconf import Dynaconf
 from orcheo import config, persistence
-from orcheo.persistence import create_checkpointer
+from orcheo.persistence import create_checkpointer, create_graph_store
 
 
 @pytest.mark.asyncio
@@ -143,4 +144,96 @@ async def test_create_checkpointer_invalid_backend() -> None:
 
     with pytest.raises(ValueError):
         async with create_checkpointer(bad_settings):
+            raise AssertionError("context should not yield")
+
+
+@pytest.mark.asyncio
+async def test_create_graph_store_sqlite(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SQLite graph-store backend should setup and yield the configured store."""
+
+    sqlite_file = tmp_path / "graph_store.sqlite"
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", str(sqlite_file))
+
+    fake_store = MagicMock()
+    fake_store.setup = AsyncMock()
+    calls: dict[str, str] = {}
+
+    class StubSqliteStore:
+        @classmethod
+        @asynccontextmanager
+        async def from_conn_string(cls, conn_string: str):
+            calls["conn_string"] = conn_string
+            yield fake_store
+
+    monkeypatch.setattr("orcheo.persistence.AsyncSqliteStore", StubSqliteStore)
+
+    settings = config.get_settings(refresh=True)
+    async with create_graph_store(settings) as graph_store:
+        assert graph_store is fake_store
+
+    assert calls["conn_string"] == str(sqlite_file)
+    fake_store.setup.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Postgres graph-store backend should setup with pool config."""
+
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", "/tmp/graph_store.sqlite")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MIN_SIZE", "2")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_SIZE", "9")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "12")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_IDLE", "60")
+
+    fake_store = MagicMock()
+    fake_store.setup = AsyncMock()
+    calls: dict[str, object] = {}
+
+    class StubPostgresStore:
+        @classmethod
+        @asynccontextmanager
+        async def from_conn_string(
+            cls,
+            conn_string: str,
+            *,
+            pool_config: dict[str, object],
+        ):
+            calls["conn_string"] = conn_string
+            calls["pool_config"] = pool_config
+            yield fake_store
+
+    monkeypatch.setattr("orcheo.persistence.AsyncPostgresStore", StubPostgresStore)
+
+    settings = config.get_settings(refresh=True)
+    async with create_graph_store(settings) as graph_store:
+        assert graph_store is fake_store
+
+    assert calls["conn_string"] == "postgresql://example"
+    assert calls["pool_config"] == {
+        "min_size": 2,
+        "max_size": 9,
+        "timeout": 12.0,
+        "max_idle": 60.0,
+    }
+    fake_store.setup.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_graph_store_invalid_backend() -> None:
+    """Unsupported graph-store backends should raise an error."""
+
+    bad_settings = Dynaconf(
+        envvar_prefix="ORCHEO", environments=False, load_dotenv=False, settings_files=[]
+    )
+    bad_settings.set("GRAPH_STORE_BACKEND", cast(str, "invalid"))
+    bad_settings.set("GRAPH_STORE_SQLITE_PATH", "/tmp/irrelevant.sqlite")
+    bad_settings.set("POSTGRES_DSN", None)
+
+    with pytest.raises(ValueError):
+        async with create_graph_store(bad_settings):
             raise AssertionError("context should not yield")

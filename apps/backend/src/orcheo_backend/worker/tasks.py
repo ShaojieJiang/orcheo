@@ -162,7 +162,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
     from orcheo.config import get_settings
     from orcheo.graph.builder import build_graph
     from orcheo.models import CredentialAccessContext
-    from orcheo.persistence import create_checkpointer
+    from orcheo.persistence import create_checkpointer, create_graph_store
     from orcheo.runtime.credentials import CredentialResolver, credential_resolution
     from orcheo.runtime.runnable_config import merge_runnable_configs
     from orcheo_backend.app.dependencies import (
@@ -203,19 +203,23 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
 
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
-                graph = build_graph(graph_config)
-                compiled = graph.compile(checkpointer=checkpointer)
-                state = _build_initial_state(graph_config, inputs, state_config)
-                await _stream_run_history_steps(
-                    compiled=compiled,
-                    state=state,
-                    runtime_config=runtime_config,
-                    history_store=history_store,
-                    execution_id=execution_id,
-                    history_error_cls=RunHistoryError,
-                )
-                final_state = await compiled.aget_state(runtime_config)
-                final_state = getattr(final_state, "values", final_state)
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+                    state = _build_initial_state(graph_config, inputs, state_config)
+                    await _stream_run_history_steps(
+                        compiled=compiled,
+                        state=state,
+                        runtime_config=runtime_config,
+                        history_store=history_store,
+                        execution_id=execution_id,
+                        history_error_cls=RunHistoryError,
+                    )
+                    final_state = await compiled.aget_state(runtime_config)
+                    final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(
