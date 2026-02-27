@@ -189,6 +189,33 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     assert "workspace:ws-2" in repository.last_tags
 
 
+def test_append_workspace_tags_returns_list_when_tags_none() -> None:
+    """_append_workspace_tags returns workspace tag list when tags is None.
+
+    Covers line 507.
+    """
+    context = RequestContext(
+        subject="user-1",
+        identity_type="user",
+        scopes=frozenset({"workflows:write"}),
+        workspace_ids=frozenset({"ws-a"}),
+    )
+    result = workflows._append_workspace_tags(None, context)
+    assert result == ["workspace:ws-a"]
+
+
+def test_append_workspace_tags_skips_duplicate_workspace_tag() -> None:
+    """Workspace tag already present is not added again (branch 516->514)."""
+    context = RequestContext(
+        subject="user-1",
+        identity_type="user",
+        scopes=frozenset({"workflows:write"}),
+        workspace_ids=frozenset({"ws-a"}),
+    )
+    result = workflows._append_workspace_tags(["workspace:ws-a"], context)
+    assert result == ["workspace:ws-a"]
+
+
 @pytest.mark.asyncio()
 async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
     monkeypatch: pytest.MonkeyPatch,

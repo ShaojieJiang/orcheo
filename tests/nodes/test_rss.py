@@ -1,6 +1,7 @@
 """Tests for RSS node implementation."""
 
 from unittest.mock import AsyncMock, Mock, patch
+from xml.etree import ElementTree
 import httpx
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -202,3 +203,60 @@ async def test_rss_node_run_non_2xx_response_is_reported_as_error():
     mock_client.get.assert_called_once_with(
         "https://example.com/protected.xml", timeout=15.0
     )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for static helpers – targeting uncovered branches
+# ---------------------------------------------------------------------------
+
+
+def test_local_name_empty_tag() -> None:
+    """_local_name returns empty string for an empty tag (line 45)."""
+    assert RSSNode._local_name("") == ""
+
+
+def test_child_text_matching_child_with_empty_text_continues() -> None:
+    """_child_text skips a matching child with no text and returns the
+    next (branch 61->57).
+    """
+    parent = ElementTree.fromstring(
+        "<item><title></title><title>Second Title</title></item>"
+    )
+    result = RSSNode._child_text(parent, {"title"})
+    assert result == "Second Title"
+
+
+def test_extract_link_non_alternate_href_stored_and_returned() -> None:
+    """Non-alternate href is stored as fallback and returned at loop end
+    (lines 77-79, 83).
+    """
+    parent = ElementTree.fromstring(
+        '<entry><link href="https://example.com/page" rel="self"/></entry>'
+    )
+    result = RSSNode._extract_link(parent)
+    assert result == "https://example.com/page"
+
+
+def test_extract_link_no_href_no_text_continues_loop() -> None:
+    """Link with no href and no text is skipped; fallback href from next
+    link is returned (branch 81->69).
+    """
+    parent = ElementTree.fromstring(
+        '<entry><link/><link href="https://example.com/second" rel="self"/></entry>'
+    )
+    result = RSSNode._extract_link(parent)
+    assert result == "https://example.com/second"
+
+
+def test_extract_link_second_non_alternate_href_skips_overwrite() -> None:
+    """When fallback_href already set, a second non-alternate href does
+    not overwrite it (branch 77->79).
+    """
+    parent = ElementTree.fromstring(
+        "<entry>"
+        '<link href="https://example.com/first" rel="self"/>'
+        '<link href="https://example.com/second" rel="self"/>'
+        "</entry>"
+    )
+    result = RSSNode._extract_link(parent)
+    assert result == "https://example.com/first"
