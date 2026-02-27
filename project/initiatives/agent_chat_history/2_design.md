@@ -31,6 +31,7 @@ On top of that, `AgentNode` gains an opt-in mode to consume chat history from gr
 - **Backend Execution Wiring (`apps/backend/...`)**
   - Extends compile call sites to `graph.compile(checkpointer=..., store=...)`.
   - Applies to workflow execution, triggers, worker tasks, and ChatKit workflow executor.
+  - Uses a shared runtime initial-state builder so `state["config"]` is assembled consistently across entrypoints for mapping-based payloads.
 
 - **AgentNode (`src/orcheo/nodes/ai.py`)**
   - Adds opt-in fields controlling graph-store chat history behavior and keying.
@@ -49,8 +50,8 @@ On top of that, `AgentNode` gains an opt-in mode to consume chat history from gr
 ### Flow 2: AgentNode run with graph-store history enabled
 
 1. `AgentNode.run(...)` receives state and runtime config.
-2. Node resolves message candidates from state/input and gathers key candidates from config and parsed payload fields (literal values or Orcheo templates like `{{results.some_node.some_field}}`).
-3. Node resolves namespace/key using precedence (explicit key override, channel-derived stable key, then `thread_id` fallback).
+2. Node resolves message candidates from state/input and evaluates configured key candidates from workflow state (literal values or Orcheo templates such as `{{results.some_node.some_field}}`).
+3. Node resolves namespace/key using configured candidate order (channel-derived defaults; workflow-specific overrides only when authors add candidates explicitly).
 4. Node loads conversation metadata and fetches only the latest history tail required for inference.
 5. Node normalizes and merges `history_tail + current_thread_messages`.
 6. Node trims to latest `max_messages` and invokes agent.
@@ -88,18 +89,11 @@ history_namespace: list[str] = ["agent_chat_history"]
 # Supports literal values (for example "shared-room") or Orcheo templates.
 history_key_template: str = "{{conversation_key}}"
 history_key_candidates: list[str] = [
-    "{{results.resolve_history_key.session_key}}",
-    "{{configurable.history_key}}",
-    "{{inputs.history_key}}",
     "telegram:{{results.telegram_events_parser.chat_id}}",
     "wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}",
     "wecom_aibot:{{results.wecom_ai_bot_events_parser.chat_type}}:{{results.wecom_ai_bot_events_parser.user}}",
     "wecom_dm:{{results.wecom_events_parser.user}}",
-    "{{thread_id}}",
 ]
-history_meta_key_suffix: str = "__meta__"
-# Chunk size tuned to balance write amplification and tail-read latency.
-history_chunk_size: int = 200
 history_value_field: str = "content"
 ```
 
@@ -158,7 +152,7 @@ history_value_field: str = "content"
 - Candidate/template syntax:
   - Literal string is allowed (for example `support-room-1`)
   - Orcheo template syntax `{{...}}` is allowed (for example `telegram:{{results.telegram_events_parser.chat_id}}`)
-  - Templates may reference runtime state such as `inputs`, `results`, `configurable`, and `thread_id`
+  - Templates resolve against workflow state paths (for example `inputs.*`, `results.*`, `config.*`, including `config.configurable.*`)
 - Key: resolved from `history_key_template` (literal or template) with `conversation_key` available in scope
 - Validation/canonicalization rules:
   - Evaluate candidates in declared order after template render.
@@ -181,7 +175,6 @@ history_value_field: str = "content"
 - Full history can grow unbounded for analytics/audit use cases without slowing inference path.
 - Use optimistic concurrency for metadata/chunk updates to avoid lost writes under concurrent callbacks.
 - For Postgres backend, reuse pooled connections via store factory config.
-- `history_chunk_size=200` is chosen to keep per-item payload size moderate while reducing metadata churn from overly small chunks.
 
 ## Error Handling
 
@@ -222,8 +215,7 @@ history_value_field: str = "content"
   - Reproducible key-resolution scenarios with fixed fixtures:
     - `telegram:{{results.telegram_events_parser.chat_id}}`
     - `wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}`
-    - Explicit override candidate outranking channel-derived candidates.
-    - Fallback to `{{thread_id}}` in non-webhook/manual runs only.
+    - Explicit custom override candidate (for example `{{results.resolve_history_key.session_key}}`) outranking channel-derived candidates when included by workflow authors.
 
 - **Manual QA checklist**
   - Simulate WeCom/Telegram callbacks with stable payload IDs (same `chat_id` / same `open_kf_id + external_userid`).
@@ -251,5 +243,6 @@ history_value_field: str = "content"
 
 | Date | Author | Changes |
 |------|--------|---------|
+| 2026-02-27 | Codex | Updated key-candidate defaults, removed `thread_id` fallback references, and clarified state-based `{{config.*}}` resolution contract |
 | 2026-02-27 | Codex | Added key validation, retry/backoff limits, explicit fallback behavior, observability, rollback and migration details |
 | 2026-02-26 | Codex | Initial draft |

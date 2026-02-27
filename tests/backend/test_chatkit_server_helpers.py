@@ -90,6 +90,7 @@ def test_build_initial_state_langgraph_format() -> None:
     assert result["metadata"] == {"key": "value"}
     assert result["messages"] == []
     assert result["results"] == {}
+    assert result["config"] == {}
 
 
 def test_build_initial_state_standard_format() -> None:
@@ -100,6 +101,7 @@ def test_build_initial_state_standard_format() -> None:
     assert "messages" in result
     assert "results" in result
     assert "inputs" in result
+    assert "config" in result
     assert result["inputs"] == inputs
 
 

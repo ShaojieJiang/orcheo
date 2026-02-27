@@ -10,12 +10,15 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | --- | --- | --- | --- |
 | `ORCHEO_CHECKPOINT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
 | `ORCHEO_SQLITE_PATH` | `~/.orcheo/checkpoints.sqlite` | Filesystem path (absolute or `~`-expanded) | Location of the SQLite checkpoints database when `sqlite` backend is active (see `config/defaults.py`). |
-| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when `ORCHEO_CHECKPOINT_BACKEND=postgres`, `ORCHEO_REPOSITORY_BACKEND=postgres`, or `ORCHEO_CHATKIT_BACKEND=postgres` (see `config/loader.py`). |
+| `ORCHEO_GRAPH_STORE_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
+| `ORCHEO_GRAPH_STORE_SQLITE_PATH` | `~/.orcheo/graph_store.sqlite` | Absolute filesystem path (must not begin with `~`) | SQLite file path used when `ORCHEO_GRAPH_STORE_BACKEND=sqlite` (`config/app_settings.py`). |
+| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, chatkit, or vault; see `config/loader.py`). |
 | `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
 | `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file (`config/loader.py`). |
 | `ORCHEO_CHATKIT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
 | `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence (`config/loader.py` and `chatkit/server.py`). |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments (`config/loader.py`). |
+| `ORCHEO_CHATKIT_MAX_UPLOAD_SIZE_BYTES` | `5000000` | Positive integer | Maximum upload size (bytes) accepted by the ChatKit upload endpoint (`routers/chatkit.py`, `config/loader.py`). |
 | `ORCHEO_CHATKIT_CDN_BASE_URL` | `https://cdn.platform.openai.com/` | HTTP(S) URL | Overrides the upstream CDN base used by the ChatKit asset proxy routes (`chatkit_asset_proxy.py`). |
 | `ORCHEO_CHATKIT_RETENTION_DAYS` | `30` | Positive integer | Retention window (in days) used by the ChatKit cleanup task (`chatkit_runtime.py`). |
 | `ORCHEO_CHATKIT_WIDGET_TYPES` | `["Card","ListView"]` | Comma/JSON list of widget root types | Allow-list of widget roots the ChatKit server will hydrate into thread items (`chatkit/server.py`). |
@@ -25,6 +28,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
+| `ORCHEO_CANVAS_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Canvas version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
 | `ORCHEO_TRACING_EXPORTER` | `none` | `none`, `console`, or `otlp` | Selects the tracing exporter configured by `tracing/provider.py`. |
 | `ORCHEO_TRACING_ENDPOINT` | _none_ | HTTP(S) URL | Optional OTLP/HTTP collector endpoint (include `/v1/traces`) consumed by `tracing/provider.py`. |
 | `ORCHEO_TRACING_SERVICE_NAME` | `orcheo-backend` | String | Resource attribute attached to every span (`config/defaults.py`). |
@@ -45,19 +49,22 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Canvas SPA. |
 | `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Canvas callback route). |
 | `VITE_ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | Scopes requested during OIDC login. |
+| `VITE_ORCHEO_AUTH_STATE_BYTES` | `32` | Integer in `[16, 96]` | Byte length for generated OAuth `state` random values (`features/auth/lib/oidc-client.ts`). |
+| `VITE_ORCHEO_AUTH_VERIFIER_BYTES` | `64` | Integer in `[32, 96]` | Byte length for PKCE `code_verifier` random values (`features/auth/lib/oidc-client.ts`). |
 | `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
 | `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support multi-tenancy (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
 | `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
+| `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
 | `VITE_ALLOWED_HOSTS` | _none_ | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Required when Canvas is served on a custom domain or behind a reverse proxy. |
 
 ## Vault configuration
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_VAULT_BACKEND` | `file` | `file`, `inmemory`, or `aws_kms` | Chooses the credential vault backend (`config/loader.py`). |
+| `ORCHEO_VAULT_BACKEND` | `file` | `file`, `inmemory`, `aws_kms`, or `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
 | `ORCHEO_VAULT_LOCAL_PATH` | `~/.orcheo/vault.sqlite` | Filesystem path | Location of the file-backed vault database when `file` backend is selected (`config/loader.py`). |
 | `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Optional pre-shared key used to encrypt secrets (required for `aws_kms`, used elsewhere when present). |
 | `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
@@ -120,6 +127,13 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `NODE_ENV` | `production` | String | Default runtime environment when `ORCHEO_ENV` is unset (`chatkit_runtime.py`). |
 | `LOG_SENSITIVE_DEBUG` | _none_ | Set to `1` to enable; otherwise leave blank | Forces sensitive logging even outside of a recognized dev environment (`chatkit_runtime.py`). |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, etc. | Controls the logger thresholds configured in `logging_config.py`. |
+| `LOG_FORMAT` | `console` | `console` or `json` | Selects structured log rendering. Any value other than `console` falls back to JSON rendering (`logging_config.py`). |
+
+## Node integration configuration
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `ORCHEO_MCP_STDIO_LOG` | `/tmp/orcheo-mcp-stdio.log` | Filesystem path | Log file path for stdio-based MCP transport in `SlackNode`; useful for debugging MCP integration issues (`nodes/slack.py`). |
 
 ## Celery worker configuration
 
@@ -143,6 +157,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_STACK_DIR` | `~/.orcheo/stack` | Directory path | Target directory for `orcheo install` stack assets and generated `.env` updates (`cli/setup.py`). |
 | `ORCHEO_STACK_VERSION` | _unset_ | Stack release version string (for example `0.1.0`) | Pins `orcheo install` to a specific `stack-v*` release when `--stack-version` is not provided (`cli/setup.py`). |
 | `ORCHEO_STACK_IMAGE` | `ghcr.io/shaojiejiang/orcheo-stack:latest` | Container image reference | Runtime image used by `deploy/stack/docker-compose.yml` for backend/worker/celery-beat services. `orcheo install --stack-version` sets this value in `.env` (`cli/setup.py`). |
+| `ORCHEO_POSTGRES_PASSWORD` | _auto-generated on install_ | Non-empty string | PostgreSQL password written to stack `.env` by `orcheo install` and consumed by `deploy/stack/docker-compose.yml` to configure the Postgres service and backend DSN. |
 | `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, `orcheo install` skips GitHub tag discovery and downloads stack assets from this mirror (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |

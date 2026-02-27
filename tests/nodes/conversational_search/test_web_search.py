@@ -10,6 +10,8 @@ from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.conversational_search import WebSearchNode
 from orcheo.nodes.conversational_search.models import SearchResult
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from tests.runtime.credential_test_helpers import create_vault_with_secret
 
 
 @pytest.mark.asyncio
@@ -123,11 +125,8 @@ async def test_web_search_node_requires_query_when_not_suppressed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_search_node_requires_api_key_when_not_suppressed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """WebSearchNode should require api_key or env var when suppression disabled."""
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+async def test_web_search_node_requires_api_key_when_not_suppressed() -> None:
+    """WebSearchNode should require api_key when suppression disabled."""
     node = WebSearchNode(name="web", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
@@ -136,9 +135,34 @@ async def test_web_search_node_requires_api_key_when_not_suppressed(
     )
 
     with pytest.raises(
-        ValueError, match="WebSearchNode requires an api_key or TAVILY_API_KEY env var"
+        ValueError, match="WebSearchNode requires api_key to be configured"
     ):
         await node.run(state, {})
+
+
+@pytest.mark.asyncio
+async def test_web_search_node_resolves_api_key_from_credential_vault() -> None:
+    """WebSearchNode should resolve api_key placeholders via active resolver."""
+    state = State(
+        inputs={"query": "latest ai news"},
+        results={},
+        structured_response=None,
+    )
+    node = WebSearchNode(name="web", api_key="[[telegram_bot]]", suppress_errors=False)
+    resolver = CredentialResolver(create_vault_with_secret(secret="vault-key"))
+
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"results": []})
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/search").mock(side_effect=handler)
+        with credential_resolution(resolver):
+            await node.run(state, {})
+
+    assert captured["json"]["api_key"] == "vault-key"
 
 
 @pytest.mark.asyncio

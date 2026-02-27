@@ -3,8 +3,10 @@
 from __future__ import annotations
 import asyncio
 import logging
+import random
+import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, ClassVar, cast
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy
 from langchain.chat_models import init_chat_model
@@ -143,6 +145,10 @@ class AgentNode(AINode):
     """Node for executing an AI agent with tools."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    _history_key_pattern: ClassVar[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9:_-]+$")
+    _history_key_max_length: ClassVar[int] = 256
+    _history_write_retry_limit: ClassVar[int] = 3
+    _history_retry_base_backoff_seconds: ClassVar[float] = 0.025
 
     ai_model: str
     """Identifier of the AI chat model to use."""
@@ -167,6 +173,23 @@ class AgentNode(AINode):
     """Maximum number of messages to keep when sending to the agent."""
     reset_command: str = ""
     """Command that resets history. Messages before the latest reset are ignored."""
+    use_graph_chat_history: bool = False
+    """Enable graph-store-backed chat history loading and persistence."""
+    history_namespace: list[str] = Field(default_factory=lambda: ["agent_chat_history"])
+    """Namespace used for graph-store chat history items."""
+    history_key_template: str = "{{conversation_key}}"
+    """Template used to derive the final graph-store key."""
+    history_key_candidates: list[str] = Field(
+        default_factory=lambda: [
+            "telegram:{{results.telegram_events_parser.chat_id}}",
+            "wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}",
+            "wecom_aibot:{{results.wecom_ai_bot_events_parser.chat_type}}:{{results.wecom_ai_bot_events_parser.user}}",
+            "wecom_dm:{{results.wecom_events_parser.user}}",
+        ]
+    )
+    """Ordered key candidates used to resolve stable conversation identity."""
+    history_value_field: str = "content"
+    """Field name used when persisting text content into store records."""
 
     @field_serializer("system_prompt", when_used="json")
     def _serialize_system_prompt(self, value: str | TextTensor | None) -> str | None:
@@ -359,6 +382,380 @@ class AgentNode(AINode):
         messages = self._apply_reset_command(messages)
         return messages[-self.max_messages :]
 
+    def _get_graph_store(self, config: RunnableConfig | None) -> Any | None:
+        """Return the runtime graph store when available."""
+        if not isinstance(config, Mapping):
+            return None
+        configurable = config.get("configurable", {})
+        if not isinstance(configurable, Mapping):
+            return None
+
+        runtime = configurable.get("__pregel_runtime")
+        if runtime is not None:
+            if isinstance(runtime, Mapping):
+                maybe_store = runtime.get("store")
+                if maybe_store is not None:
+                    return maybe_store
+            maybe_store = getattr(runtime, "store", None)
+            if maybe_store is not None:
+                return maybe_store
+
+        return configurable.get("__pregel_store")
+
+    def _history_namespace_tuple(self) -> tuple[str, ...]:
+        namespace = tuple(
+            entry.strip()
+            for entry in self.history_namespace
+            if isinstance(entry, str) and entry.strip()
+        )
+        return namespace or ("agent_chat_history",)
+
+    def _validate_history_key(self, key: str) -> tuple[str | None, str]:
+        """Validate a candidate history key and return failure reason when invalid."""
+        candidate = key.strip()
+        if not candidate:
+            return None, "empty"
+        if "{{" in candidate or "}}" in candidate:
+            return None, "unresolved_template"
+        if len(candidate) > self._history_key_max_length:
+            return None, "too_long"
+        if self._history_key_pattern.fullmatch(candidate) is None:
+            return None, "invalid_chars"
+        return candidate, "ok"
+
+    def _resolve_history_key(
+        self,
+        state: State,
+        config: RunnableConfig | None,
+    ) -> str | None:
+        """Resolve and validate the final graph-store history key."""
+        del config
+        conversation_key: str | None = None
+
+        for candidate in self.history_key_candidates:
+            if not isinstance(candidate, str):
+                continue
+            resolved = self._decode_string_value(candidate, state)
+            rendered = (
+                str(resolved).strip()
+                if isinstance(resolved, str | int | float | bool)
+                else candidate
+            )
+            valid_key, status = self._validate_history_key(rendered)
+            if valid_key is not None:
+                conversation_key = valid_key
+                break
+            if rendered:
+                logger.debug(
+                    "AgentNode '%s' rejected history key candidate '%s' (%s).",
+                    self.name,
+                    rendered,
+                    status,
+                )
+
+        if conversation_key is None:
+            logger.warning(
+                "AgentNode '%s' skipped graph history: no valid conversation key "
+                "resolved.",
+                self.name,
+            )
+            return None
+
+        history_template_state = cast(
+            State,
+            {
+                **(dict(state) if isinstance(state, Mapping) else {}),
+                "conversation_key": conversation_key,
+            },
+        )
+        rendered_key_value = self._decode_string_value(
+            self.history_key_template,
+            history_template_state,
+        )
+        rendered_key = (
+            str(rendered_key_value).strip()
+            if isinstance(rendered_key_value, str)
+            else self.history_key_template.strip()
+        )
+        final_key, status = self._validate_history_key(rendered_key)
+        if final_key is None:
+            logger.warning(
+                "AgentNode '%s' skipped graph history: resolved key '%s' is invalid "
+                "(%s).",
+                self.name,
+                rendered_key,
+                status,
+            )
+            return None
+
+        return final_key
+
+    async def _store_get_item(
+        self,
+        store: Any,
+        namespace: tuple[str, ...],
+        key: str,
+    ) -> Any | None:
+        """Read a single store item using async/sync API variants."""
+        aget = getattr(store, "aget", None)
+        if callable(aget):
+            return await aget(namespace, key)
+
+        get = getattr(store, "get", None)
+        if callable(get):
+            result = get(namespace, key)
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+        return None
+
+    async def _store_put_item(
+        self,
+        store: Any,
+        namespace: tuple[str, ...],
+        key: str,
+        value: dict[str, Any],
+    ) -> None:
+        """Write a single store item using async/sync API variants."""
+        aput = getattr(store, "aput", None)
+        if callable(aput):
+            await aput(namespace, key, value)
+            return
+
+        put = getattr(store, "put", None)
+        if callable(put):
+            result = put(namespace, key, value)
+            if asyncio.iscoroutine(result):
+                await result
+
+    def _history_payload_from_item(self, item: Any | None) -> Mapping[str, Any]:
+        """Extract history payload from a LangGraph item-like response."""
+        if item is None:
+            return {}
+        if isinstance(item, Mapping):
+            payload = item.get("value")
+            return payload if isinstance(payload, Mapping) else {}
+        value = getattr(item, "value", None)
+        return value if isinstance(value, Mapping) else {}
+
+    def _normalize_history_store_messages(self, payload: Any) -> list[BaseMessage]:
+        """Normalize persisted history payload into LangChain messages."""
+        normalized: list[BaseMessage] = []
+        if not isinstance(payload, list):
+            return normalized
+
+        for item in payload:
+            if not isinstance(item, Mapping):
+                continue
+            role = item.get("role")
+            content = item.get(self.history_value_field, item.get("content"))
+            if not isinstance(content, str) or not content.strip():
+                continue
+            if role == "assistant":
+                normalized.append(AIMessage(content=content))
+            elif role == "user":  # pragma: no branch
+                normalized.append(HumanMessage(content=content))
+        return normalized
+
+    def _serialize_history_messages(
+        self, messages: list[BaseMessage]
+    ) -> list[dict[str, str]]:
+        """Serialize user/assistant messages for graph-store persistence."""
+        serialized: list[dict[str, str]] = []
+        for message in messages:
+            content = message.content
+            text = content if isinstance(content, str) else str(content)
+            if not text.strip():
+                continue
+            if isinstance(message, AIMessage):
+                role = "assistant"
+            elif isinstance(message, HumanMessage):
+                role = "user"
+            else:
+                continue
+            payload = {"role": role, self.history_value_field: text}
+            if self.history_value_field != "content":
+                payload["content"] = text
+            serialized.append(payload)
+        return serialized
+
+    def _filter_user_assistant_messages(
+        self,
+        messages: list[BaseMessage],
+    ) -> list[BaseMessage]:
+        return [
+            message
+            for message in messages
+            if isinstance(message, HumanMessage | AIMessage)
+        ]
+
+    def _message_signature(self, message: BaseMessage) -> tuple[str, str]:
+        """Create a deterministic identity for message overlap detection."""
+        content = message.content
+        text = content if isinstance(content, str) else str(content)
+        if isinstance(message, AIMessage):
+            return "assistant", text
+        if isinstance(message, HumanMessage):
+            return "user", text
+        return message.type, text
+
+    def _starts_with_messages(
+        self,
+        messages: list[BaseMessage],
+        prefix: list[BaseMessage],
+    ) -> bool:
+        if len(prefix) > len(messages):
+            return False
+        return all(
+            self._message_signature(messages[index])
+            == self._message_signature(prefix[index])
+            for index in range(len(prefix))
+        )
+
+    def _suffix_prefix_overlap(
+        self,
+        existing: list[BaseMessage],
+        observed: list[BaseMessage],
+    ) -> int:
+        """Return overlap size between existing suffix and observed prefix."""
+        max_overlap = min(len(existing), len(observed))
+        for overlap in range(max_overlap, 0, -1):
+            existing_slice = existing[-overlap:]
+            observed_slice = observed[:overlap]
+            if all(
+                self._message_signature(existing_slice[index])
+                == self._message_signature(observed_slice[index])
+                for index in range(overlap)
+            ):
+                return overlap
+        return 0
+
+    def _history_version_from_payload(self, payload: Mapping[str, Any]) -> int:
+        raw_version = payload.get("version", 0)
+        if isinstance(raw_version, int) and raw_version >= 0:
+            return raw_version
+        if isinstance(raw_version, str) and raw_version.isdigit():
+            return int(raw_version)
+        return 0
+
+    def _extract_observed_messages(
+        self,
+        current_messages: list[BaseMessage],
+        inference_messages: list[BaseMessage],
+        result: Mapping[str, Any],
+    ) -> list[BaseMessage]:
+        """Collect user/assistant turns observed during this run."""
+        current_turns = self._filter_user_assistant_messages(current_messages)
+        result_messages = self._filter_user_assistant_messages(
+            self._normalize_messages(result.get("messages"))
+        )
+
+        delta = result_messages
+        if self._starts_with_messages(result_messages, inference_messages):
+            delta = result_messages[len(inference_messages) :]
+        elif self._starts_with_messages(result_messages, current_turns):
+            delta = result_messages[len(current_turns) :]
+
+        return current_turns + delta
+
+    async def _load_graph_history_messages(
+        self,
+        *,
+        store: Any,
+        namespace: tuple[str, ...],
+        key: str,
+    ) -> list[BaseMessage]:
+        """Read full persisted history for the given namespace/key."""
+        item = await self._store_get_item(store, namespace, key)
+        payload = self._history_payload_from_item(item)
+        return self._normalize_history_store_messages(payload.get("messages"))
+
+    async def _persist_graph_history(
+        self,
+        *,
+        store: Any,
+        namespace: tuple[str, ...],
+        key: str,
+        observed_messages: list[BaseMessage],
+    ) -> None:
+        """Append observed turns to store history using bounded retry."""
+        observed = self._filter_user_assistant_messages(observed_messages)
+        if not observed:
+            return
+
+        for attempt in range(self._history_write_retry_limit):
+            try:
+                existing_item = await self._store_get_item(store, namespace, key)
+            except Exception:
+                logger.warning(
+                    "AgentNode '%s' failed to read graph history before write "
+                    "(key='%s').",
+                    self.name,
+                    key,
+                )
+                return
+
+            existing_payload = self._history_payload_from_item(existing_item)
+            existing_messages = self._normalize_history_store_messages(
+                existing_payload.get("messages")
+            )
+            overlap = self._suffix_prefix_overlap(existing_messages, observed)
+            new_messages = observed[overlap:]
+            if not new_messages:
+                return
+
+            merged_messages = existing_messages + new_messages
+            next_version = self._history_version_from_payload(existing_payload) + 1
+            payload = {
+                "version": next_version,
+                "messages": self._serialize_history_messages(merged_messages),
+            }
+
+            try:
+                await self._store_put_item(store, namespace, key, payload)
+                written_item = await self._store_get_item(store, namespace, key)
+            except Exception:
+                if attempt + 1 >= self._history_write_retry_limit:
+                    logger.warning(
+                        "AgentNode '%s' failed to persist graph history after %d "
+                        "attempts (key='%s').",
+                        self.name,
+                        self._history_write_retry_limit,
+                        key,
+                    )
+                    return
+                backoff = (2**attempt) * self._history_retry_base_backoff_seconds
+                await asyncio.sleep(backoff + random.uniform(0.0, 0.01))
+                continue
+
+            written_payload = self._history_payload_from_item(written_item)
+            written_messages = self._normalize_history_store_messages(
+                written_payload.get("messages")
+            )
+            written_version = self._history_version_from_payload(written_payload)
+            if (
+                written_version >= next_version
+                and len(written_messages) >= len(merged_messages)
+                and self._starts_with_messages(
+                    written_messages[-len(merged_messages) :],
+                    merged_messages,
+                )
+            ):
+                return
+
+            if attempt + 1 >= self._history_write_retry_limit:
+                logger.warning(
+                    "AgentNode '%s' detected persistent graph history write conflicts "
+                    "after %d attempts (key='%s').",
+                    self.name,
+                    self._history_write_retry_limit,
+                    key,
+                )
+                return
+
+            backoff = (2**attempt) * self._history_retry_base_backoff_seconds
+            await asyncio.sleep(backoff + random.uniform(0.0, 0.01))
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         tools = await self._prepare_tools()
@@ -377,11 +774,72 @@ class AgentNode(AINode):
         )
         # TODO: for models that don't support ProviderStrategy, use ToolStrategy
 
-        messages = self._build_messages(state, config)
+        current_messages = self._build_messages(state, config)
+        messages = list(current_messages)
+
+        history_store: Any | None = None
+        history_namespace: tuple[str, ...] = ()
+        history_key: str | None = None
+
+        if self.use_graph_chat_history:
+            history_store = self._get_graph_store(config)
+            history_key = self._resolve_history_key(state, config)
+            history_namespace = self._history_namespace_tuple()
+            if history_store is None:
+                logger.warning(
+                    "AgentNode '%s' enabled graph history but runtime store is "
+                    "missing.",
+                    self.name,
+                )
+            elif history_key is not None:
+                try:
+                    persisted_messages = await self._load_graph_history_messages(
+                        store=history_store,
+                        namespace=history_namespace,
+                        key=history_key,
+                    )
+                except Exception:
+                    logger.warning(
+                        "AgentNode '%s' failed to read graph history (key='%s'); "
+                        "falling back to in-memory messages.",
+                        self.name,
+                        history_key,
+                    )
+                else:
+                    messages = persisted_messages + current_messages
+                    if len(messages) > self.max_messages:
+                        logger.info(
+                            "AgentNode '%s' truncated merged history from %d to %d "
+                            "messages (key='%s').",
+                            self.name,
+                            len(messages),
+                            self.max_messages,
+                            history_key,
+                        )
+                    messages = messages[-self.max_messages :]
+
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
+
+        if (
+            self.use_graph_chat_history
+            and history_store is not None
+            and history_key is not None
+            and isinstance(result, Mapping)
+        ):
+            observed_messages = self._extract_observed_messages(
+                current_messages,
+                messages,
+                result,
+            )
+            await self._persist_graph_history(
+                store=history_store,
+                namespace=history_namespace,
+                key=history_key,
+                observed_messages=observed_messages,
+            )
         return result
 
     @property

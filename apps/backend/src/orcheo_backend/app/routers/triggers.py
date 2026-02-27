@@ -11,12 +11,12 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
-from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.models import CredentialAccessContext
 from orcheo.models.workflow import WorkflowRun, WorkflowVersion
-from orcheo.persistence import create_checkpointer
+from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
+from orcheo.runtime.state_builder import build_initial_state
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
@@ -86,22 +86,7 @@ def _build_webhook_state(
     runtime_config: Mapping[str, Any] | None,
 ) -> Any:
     """Build initial state for webhook execution."""
-    if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
-        if isinstance(inputs, dict):
-            state = dict(inputs)
-            state.setdefault("inputs", dict(inputs))
-            state.setdefault("results", {})
-            state.setdefault("messages", [])
-            if runtime_config is not None:
-                state["config"] = runtime_config
-            return state
-        return inputs
-    return {
-        "messages": [],
-        "results": {},
-        "inputs": inputs,
-        "config": runtime_config or {},
-    }
+    return build_initial_state(graph_config, inputs, runtime_config)
 
 
 def _extract_immediate_response(
@@ -165,10 +150,14 @@ async def _try_immediate_response(
     try:
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
-                graph = build_graph(graph_config)
-                compiled = graph.compile(checkpointer=checkpointer)
-                state = _build_webhook_state(graph_config, inputs, state_config)
-                final_state = await compiled.ainvoke(state, config=runtime_config)
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+                    state = _build_webhook_state(graph_config, inputs, state_config)
+                    final_state = await compiled.ainvoke(state, config=runtime_config)
     except Exception:
         # If workflow build or execution fails, fall back to normal async processing
         logger.debug(

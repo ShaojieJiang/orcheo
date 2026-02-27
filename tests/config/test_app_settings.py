@@ -60,3 +60,10 @@ def test_coerce_postgres_pool_float_defaults_and_valid_values() -> None:
     assert AppSettings._coerce_postgres_pool_float(45.5) == 45.5
     # String numbers are converted
     assert AppSettings._coerce_postgres_pool_float("120.5") == 120.5
+
+
+def test_coerce_graph_store_backend_defaults_and_valid_values() -> None:
+    """Graph store backend coercion should mirror checkpoint backend behavior."""
+
+    assert AppSettings._coerce_graph_store_backend(None) == "sqlite"
+    assert AppSettings._coerce_graph_store_backend("POSTGRES") == "postgres"

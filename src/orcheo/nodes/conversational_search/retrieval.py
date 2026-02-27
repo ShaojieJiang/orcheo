@@ -3,7 +3,6 @@
 from __future__ import annotations
 import inspect
 import math
-import os
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
@@ -22,6 +21,10 @@ from orcheo.nodes.conversational_search.vector_store import (
 )
 from orcheo.nodes.data.utils import _extract_value
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.runtime.credentials import (
+    get_active_credential_resolver,
+    parse_credential_reference,
+)
 
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
@@ -393,7 +396,8 @@ class WebSearchNode(TaskNode):
     api_key: str | None = Field(
         default=None,
         description=(
-            "Tavily API key; falls back to ``TAVILY_API_KEY`` environment variable."
+            "Tavily API key. Prefer credential placeholders (for example "
+            "``[[tavily_api_key]]``) so the value is resolved from vault at runtime."
         ),
     )
     api_url: str = Field(
@@ -484,9 +488,12 @@ class WebSearchNode(TaskNode):
             msg = "WebSearchNode requires a non-empty query string"
             raise ValueError(msg)
 
-        api_key = self.api_key or os.getenv("TAVILY_API_KEY")
+        api_key = self._resolve_api_key()
         if not api_key:
-            msg = "WebSearchNode requires an api_key or TAVILY_API_KEY env var"
+            msg = (
+                "WebSearchNode requires api_key to be configured "
+                "(for example [[tavily_api_key]])."
+            )
             raise ValueError(msg)
 
         payload = self._build_payload(query.strip(), api_key)
@@ -519,6 +526,31 @@ class WebSearchNode(TaskNode):
             "answer": data.get("answer"),
             "source": self.source_name,
         }
+
+    def _resolve_api_key(self) -> str:
+        """Return resolved API key, expanding credential placeholders when needed."""
+        if not isinstance(self.api_key, str):
+            return ""
+        candidate = self.api_key.strip()
+        if not candidate:
+            return ""
+
+        reference = parse_credential_reference(candidate)
+        if reference is None:
+            return candidate
+
+        resolver = get_active_credential_resolver()
+        if resolver is None:
+            msg = (
+                "WebSearchNode api_key uses a credential placeholder but no active "
+                "credential resolver is available."
+            )
+            raise ValueError(msg)
+        resolved = resolver.resolve(reference)
+        if not isinstance(resolved, str):
+            msg = "Resolved WebSearchNode api_key credential must be a string."
+            raise ValueError(msg)
+        return resolved.strip()
 
     def _build_payload(self, query: str, api_key: str) -> dict[str, Any]:
         payload: dict[str, Any] = {

@@ -1,6 +1,7 @@
 """AgentNode message construction tests."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -283,3 +284,321 @@ def test_build_messages_checkpointer_with_no_new_inputs() -> None:
     )
     assert len(messages) == 1
     assert messages[0].content == "Previous answer"
+
+
+def test_resolve_history_key_supports_literal_and_template_candidates() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        use_graph_chat_history=True,
+        history_key_candidates=[
+            "support-room-1",
+            "{{results.resolve_history_key.session_key}}",
+        ],
+        history_key_template="session:{{conversation_key}}",
+    )
+    state = State(
+        messages=[],
+        inputs={},
+        results={"resolve_history_key": {"session_key": "ignored"}},
+        structured_response=None,
+        config=None,
+    )
+    key = node._resolve_history_key(state, {"configurable": {"thread_id": "thread-1"}})
+    assert key == "session:support-room-1"
+
+
+def test_default_history_key_candidates_exclude_config_input_and_thread() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+
+    assert (
+        "{{results.resolve_history_key.session_key}}" not in node.history_key_candidates
+    )
+    assert "{{configurable.history_key}}" not in node.history_key_candidates
+    assert "{{inputs.history_key}}" not in node.history_key_candidates
+    assert "{{thread_id}}" not in node.history_key_candidates
+
+
+def test_resolve_history_key_supports_configurable_candidate() -> None:
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        history_key_candidates=["{{config.configurable.history_key}}"],
+    )
+    state = State(
+        messages=[],
+        inputs={},
+        results={},
+        structured_response=None,
+        config={"configurable": {"history_key": "room-1"}},
+    )
+    assert node._resolve_history_key(state, None) == "room-1"
+
+
+def test_resolve_history_key_supports_channel_templates() -> None:
+    telegram_node = AgentNode(name="agent", ai_model="test-model")
+    telegram_state = State(
+        messages=[],
+        inputs={},
+        results={"telegram_events_parser": {"chat_id": "12345"}},
+        structured_response=None,
+        config=None,
+    )
+    assert (
+        telegram_node._resolve_history_key(
+            telegram_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        == "telegram:12345"
+    )
+
+    wecom_cs_node = AgentNode(name="agent", ai_model="test-model")
+    wecom_cs_state = State(
+        messages=[],
+        inputs={},
+        results={
+            "wecom_cs_sync": {
+                "open_kf_id": "kf-001",
+                "external_userid": "ext-abc",
+            }
+        },
+        structured_response=None,
+        config=None,
+    )
+    assert (
+        wecom_cs_node._resolve_history_key(
+            wecom_cs_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        == "wecom_cs:kf-001:ext-abc"
+    )
+
+
+def test_resolve_history_key_rejects_invalid_candidates() -> None:
+    unresolved_node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        history_key_candidates=["{{results.missing.value}}"],
+    )
+    invalid_state = State(
+        messages=[],
+        inputs={},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    assert (
+        unresolved_node._resolve_history_key(
+            invalid_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        is None
+    )
+
+    invalid_chars_node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        history_key_candidates=["bad/key"],
+    )
+    assert (
+        invalid_chars_node._resolve_history_key(
+            invalid_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        is None
+    )
+
+    too_long_node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        history_key_candidates=["a" * 257],
+    )
+    assert (
+        too_long_node._resolve_history_key(
+            invalid_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        is None
+    )
+
+
+class _MemoryGraphStore:
+    def __init__(self, value: dict[str, object] | None = None) -> None:
+        self.value = value
+        self.get_calls = 0
+        self.put_calls = 0
+
+    async def aget(self, namespace: tuple[str, ...], key: str) -> object | None:
+        self.get_calls += 1
+        if self.value is None:
+            return None
+        return SimpleNamespace(namespace=namespace, key=key, value=self.value)
+
+    async def aput(
+        self,
+        namespace: tuple[str, ...],
+        key: str,
+        value: dict[str, object],
+    ) -> None:
+        self.put_calls += 1
+        self.value = value
+
+
+class _ConflictGraphStore:
+    def __init__(self) -> None:
+        self.put_calls = 0
+
+    async def aget(self, namespace: tuple[str, ...], key: str) -> object:
+        return SimpleNamespace(
+            namespace=namespace,
+            key=key,
+            value={"version": 0, "messages": []},
+        )
+
+    async def aput(
+        self,
+        namespace: tuple[str, ...],
+        key: str,
+        value: dict[str, object],
+    ) -> None:
+        self.put_calls += 1
+
+
+@pytest.mark.asyncio
+async def test_agentnode_graph_history_merge_trim_and_persist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {
+        "messages": [
+            HumanMessage(content="new question"),
+            AIMessage(content="new answer"),
+        ]
+    }
+
+    async def fake_prepare_tools(self: AgentNode):  # type: ignore[unused-argument]
+        return []
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", lambda *args, **kwargs: "m")
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.create_agent", lambda *args, **kwargs: fake_agent
+    )
+    monkeypatch.setattr(AgentNode, "_prepare_tools", fake_prepare_tools)
+
+    store = _MemoryGraphStore(
+        value={
+            "version": 1,
+            "messages": [
+                {"role": "assistant", "content": "old-1"},
+                {"role": "user", "content": "old-2"},
+                {"role": "assistant", "content": "old-3"},
+            ],
+        }
+    )
+    runtime = SimpleNamespace(store=store)
+
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        use_graph_chat_history=True,
+        max_messages=3,
+        history_key_candidates=["room-1"],
+    )
+    state = State(
+        messages=[],
+        inputs={"message": "new question"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+
+    await node.run(
+        state,
+        {"configurable": {"thread_id": "thread-1", "__pregel_runtime": runtime}},
+    )
+
+    payload = fake_agent.ainvoke.await_args.args[0]
+    sent_messages = payload["messages"]
+    assert [message.content for message in sent_messages] == [
+        "old-2",
+        "old-3",
+        "new question",
+    ]
+    assert store.put_calls >= 1
+    assert isinstance(store.value, dict)
+    persisted_messages = store.value["messages"]  # type: ignore[index]
+    assert persisted_messages[-2:] == [
+        {"role": "user", "content": "new question"},
+        {"role": "assistant", "content": "new answer"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agentnode_graph_history_disabled_skips_store_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {"messages": [AIMessage(content="done")]}
+
+    async def fake_prepare_tools(self: AgentNode):  # type: ignore[unused-argument]
+        return []
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", lambda *args, **kwargs: "m")
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.create_agent", lambda *args, **kwargs: fake_agent
+    )
+    monkeypatch.setattr(AgentNode, "_prepare_tools", fake_prepare_tools)
+
+    class FailingStore:
+        async def aget(self, namespace: tuple[str, ...], key: str) -> object:
+            raise AssertionError("store should not be used when disabled")
+
+    runtime = SimpleNamespace(store=FailingStore())
+    node = AgentNode(name="agent", ai_model="test-model", use_graph_chat_history=False)
+    state = State(
+        messages=[],
+        inputs={"message": "hello"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+
+    await node.run(
+        state,
+        {"configurable": {"thread_id": "thread-1", "__pregel_runtime": runtime}},
+    )
+    fake_agent.ainvoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_agentnode_graph_history_conflict_retry_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {"messages": [AIMessage(content="done")]}
+
+    async def fake_prepare_tools(self: AgentNode):  # type: ignore[unused-argument]
+        return []
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", lambda *args, **kwargs: "m")
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.create_agent", lambda *args, **kwargs: fake_agent
+    )
+    monkeypatch.setattr(AgentNode, "_prepare_tools", fake_prepare_tools)
+
+    store = _ConflictGraphStore()
+    runtime = SimpleNamespace(store=store)
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        use_graph_chat_history=True,
+        history_key_candidates=["room-1"],
+    )
+    state = State(
+        messages=[],
+        inputs={"message": "hello"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+
+    await node.run(
+        state,
+        {"configurable": {"thread_id": "thread-1", "__pregel_runtime": runtime}},
+    )
+    assert store.put_calls == 3
