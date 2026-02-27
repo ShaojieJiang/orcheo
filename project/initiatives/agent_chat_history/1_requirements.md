@@ -57,6 +57,7 @@ P0:
 - Add `create_graph_store(settings)` in persistence utilities, similar lifecycle to `create_checkpointer(settings)`.
 - Support `sqlite` and `postgres` graph store backends.
 - Add settings for graph store backend/path with environment validation.
+  - SQLite path must be absolute (no `~` or relative paths) to avoid shell-dependent expansion behavior.
 - Update all backend graph compilation entry points to pass both `checkpointer` and `store`.
 - Add `AgentNode` toggle (for example `use_graph_chat_history: bool = False`).
 - When toggle is `True`:
@@ -71,15 +72,27 @@ P0:
   - Key fields (`history_key_template`, `history_key_candidates`) must support both:
     - Literal values (for example `support-room-1`)
     - Orcheo template strings `{{...}}` (including previous node outputs via `results.*`)
+  - Key resolution must be deterministic and validated:
+    - Evaluate candidates in declared order after template rendering.
+    - Reject empty keys, unresolved templates (for example values still containing `{{`), and keys with invalid characters.
+    - Limit key length (for example max 256 chars) to prevent store-key abuse and accidental collisions.
+    - If no valid key is resolved, skip store read/write and continue with in-memory-only behavior.
   - Read stored history before agent run (tail window up to `max_messages`).
   - Merge stored history tail with current thread messages for this invocation.
   - Keep latest `max_messages` for inference.
   - Append newly observed user/assistant turns to full history in graph store after run (full history grows append-only; `max_messages` cap applies only to the inference payload).
+  - Store-operation failure behavior:
+    - Read failure: warn and continue with in-memory-only message assembly.
+    - Write/conflict failure after retries: warn and continue execution without persistence for that run.
+    - Runtime should not crash due to node-level store read/write failures.
 - When toggle is `False`, preserve current behavior.
 
 P1:
 - Add configurable keying fields (`history_namespace`, `history_key_template`, `history_key_candidates`, `history_value_field`).
 - Add best-effort error handling and structured logs for store operations.
+- Define optimistic-concurrency retry policy (retry limit + backoff + conflict outcome).
+- Add observability requirements for store latency/errors, key-resolution failures, and truncation events.
+- Add migration and user-facing documentation requirements for workflows transitioning from manual session assembly.
 
 Out of scope:
 - Automatic redaction and PII classification.
@@ -98,12 +111,16 @@ Introduce a dedicated graph store factory in `src/orcheo/persistence.py`, add co
 
 ### Technical Requirements
 - Store backend validation and defaults must be deterministic and backward compatible.
+- SQLite path validation must reject non-absolute paths and `~`-prefixed paths.
 - Postgres mode requires DSN and compatible pool options.
 - Store setup/migrations (`store.setup()`) must run during startup/first use similarly to checkpointer setup.
 - Agent history merge should normalize stored entries into `BaseMessage` equivalents.
 - History retrieval requires a resolved conversation key; if unavailable, skip store logic safely.
 - Key resolution must support literal values and Orcheo `{{...}}` templates for both `history_key_template` and `history_key_candidates`.
+- Key validation must enforce non-empty, bounded-length, and allowed-character constraints before any store operation.
 - Keep message ordering stable (oldest to newest before trimming tail).
+- Concurrency control must specify retry limits and bounded backoff behavior; persistent conflicts should degrade to warning + skip write, not run failure.
+- Tests must include reproducible fixtures covering literal keys and channel-specific template patterns (Telegram/WeCom).
 
 ### AI/ML Considerations (if applicable)
 Not applicable.
@@ -123,6 +140,11 @@ Internal enhancement for Orcheo runtime and bot workflow authors.
 - Implement behind opt-in node field (default `False`).
 - Validate SQLite first in local/staging, then Postgres staging.
 - Enable feature in selected bot workflows before wider use.
+- Define phase-specific rollback steps:
+  - Phase 1 rollback: disable graph store backend and compile without `store`.
+  - Phase 2 rollback: disable `use_graph_chat_history` for affected workflows.
+  - Phase 3 rollback: revert workflow-level toggles and keep legacy in-memory behavior.
+- Provide migration guidance for existing workflows that currently do manual session management.
 
 ### Experiment Plan (if applicable)
 No formal A/B test; use staged workflow validation with replayed thread samples.
@@ -141,7 +163,7 @@ No formal A/B test; use staged workflow validation with replayed thread samples.
 - **Risk:** Storage growth and sensitive data retention.
   - **Mitigation:** Keep bounded window (`max_messages`), add retention/TTL follow-up, and avoid storing unnecessary payload fields.
 - **Risk:** Missing/unstable conversation keys lead to fragmented history.
-  - **Mitigation:** Prefer explicit/channel-derived keys, keep `thread_id` only as fallback, and log key-resolution failures.
+  - **Mitigation:** Prefer explicit/channel-derived keys, keep `thread_id` only as fallback, validate resolved keys (non-empty/format/length), and log key-resolution failures.
 
 ## APPENDIX
 None.

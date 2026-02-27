@@ -2,7 +2,7 @@
 
 ## For Agent Chat History via LangGraph Store
 
-- **Version:** 0.1
+- **Version:** 0.2
 - **Author:** Codex
 - **Owner:** Shaojie Jiang
 - **Date:** 2026-02-26
@@ -20,6 +20,7 @@ On top of that, `AgentNode` gains an opt-in mode to consume chat history from gr
 
 - **Config Layer (`orcheo.config`)**
   - Adds graph store backend and path fields (plus validation) parallel to checkpoint backend.
+  - Enforces absolute SQLite path values (reject `~` and relative paths).
   - Ensures Postgres DSN requirements are enforced when graph store backend is `postgres`.
 
 - **Persistence Factory (`src/orcheo/persistence.py`)**
@@ -53,7 +54,7 @@ On top of that, `AgentNode` gains an opt-in mode to consume chat history from gr
 4. Node loads conversation metadata and fetches only the latest history tail required for inference.
 5. Node normalizes and merges `history_tail + current_thread_messages`.
 6. Node trims to latest `max_messages` and invokes agent.
-7. Node appends newly observed user/assistant messages to full history and updates metadata (best effort with retry on version conflict).
+7. Node appends newly observed user/assistant messages to full history and updates metadata (best effort with bounded retry on version conflict).
 
 ### Flow 3: AgentNode run with history disabled or unavailable
 
@@ -67,7 +68,7 @@ On top of that, `AgentNode` gains an opt-in mode to consume chat history from gr
 
 ```env
 ORCHEO_GRAPH_STORE_BACKEND=sqlite|postgres
-ORCHEO_GRAPH_STORE_SQLITE_PATH=~/.orcheo/graph_store.sqlite
+ORCHEO_GRAPH_STORE_SQLITE_PATH=/var/lib/orcheo/graph_store.sqlite
 # Uses ORCHEO_POSTGRES_DSN and shared pool settings when backend=postgres
 ```
 
@@ -97,6 +98,7 @@ history_key_candidates: list[str] = [
     "{{thread_id}}",
 ]
 history_meta_key_suffix: str = "__meta__"
+# Chunk size tuned to balance write amplification and tail-read latency.
 history_chunk_size: int = 200
 history_value_field: str = "content"
 ```
@@ -143,7 +145,11 @@ history_value_field: str = "content"
 - **Append for persistence**
   - Assign new monotonically increasing `seq` values from metadata `last_seq`.
   - Append only newly observed user and assistant turns to the latest chunk (or create next chunk if full).
-  - Update metadata (`last_seq`, `latest_chunk_key`, `updated_at`, `version`) with optimistic concurrency and retry.
+  - Update metadata (`last_seq`, `latest_chunk_key`, `updated_at`, `version`) with optimistic concurrency.
+  - Retry policy on version conflict:
+    - Max 3 retries.
+    - Exponential backoff with jitter (for example 25ms, 50ms, 100ms + jitter).
+    - On persistent conflict, emit warning and skip write for that run (do not fail agent execution).
 
 ### Key resolution
 
@@ -154,6 +160,12 @@ history_value_field: str = "content"
   - Orcheo template syntax `{{...}}` is allowed (for example `telegram:{{results.telegram_events_parser.chat_id}}`)
   - Templates may reference runtime state such as `inputs`, `results`, `configurable`, and `thread_id`
 - Key: resolved from `history_key_template` (literal or template) with `conversation_key` available in scope
+- Validation/canonicalization rules:
+  - Evaluate candidates in declared order after template render.
+  - Reject empty/whitespace-only values.
+  - Reject unresolved template output containing `{{` or `}}`.
+  - Enforce key regex `^[A-Za-z0-9:_-]+$` and max length 256.
+  - If no valid key remains, skip store access and run in-memory-only path.
 
 ## Security Considerations
 
@@ -169,6 +181,30 @@ history_value_field: str = "content"
 - Full history can grow unbounded for analytics/audit use cases without slowing inference path.
 - Use optimistic concurrency for metadata/chunk updates to avoid lost writes under concurrent callbacks.
 - For Postgres backend, reuse pooled connections via store factory config.
+- `history_chunk_size=200` is chosen to keep per-item payload size moderate while reducing metadata churn from overly small chunks.
+
+## Error Handling
+
+- Store read failure:
+  - Log warning with namespace/key metadata only (no message bodies).
+  - Continue with in-memory-only message assembly for that run.
+- Store write failure:
+  - Retry version conflicts using bounded policy.
+  - On persistent failure, log warning and continue without persisted append.
+- Initialization/configuration failure:
+  - Fail fast at startup/compile time for invalid store backend/path or missing Postgres DSN.
+
+## Observability
+
+- Emit counters:
+  - `agent_history_key_resolution_failures_total`
+  - `agent_history_store_read_failures_total`
+  - `agent_history_store_write_failures_total`
+  - `agent_history_truncation_events_total`
+- Emit timers/histograms:
+  - `agent_history_store_read_latency_ms`
+  - `agent_history_store_write_latency_ms`
+- Structured dimensions/tags: backend (`sqlite|postgres`), channel prefix (`telegram|wecom_cs|wecom_aibot|wecom_dm|other`), outcome (`ok|fallback|conflict`).
 
 ## Testing Strategy
 
@@ -176,11 +212,18 @@ history_value_field: str = "content"
   - `create_graph_store` for SQLite and Postgres paths, setup call, and invalid backend handling.
   - Config validation/default tests for graph store env vars.
   - `AgentNode` history logic: toggle on/off, key resolution, tail read to `max_messages`, append-only writes, chunk rollover, reset command interaction.
+  - Key-validation tests: unresolved templates, invalid characters, and over-length keys are rejected.
+  - Conflict retry tests: verify 3-attempt cap and warning fallback after persistent conflicts.
 
 - **Integration tests**
   - Backend compile paths include `store` argument in addition to checkpointer.
   - Repeated callbacks with the same resolved conversation key recover recent context while full history keeps growing append-only.
   - Concurrent callbacks on the same conversation key do not lose appended turns (retry/version path).
+  - Reproducible key-resolution scenarios with fixed fixtures:
+    - `telegram:{{results.telegram_events_parser.chat_id}}`
+    - `wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}`
+    - Explicit override candidate outranking channel-derived candidates.
+    - Fallback to `{{thread_id}}` in non-webhook/manual runs only.
 
 - **Manual QA checklist**
   - Simulate WeCom/Telegram callbacks with stable payload IDs (same `chat_id` / same `open_kf_id + external_userid`).
@@ -194,6 +237,13 @@ history_value_field: str = "content"
 1. Phase 1 (Dev/staging — SQLite): Implement store factory/config and compile wiring; validate with SQLite backend in dev/staging.
 2. Phase 2 (Staging — Postgres): Implement `AgentNode` toggle + history behavior; validate DSN/pool setup and end-to-end chat continuity with Postgres backend in staging.
 3. Phase 3 (Production opt-in): Enable for selected WeCom/Telegram bot workflows with monitoring.
+4. Rollback procedures:
+   - Phase 1 rollback: set backend to existing checkpointer-only flow (no `store` injection).
+   - Phase 2 rollback: disable `use_graph_chat_history` in affected workflows.
+   - Phase 3 rollback: revert opt-in workflows to legacy in-memory history behavior.
+5. Migration notes:
+   - Existing workflows using manual session assembly may continue unchanged.
+   - For migration, enable `use_graph_chat_history` per workflow and validate key stability before removing custom session glue logic.
 
 ---
 
@@ -201,4 +251,5 @@ history_value_field: str = "content"
 
 | Date | Author | Changes |
 |------|--------|---------|
+| 2026-02-27 | Codex | Added key validation, retry/backoff limits, explicit fallback behavior, observability, rollback and migration details |
 | 2026-02-26 | Codex | Initial draft |

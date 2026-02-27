@@ -2,7 +2,7 @@
 
 ## For Agent Chat History via LangGraph Store
 
-- **Version:** 0.1
+- **Version:** 0.2
 - **Author:** Codex
 - **Owner:** Shaojie Jiang
 - **Date:** 2026-02-26
@@ -28,9 +28,9 @@ Deliver graph-store support (SQLite/Postgres) and `AgentNode` opt-in chat-histor
 
 #### Task Checklist
 
-- [ ] Task 1.1: Add config types/defaults for graph store backend and sqlite path.
+- [ ] Task 1.1: Add config types/defaults in `src/orcheo/config/app_settings.py` (`AppSettings`) for graph store backend and sqlite path.
   - Dependencies: None
-- [ ] Task 1.2: Add validation rules in `AppSettings` and loader normalization.
+- [ ] Task 1.2: Add validation rules in `AppSettings` and loader normalization (absolute SQLite path; reject `~` and relative values).
   - Dependencies: Task 1.1
 - [ ] Task 1.3: Implement `create_graph_store(settings)` in `src/orcheo/persistence.py` for SQLite/Postgres.
   - Dependencies: Task 1.2
@@ -63,13 +63,16 @@ Deliver graph-store support (SQLite/Postgres) and `AgentNode` opt-in chat-histor
 - [ ] Task 3.1: Add `AgentNode` toggle and keying fields with safe defaults (`use_graph_chat_history=False`) and stable conversation-key precedence (explicit/channel-derived before `thread_id` fallback).
   - Acceptance note: `history_key_template` and `history_key_candidates` accept both literal strings and Orcheo templates (`{{...}}`) including `results.*` references.
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Implement store read and message normalization path before agent invoke.
+- [ ] Task 3.2: Implement deterministic key validation (empty/unresolved-template/invalid-char/length checks) before store read/write.
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Implement merge + `max_messages` trimming + post-run store update.
-  - Dependencies: Task 3.2
-- [ ] Task 3.4: Add node tests for enabled/disabled behavior, key resolution, and trim semantics.
-  - Acceptance note: include test cases for literal keys and `{{...}}` template keys resolved from previous node results.
+- [ ] Task 3.3: Implement store read and message normalization path before agent invoke.
+  - Dependencies: Task 3.1
+- [ ] Task 3.4: Implement merge + `max_messages` trimming + post-run store update with bounded optimistic-concurrency retry policy.
   - Dependencies: Task 3.3
+- [ ] Task 3.5: Add node tests for enabled/disabled behavior, key resolution, and trim semantics.
+  - Acceptance note: include test cases for literal keys and `{{...}}` template keys resolved from previous node results.
+  - Acceptance note: include explicit Telegram and WeCom CS fixture cases and persistent-conflict fallback behavior.
+  - Dependencies: Task 3.4
 
 ---
 
@@ -85,8 +88,12 @@ Deliver graph-store support (SQLite/Postgres) and `AgentNode` opt-in chat-histor
   - Dependencies: Task 4.1
 - [ ] Task 4.3: Postgres staging verification — validate DSN/pool setup and end-to-end chat continuity with Postgres backend using the same callback scenarios.
   - Dependencies: Task 4.2
-- [ ] Task 4.4: Document guidance on when to use graph-store chat history and known risks (retention, duplication, key quality).
+- [ ] Task 4.4: Add observability signals (metrics/log fields) and verify dashboards/alerts for read/write failures, key-resolution failures, and truncation events.
   - Dependencies: Task 4.3
+- [ ] Task 4.5: Document rollback playbook per rollout phase (SQLite staging, Postgres staging, production opt-in).
+  - Dependencies: Task 4.4
+- [ ] Task 4.6: Publish migration + user-facing guidance for workflows moving from manual session assembly to graph-store chat history.
+  - Dependencies: Task 4.5
 
 ---
 
@@ -94,4 +101,5 @@ Deliver graph-store support (SQLite/Postgres) and `AgentNode` opt-in chat-histor
 
 | Date | Author | Changes |
 |------|--------|---------|
+| 2026-02-27 | Codex | Clarified config module targets, added key-validation/retry tasks, observability, rollback, and migration documentation tasks |
 | 2026-02-26 | Codex | Initial draft |
