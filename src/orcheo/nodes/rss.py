@@ -27,7 +27,7 @@ class RSSNode(TaskNode):
     without aborting the remaining feeds.
     """
 
-    sources: list[str] = Field(description="RSS/Atom feed URLs to fetch")
+    sources: list[str] | str = Field(description="RSS/Atom feed URLs to fetch")
     timeout: float = Field(
         default=15.0,
         ge=0.0,
