@@ -19,6 +19,7 @@ import {
   saveWorkflow as persistWorkflow,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
+import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
 
 interface WorkflowSaverOptions {
@@ -122,8 +123,13 @@ export function useWorkflowSaver(
         description: successDescription(saved),
       });
 
-      if (!workflowIdFromRoute || workflowIdFromRoute !== saved.id) {
-        navigate(`/workflow-canvas/${saved.id}`, {
+      const nextWorkflowRouteRef = getWorkflowRouteRef(saved);
+      if (
+        !workflowIdFromRoute ||
+        (workflowIdFromRoute !== saved.id &&
+          workflowIdFromRoute !== nextWorkflowRouteRef)
+      ) {
+        navigate(`/workflow-canvas/${nextWorkflowRouteRef}`, {
           replace: !!workflowIdFromRoute,
         });
       }

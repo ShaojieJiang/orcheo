@@ -91,3 +91,42 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     assert diff_payload["target_version"] == 2
     diff_lines = diff_payload["diff"]
     assert any('+    "end"' in line for line in diff_lines)
+
+
+def test_workflow_handle_lookup_and_update(api_client: TestClient) -> None:
+    """Workflow handle should work as a routable ref and support updates."""
+    create_response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Handle Flow",
+            "handle": "handle-flow",
+            "actor": "tester",
+        },
+    )
+    assert create_response.status_code == 201
+    workflow = create_response.json()
+    assert workflow["handle"] == "handle-flow"
+
+    get_response = api_client.get("/api/workflows/handle-flow")
+    assert get_response.status_code == 200
+    assert get_response.json()["id"] == workflow["id"]
+
+    update_response = api_client.put(
+        "/api/workflows/handle-flow",
+        json={
+            "name": "Renamed Handle Flow",
+            "handle": "renamed-handle-flow",
+            "actor": "tester",
+        },
+    )
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["name"] == "Renamed Handle Flow"
+    assert payload["handle"] == "renamed-handle-flow"
+
+    old_handle_response = api_client.get("/api/workflows/handle-flow")
+    assert old_handle_response.status_code == 404
+
+    new_handle_response = api_client.get("/api/workflows/renamed-handle-flow")
+    assert new_handle_response.status_code == 200
+    assert new_handle_response.json()["id"] == workflow["id"]

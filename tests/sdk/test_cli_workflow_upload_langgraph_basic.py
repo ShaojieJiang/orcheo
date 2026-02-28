@@ -234,7 +234,7 @@ def build_graph():
         router.get("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(200, json=existing_workflow)
         )
-        rename_route = router.post("http://api.test/api/workflows/wf-1").mock(
+        rename_route = router.put("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(
                 200, json={"id": "wf-1", "name": "Renamed Workflow"}
             )

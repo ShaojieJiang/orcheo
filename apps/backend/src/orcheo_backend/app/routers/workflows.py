@@ -24,6 +24,7 @@ from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.repository import (
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
@@ -63,7 +64,8 @@ def _resolve_chatkit_public_base_url() -> str | None:
 
 def _apply_share_url(workflow: Workflow, public_base_url: str | None) -> Workflow:
     if public_base_url and workflow.is_public:
-        workflow.share_url = f"{public_base_url}/chat/{workflow.id}"
+        workflow_ref = workflow.handle or str(workflow.id)
+        workflow.share_url = f"{public_base_url}/chat/{workflow_ref}"
     else:
         workflow.share_url = None
     return workflow
@@ -96,6 +98,7 @@ def _serialize_public_workflow(
     workflow = _apply_share_url(workflow, public_base_url)
     return PublicWorkflow(
         id=workflow.id,
+        handle=workflow.handle,
         name=workflow.name,
         description=workflow.description,
         is_public=workflow.is_public,
@@ -124,12 +127,43 @@ def _attach_mermaid_many(versions: list[WorkflowVersion]) -> list[WorkflowVersio
     return [_attach_mermaid(version) for version in versions]
 
 
-@public_router.get("/workflows/{workflow_id}/public", response_model=PublicWorkflow)
+async def _resolve_workflow_id(
+    repository: RepositoryDep,
+    workflow_ref: str,
+    *,
+    include_archived: bool = True,
+) -> str:
+    try:
+        workflow_id = await repository.resolve_workflow_ref(
+            workflow_ref,
+            include_archived=include_archived,
+        )
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    return str(workflow_id)
+
+
+async def _resolve_workflow_uuid(
+    repository: RepositoryDep,
+    workflow_ref: str,
+    *,
+    include_archived: bool = True,
+) -> UUID:
+    workflow_id = await _resolve_workflow_id(
+        repository,
+        workflow_ref,
+        include_archived=include_archived,
+    )
+    return UUID(workflow_id)
+
+
+@public_router.get("/workflows/{workflow_ref}/public", response_model=PublicWorkflow)
 async def get_public_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> PublicWorkflow:
     """Fetch public workflow metadata without authentication."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
@@ -172,22 +206,34 @@ async def create_workflow(
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context)
 
-    workflow = await repository.create_workflow(
-        name=request.name,
-        slug=request.slug,
-        description=request.description,
-        tags=tags,
-        actor=actor,
-    )
-    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+    try:
+        create_kwargs: dict[str, Any] = {
+            "name": request.name,
+            "slug": request.slug,
+            "description": request.description,
+            "tags": tags,
+            "actor": actor,
+        }
+        if request.handle is not None:
+            create_kwargs["handle"] = request.handle
+        workflow = await repository.create_workflow(
+            **create_kwargs,
+        )
+        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+    except WorkflowHandleConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "code": "workflow.handle.conflict"},
+        ) from exc
 
 
-@router.get("/workflows/{workflow_id}", response_model=Workflow)
+@router.get("/workflows/{workflow_ref}", response_model=Workflow)
 async def get_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> Workflow:
     """Fetch a single workflow by its identifier."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         workflow = await repository.get_workflow(workflow_id)
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
@@ -195,40 +241,52 @@ async def get_workflow(
         raise_not_found("Workflow not found", exc)
 
 
-@router.put("/workflows/{workflow_id}", response_model=Workflow)
+@router.put("/workflows/{workflow_ref}", response_model=Workflow)
 async def update_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowUpdateRequest,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Update attributes of an existing workflow."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context, preserve_none=True)
 
     try:
+        update_kwargs: dict[str, Any] = {
+            "name": request.name,
+            "description": request.description,
+            "tags": tags,
+            "is_archived": request.is_archived,
+            "actor": actor,
+        }
+        if request.handle is not None:
+            update_kwargs["handle"] = request.handle
         workflow = await repository.update_workflow(
             workflow_id,
-            name=request.name,
-            description=request.description,
-            tags=tags,
-            is_archived=request.is_archived,
-            actor=actor,
+            **update_kwargs,
         )
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    except WorkflowHandleConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "code": "workflow.handle.conflict"},
+        ) from exc
 
 
-@router.delete("/workflows/{workflow_id}", response_model=Workflow)
+@router.delete("/workflows/{workflow_ref}", response_model=Workflow)
 async def archive_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
     actor: str = Query("system"),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Archive a workflow via the delete verb."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     context = _resolve_authenticated_context(policy)
     resolved_actor = _resolve_actor(actor, context)
 
@@ -240,16 +298,17 @@ async def archive_workflow(
 
 
 @router.post(
-    "/workflows/{workflow_id}/versions",
+    "/workflows/{workflow_ref}/versions",
     response_model=WorkflowVersion,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workflow_version(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowVersionCreateRequest,
     repository: RepositoryDep,
 ) -> WorkflowVersion:
     """Create a new version for the specified workflow."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         version = await repository.create_version(
             workflow_id,
@@ -265,16 +324,17 @@ async def create_workflow_version(
 
 
 @router.post(
-    "/workflows/{workflow_id}/versions/ingest",
+    "/workflows/{workflow_ref}/versions/ingest",
     response_model=WorkflowVersion,
     status_code=status.HTTP_201_CREATED,
 )
 async def ingest_workflow_version(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowVersionIngestRequest,
     repository: RepositoryDep,
 ) -> WorkflowVersion:
     """Create a workflow version from a LangGraph Python script."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         graph_payload = ingest_langgraph_script(
             request.script,
@@ -301,14 +361,15 @@ async def ingest_workflow_version(
 
 
 @router.get(
-    "/workflows/{workflow_id}/versions",
+    "/workflows/{workflow_ref}/versions",
     response_model=list[WorkflowVersion],
 )
 async def list_workflow_versions(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> list[WorkflowVersion]:
     """Return the versions associated with a workflow."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         versions = await repository.list_versions(workflow_id)
         return _attach_mermaid_many(versions)
@@ -317,15 +378,16 @@ async def list_workflow_versions(
 
 
 @router.get(
-    "/workflows/{workflow_id}/versions/{version_number}",
+    "/workflows/{workflow_ref}/versions/{version_number}",
     response_model=WorkflowVersion,
 )
 async def get_workflow_version(
-    workflow_id: UUID,
+    workflow_ref: str,
     version_number: int,
     repository: RepositoryDep,
 ) -> WorkflowVersion:
     """Return a specific workflow version by number."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         version = await repository.get_version_by_number(workflow_id, version_number)
         return _attach_mermaid(version)
@@ -336,16 +398,17 @@ async def get_workflow_version(
 
 
 @router.get(
-    "/workflows/{workflow_id}/versions/{base_version}/diff/{target_version}",
+    "/workflows/{workflow_ref}/versions/{base_version}/diff/{target_version}",
     response_model=WorkflowVersionDiffResponse,
 )
 async def diff_workflow_versions(
-    workflow_id: UUID,
+    workflow_ref: str,
     base_version: int,
     target_version: int,
     repository: RepositoryDep,
 ) -> WorkflowVersionDiffResponse:
     """Generate a diff between two workflow versions."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     try:
         diff = await repository.diff_versions(workflow_id, base_version, target_version)
         return WorkflowVersionDiffResponse(
@@ -372,17 +435,18 @@ def _publish_response(
 
 
 @router.post(
-    "/workflows/{workflow_id}/publish",
+    "/workflows/{workflow_ref}/publish",
     response_model=WorkflowPublishResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def publish_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowPublishRequest,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowPublishResponse:
     """Publish a workflow and expose it for ChatKit access."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
@@ -416,16 +480,17 @@ async def publish_workflow(
 
 
 @router.post(
-    "/workflows/{workflow_id}/publish/revoke",
+    "/workflows/{workflow_ref}/publish/revoke",
     response_model=Workflow,
 )
 async def revoke_workflow_publish(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowPublishRevokeRequest,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Revoke public access to the workflow."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
@@ -520,17 +585,18 @@ def _append_workspace_tags(
 
 
 @router.post(
-    "/workflows/{workflow_id}/chatkit/session",
+    "/workflows/{workflow_ref}/chatkit/session",
     response_model=ChatKitSessionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def create_workflow_chatkit_session(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
     issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
 ) -> ChatKitSessionResponse:
     """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
     auth_enforced = load_auth_settings().enforce
     context = policy.context
     if auth_enforced:

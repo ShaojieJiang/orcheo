@@ -33,6 +33,7 @@ class WorkflowRepository(Protocol):
         self,
         *,
         name: str,
+        handle: str | None = None,
         slug: str | None,
         description: str | None,
         tags: Iterable[str] | None,
@@ -43,11 +44,20 @@ class WorkflowRepository(Protocol):
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         """Return a single workflow by identifier."""
 
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        """Resolve a user-facing workflow ref to the canonical UUID."""
+
     async def update_workflow(
         self,
         workflow_id: UUID,
         *,
         name: str | None,
+        handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
         is_archived: bool | None,

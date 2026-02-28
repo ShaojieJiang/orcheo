@@ -11,13 +11,14 @@ from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.agentensor.checkpoint_store import (
     InMemoryAgentensorCheckpointStore,
 )
+from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
 from orcheo_backend.app.providers import (
     create_repository,
     create_vault,
     ensure_credential_service,
 )
-from orcheo_backend.app.repository import WorkflowRepository
+from orcheo_backend.app.repository import WorkflowNotFoundError, WorkflowRepository
 
 
 _repository_ref: dict[str, WorkflowRepository] = {}
@@ -165,6 +166,7 @@ def set_vault(vault: BaseCredentialVault | None) -> None:
 
 
 WorkflowIdQuery = Annotated[UUID | None, Query()]
+WorkflowRefQuery = Annotated[str | None, Query(alias="workflow_id")]
 IncludeAcknowledgedQuery = Annotated[bool, Query()]
 
 
@@ -175,6 +177,32 @@ def credential_context_from_workflow(
     if workflow_id is None:
         return None
     return CredentialAccessContext(workflow_id=workflow_id)
+
+
+async def resolve_workflow_ref_id(
+    repository: WorkflowRepository,
+    workflow_ref: str,
+    *,
+    include_archived: bool = True,
+) -> UUID:
+    """Resolve a user-facing workflow ref to the canonical UUID."""
+    try:
+        return await repository.resolve_workflow_ref(
+            workflow_ref,
+            include_archived=include_archived,
+        )
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+
+async def resolve_optional_workflow_ref_id(
+    repository: WorkflowRepository,
+    workflow_ref: str | None,
+) -> UUID | None:
+    """Resolve an optional workflow ref to the canonical UUID."""
+    if workflow_ref is None:
+        return None
+    return await resolve_workflow_ref_id(repository, workflow_ref)
 
 
 __all__ = [
@@ -190,10 +218,13 @@ __all__ = [
     "get_history_store",
     "get_repository",
     "get_vault",
+    "resolve_optional_workflow_ref_id",
+    "resolve_workflow_ref_id",
     "set_credential_service",
     "set_checkpoint_store",
     "set_history_store",
     "set_repository",
     "set_vault",
     "WorkflowIdQuery",
+    "WorkflowRefQuery",
 ]

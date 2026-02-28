@@ -10,7 +10,10 @@ from orcheo_sdk.services.workflows.listing import (
     list_workflows_data,
     show_workflow_data,
 )
-from orcheo_sdk.services.workflows.management import delete_workflow_data
+from orcheo_sdk.services.workflows.management import (
+    delete_workflow_data,
+    update_workflow_data,
+)
 from orcheo_sdk.services.workflows.publish import (
     enrich_workflow_publish_metadata,
     publish_workflow_data,
@@ -31,6 +34,7 @@ __all__ = [
     "show_workflow_data",
     "run_workflow_data",
     "delete_workflow_data",
+    "update_workflow_data",
     "upload_workflow_data",
     "download_workflow_data",
     "get_latest_workflow_version_data",

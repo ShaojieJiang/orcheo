@@ -47,6 +47,12 @@ def test_workflow_name_and_description_are_normalized() -> None:
     assert workflow.description == "Some description"
 
 
+def test_workflow_handle_is_normalized_and_validated() -> None:
+    workflow = Workflow(name="Demo Flow", handle="Demo-Flow-01")
+
+    assert workflow.handle == "demo-flow-01"
+
+
 def test_workflow_tag_normalization() -> None:
     workflow = Workflow(name="Tagged", tags=["alpha", " Alpha ", "beta", ""])
 

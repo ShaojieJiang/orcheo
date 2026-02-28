@@ -26,6 +26,7 @@ export interface WorkflowEdge {
 
 export interface Workflow {
   id: string;
+  handle?: string;
   name: string;
   description?: string;
   createdAt: string;

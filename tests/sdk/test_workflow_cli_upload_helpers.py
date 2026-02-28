@@ -61,7 +61,7 @@ def test_upload_langgraph_script_rename_failure() -> None:
             assert url.endswith("/api/workflows/wf-1")
             return {"id": "wf-1", "name": "existing"}
 
-        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+        def put(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
             raise RuntimeError("cannot rename")
 
     state.client = RenameFailingClient()

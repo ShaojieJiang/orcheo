@@ -27,7 +27,8 @@ def _enrich_workflow(
     public_base_url: str | None = None,
 ) -> dict[str, Any]:
     enriched = dict(workflow)
-    workflow_id = str(enriched.get("id")) if enriched.get("id") else None
+    workflow_ref = enriched.get("handle") or enriched.get("id")
+    workflow_id = str(workflow_ref) if workflow_ref else None
     if workflow_id and enriched.get("is_public"):
         if public_base_url:
             enriched["share_url"] = _build_share_url(

@@ -52,7 +52,7 @@ def _upload_langgraph_script(
             raise CLIError(f"Failed to fetch workflow '{workflow_id}': {exc}") from exc
         if name_override and workflow.get("name") != name_override:
             try:
-                state.client.post(
+                state.client.put(
                     f"/api/workflows/{workflow_id}",
                     json_body={"name": name_override},
                 )

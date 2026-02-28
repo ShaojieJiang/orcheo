@@ -130,7 +130,7 @@ export default function PublicChatPage() {
     const subject = encodeURIComponent(`Request access to ${sanitizedName}`);
     const link = typeof window !== "undefined" ? window.location.href : "";
     const body = encodeURIComponent(
-      `Hi,%0A%0ACould you confirm access for workflow "${sanitizedName}" (${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
+      `Hi,%0A%0ACould you confirm access for workflow "${sanitizedName}" (handle: ${workflowState.workflow.handle ?? "n/a"}, id: ${workflowState.workflow.id})?%0A%0ALink: ${link}%0A`,
     );
     return `mailto:?subject=${subject}&body=${body}`;
   }, [workflowState]);
@@ -334,6 +334,18 @@ export default function PublicChatPage() {
               Chat sessions open automatically for published workflows unless
               the owner requires OAuth login.
             </p>
+            {workflowState.status === "ready" && (
+              <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                {workflowState.workflow.handle && (
+                  <code className="rounded bg-slate-100 px-2 py-1 dark:bg-slate-900">
+                    handle: {workflowState.workflow.handle}
+                  </code>
+                )}
+                <code className="rounded bg-slate-100 px-2 py-1 dark:bg-slate-900">
+                  id: {workflowState.workflow.id}
+                </code>
+              </div>
+            )}
           </div>
           <ThemeToggleButtonGroup value={theme} onChange={setTheme} />
         </div>

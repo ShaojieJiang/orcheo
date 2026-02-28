@@ -5,6 +5,10 @@ import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException
 from orcheo.nodes.registry import registry
+from orcheo_backend.app.dependencies import (
+    RepositoryDep,
+    resolve_optional_workflow_ref_id,
+)
 from orcheo_backend.app.schemas.nodes import (
     NodeExecutionRequest,
     NodeExecutionResponse,
@@ -23,10 +27,14 @@ logger = logging.getLogger(__name__)
 )
 async def execute_node_endpoint(
     request: NodeExecutionRequest,
+    repository: RepositoryDep,
 ) -> NodeExecutionResponse:
     """Execute a single node in isolation for testing/preview purposes."""
     node_config = request.node_config
     inputs = request.inputs
+    workflow_id = await resolve_optional_workflow_ref_id(
+        repository, request.workflow_id
+    )
 
     node_type = node_config.get("type")
     if not node_type:
@@ -49,7 +57,7 @@ async def execute_node_endpoint(
             node_class,
             node_params,
             inputs,
-            workflow_id=request.workflow_id,
+            workflow_id=workflow_id,
         )
 
         node_name = node_params.get("name", "node")

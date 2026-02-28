@@ -210,7 +210,7 @@ export function useWorkflowLoader<TNode, TEdge>({
       }
 
       try {
-        const history = await loadWorkflowExecutions(workflowId, {
+        const history = await loadWorkflowExecutions(persisted.id, {
           workflow: persisted,
         });
         if (!isMounted) {

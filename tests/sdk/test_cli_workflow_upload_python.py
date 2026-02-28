@@ -55,7 +55,7 @@ workflow = Workflow(name="TestWorkflow")
 
     updated = {"id": "wf-1", "name": "TestWorkflow"}
     with respx.mock(assert_all_called=True) as router:
-        router.post("http://api.test/api/workflows/wf-1").mock(
+        router.put("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(200, json=updated)
         )
         result = runner.invoke(
@@ -112,7 +112,7 @@ workflow = Workflow(name="OldName")
 
     updated = {"id": "wf-1", "name": "Renamed Workflow"}
     with respx.mock(assert_all_called=True) as router:
-        update_route = router.post("http://api.test/api/workflows/wf-1").mock(
+        update_route = router.put("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(200, json=updated)
         )
         result = runner.invoke(

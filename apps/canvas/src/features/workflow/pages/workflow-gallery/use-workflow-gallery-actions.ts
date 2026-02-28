@@ -8,6 +8,7 @@ import {
   deleteWorkflow,
   duplicateWorkflow,
 } from "@features/workflow/lib/workflow-storage";
+import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
@@ -66,7 +67,7 @@ export const useWorkflowGalleryActions = (
         description: `"${workflow.name}" is ready to edit.`,
       });
 
-      handleOpenWorkflow(workflow.id);
+      handleOpenWorkflow(getWorkflowRouteRef(workflow));
     } catch (error) {
       toast({
         title: "Failed to create workflow",
@@ -97,7 +98,7 @@ export const useWorkflowGalleryActions = (
           description: `"${workflow.name}" has been added to your workspace.`,
         });
 
-        handleOpenWorkflow(workflow.id);
+        handleOpenWorkflow(getWorkflowRouteRef(workflow));
       } catch (error) {
         toast({
           title: "Failed to create workflow from template",
@@ -131,7 +132,7 @@ export const useWorkflowGalleryActions = (
           description: `"${copy.name}" is ready to edit.`,
         });
 
-        handleOpenWorkflow(copy.id);
+        handleOpenWorkflow(getWorkflowRouteRef(copy));
       } catch (error) {
         toast({
           title: "Failed to duplicate workflow",

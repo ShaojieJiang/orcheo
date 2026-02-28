@@ -3,7 +3,6 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from orcheo_backend.app.repository.errors import (
-    WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
 from .shared import create_workflow_with_version
@@ -134,8 +133,9 @@ def test_webhook_trigger_invoke_missing_workflow(api_client: TestClient) -> None
     """Webhook invocation returns a not found error for unknown workflows."""
 
     missing = str(uuid4())
-    with pytest.raises(WorkflowNotFoundError):
-        api_client.post(f"/api/workflows/{missing}/triggers/webhook")
+    response = api_client.post(f"/api/workflows/{missing}/triggers/webhook")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workflow not found"
 
 
 def test_webhook_trigger_invoke_requires_version(api_client: TestClient) -> None:
@@ -217,3 +217,42 @@ def test_webhook_trigger_slack_url_verification_short_circuits(
     runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
     assert runs_response.status_code == 200
     assert runs_response.json() == []
+
+
+def test_webhook_trigger_accepts_handle_route(api_client: TestClient) -> None:
+    """Webhook trigger config and invocation should accept a workflow handle."""
+    response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Webhook Handle Flow",
+            "handle": "webhook-handle-flow",
+            "actor": "tester",
+        },
+    )
+    assert response.status_code == 201
+    workflow_id = response.json()["id"]
+
+    api_client.post(
+        f"/api/workflows/{workflow_id}/versions",
+        json={
+            "graph": {"nodes": ["start"], "edges": []},
+            "metadata": {},
+            "created_by": "tester",
+        },
+    ).raise_for_status()
+
+    config_response = api_client.put(
+        "/api/workflows/webhook-handle-flow/triggers/webhook/config",
+        json={"allowed_methods": ["POST"]},
+    )
+    assert config_response.status_code == 200
+
+    trigger_response = api_client.post(
+        "/api/workflows/webhook-handle-flow/triggers/webhook",
+        json={"message": "hello"},
+    )
+    assert trigger_response.status_code == 202
+
+    runs_response = api_client.get(f"/api/workflows/{workflow_id}/runs")
+    assert runs_response.status_code == 200
+    assert len(runs_response.json()) == 1

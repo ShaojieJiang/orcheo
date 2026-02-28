@@ -62,3 +62,30 @@ def test_public_workflow_metadata_rejects_archived_workflow(
     response = api_client.get(f"/api/workflows/{workflow_id}/public")
 
     assert response.status_code == 404
+
+
+def test_public_workflow_metadata_accepts_handle(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Public Handle Workflow",
+            "handle": "public-handle-workflow",
+            "actor": "tester",
+        },
+    )
+    assert response.status_code == 201
+    workflow_id = response.json()["id"]
+
+    publish_response = api_client.post(
+        f"/api/workflows/{workflow_id}/publish",
+        json={"require_login": False, "actor": "publisher"},
+    )
+    assert publish_response.status_code == 201
+
+    handle_response = api_client.get("/api/workflows/public-handle-workflow/public")
+    assert handle_response.status_code == 200
+    payload = handle_response.json()
+    assert payload["id"] == workflow_id
+    assert payload["handle"] == "public-handle-workflow"

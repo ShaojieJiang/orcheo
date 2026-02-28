@@ -6,8 +6,10 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo_backend.app.repository import (
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
@@ -39,6 +41,106 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
         return self._deserialize_workflow(row["payload"])
+
+    async def _ensure_handle_available_locked(
+        self,
+        handle: str | None,
+        *,
+        workflow_id: UUID | None,
+        is_archived: bool,
+    ) -> None:
+        """Ensure the provided handle can be assigned."""
+        if handle is None:
+            return
+
+        workflow_id_str = str(workflow_id) if workflow_id is not None else None
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id
+                  FROM workflows
+                 WHERE id = %s
+                   AND (%s IS NULL OR id != %s)
+                """,
+                (handle, workflow_id_str, workflow_id_str),
+            )
+            row = await cursor.fetchone()
+            if row is not None:
+                msg = (
+                    "Workflow handle conflicts with an existing workflow UUID: "
+                    f"{handle}"
+                )
+                raise WorkflowHandleConflictError(msg)
+
+            cursor = await conn.execute(
+                """
+                SELECT id, is_archived
+                  FROM workflows
+                 WHERE handle = %s
+                   AND (%s IS NULL OR id != %s)
+                """,
+                (handle, workflow_id_str, workflow_id_str),
+            )
+            rows = await cursor.fetchall()
+
+        for row in rows:
+            if not row["is_archived"] or not is_archived:
+                msg = f"Workflow handle '{handle}' is already in use."
+                raise WorkflowHandleConflictError(msg)
+
+    async def _resolve_workflow_ref_locked(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        """Resolve a workflow ref using handle-first semantics."""
+        normalized_ref = workflow_ref.strip().lower()
+        if not normalized_ref:
+            raise WorkflowNotFoundError("workflow ref is empty")
+
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id
+                  FROM workflows
+                 WHERE handle = %s
+                   AND is_archived = FALSE
+              ORDER BY updated_at DESC
+                 LIMIT 1
+                """,
+                (normalized_ref,),
+            )
+            row = await cursor.fetchone()
+            if row is not None:
+                return UUID(row["id"])
+
+            if include_archived:
+                cursor = await conn.execute(
+                    """
+                    SELECT id
+                      FROM workflows
+                     WHERE handle = %s
+                       AND is_archived = TRUE
+                  ORDER BY updated_at DESC
+                     LIMIT 1
+                    """,
+                    (normalized_ref,),
+                )
+                row = await cursor.fetchone()
+                if row is not None:
+                    return UUID(row["id"])
+
+            if workflow_ref_is_uuid(normalized_ref):
+                cursor = await conn.execute(
+                    "SELECT id FROM workflows WHERE id = %s",
+                    (normalized_ref,),
+                )
+                row = await cursor.fetchone()
+                if row is not None:
+                    return UUID(row["id"])
+
+        raise WorkflowNotFoundError(normalized_ref)
 
     async def _get_version_locked(self, version_id: UUID) -> WorkflowVersion:
         async with self._connection() as conn:

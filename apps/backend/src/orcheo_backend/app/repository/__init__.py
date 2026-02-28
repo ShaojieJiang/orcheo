@@ -6,6 +6,7 @@ from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo_backend.app.repository.errors import (
     CronTriggerNotFoundError,
     RepositoryError,
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
     WorkflowRunNotFoundError,
@@ -37,6 +38,7 @@ __all__ = [
     "CronTriggerNotFoundError",
     "RepositoryError",
     "VersionDiff",
+    "WorkflowHandleConflictError",
     "Workflow",
     "WorkflowNotFoundError",
     "WorkflowPublishStateError",

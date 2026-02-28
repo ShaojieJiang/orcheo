@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from typing import Any
-from uuid import UUID
 from pydantic import BaseModel, Field
 
 
@@ -11,7 +10,7 @@ class NodeExecutionRequest(BaseModel):
 
     node_config: dict[str, Any]
     inputs: dict[str, Any] = Field(default_factory=dict)
-    workflow_id: UUID | None = None
+    workflow_id: str | None = None
 
 
 class NodeExecutionResponse(BaseModel):

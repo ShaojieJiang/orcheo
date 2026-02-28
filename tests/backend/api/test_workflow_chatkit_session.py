@@ -49,3 +49,29 @@ def test_chatkit_session_requires_authentication_when_enforced(
     assert response.status_code == 401
     payload = response.json()
     assert payload["detail"]["code"] == "auth.missing_token"
+
+
+def test_chatkit_session_accepts_handle_route(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workflow-scoped ChatKit sessions should accept workflow handles."""
+    monkeypatch.setenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", "workflow-session-key")
+    reset_chatkit_token_state()
+
+    response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Handle Session Workflow",
+            "handle": "handle-session-workflow",
+            "actor": "tester",
+        },
+    )
+    assert response.status_code == 201
+
+    session_response = api_client.post(
+        "/api/workflows/handle-session-workflow/chatkit/session"
+    )
+
+    assert session_response.status_code == 200
+    payload = session_response.json()
+    assert payload["client_secret"]
