@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
+from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -42,15 +43,16 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         actor: str,
     ) -> Workflow:
         await self._ensure_initialized()
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
             await self._ensure_handle_available_locked(
-                handle,
+                normalized_handle,
                 workflow_id=None,
                 is_archived=False,
             )
             workflow = Workflow(
                 name=name,
-                handle=handle,
+                handle=normalized_handle,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -110,6 +112,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         actor: str,
     ) -> Workflow:
         await self._ensure_initialized()
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
             workflow = await self._get_workflow_locked(workflow_id)
 
@@ -118,14 +121,17 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 workflow.is_archived if is_archived is None else is_archived
             )
 
-            if handle is not None and handle != workflow.handle:
+            if normalized_handle is not None and normalized_handle != workflow.handle:
                 await self._ensure_handle_available_locked(
-                    handle,
+                    normalized_handle,
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
                 )
-                metadata["handle"] = {"from": workflow.handle, "to": handle}
-                workflow.handle = handle
+                metadata["handle"] = {
+                    "from": workflow.handle,
+                    "to": normalized_handle,
+                }
+                workflow.handle = normalized_handle
 
             if name is not None and name != workflow.name:
                 metadata["name"] = {"from": workflow.name, "to": name}

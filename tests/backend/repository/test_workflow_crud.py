@@ -158,3 +158,72 @@ async def test_update_missing_workflow(repository: WorkflowRepository) -> None:
             is_archived=None,
             actor="tester",
         )
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_rejects_uuid_like_handle(
+    repository: WorkflowRepository,
+) -> None:
+    """Workflow handles cannot use a UUID format."""
+
+    with pytest.raises(ValueError, match="must not use a UUID format"):
+        await repository.create_workflow(
+            name="UUID Handle",
+            handle="550e8400-e29b-41d4-a716-446655440000",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_rejects_uuid_like_handle(
+    repository: WorkflowRepository,
+) -> None:
+    """Workflow updates validate handles even when bypassing the API layer."""
+
+    created = await repository.create_workflow(
+        name="Original",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    with pytest.raises(ValueError, match="must not use a UUID format"):
+        await repository.update_workflow(
+            created.id,
+            name=None,
+            handle="550e8400-e29b-41d4-a716-446655440000",
+            description=None,
+            tags=None,
+            is_archived=None,
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
+async def test_resolve_workflow_ref_finds_archived_handle_when_requested(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived handles remain resolvable unless explicitly excluded."""
+
+    archived = await repository.create_workflow(
+        name="Archived",
+        handle="shared-handle",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.archive_workflow(archived.id, actor="tester")
+
+    resolved = await repository.resolve_workflow_ref("shared-handle")
+    assert resolved == archived.id
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.resolve_workflow_ref(
+            "shared-handle",
+            include_archived=False,
+        )

@@ -172,14 +172,6 @@ class InMemoryRepositoryState:
         if handle is None:
             return
 
-        for existing_id in self._workflows:
-            if existing_id != workflow_id and str(existing_id) == handle:
-                msg = (
-                    "Workflow handle conflicts with an existing workflow UUID: "
-                    f"{handle}"
-                )
-                raise WorkflowHandleConflictError(msg)
-
         for existing in self._workflows.values():
             if existing.id == workflow_id or existing.handle != handle:
                 continue

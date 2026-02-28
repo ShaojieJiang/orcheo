@@ -13,8 +13,8 @@ router = APIRouter()
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
 
 
-@router.websocket("/ws/workflow/{workflow_id}")
-async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
+@router.websocket("/ws/workflow/{workflow_ref}")
+async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:
     """Handle workflow websocket connections by delegating to the executor."""
     from orcheo_backend.app import (
         authenticate_websocket,
@@ -38,7 +38,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
 
     try:
         repository = get_repository()
-        resolved_workflow_id = str(await repository.resolve_workflow_ref(workflow_id))
+        resolved_workflow_id = str(await repository.resolve_workflow_ref(workflow_ref))
         while True:
             data = await websocket.receive_json()
 

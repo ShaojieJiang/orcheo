@@ -4,6 +4,7 @@ import pathlib
 from datetime import UTC, datetime
 import aiosqlite
 import pytest
+from orcheo.models.workflow import Workflow
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -126,6 +127,60 @@ async def test_sqlite_ensure_cron_schema_migrations_adds_missing_column(
         rows = await cursor.fetchall()
 
     assert any(row["name"] == "last_dispatched_at" for row in rows)
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The workflow migration adds mirrored columns and backfills them."""
+
+    db_path = tmp_path / "legacy-workflows.sqlite"
+    repo_base = SqliteRepositoryBase(db_path)
+    workflow = Workflow(name="Legacy Flow", handle="legacy-flow")
+    workflow.is_archived = True
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO workflows (id, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                str(workflow.id),
+                workflow.model_dump_json(),
+                workflow.created_at.isoformat(),
+                workflow.updated_at.isoformat(),
+            ),
+        )
+        await conn.commit()
+
+        await repo_base._ensure_workflow_schema_migrations(conn)
+
+        cursor = await conn.execute("PRAGMA table_info(workflows)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        cursor = await conn.execute(
+            "SELECT handle, is_archived FROM workflows WHERE id = ?",
+            (str(workflow.id),),
+        )
+        row = await cursor.fetchone()
+
+    assert "handle" in columns
+    assert "is_archived" in columns
+    assert row is not None
+    assert row["handle"] == "legacy-flow"
+    assert row["is_archived"] == 1
 
 
 @pytest.mark.asyncio()

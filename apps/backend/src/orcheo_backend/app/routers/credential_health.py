@@ -21,16 +21,16 @@ router = APIRouter()
 
 
 @router.get(
-    "/workflows/{workflow_id}/credentials/health",
+    "/workflows/{workflow_ref}/credentials/health",
     response_model=CredentialHealthResponse,
 )
 async def get_workflow_credential_health(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
     service: CredentialServiceDep,
 ) -> CredentialHealthResponse:
     """Return cached credential health information for a workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -54,17 +54,17 @@ async def get_workflow_credential_health(
 
 
 @router.post(
-    "/workflows/{workflow_id}/credentials/validate",
+    "/workflows/{workflow_ref}/credentials/validate",
     response_model=CredentialHealthResponse,
 )
 async def validate_workflow_credentials(
-    workflow_id: str,
+    workflow_ref: str,
     request: CredentialValidationRequest,
     repository: RepositoryDep,
     service: CredentialServiceDep,
 ) -> CredentialHealthResponse:
     """Trigger validation of workflow credentials and return the updated report."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:

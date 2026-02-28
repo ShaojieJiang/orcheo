@@ -36,18 +36,18 @@ router = APIRouter()
 
 
 @router.post(
-    "/workflows/{workflow_id}/runs",
+    "/workflows/{workflow_ref}/runs",
     response_model=WorkflowRun,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workflow_run(
-    workflow_id: str,
+    workflow_ref: str,
     request: WorkflowRunCreateRequest,
     repository: RepositoryDep,
     _service: CredentialServiceDep,
 ) -> WorkflowRun:
     """Create a workflow execution run."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         config_payload = (
             request.runnable_config.model_dump(mode="json")
@@ -73,15 +73,15 @@ async def create_workflow_run(
 
 
 @router.get(
-    "/workflows/{workflow_id}/runs",
+    "/workflows/{workflow_ref}/runs",
     response_model=list[WorkflowRun],
 )
 async def list_workflow_runs(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> list[WorkflowRun]:
     """List runs for a given workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         return await repository.list_runs_for_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -173,17 +173,17 @@ async def mark_run_cancelled(
 
 
 @router.get(
-    "/workflows/{workflow_id}/executions",
+    "/workflows/{workflow_ref}/executions",
     response_model=list[RunHistoryResponse],
 )
 async def list_workflow_execution_histories(
-    workflow_id: str,
+    workflow_ref: str,
     history_store: HistoryStoreDep,
     repository: RepositoryDep,
     limit: int = Query(50, ge=1, le=200),
 ) -> list[RunHistoryResponse]:
     """Return execution histories recorded for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     records = await history_store.list_histories(str(workflow_uuid), limit=limit)
     return [history_to_response(record) for record in records]
 

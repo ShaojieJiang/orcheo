@@ -29,6 +29,9 @@ def normalize_workflow_handle(value: str | None) -> str | None:
             "and single hyphens."
         )
         raise ValueError(msg)
+    if workflow_ref_is_uuid(normalized):
+        msg = "Workflow handle must not use a UUID format."
+        raise ValueError(msg)
     return normalized
 
 

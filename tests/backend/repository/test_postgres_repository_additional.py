@@ -275,6 +275,67 @@ async def test_persistence_get_latest_version_locked_not_found_raises(
 
 
 @pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_uses_single_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow ref resolution should not fan out into multiple sequential queries."""
+
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"id": str(workflow_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    resolved = await repo._resolve_workflow_ref_locked("handle-flow")
+
+    assert resolved == workflow_id
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+    assert len(connection.queries) == 1
+
+
+@pytest.mark.asyncio
+async def test_base_ensure_workflow_schema_migrations_backfills_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow migrations should add mirrored columns for existing Postgres rows."""
+
+    workflow_id = uuid4()
+    legacy_payload = _workflow_payload(
+        workflow_id,
+        handle="legacy-flow",
+        is_archived=True,
+    )
+    responses: list[Any] = [
+        {"rows": []},
+        {},
+        {},
+        {"rows": [{"id": str(workflow_id), "payload": legacy_payload}]},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_workflow_schema_migrations(connection)
+
+    queries = [query for query, _ in connection.queries]
+    assert any(
+        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
+    )
+    assert any(
+        "ALTER TABLE workflows ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
+        in query
+        for query in queries
+    )
+    update_query, update_params = connection.queries[-1]
+    assert "UPDATE workflows" in update_query
+    assert update_params is not None
+    assert update_params[0] == "legacy-flow"
+    assert update_params[1] is True
+    assert isinstance(update_params[2], datetime)
+    assert update_params[3] == str(workflow_id)
+
+
+@pytest.mark.asyncio
 async def test_persistence_get_run_locked_with_string_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

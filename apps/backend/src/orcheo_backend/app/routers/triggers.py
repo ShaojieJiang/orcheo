@@ -205,16 +205,16 @@ def _build_json_immediate_response(
 
 
 @router.put(
-    "/workflows/{workflow_id}/triggers/webhook/config",
+    "/workflows/{workflow_ref}/triggers/webhook/config",
     response_model=WebhookTriggerConfig,
 )
 async def configure_webhook_trigger(
-    workflow_id: str,
+    workflow_ref: str,
     request: WebhookTriggerConfig,
     repository: RepositoryDep,
 ) -> WebhookTriggerConfig:
     """Persist webhook trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         return await repository.configure_webhook_trigger(workflow_uuid, request)
     except WorkflowNotFoundError as exc:
@@ -222,15 +222,15 @@ async def configure_webhook_trigger(
 
 
 @router.get(
-    "/workflows/{workflow_id}/triggers/webhook/config",
+    "/workflows/{workflow_ref}/triggers/webhook/config",
     response_model=WebhookTriggerConfig,
 )
 async def get_webhook_trigger_config(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> WebhookTriggerConfig:
     """Return the configured webhook trigger definition."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         return await repository.get_webhook_trigger_config(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -266,13 +266,13 @@ async def _queue_webhook_run(
 
 
 @public_webhook_router.api_route(
-    "/workflows/{workflow_id}/triggers/webhook",
+    "/workflows/{workflow_ref}/triggers/webhook",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def invoke_webhook_trigger(
-    workflow_id: str,
+    workflow_ref: str,
     request: Request,
     repository: RepositoryDep,
     vault: VaultDep,
@@ -282,7 +282,7 @@ async def invoke_webhook_trigger(
     ),
 ) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
     """Validate inbound webhook data and enqueue a workflow run."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         raw_body = await request.body()
     except Exception as exc:  # pragma: no cover - FastAPI handles body read
@@ -345,16 +345,16 @@ async def invoke_webhook_trigger(
 
 
 @router.put(
-    "/workflows/{workflow_id}/triggers/cron/config",
+    "/workflows/{workflow_ref}/triggers/cron/config",
     response_model=CronTriggerConfig,
 )
 async def configure_cron_trigger(
-    workflow_id: str,
+    workflow_ref: str,
     request: CronTriggerConfig,
     repository: RepositoryDep,
 ) -> CronTriggerConfig:
     """Persist cron trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         return await repository.configure_cron_trigger(workflow_uuid, request)
     except WorkflowNotFoundError as exc:
@@ -362,15 +362,15 @@ async def configure_cron_trigger(
 
 
 @router.get(
-    "/workflows/{workflow_id}/triggers/cron/config",
+    "/workflows/{workflow_ref}/triggers/cron/config",
     response_model=CronTriggerConfig,
 )
 async def get_cron_trigger_config(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> CronTriggerConfig:
     """Return the configured cron trigger definition."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         return await repository.get_cron_trigger_config(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -380,17 +380,17 @@ async def get_cron_trigger_config(
 
 
 @router.delete(
-    "/workflows/{workflow_id}/triggers/cron/config",
+    "/workflows/{workflow_ref}/triggers/cron/config",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     response_model=None,
 )
 async def delete_cron_trigger(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> Response:
     """Remove the cron trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         await repository.delete_cron_trigger(workflow_uuid)
     except WorkflowNotFoundError as exc:

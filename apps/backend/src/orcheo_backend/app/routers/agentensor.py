@@ -16,33 +16,33 @@ router = APIRouter()
 
 
 @router.get(
-    "/workflows/{workflow_id}/agentensor/checkpoints",
+    "/workflows/{workflow_ref}/agentensor/checkpoints",
     response_model=list[AgentensorCheckpointResponse],
 )
 async def list_agentensor_checkpoints(
-    workflow_id: str,
+    workflow_ref: str,
     repository: RepositoryDep,
     store: CheckpointStoreDep,
     limit: int = Query(20, ge=1, le=200),
 ) -> list[AgentensorCheckpointResponse]:
     """List checkpoints for the specified workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     checkpoints = await store.list_checkpoints(str(workflow_uuid), limit=limit)
     return [AgentensorCheckpointResponse.from_domain(item) for item in checkpoints]
 
 
 @router.get(
-    "/workflows/{workflow_id}/agentensor/checkpoints/{checkpoint_id}",
+    "/workflows/{workflow_ref}/agentensor/checkpoints/{checkpoint_id}",
     response_model=AgentensorCheckpointResponse,
 )
 async def get_agentensor_checkpoint(
-    workflow_id: str,
+    workflow_ref: str,
     checkpoint_id: str,
     repository: RepositoryDep,
     store: CheckpointStoreDep,
 ) -> AgentensorCheckpointResponse:
     """Return a single checkpoint for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         checkpoint = await store.get_checkpoint(checkpoint_id)
     except AgentensorCheckpointNotFoundError as exc:

@@ -533,18 +533,18 @@ async def create_chatkit_session_endpoint(
 
 
 @router.post(
-    "/chatkit/workflows/{workflow_id}/trigger",
+    "/chatkit/workflows/{workflow_ref}/trigger",
     response_model=WorkflowRun,
     status_code=status.HTTP_201_CREATED,
 )
 async def trigger_chatkit_workflow(
-    workflow_id: str,
+    workflow_ref: str,
     request: ChatKitWorkflowTriggerRequest,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowRun:
     """Create a workflow run initiated from the ChatKit interface."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_id)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         policy.require_authenticated()
     except AuthenticationError as exc:

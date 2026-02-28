@@ -53,6 +53,11 @@ def test_workflow_handle_is_normalized_and_validated() -> None:
     assert workflow.handle == "demo-flow-01"
 
 
+def test_workflow_handle_rejects_uuid_format() -> None:
+    with pytest.raises(ValidationError, match="must not use a UUID format"):
+        Workflow(name="Demo Flow", handle="550e8400-e29b-41d4-a716-446655440000")
+
+
 def test_workflow_tag_normalization() -> None:
     workflow = Workflow(name="Tagged", tags=["alpha", " Alpha ", "beta", ""])
 
