@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialKind, CredentialMetadata, CredentialScope
@@ -13,7 +13,19 @@ from orcheo.vault import (
 )
 
 
-def test_list_credentials_success() -> None:
+class _Repository:
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
+
+@pytest.mark.asyncio()
+async def test_list_credentials_success() -> None:
     """List credentials endpoint returns credentials."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import list_credentials
@@ -54,14 +66,15 @@ def test_list_credentials_success() -> None:
                 ),
             ]
 
-    result = list_credentials(Vault())
+    result = await list_credentials(Vault(), _Repository())
 
     assert len(result) == 2
     assert result[0].id == str(cred1_id)
     assert result[1].id == str(cred2_id)
 
 
-def test_list_credentials_with_workflow_context() -> None:
+@pytest.mark.asyncio()
+async def test_list_credentials_with_workflow_context() -> None:
     """List credentials uses workflow context for filtering."""
     from orcheo_backend.app import list_credentials
 
@@ -74,13 +87,14 @@ def test_list_credentials_with_workflow_context() -> None:
             context_received = context
             return []
 
-    list_credentials(Vault(), workflow_id=workflow_id)
+    await list_credentials(Vault(), _Repository(), workflow_id=str(workflow_id))
 
     assert context_received is not None
     assert context_received.workflow_id == workflow_id
 
 
-def test_create_credential_success() -> None:
+@pytest.mark.asyncio()
+async def test_create_credential_success() -> None:
     """Create credential endpoint creates and returns credential."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import create_credential
@@ -115,13 +129,14 @@ def test_create_credential_success() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = create_credential(request, Vault())
+    result = await create_credential(request, _Repository(), Vault())
 
     assert result.id == str(cred_id)
     assert result.name == "Test Cred"
 
 
-def test_create_credential_validation_error() -> None:
+@pytest.mark.asyncio()
+async def test_create_credential_validation_error() -> None:
     """Create credential handles validation errors."""
     from orcheo_backend.app import create_credential
     from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
@@ -141,12 +156,13 @@ def test_create_credential_validation_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        create_credential(request, Vault())
+        await create_credential(request, _Repository(), Vault())
 
     assert exc_info.value.status_code == 422
 
 
-def test_create_credential_access_override() -> None:
+@pytest.mark.asyncio()
+async def test_create_credential_access_override() -> None:
     """Create credential overrides access when request differs from inferred."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import create_credential
@@ -182,12 +198,13 @@ def test_create_credential_access_override() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = create_credential(request, Vault())
+    result = await create_credential(request, _Repository(), Vault())
 
     assert result.access == "shared"
 
 
-def test_delete_credential_success() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_success() -> None:
     """Delete credential endpoint deletes credential."""
     from orcheo_backend.app import delete_credential
 
@@ -199,13 +216,14 @@ def test_delete_credential_success() -> None:
             nonlocal deleted_id
             deleted_id = credential_id
 
-    response = delete_credential(cred_id, Vault())
+    response = await delete_credential(cred_id, Vault(), _Repository())
 
     assert response.status_code == 204
     assert deleted_id == cred_id
 
 
-def test_delete_credential_not_found() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_not_found() -> None:
     """Delete credential raises 404 for missing credential."""
     from orcheo.vault import CredentialNotFoundError
     from orcheo_backend.app import delete_credential
@@ -217,12 +235,13 @@ def test_delete_credential_not_found() -> None:
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        delete_credential(cred_id, Vault())
+        await delete_credential(cred_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 404
 
 
-def test_delete_credential_scope_error() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_scope_error() -> None:
     """Delete credential raises 403 for scope violations."""
     from orcheo_backend.app import delete_credential
 
@@ -233,12 +252,13 @@ def test_delete_credential_scope_error() -> None:
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        delete_credential(cred_id, Vault())
+        await delete_credential(cred_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 403
 
 
-def test_reveal_credential_secret_not_found() -> None:
+@pytest.mark.asyncio()
+async def test_reveal_credential_secret_not_found() -> None:
     from orcheo_backend.app import reveal_credential_secret
 
     cred_id = uuid4()
@@ -248,12 +268,13 @@ def test_reveal_credential_secret_not_found() -> None:
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        reveal_credential_secret(cred_id, Vault())
+        await reveal_credential_secret(cred_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 404
 
 
-def test_reveal_credential_secret_scope_error() -> None:
+@pytest.mark.asyncio()
+async def test_reveal_credential_secret_scope_error() -> None:
     from orcheo_backend.app import reveal_credential_secret
 
     cred_id = uuid4()
@@ -263,12 +284,13 @@ def test_reveal_credential_secret_scope_error() -> None:
             raise WorkflowScopeError("denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        reveal_credential_secret(cred_id, Vault())
+        await reveal_credential_secret(cred_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 403
 
 
-def test_update_credential_duplicate_name_error() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_duplicate_name_error() -> None:
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
 
@@ -280,12 +302,13 @@ def test_update_credential_duplicate_name_error() -> None:
 
     request = CredentialUpdateRequest(actor="tester", name="duplicate")
     with pytest.raises(HTTPException) as exc_info:
-        update_credential(cred_id, request, Vault())
+        await update_credential(cred_id, request, _Repository(), Vault())
 
     assert exc_info.value.status_code == 409
 
 
-def test_update_credential_validation_error() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_validation_error() -> None:
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
 
@@ -297,12 +320,13 @@ def test_update_credential_validation_error() -> None:
 
     request = CredentialUpdateRequest(actor="tester", name="bad")
     with pytest.raises(HTTPException) as exc_info:
-        update_credential(cred_id, request, Vault())
+        await update_credential(cred_id, request, _Repository(), Vault())
 
     assert exc_info.value.status_code == 422
 
 
-def test_update_credential_access_override() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_access_override() -> None:
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
@@ -328,5 +352,11 @@ def test_update_credential_access_override() -> None:
             )
 
     request = CredentialUpdateRequest(actor="tester", access="shared")
-    result = update_credential(cred_id, request, Vault(), workflow_id=workflow_id)
+    result = await update_credential(
+        cred_id,
+        request,
+        _Repository(),
+        Vault(),
+        workflow_id=str(workflow_id),
+    )
     assert result.access == "shared"

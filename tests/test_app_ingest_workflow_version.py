@@ -166,6 +166,12 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
     )
 
     class FailingRepository(InMemoryWorkflowRepository):
+        async def resolve_workflow_ref(
+            self, workflow_ref: str, *, include_archived: bool = True
+        ) -> UUID:
+            del include_archived
+            return UUID(str(workflow_ref))
+
         async def create_version(
             self,
             workflow_id: UUID,
@@ -179,9 +185,10 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
             raise WorkflowNotFoundError(str(workflow_id))
 
     repository = FailingRepository()
+    workflow_id = uuid4()
 
     with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(uuid4(), request, repository)
+        await ingest_workflow_version(str(workflow_id), request, repository)
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Workflow not found"

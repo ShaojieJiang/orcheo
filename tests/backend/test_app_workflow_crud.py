@@ -87,6 +87,10 @@ async def test_get_workflow_returns_workflow() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_workflow(self, wf_id):
             return Workflow(
                 id=wf_id,
@@ -96,7 +100,7 @@ async def test_get_workflow_returns_workflow() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow(workflow_id, Repository())
+    result = await get_workflow(str(workflow_id), Repository())
 
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
@@ -108,11 +112,15 @@ async def test_get_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_workflow(self, wf_id):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow(workflow_id, Repository())
+        await get_workflow(str(workflow_id), Repository())
 
     assert exc_info.value.status_code == 404
 
@@ -123,6 +131,10 @@ async def test_update_workflow_returns_updated() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def update_workflow(
             self, wf_id, name, description, tags, is_archived, actor
         ):
@@ -145,7 +157,7 @@ async def test_update_workflow_returns_updated() -> None:
         actor="admin",
     )
 
-    result = await update_workflow(workflow_id, request, Repository())
+    result = await update_workflow(str(workflow_id), request, Repository())
 
     assert result.id == workflow_id
     assert result.name == "Updated Workflow"
@@ -157,6 +169,10 @@ async def test_update_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def update_workflow(
             self, wf_id, name, description, tags, is_archived, actor
         ):
@@ -168,7 +184,7 @@ async def test_update_workflow_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_workflow(workflow_id, request, Repository())
+        await update_workflow(str(workflow_id), request, Repository())
 
     assert exc_info.value.status_code == 404
 
@@ -179,6 +195,10 @@ async def test_archive_workflow_returns_archived() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def archive_workflow(self, wf_id, actor):
             return Workflow(
                 id=wf_id,
@@ -189,7 +209,7 @@ async def test_archive_workflow_returns_archived() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await archive_workflow(workflow_id, Repository(), actor="admin")
+    result = await archive_workflow(str(workflow_id), Repository(), actor="admin")
 
     assert result.id == workflow_id
     assert result.is_archived is True
@@ -201,10 +221,14 @@ async def test_archive_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def archive_workflow(self, wf_id, actor):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await archive_workflow(workflow_id, Repository(), actor="admin")
+        await archive_workflow(str(workflow_id), Repository(), actor="admin")
 
     assert exc_info.value.status_code == 404

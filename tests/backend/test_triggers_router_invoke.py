@@ -59,6 +59,10 @@ async def test_invoke_webhook_trigger_returns_immediate_response(
         def __init__(self) -> None:
             self.handle_webhook_trigger = AsyncMock()
 
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -75,7 +79,7 @@ async def test_invoke_webhook_trigger_returns_immediate_response(
 
     repository = Repository()
     response = await triggers_router.invoke_webhook_trigger(
-        workflow_id,
+        str(workflow_id),
         request,
         repository=repository,
         vault=object(),
@@ -98,6 +102,10 @@ async def test_invoke_webhook_trigger_queues_run(
     )
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -117,7 +125,7 @@ async def test_invoke_webhook_trigger_queues_run(
     monkeypatch.setattr(triggers_router, "_queue_webhook_run", _fake_queue_run)
 
     response = await triggers_router.invoke_webhook_trigger(
-        workflow_id,
+        str(workflow_id),
         request,
         repository=Repository(),
         vault=object(),
@@ -134,6 +142,10 @@ async def test_invoke_webhook_trigger_returns_accepted_when_no_run(
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -149,7 +161,7 @@ async def test_invoke_webhook_trigger_returns_accepted_when_no_run(
     )
 
     response = await triggers_router.invoke_webhook_trigger(
-        workflow_id,
+        str(workflow_id),
         request,
         repository=Repository(),
         vault=object(),
@@ -165,12 +177,16 @@ async def test_invoke_webhook_trigger_reports_missing_workflow() -> None:
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             raise WorkflowNotFoundError("missing")
 
     with pytest.raises(HTTPException) as exc_info:
         await triggers_router.invoke_webhook_trigger(
-            workflow_id,
+            str(workflow_id),
             request,
             repository=Repository(),
             vault=object(),
@@ -186,12 +202,16 @@ async def test_invoke_webhook_trigger_reports_missing_version() -> None:
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             raise WorkflowVersionNotFoundError("missing version")
 
     with pytest.raises(HTTPException) as exc_info:
         await triggers_router.invoke_webhook_trigger(
-            workflow_id,
+            str(workflow_id),
             request,
             repository=Repository(),
             vault=object(),

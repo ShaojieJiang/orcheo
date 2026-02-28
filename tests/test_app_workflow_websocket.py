@@ -8,6 +8,15 @@ from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 
 
+class _Repository:
+    def __init__(self, resolved_workflow_id: str) -> None:
+        self._resolved_workflow_id = resolved_workflow_id
+
+    async def resolve_workflow_ref(self, workflow_ref: str, *, include_archived=True):
+        del workflow_ref, include_archived
+        return self._resolved_workflow_id
+
+
 @pytest.mark.asyncio
 async def test_workflow_websocket_routes_requests(
     monkeypatch: pytest.MonkeyPatch,
@@ -30,13 +39,21 @@ async def test_workflow_websocket_routes_requests(
     }
 
     with (
-        patch("orcheo_backend.app.execute_workflow") as mock_execute,
+        patch(
+            "orcheo_backend.app.authenticate_websocket", AsyncMock(return_value=Mock())
+        ),
+        patch(
+            "orcheo_backend.app.get_repository",
+            return_value=_Repository("test-workflow"),
+        ),
+        patch(
+            "orcheo_backend.app.execute_workflow", new_callable=AsyncMock
+        ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
             {"store": InMemoryRunHistoryStore()},
         ),
     ):
-        mock_execute.return_value = None
         await workflow_websocket(mock_websocket, "test-workflow")
 
     mock_websocket.accept.assert_called_once()
@@ -76,13 +93,22 @@ async def test_workflow_websocket_routes_evaluation_requests(
     }
 
     with (
-        patch("orcheo_backend.app.execute_workflow_evaluation") as mock_execute,
+        patch(
+            "orcheo_backend.app.authenticate_websocket", AsyncMock(return_value=Mock())
+        ),
+        patch(
+            "orcheo_backend.app.get_repository",
+            return_value=_Repository("workflow-abc"),
+        ),
+        patch(
+            "orcheo_backend.app.execute_workflow_evaluation",
+            new_callable=AsyncMock,
+        ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
             {"store": InMemoryRunHistoryStore()},
         ),
     ):
-        mock_execute.return_value = None
         await workflow_websocket(mock_websocket, "workflow-abc")
 
     mock_execute.assert_called_once_with(
@@ -120,13 +146,22 @@ async def test_workflow_websocket_routes_training_requests(
     }
 
     with (
-        patch("orcheo_backend.app.execute_workflow_training") as mock_execute,
+        patch(
+            "orcheo_backend.app.authenticate_websocket", AsyncMock(return_value=Mock())
+        ),
+        patch(
+            "orcheo_backend.app.get_repository",
+            return_value=_Repository("workflow-train"),
+        ),
+        patch(
+            "orcheo_backend.app.execute_workflow_training",
+            new_callable=AsyncMock,
+        ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
             {"store": InMemoryRunHistoryStore()},
         ),
     ):
-        mock_execute.return_value = None
         await workflow_websocket(mock_websocket, "workflow-train")
 
     mock_execute.assert_called_once_with(

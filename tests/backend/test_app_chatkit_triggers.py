@@ -57,6 +57,10 @@ async def test_trigger_chatkit_workflow_creates_run() -> None:
     run_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             return WorkflowVersion(
                 id=uuid4(),
@@ -87,7 +91,7 @@ async def test_trigger_chatkit_workflow_creates_run() -> None:
     )
 
     result = await trigger_chatkit_workflow(
-        workflow_id,
+        str(workflow_id),
         request,
         Repository(),
         _authenticated_policy(),
@@ -104,6 +108,10 @@ async def test_trigger_chatkit_workflow_missing_workflow() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             raise WorkflowNotFoundError("not found")
 
@@ -115,7 +123,7 @@ async def test_trigger_chatkit_workflow_missing_workflow() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await trigger_chatkit_workflow(
-            workflow_id,
+            str(workflow_id),
             request,
             Repository(),
             _authenticated_policy(),
@@ -131,6 +139,10 @@ async def test_trigger_chatkit_workflow_credential_health_error() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             return WorkflowVersion(
                 id=uuid4(),
@@ -155,7 +167,7 @@ async def test_trigger_chatkit_workflow_credential_health_error() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await trigger_chatkit_workflow(
-            workflow_id,
+            str(workflow_id),
             request,
             Repository(),
             _authenticated_policy(),
@@ -181,6 +193,10 @@ async def test_trigger_chatkit_workflow_handles_missing_run_workflow() -> None:
     )
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             return version
 
@@ -197,7 +213,7 @@ async def test_trigger_chatkit_workflow_handles_missing_run_workflow() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await trigger_chatkit_workflow(
-            workflow_id,
+            str(workflow_id),
             request,
             Repository(),
             _authenticated_policy(),
@@ -223,6 +239,10 @@ async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
     )
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             return version
 
@@ -239,7 +259,7 @@ async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
 
     with pytest.raises(HTTPException):
         await trigger_chatkit_workflow(
-            workflow_id,
+            str(workflow_id),
             request,
             Repository(),
             _authenticated_policy(),
@@ -261,6 +281,10 @@ async def test_trigger_chatkit_workflow_requires_authentication(
     )
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def get_latest_version(self, wf_id):
             return WorkflowVersion(
                 id=uuid4(),
@@ -288,7 +312,7 @@ async def test_trigger_chatkit_workflow_requires_authentication(
 
     with pytest.raises(HTTPException) as exc_info:
         await trigger_chatkit_workflow(
-            workflow_id,
+            str(workflow_id),
             request,
             Repository(),
             AuthorizationPolicy(RequestContext.anonymous()),

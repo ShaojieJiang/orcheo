@@ -25,7 +25,7 @@ def test_create_app_returns_fastapi_instance() -> None:
         route for route in app.router.routes if isinstance(route, WebSocketRoute)
     ]
     websocket_paths = {route.path for route in websocket_routes}
-    assert "/ws/workflow/{workflow_id}" in websocket_paths
+    assert "/ws/workflow/{workflow_ref}" in websocket_paths
 
 
 def test_get_app_matches_module_level_app() -> None:

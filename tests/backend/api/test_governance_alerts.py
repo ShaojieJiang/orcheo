@@ -14,6 +14,15 @@ from orcheo.vault.oauth import OAuthCredentialService, OAuthTokenSecrets
 from .shared import StaticProvider, create_workflow_with_version
 
 
+def _create_workflow(api_client: TestClient) -> UUID:
+    response = api_client.post(
+        "/api/workflows",
+        json={"name": "Governance Flow", "actor": "tester"},
+    )
+    assert response.status_code == 201
+    return UUID(response.json()["id"])
+
+
 def test_acknowledge_alert_not_found_returns_404(api_client: TestClient) -> None:
     response = api_client.post(
         f"/api/credentials/governance-alerts/{uuid4()}/acknowledge",
@@ -26,7 +35,8 @@ def test_acknowledge_alert_not_found_returns_404(api_client: TestClient) -> None
 def test_acknowledge_alert_scope_violation_returns_403(
     api_client: TestClient,
 ) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
+    other_workflow_id = _create_workflow(api_client)
     vault: InMemoryCredentialVault = api_client.app.state.vault
     template = vault.create_template(
         name="Restricted",
@@ -46,7 +56,7 @@ def test_acknowledge_alert_scope_violation_returns_403(
 
     response = api_client.post(
         f"/api/credentials/governance-alerts/{alert.id}/acknowledge",
-        params={"workflow_id": str(uuid4())},
+        params={"workflow_id": str(other_workflow_id)},
         json={"actor": "tester"},
     )
 

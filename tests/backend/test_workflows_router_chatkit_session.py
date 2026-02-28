@@ -25,6 +25,14 @@ class _WorkflowRepo:
     def __init__(self, workflow: Workflow) -> None:
         self._workflow = workflow
 
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        if UUID(str(workflow_ref)) != self._workflow.id:
+            raise WorkflowNotFoundError(str(workflow_ref))
+        return self._workflow.id
+
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         if workflow_id != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
@@ -32,6 +40,12 @@ class _WorkflowRepo:
 
 
 class _MissingWorkflowRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        raise WorkflowNotFoundError(str(workflow_ref))
+
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
@@ -74,7 +88,7 @@ async def test_create_workflow_chatkit_session_requires_authentication() -> None
 
     with pytest.raises(AuthenticationError):
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -89,7 +103,7 @@ async def test_create_workflow_chatkit_session_requires_permissions() -> None:
 
     with pytest.raises(AuthorizationError):
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -99,6 +113,14 @@ async def test_create_workflow_chatkit_session_requires_permissions() -> None:
 class _ArchivedWorkflowRepo:
     def __init__(self, workflow: Workflow) -> None:
         self._workflow = workflow
+
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        if UUID(str(workflow_ref)) != self._workflow.id:
+            raise WorkflowNotFoundError(str(workflow_ref))
+        return self._workflow.id
 
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         if workflow_id != self._workflow.id:
@@ -113,7 +135,7 @@ async def test_create_workflow_chatkit_session_validates_workflow_exists() -> No
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.create_workflow_chatkit_session(
-            uuid4(),
+            str(uuid4()),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -133,7 +155,7 @@ async def test_create_workflow_chatkit_session_rejects_archived_workflow() -> No
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -150,7 +172,7 @@ async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
     issuer = _issuer()
 
     response = await workflows.create_workflow_chatkit_session(
-        workflow.id,
+        str(workflow.id),
         repo,
         policy=policy,
         issuer=issuer,
@@ -193,7 +215,7 @@ async def test_create_workflow_chatkit_session_requires_workspace_match() -> Non
 
     with pytest.raises(AuthorizationError):
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -214,7 +236,7 @@ async def test_chatkit_session_matches_workspace_case_insensitively() -> None:
     )
 
     response = await workflows.create_workflow_chatkit_session(
-        workflow.id,
+        str(workflow.id),
         repo,
         policy=policy,
         issuer=_issuer(),
@@ -247,7 +269,7 @@ async def test_create_workflow_chatkit_session_falls_back_to_owner() -> None:
     )
 
     response = await workflows.create_workflow_chatkit_session(
-        workflow.id,
+        str(workflow.id),
         repo,
         policy=policy,
         issuer=_issuer(),
@@ -281,7 +303,7 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
 
     with pytest.raises(AuthorizationError) as excinfo:
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -306,7 +328,7 @@ async def test_create_workflow_chatkit_session_denies_when_owner_mismatch() -> N
 
     with pytest.raises(AuthorizationError) as excinfo:
         await workflows.create_workflow_chatkit_session(
-            workflow.id,
+            str(workflow.id),
             repo,
             policy=policy,
             issuer=_issuer(),
@@ -332,7 +354,7 @@ async def test_create_workflow_chatkit_session_allows_developer_owner_mismatch()
     )
 
     response = await workflows.create_workflow_chatkit_session(
-        workflow.id,
+        str(workflow.id),
         repo,
         policy=policy,
         issuer=_issuer(),
@@ -363,7 +385,7 @@ async def test_create_workflow_chatkit_session_allows_ownerless_workflow() -> No
     )
 
     response = await workflows.create_workflow_chatkit_session(
-        workflow.id,
+        str(workflow.id),
         repo,
         policy=policy,
         issuer=_issuer(),

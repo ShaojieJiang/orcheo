@@ -6,6 +6,15 @@ from orcheo.vault import CredentialTemplateNotFoundError, WorkflowScopeError
 from .shared import backend_app
 
 
+def _create_workflow(api_client: TestClient) -> str:
+    response = api_client.post(
+        "/api/workflows",
+        json={"name": "Issue Flow", "actor": "tester"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 def test_issue_template_without_service_returns_503(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/api/credentials/templates",
@@ -88,14 +97,15 @@ def test_issue_template_not_found_returns_404(api_client: TestClient) -> None:
 
 
 def test_issue_template_scope_violation_returns_403(api_client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
+    other_workflow_id = _create_workflow(api_client)
     create_response = api_client.post(
         "/api/credentials/templates",
         json={
             "name": "Restricted",
             "provider": "internal",
             "scopes": ["read"],
-            "scope": {"workflow_ids": [str(workflow_id)]},
+            "scope": {"workflow_ids": [workflow_id]},
             "actor": "tester",
         },
     )
@@ -118,7 +128,7 @@ def test_issue_template_scope_violation_returns_403(api_client: TestClient) -> N
             "template_id": template_id,
             "secret": "s",
             "actor": "tester",
-            "workflow_id": str(uuid4()),
+            "workflow_id": other_workflow_id,
         },
     )
 
