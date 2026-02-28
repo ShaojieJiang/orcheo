@@ -1,7 +1,7 @@
 """Tests for workflow execution history endpoints."""
 
 from __future__ import annotations
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo_backend.app import (
@@ -9,6 +9,17 @@ from orcheo_backend.app import (
 )
 from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.schemas.runs import RunReplayRequest
+
+
+class _Repository:
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
 
 
 @pytest.mark.asyncio()
@@ -34,8 +45,9 @@ async def test_list_workflow_execution_histories_returns_records() -> None:
             ]
 
     response = await list_workflow_execution_histories(
-        workflow_id=workflow_id,
+        workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
+        repository=_Repository(),
         limit=50,
     )
 
@@ -59,8 +71,9 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
             return []
 
     await list_workflow_execution_histories(
-        workflow_id=workflow_id,
+        workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
+        repository=_Repository(),
         limit=100,
     )
 

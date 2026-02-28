@@ -7,9 +7,11 @@ from orcheo.vault import GovernanceAlertNotFoundError, WorkflowScopeError
 from orcheo_backend.app.credential_utils import alert_to_response
 from orcheo_backend.app.dependencies import (
     IncludeAcknowledgedQuery,
+    RepositoryDep,
     VaultDep,
-    WorkflowIdQuery,
+    WorkflowRefQuery,
     credential_context_from_workflow,
+    resolve_optional_workflow_ref_id,
 )
 from orcheo_backend.app.errors import raise_not_found, raise_scope_error
 from orcheo_backend.app.schemas.governance import (
@@ -25,13 +27,17 @@ router = APIRouter()
     "/credentials/governance-alerts",
     response_model=list[GovernanceAlertResponse],
 )
-def list_governance_alerts(
+async def list_governance_alerts(
     vault: VaultDep,
-    workflow_id: WorkflowIdQuery = None,
+    repository: RepositoryDep,
+    workflow_id: WorkflowRefQuery = None,
     include_acknowledged: IncludeAcknowledgedQuery = False,
 ) -> list[GovernanceAlertResponse]:
     """List governance alerts for the caller."""
-    context = credential_context_from_workflow(workflow_id)
+    resolved_workflow_id = await resolve_optional_workflow_ref_id(
+        repository, workflow_id
+    )
+    context = credential_context_from_workflow(resolved_workflow_id)
     alerts = vault.list_alerts(
         context=context,
         include_acknowledged=include_acknowledged,
@@ -43,14 +49,18 @@ def list_governance_alerts(
     "/credentials/governance-alerts/{alert_id}/acknowledge",
     response_model=GovernanceAlertResponse,
 )
-def acknowledge_governance_alert(
+async def acknowledge_governance_alert(
     alert_id: UUID,
     request: AlertAcknowledgeRequest,
     vault: VaultDep,
-    workflow_id: WorkflowIdQuery = None,
+    repository: RepositoryDep,
+    workflow_id: WorkflowRefQuery = None,
 ) -> GovernanceAlertResponse:
     """Acknowledge an outstanding governance alert."""
-    context = credential_context_from_workflow(workflow_id)
+    resolved_workflow_id = await resolve_optional_workflow_ref_id(
+        repository, workflow_id
+    )
+    context = credential_context_from_workflow(resolved_workflow_id)
     try:
         alert = vault.acknowledge_alert(alert_id, actor=request.actor, context=context)
         return alert_to_response(alert)

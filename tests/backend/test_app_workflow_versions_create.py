@@ -23,6 +23,10 @@ async def test_create_workflow_version_success() -> None:
     captured_config: dict[str, object] | None = None
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_version(
             self,
             wf_id,
@@ -53,7 +57,7 @@ async def test_create_workflow_version_success() -> None:
         created_by="admin",
     )
 
-    result = await create_workflow_version(workflow_id, request, Repository())
+    result = await create_workflow_version(str(workflow_id), request, Repository())
 
     assert result.id == version_id
     assert result.workflow_id == workflow_id
@@ -68,6 +72,10 @@ async def test_create_workflow_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_version(
             self,
             wf_id,
@@ -85,7 +93,7 @@ async def test_create_workflow_version_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_version(workflow_id, request, Repository())
+        await create_workflow_version(str(workflow_id), request, Repository())
 
     assert exc_info.value.status_code == 404
 
@@ -99,6 +107,10 @@ async def test_ingest_workflow_version_success() -> None:
     captured_config: dict[str, object] | None = None
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_version(
             self,
             wf_id,
@@ -132,7 +144,7 @@ async def test_ingest_workflow_version_success() -> None:
         created_by="admin",
     )
 
-    result = await ingest_workflow_version(workflow_id, request, Repository())
+    result = await ingest_workflow_version(str(workflow_id), request, Repository())
 
     assert result.id == version_id
     assert captured_config == {"tags": ["ingest"]}
@@ -145,6 +157,10 @@ async def test_ingest_workflow_version_script_error() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_version(
             self,
             wf_id,
@@ -171,7 +187,7 @@ async def test_ingest_workflow_version_script_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(workflow_id, request, Repository())
+        await ingest_workflow_version(str(workflow_id), request, Repository())
 
     assert exc_info.value.status_code == 400
 
@@ -183,6 +199,10 @@ async def test_ingest_workflow_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_version(
             self,
             wf_id,
@@ -206,6 +226,6 @@ async def test_ingest_workflow_version_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(workflow_id, request, Repository())
+        await ingest_workflow_version(str(workflow_id), request, Repository())
 
     assert exc_info.value.status_code == 404

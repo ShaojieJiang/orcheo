@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
+from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -28,21 +29,30 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         self,
         *,
         name: str,
+        handle: str | None = None,
         slug: str | None,
         description: str | None,
         tags: Iterable[str] | None,
         actor: str,
     ) -> Workflow:
         """Persist a new workflow and return the created instance."""
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
+            self._ensure_handle_available_locked(
+                normalized_handle,
+                workflow_id=None,
+                is_archived=False,
+            )
             workflow = Workflow(
                 name=name,
+                handle=normalized_handle,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
             )
             workflow.record_event(actor=actor, action="workflow_created")
             self._workflows[workflow.id] = workflow
+            self._rebuild_handle_indexes_locked()
             self._workflow_versions.setdefault(workflow.id, [])
             return workflow.model_copy(deep=True)
 
@@ -54,23 +64,52 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 raise WorkflowNotFoundError(str(workflow_id))
             return workflow.model_copy(deep=True)
 
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        """Resolve a workflow ref using handle-first semantics."""
+        return await super().resolve_workflow_ref(
+            workflow_ref,
+            include_archived=include_archived,
+        )
+
     async def update_workflow(
         self,
         workflow_id: UUID,
         *,
         name: str | None,
+        handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:
         """Update workflow metadata and record an audit event."""
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
                 raise WorkflowNotFoundError(str(workflow_id))
 
             metadata: dict[str, Any] = {}
+            next_is_archived = (
+                workflow.is_archived if is_archived is None else is_archived
+            )
+
+            if normalized_handle is not None and normalized_handle != workflow.handle:
+                self._ensure_handle_available_locked(
+                    normalized_handle,
+                    workflow_id=workflow_id,
+                    is_archived=next_is_archived,
+                )
+                metadata["handle"] = {
+                    "from": workflow.handle,
+                    "to": normalized_handle,
+                }
+                workflow.handle = normalized_handle
 
             if name is not None and name != workflow.name:
                 metadata["name"] = {"from": workflow.name, "to": name}
@@ -106,6 +145,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 action="workflow_updated",
                 metadata=metadata,
             )
+            self._rebuild_handle_indexes_locked()
             return workflow.model_copy(deep=True)
 
     async def archive_workflow(self, workflow_id: UUID, *, actor: str) -> Workflow:
@@ -113,6 +153,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         return await self.update_workflow(
             workflow_id,
             name=None,
+            handle=None,
             description=None,
             tags=None,
             is_archived=True,

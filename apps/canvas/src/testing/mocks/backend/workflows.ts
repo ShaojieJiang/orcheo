@@ -8,6 +8,7 @@ import {
 export type WorkflowRecord = {
   workflow: {
     id: string;
+    handle?: string | null;
     name: string;
     slug: string;
     description: string | null;
@@ -40,6 +41,23 @@ const slugify = (value: string) =>
     .trim()
     .replace(/\s+/g, "-");
 
+const findWorkflowRecord = (
+  workflowRef: string,
+): [string, WorkflowRecord] | undefined => {
+  const direct = workflowStore.get(workflowRef);
+  if (direct) {
+    return [workflowRef, direct];
+  }
+
+  for (const [workflowId, record] of workflowStore.entries()) {
+    if (record.workflow.handle === workflowRef) {
+      return [workflowId, record];
+    }
+  }
+
+  return undefined;
+};
+
 export const seedWorkflows = () => {
   if (workflowStore.size > 0) {
     return;
@@ -53,6 +71,7 @@ export const seedWorkflows = () => {
     workflowStore.set(id, {
       workflow: {
         id,
+        handle: null,
         name: sample.name,
         slug: slugify(sample.name),
         description: sample.description ?? null,
@@ -109,6 +128,7 @@ export const handleWorkflowRequest = async (
 
     if (method === "POST") {
       const payload = await parseRequestBody<{
+        handle?: string | null;
         name?: string;
         description?: string | null;
         tags?: string[];
@@ -120,6 +140,7 @@ export const handleWorkflowRequest = async (
 
       const workflow: WorkflowRecord["workflow"] = {
         id,
+        handle: payload?.handle ?? null,
         name: payload?.name ?? `Workflow ${workflowCounter}`,
         slug: slugify(payload?.name ?? `Workflow ${workflowCounter}`),
         description: payload?.description ?? null,
@@ -139,8 +160,10 @@ export const handleWorkflowRequest = async (
   }
 
   if (segments.length >= 3) {
-    const workflowId = segments[2];
-    const record = workflowStore.get(workflowId);
+    const workflowRef = segments[2];
+    const resolved = findWorkflowRecord(workflowRef);
+    const workflowId = resolved?.[0] ?? workflowRef;
+    const record = resolved?.[1];
 
     if (!record) {
       return jsonResponse(
@@ -156,6 +179,7 @@ export const handleWorkflowRequest = async (
 
       if (method === "PUT") {
         const payload = await parseRequestBody<{
+          handle?: string | null;
           name?: string;
           description?: string | null;
           tags?: string[];
@@ -164,6 +188,10 @@ export const handleWorkflowRequest = async (
         const now = new Date().toISOString();
         record.workflow = {
           ...record.workflow,
+          handle:
+            payload?.handle !== undefined
+              ? payload.handle
+              : record.workflow.handle,
           name: payload?.name ?? record.workflow.name,
           slug: slugify(payload?.name ?? record.workflow.name),
           description:

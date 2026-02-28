@@ -52,6 +52,10 @@ async def test_create_workflow_run_success() -> None:
     version_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_run(
             self,
             wf_id,
@@ -76,7 +80,7 @@ async def test_create_workflow_run_success() -> None:
         input_payload={"key": "value"},
     )
 
-    result = await create_workflow_run(workflow_id, request, Repository(), None)
+    result = await create_workflow_run(str(workflow_id), request, Repository(), None)
 
     assert result.id == run_id
     assert result.triggered_by == "user@example.com"
@@ -90,6 +94,10 @@ async def test_create_workflow_run_workflow_not_found() -> None:
     version_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_run(
             self,
             wf_id,
@@ -108,7 +116,7 @@ async def test_create_workflow_run_workflow_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(workflow_id, request, Repository(), None)
+        await create_workflow_run(str(workflow_id), request, Repository(), None)
 
     assert exc_info.value.status_code == 404
 
@@ -121,6 +129,10 @@ async def test_create_workflow_run_version_not_found() -> None:
     version_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_run(
             self,
             wf_id,
@@ -139,7 +151,7 @@ async def test_create_workflow_run_version_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(workflow_id, request, Repository(), None)
+        await create_workflow_run(str(workflow_id), request, Repository(), None)
 
     assert exc_info.value.status_code == 404
 
@@ -152,6 +164,10 @@ async def test_create_workflow_run_credential_health_error() -> None:
     version_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def create_run(
             self,
             wf_id,
@@ -170,7 +186,7 @@ async def test_create_workflow_run_credential_health_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(workflow_id, request, Repository(), None)
+        await create_workflow_run(str(workflow_id), request, Repository(), None)
 
     assert exc_info.value.status_code == 422
 
@@ -185,6 +201,10 @@ async def test_list_workflow_runs_success() -> None:
     version_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def list_runs_for_workflow(self, wf_id):
             return [
                 WorkflowRun(
@@ -205,7 +225,7 @@ async def test_list_workflow_runs_success() -> None:
                 ),
             ]
 
-    result = await list_workflow_runs(workflow_id, Repository())
+    result = await list_workflow_runs(str(workflow_id), Repository())
 
     assert len(result) == 2
     assert result[0].id == run1_id
@@ -219,11 +239,15 @@ async def test_list_workflow_runs_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
         async def list_runs_for_workflow(self, wf_id):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_runs(workflow_id, Repository())
+        await list_workflow_runs(str(workflow_id), Repository())
 
     assert exc_info.value.status_code == 404
 

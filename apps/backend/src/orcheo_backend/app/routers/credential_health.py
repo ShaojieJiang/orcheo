@@ -1,12 +1,12 @@
 """Credential health routes."""
 
 from __future__ import annotations
-from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from orcheo.models import CredentialHealthStatus
 from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     RepositoryDep,
+    resolve_workflow_ref_id,
 )
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history_utils import health_report_to_response
@@ -21,17 +21,18 @@ router = APIRouter()
 
 
 @router.get(
-    "/workflows/{workflow_id}/credentials/health",
+    "/workflows/{workflow_ref}/credentials/health",
     response_model=CredentialHealthResponse,
 )
 async def get_workflow_credential_health(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
     service: CredentialServiceDep,
 ) -> CredentialHealthResponse:
     """Return cached credential health information for a workflow."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
-        await repository.get_workflow(workflow_id)
+        await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -41,10 +42,10 @@ async def get_workflow_credential_health(
             detail="Credential health service is not configured.",
         )
 
-    report = service.get_report(workflow_id)
+    report = service.get_report(workflow_uuid)
     if report is None:
         return CredentialHealthResponse(
-            workflow_id=str(workflow_id),
+            workflow_id=str(workflow_uuid),
             status=CredentialHealthStatus.UNKNOWN,
             checked_at=None,
             credentials=[],
@@ -53,18 +54,19 @@ async def get_workflow_credential_health(
 
 
 @router.post(
-    "/workflows/{workflow_id}/credentials/validate",
+    "/workflows/{workflow_ref}/credentials/validate",
     response_model=CredentialHealthResponse,
 )
 async def validate_workflow_credentials(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: CredentialValidationRequest,
     repository: RepositoryDep,
     service: CredentialServiceDep,
 ) -> CredentialHealthResponse:
     """Trigger validation of workflow credentials and return the updated report."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
-        await repository.get_workflow(workflow_id)
+        await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -74,7 +76,7 @@ async def validate_workflow_credentials(
             detail="Credential health service is not configured.",
         )
 
-    report = await service.ensure_workflow_health(workflow_id, actor=request.actor)
+    report = await service.ensure_workflow_health(workflow_uuid, actor=request.actor)
     if not report.is_healthy:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

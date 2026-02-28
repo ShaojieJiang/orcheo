@@ -17,21 +17,45 @@ from orcheo_backend.app.schemas.workflows import (
 
 
 class _MissingPublishRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        raise WorkflowNotFoundError(str(workflow_ref))
+
     async def publish_workflow(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
 class _InvalidPublishRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
     async def publish_workflow(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowPublishStateError("invalid state")
 
 
 class _InvalidRevokeRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowPublishStateError("invalid")
 
 
 class _MissingRevokeRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        raise WorkflowNotFoundError(str(workflow_ref))
+
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
@@ -39,6 +63,12 @@ class _MissingRevokeRepo:
 class _RevokeRepo:
     def __init__(self) -> None:
         self.workflow = Workflow(name="Audit")
+
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del workflow_ref, include_archived
+        return self.workflow.id
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         return self.workflow
@@ -59,7 +89,7 @@ async def test_publish_workflow_raises_not_found() -> None:
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.publish_workflow(
-            uuid4(),
+            str(uuid4()),
             request,
             _MissingPublishRepo(),
         )
@@ -73,7 +103,7 @@ async def test_publish_workflow_translates_state_errors() -> None:
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.publish_workflow(
-            uuid4(),
+            str(uuid4()),
             request,
             _InvalidPublishRepo(),
         )
@@ -87,7 +117,7 @@ async def test_revoke_publish_translates_state_errors() -> None:
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.revoke_workflow_publish(
-            uuid4(),
+            str(uuid4()),
             request,
             _InvalidRevokeRepo(),
         )
@@ -101,7 +131,7 @@ async def test_revoke_publish_not_found() -> None:
 
     with pytest.raises(HTTPException) as excinfo:
         await workflows.revoke_workflow_publish(
-            uuid4(),
+            str(uuid4()),
             request,
             _MissingRevokeRepo(),
         )
@@ -123,7 +153,7 @@ async def test_revoke_publish_logs_without_previous_token(
     monkeypatch.setattr(workflows.logger, "info", _capture)
 
     result = await workflows.revoke_workflow_publish(
-        repo.workflow.id,
+        str(repo.workflow.id),
         request,
         repo,
     )

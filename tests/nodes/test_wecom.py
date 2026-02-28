@@ -201,6 +201,12 @@ def patch_redis(fake_redis: FakeRedis) -> FakeRedis:
 class TestWeComEventsParserNode:
     """Tests for WeComEventsParserNode."""
 
+    def test_corp_id_defaults_to_vault_placeholder(self) -> None:
+        """Test parser node corp_id defaults to the vault placeholder."""
+        node = WeComEventsParserNode(name="wecom_parser")
+
+        assert node.corp_id == "[[wecom_corp_id]]"
+
     def test_verify_signature_success(self) -> None:
         """Test successful signature verification."""
         token = "test_token"
@@ -860,6 +866,12 @@ class TestWeComEventsParserNode:
 
 class TestWeComAccessTokenNode:
     """Tests for WeComAccessTokenNode."""
+
+    def test_corp_id_defaults_to_vault_placeholder(self) -> None:
+        """Test access token node corp_id defaults to the vault placeholder."""
+        node = WeComAccessTokenNode(name="get_token")
+
+        assert node.corp_id == "[[wecom_corp_id]]"
 
     @pytest.mark.asyncio
     async def test_fetch_access_token_success(self) -> None:

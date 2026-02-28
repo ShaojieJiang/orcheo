@@ -26,7 +26,7 @@ class CredentialCreateRequest(BaseModel):
     actor: str = Field(default="system")
     scopes: list[str] = Field(default_factory=list)
     access: Literal["private", "shared", "public"] = "private"
-    workflow_id: UUID | None = None
+    workflow_id: str | None = None
     kind: CredentialKind = CredentialKind.SECRET
 
 
@@ -38,7 +38,7 @@ class CredentialUpdateRequest(BaseModel):
     secret: str | None = None
     actor: str = Field(default="system")
     access: Literal["private", "shared", "public"] | None = None
-    workflow_id: UUID | None = None
+    workflow_id: str | None = None
 
 
 class CredentialHealthItem(BaseModel):
@@ -133,7 +133,7 @@ class CredentialIssuanceRequest(BaseModel):
     actor: str = Field(default="system")
     name: str | None = None
     scopes: list[str] | None = None
-    workflow_id: UUID | None = None
+    workflow_id: str | None = None
     oauth_tokens: OAuthTokenRequest | None = None
 
 

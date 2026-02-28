@@ -23,6 +23,10 @@ class WorkflowPublishStateError(RepositoryError):
     """Raised when publish state transitions are invalid."""
 
 
+class WorkflowHandleConflictError(RepositoryError):
+    """Raised when a workflow handle conflicts with an existing workflow."""
+
+
 class CronTriggerNotFoundError(RepositoryError):
     """Raised when a cron trigger config cannot be located."""
 
@@ -33,5 +37,6 @@ __all__ = [
     "WorkflowVersionNotFoundError",
     "WorkflowRunNotFoundError",
     "WorkflowPublishStateError",
+    "WorkflowHandleConflictError",
     "CronTriggerNotFoundError",
 ]

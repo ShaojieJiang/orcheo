@@ -1,7 +1,7 @@
 """Tests for the Agentensor checkpoint routers."""
 
 from __future__ import annotations
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.agentensor.checkpoints import (
@@ -41,6 +41,17 @@ def _build_checkpoint(workflow_id: str) -> AgentensorCheckpoint:
     )
 
 
+class _Repository:
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
+
 @pytest.mark.asyncio
 async def test_list_agentensor_checkpoints_returns_payloads() -> None:
     workflow_uuid = uuid4()
@@ -48,7 +59,8 @@ async def test_list_agentensor_checkpoints_returns_payloads() -> None:
     store = DummyStore(checkpoint)
 
     response = await list_agentensor_checkpoints(
-        workflow_id=workflow_uuid,
+        workflow_ref=str(workflow_uuid),
+        repository=_Repository(),
         store=store,  # type: ignore[arg-type]
         limit=1,
     )
@@ -66,8 +78,9 @@ async def test_get_agentensor_checkpoint_raises_not_found() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await get_agentensor_checkpoint(
-            workflow_id=uuid4(),  # mismatch on purpose
+            workflow_ref=str(uuid4()),  # mismatch on purpose
             checkpoint_id=uuid4().hex,
+            repository=_Repository(),
             store=store,  # type: ignore[arg-type]
         )
 
@@ -82,8 +95,9 @@ async def test_get_agentensor_checkpoint_requires_matching_workflow() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await get_agentensor_checkpoint(
-            workflow_id=uuid4(),
+            workflow_ref=str(uuid4()),
             checkpoint_id=checkpoint.id,
+            repository=_Repository(),
             store=store,  # type: ignore[arg-type]
         )
 
@@ -97,8 +111,9 @@ async def test_get_agentensor_checkpoint_returns_record() -> None:
     store = DummyStore(checkpoint)
 
     response = await get_agentensor_checkpoint(
-        workflow_id=workflow_id,
+        workflow_ref=str(workflow_id),
         checkpoint_id=checkpoint.id,
+        repository=_Repository(),
         store=store,  # type: ignore[arg-type]
     )
 

@@ -6,6 +6,7 @@ from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import (
+    ActorOption,
     EntrypointOption,
     FilePathArgument,
     ForceOption,
@@ -28,6 +29,7 @@ from orcheo_sdk.cli.workflow.inputs import (
 from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
+    update_workflow_data,
     upload_workflow_data,
 )
 
@@ -99,6 +101,48 @@ def upload_workflow(
     render_json(state.console, result, title="Workflow")
 
 
+@workflow_app.command("update")
+def update_workflow(
+    ctx: typer.Context,
+    workflow_id: WorkflowIdArgument,
+    workflow_name: WorkflowNameOption = None,
+    handle: str | None = typer.Option(
+        None,
+        "--handle",
+        help="Update the workflow handle.",
+    ),
+    description: str | None = typer.Option(
+        None,
+        "--description",
+        help="Update the workflow description.",
+    ),
+    actor: ActorOption = "cli",
+) -> None:
+    """Update workflow metadata."""
+    state = _state(ctx)
+    if state.settings.offline:
+        raise CLIError("Updating workflows requires network connectivity.")
+    if workflow_name is None and handle is None and description is None:
+        raise CLIError("Provide at least one field to update.")
+
+    result = update_workflow_data(
+        state.client,
+        workflow_id,
+        name=workflow_name,
+        handle=handle,
+        description=description,
+        actor=actor,
+    )
+    if not state.human:
+        print_json(result)
+        return
+
+    state.console.print(
+        f"[green]Workflow '{workflow_id}' updated successfully.[/green]"
+    )
+    render_json(state.console, result, title="Workflow")
+
+
 @workflow_app.command("download")
 def download_workflow(
     ctx: typer.Context,
@@ -148,6 +192,7 @@ def download_workflow(
 
 __all__ = [
     "delete_workflow",
+    "update_workflow",
     "upload_workflow",
     "download_workflow",
 ]

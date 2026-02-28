@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import (
@@ -16,7 +16,19 @@ from orcheo_backend.app import issue_credential_from_template
 from orcheo_backend.app.schemas.credentials import CredentialIssuanceRequest
 
 
-def test_issue_credential_from_template_success() -> None:
+class _Repository:
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
+
+@pytest.mark.asyncio()
+async def test_issue_credential_from_template_success() -> None:
     """Issue credential from template endpoint creates credential."""
 
     template_id = uuid4()
@@ -56,13 +68,19 @@ def test_issue_credential_from_template_success() -> None:
         secret="test-secret",
     )
 
-    result = issue_credential_from_template(template_id, request, Service())
+    result = await issue_credential_from_template(
+        template_id,
+        request,
+        _Repository(),
+        Service(),
+    )
 
     assert result.credential_id == str(cred_id)
     assert result.template_id == str(template_id)
 
 
-def test_issue_credential_from_template_not_configured() -> None:
+@pytest.mark.asyncio()
+async def test_issue_credential_from_template_not_configured() -> None:
     """Issue credential requires configured service."""
 
     template_id = uuid4()
@@ -74,12 +92,18 @@ def test_issue_credential_from_template_not_configured() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        issue_credential_from_template(template_id, request, None)
+        await issue_credential_from_template(
+            template_id,
+            request,
+            _Repository(),
+            None,
+        )
 
     assert exc_info.value.status_code == 503
 
 
-def test_issue_credential_from_template_not_found() -> None:
+@pytest.mark.asyncio()
+async def test_issue_credential_from_template_not_found() -> None:
     """Issue credential raises 404 for missing template."""
     from orcheo.vault import CredentialTemplateNotFoundError
 
@@ -105,12 +129,18 @@ def test_issue_credential_from_template_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        issue_credential_from_template(template_id, request, Service())
+        await issue_credential_from_template(
+            template_id,
+            request,
+            _Repository(),
+            Service(),
+        )
 
     assert exc_info.value.status_code == 404
 
 
-def test_issue_credential_from_template_scope_error() -> None:
+@pytest.mark.asyncio()
+async def test_issue_credential_from_template_scope_error() -> None:
     """Issue credential raises 403 for scope violations."""
 
     template_id = uuid4()
@@ -135,12 +165,18 @@ def test_issue_credential_from_template_scope_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        issue_credential_from_template(template_id, request, Service())
+        await issue_credential_from_template(
+            template_id,
+            request,
+            _Repository(),
+            Service(),
+        )
 
     assert exc_info.value.status_code == 403
 
 
-def test_issue_credential_from_template_validation_error() -> None:
+@pytest.mark.asyncio()
+async def test_issue_credential_from_template_validation_error() -> None:
     """Issue credential raises 400 for validation errors."""
 
     template_id = uuid4()
@@ -165,6 +201,11 @@ def test_issue_credential_from_template_validation_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        issue_credential_from_template(template_id, request, Service())
+        await issue_credential_from_template(
+            template_id,
+            request,
+            _Repository(),
+            Service(),
+        )
 
     assert exc_info.value.status_code == 400

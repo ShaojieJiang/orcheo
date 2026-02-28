@@ -65,6 +65,8 @@ def _submit_workflow_configuration(
     """Submit workflow configuration payload to Orcheo."""
     url = f"/api/workflows/{workflow_id}" if workflow_id else "/api/workflows"
     try:
+        if workflow_id:
+            return client.put(url, json_body=workflow_config)
         return client.post(url, json_body=workflow_config)
     except Exception as exc:  # pragma: no cover - http errors handled upstream
         raise CLIError("Failed to upload workflow configuration to Orcheo.") from exc

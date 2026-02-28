@@ -4,10 +4,8 @@ Configure WeCom to send callback requests to:
 `/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`
 so signatures can be verified.
 
-Configurable inputs (workflow_config.json):
-- corp_id (WeCom corp ID)
-
 Orcheo vault secrets required:
+- wecom_corp_id: WeCom corp ID
 - wecom_app_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
@@ -92,7 +90,6 @@ async def build_graph() -> StateGraph:
         "wecom_events_parser",
         WeComEventsParserNode(
             name="wecom_events_parser",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 
@@ -101,7 +98,6 @@ async def build_graph() -> StateGraph:
         WeComAccessTokenNode(
             name="get_cs_access_token",
             app_secret="[[wecom_app_secret_eventually]]",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 

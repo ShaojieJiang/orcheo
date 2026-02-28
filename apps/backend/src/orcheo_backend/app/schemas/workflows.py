@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
 from orcheo.models.workflow import Workflow
+from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
@@ -13,20 +14,36 @@ class WorkflowCreateRequest(BaseModel):
     """Payload for creating a new workflow."""
 
     name: str
+    handle: str | None = None
     slug: str | None = None
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
     actor: str = Field(default="system")
+
+    @field_validator("handle", mode="before")
+    @classmethod
+    def _normalize_handle(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_workflow_handle(str(value))
 
 
 class WorkflowUpdateRequest(BaseModel):
     """Payload for updating an existing workflow."""
 
     name: str | None = None
+    handle: str | None = None
     description: str | None = None
     tags: list[str] | None = None
     is_archived: bool | None = None
     actor: str = Field(default="system")
+
+    @field_validator("handle", mode="before")
+    @classmethod
+    def _normalize_handle(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_workflow_handle(str(value))
 
 
 class WorkflowVersionCreateRequest(BaseModel):
@@ -104,6 +121,7 @@ class PublicWorkflow(BaseModel):
     """Public workflow metadata returned without authentication."""
 
     id: UUID
+    handle: str | None = None
     name: str
     description: str | None = None
     is_public: bool

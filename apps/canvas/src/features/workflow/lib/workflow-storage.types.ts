@@ -7,6 +7,7 @@ import type { WorkflowDiffResult, WorkflowSnapshot } from "./workflow-diff";
 
 export interface ApiWorkflow {
   id: string;
+  handle?: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -22,6 +23,7 @@ export interface ApiWorkflow {
 
 export interface PublicWorkflowMetadata {
   id: string;
+  handle?: string | null;
   name: string;
   description: string | null;
   is_public: boolean;

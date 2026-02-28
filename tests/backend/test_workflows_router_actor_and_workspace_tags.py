@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from types import SimpleNamespace
+from uuid import UUID
 import pytest
 from orcheo.models.workflow import Workflow
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
@@ -51,6 +52,10 @@ class _Repository:
             tags=tags or [],
             is_archived=bool(is_archived),
         )
+
+    async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        del include_archived
+        return UUID(str(workflow_ref))
 
 
 @pytest.mark.asyncio()
@@ -180,7 +185,9 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
         )
     )
 
-    await workflows.update_workflow(workflow.id, request, repository, policy=policy)
+    await workflows.update_workflow(
+        str(workflow.id), request, repository, policy=policy
+    )
 
     assert repository.last_actor == "service-token-1"
     assert repository.last_tags is not None
@@ -237,7 +244,9 @@ async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
         )
     )
 
-    await workflows.update_workflow(workflow.id, request, repository, policy=policy)
+    await workflows.update_workflow(
+        str(workflow.id), request, repository, policy=policy
+    )
 
     assert repository.last_actor == "service-token-3"
     assert repository.last_tags is None

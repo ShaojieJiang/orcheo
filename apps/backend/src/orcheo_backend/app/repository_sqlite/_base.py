@@ -104,10 +104,17 @@ class SqliteRepositoryBase:
                     PRAGMA journal_mode=WAL;
                     CREATE TABLE IF NOT EXISTS workflows (
                         id TEXT PRIMARY KEY,
+                        handle TEXT,
+                        is_archived INTEGER NOT NULL DEFAULT 0,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                     );
+                    CREATE INDEX IF NOT EXISTS idx_workflows_handle
+                        ON workflows(handle);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle
+                        ON workflows(handle)
+                     WHERE is_archived = 0 AND handle IS NOT NULL;
                     CREATE TABLE IF NOT EXISTS workflow_versions (
                         id TEXT PRIMARY KEY,
                         workflow_id TEXT NOT NULL,
@@ -149,6 +156,7 @@ class SqliteRepositoryBase:
                     """
                 )
                 await self._ensure_cron_schema_migrations(conn)
+                await self._ensure_workflow_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -161,6 +169,39 @@ class SqliteRepositoryBase:
         if "last_dispatched_at" not in existing_columns:
             await conn.execute(
                 "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TEXT"
+            )
+
+    async def _ensure_workflow_schema_migrations(
+        self, conn: aiosqlite.Connection
+    ) -> None:
+        """Add mirrored workflow columns and backfill them from payloads."""
+        cursor = await conn.execute("PRAGMA table_info(workflows)")
+        rows = await cursor.fetchall()
+        existing_columns = {row["name"] for row in rows}
+        if "handle" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN handle TEXT")
+        if "is_archived" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE workflows "
+                "ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
+            )
+
+        cursor = await conn.execute("SELECT id, payload FROM workflows")
+        workflow_rows = await cursor.fetchall()
+        for row in workflow_rows:
+            workflow = Workflow.model_validate_json(row["payload"])
+            await conn.execute(
+                """
+                UPDATE workflows
+                   SET handle = ?, is_archived = ?, updated_at = ?
+                 WHERE id = ?
+                """,
+                (
+                    workflow.handle,
+                    int(workflow.is_archived),
+                    workflow.updated_at.isoformat(),
+                    row["id"],
+                ),
             )
 
     async def _hydrate_trigger_state(self) -> None:

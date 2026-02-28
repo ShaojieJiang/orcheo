@@ -1,12 +1,16 @@
 """Integration tests for assorted backend endpoints."""
 
 from __future__ import annotations
-from uuid import uuid4
 from fastapi.testclient import TestClient
 
 
 def test_list_workflow_execution_histories(client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "History Flow", "actor": "tester"},
+    )
+    assert workflow_response.status_code == 201
+    workflow_id = workflow_response.json()["id"]
     response = client.get(f"/api/workflows/{workflow_id}/executions?limit=50")
     assert response.status_code == 200
     assert response.json() == []

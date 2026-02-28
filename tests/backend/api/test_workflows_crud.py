@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from fastapi.testclient import TestClient
 
 
@@ -91,3 +92,93 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     assert diff_payload["target_version"] == 2
     diff_lines = diff_payload["diff"]
     assert any('+    "end"' in line for line in diff_lines)
+
+
+def test_workflow_handle_lookup_and_update(api_client: TestClient) -> None:
+    """Workflow handle should work as a routable ref and support updates."""
+    create_response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Handle Flow",
+            "handle": "handle-flow",
+            "actor": "tester",
+        },
+    )
+    assert create_response.status_code == 201
+    workflow = create_response.json()
+    assert workflow["handle"] == "handle-flow"
+
+    get_response = api_client.get("/api/workflows/handle-flow")
+    assert get_response.status_code == 200
+    assert get_response.json()["id"] == workflow["id"]
+
+    update_response = api_client.put(
+        "/api/workflows/handle-flow",
+        json={
+            "name": "Renamed Handle Flow",
+            "handle": "renamed-handle-flow",
+            "actor": "tester",
+        },
+    )
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["name"] == "Renamed Handle Flow"
+    assert payload["handle"] == "renamed-handle-flow"
+
+    old_handle_response = api_client.get("/api/workflows/handle-flow")
+    assert old_handle_response.status_code == 404
+
+    new_handle_response = api_client.get("/api/workflows/renamed-handle-flow")
+    assert new_handle_response.status_code == 200
+    assert new_handle_response.json()["id"] == workflow["id"]
+
+
+def test_workflow_create_rejects_uuid_like_handle(api_client: TestClient) -> None:
+    """Workflow handles should not accept UUID-shaped values."""
+
+    response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "UUID Handle",
+            "handle": "550e8400-e29b-41d4-a716-446655440000",
+            "actor": "tester",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "UUID format" in str(response.json())
+
+
+def test_openapi_uses_workflow_ref_for_handle_aware_paths(
+    api_client: TestClient,
+) -> None:
+    """Handle-aware routes should document a consistent path parameter name."""
+
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("always")
+        response = api_client.get("/openapi.json")
+    assert response.status_code == 200
+    assert not [
+        warning
+        for warning in recorded_warnings
+        if "Duplicate Operation ID" in str(warning.message)
+    ]
+
+    paths = response.json()["paths"]
+    expected_paths = [
+        "/api/workflows/{workflow_ref}/runs",
+        "/api/workflows/{workflow_ref}/executions",
+        "/api/workflows/{workflow_ref}/triggers/webhook/config",
+        "/api/workflows/{workflow_ref}/triggers/cron/config",
+        "/api/workflows/{workflow_ref}/credentials/health",
+        "/api/workflows/{workflow_ref}/agentensor/checkpoints",
+        "/api/chatkit/workflows/{workflow_ref}/trigger",
+    ]
+
+    for path in expected_paths:
+        assert path in paths
+        operation = next(iter(paths[path].values()))
+        assert any(
+            parameter["name"] == "workflow_ref"
+            for parameter in operation.get("parameters", [])
+        )

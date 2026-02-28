@@ -14,6 +14,14 @@ class _WorkflowRepo:
     def __init__(self, workflow: Workflow) -> None:
         self.workflow = workflow
 
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        if UUID(str(workflow_ref)) != self.workflow.id:
+            raise WorkflowNotFoundError(str(workflow_ref))
+        return self.workflow.id
+
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         if workflow_id != self.workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
@@ -21,15 +29,42 @@ class _WorkflowRepo:
 
 
 class _MissingWorkflowRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        raise WorkflowNotFoundError(str(workflow_ref))
+
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
+
+
+@pytest.mark.asyncio()
+async def test_get_public_workflow_not_found_after_resolution() -> None:
+    class _ResolveThenMissRepo:
+        async def resolve_workflow_ref(
+            self, workflow_ref: str, *, include_archived: bool = True
+        ) -> UUID:
+            del include_archived
+            return UUID(str(workflow_ref))
+
+        async def get_workflow(self, workflow_id: UUID) -> Workflow:
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    with pytest.raises(HTTPException) as excinfo:
+        await workflows.get_public_workflow(
+            str(uuid4()),
+            _ResolveThenMissRepo(),
+        )
+
+    assert excinfo.value.status_code == 404
 
 
 @pytest.mark.asyncio()
 async def test_get_public_workflow_not_found() -> None:
     with pytest.raises(HTTPException) as excinfo:
         await workflows.get_public_workflow(
-            uuid4(),
+            str(uuid4()),
             _MissingWorkflowRepo(),
         )
 
@@ -42,7 +77,7 @@ async def test_get_public_workflow_denies_private_workflows() -> None:
     repo = _WorkflowRepo(workflow)
 
     with pytest.raises(HTTPException) as excinfo:
-        await workflows.get_public_workflow(workflow.id, repo)
+        await workflows.get_public_workflow(str(workflow.id), repo)
 
     assert excinfo.value.status_code == 403
     assert excinfo.value.detail["code"] == "workflow.not_public"
@@ -60,7 +95,7 @@ async def test_get_public_workflow_includes_share_url(
         lambda: "https://canvas.example",
     )
 
-    response = await workflows.get_public_workflow(workflow.id, repo)
+    response = await workflows.get_public_workflow(str(workflow.id), repo)
 
     assert response.share_url == f"https://canvas.example/chat/{workflow.id}"
 

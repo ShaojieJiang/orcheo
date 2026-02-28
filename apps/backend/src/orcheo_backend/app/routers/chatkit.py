@@ -45,7 +45,7 @@ from orcheo_backend.app.chatkit_tokens import (
     ChatKitTokenConfigurationError,
     load_chatkit_token_settings,
 )
-from orcheo_backend.app.dependencies import RepositoryDep
+from orcheo_backend.app.dependencies import RepositoryDep, resolve_workflow_ref_id
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -533,17 +533,18 @@ async def create_chatkit_session_endpoint(
 
 
 @router.post(
-    "/chatkit/workflows/{workflow_id}/trigger",
+    "/chatkit/workflows/{workflow_ref}/trigger",
     response_model=WorkflowRun,
     status_code=status.HTTP_201_CREATED,
 )
 async def trigger_chatkit_workflow(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: ChatKitWorkflowTriggerRequest,
     repository: RepositoryDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowRun:
     """Create a workflow run initiated from the ChatKit interface."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         policy.require_authenticated()
     except AuthenticationError as exc:
@@ -551,7 +552,7 @@ async def trigger_chatkit_workflow(
             raise exc.as_http_exception() from exc
 
     try:
-        latest_version = await repository.get_latest_version(workflow_id)
+        latest_version = await repository.get_latest_version(workflow_uuid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:
@@ -566,7 +567,7 @@ async def trigger_chatkit_workflow(
 
     try:
         run = await repository.create_run(
-            workflow_id,
+            workflow_uuid,
             workflow_version_id=latest_version.id,
             triggered_by=request.actor,
             input_payload=payload,
@@ -583,7 +584,7 @@ async def trigger_chatkit_workflow(
 
     logger.info(
         "Dispatched ChatKit workflow run",
-        extra={"workflow_id": str(workflow_id), "run_id": str(run.id)},
+        extra={"workflow_id": str(workflow_uuid), "run_id": str(run.id)},
     )
     return run
 

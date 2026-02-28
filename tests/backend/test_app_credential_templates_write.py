@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import (
@@ -21,6 +21,17 @@ from orcheo_backend.app.schemas.credentials import (
     CredentialTemplateCreateRequest,
     CredentialTemplateUpdateRequest,
 )
+
+
+class _Repository:
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
 
 
 def test_create_credential_template_success() -> None:
@@ -66,7 +77,8 @@ def test_create_credential_template_success() -> None:
     assert result.name == "Test Template"
 
 
-def test_update_credential_template_success() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_template_success() -> None:
     """Update credential template endpoint updates template."""
 
     template_id = uuid4()
@@ -101,13 +113,19 @@ def test_update_credential_template_success() -> None:
         name="Updated Template",
     )
 
-    result = update_credential_template(template_id, request, Vault())
+    result = await update_credential_template(
+        template_id,
+        request,
+        Vault(),
+        _Repository(),
+    )
 
     assert result.id == str(template_id)
     assert result.name == "Updated Template"
 
 
-def test_update_credential_template_not_found() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_template_not_found() -> None:
     """Update credential template raises 404 for missing template."""
     from orcheo.vault import CredentialTemplateNotFoundError
 
@@ -131,12 +149,18 @@ def test_update_credential_template_not_found() -> None:
     request = CredentialTemplateUpdateRequest(actor="admin")
 
     with pytest.raises(HTTPException) as exc_info:
-        update_credential_template(template_id, request, Vault())
+        await update_credential_template(
+            template_id,
+            request,
+            Vault(),
+            _Repository(),
+        )
 
     assert exc_info.value.status_code == 404
 
 
-def test_update_credential_template_scope_error() -> None:
+@pytest.mark.asyncio()
+async def test_update_credential_template_scope_error() -> None:
     """Update credential template raises 403 for scope violations."""
 
     template_id = uuid4()
@@ -159,12 +183,18 @@ def test_update_credential_template_scope_error() -> None:
     request = CredentialTemplateUpdateRequest(actor="admin")
 
     with pytest.raises(HTTPException) as exc_info:
-        update_credential_template(template_id, request, Vault())
+        await update_credential_template(
+            template_id,
+            request,
+            Vault(),
+            _Repository(),
+        )
 
     assert exc_info.value.status_code == 403
 
 
-def test_delete_credential_template_success() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_template_success() -> None:
     """Delete credential template endpoint deletes template."""
 
     template_id = uuid4()
@@ -175,13 +205,14 @@ def test_delete_credential_template_success() -> None:
             nonlocal deleted_id
             deleted_id = template_id
 
-    response = delete_credential_template(template_id, Vault())
+    response = await delete_credential_template(template_id, Vault(), _Repository())
 
     assert response.status_code == 204
     assert deleted_id == template_id
 
 
-def test_delete_credential_template_not_found() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_template_not_found() -> None:
     """Delete credential template raises 404 for missing template."""
     from orcheo.vault import CredentialTemplateNotFoundError
 
@@ -192,12 +223,13 @@ def test_delete_credential_template_not_found() -> None:
             raise CredentialTemplateNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        delete_credential_template(template_id, Vault())
+        await delete_credential_template(template_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 404
 
 
-def test_delete_credential_template_scope_error() -> None:
+@pytest.mark.asyncio()
+async def test_delete_credential_template_scope_error() -> None:
     """Delete credential template raises 403 for scope violations."""
 
     template_id = uuid4()
@@ -207,6 +239,6 @@ def test_delete_credential_template_scope_error() -> None:
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        delete_credential_template(template_id, Vault())
+        await delete_credential_template(template_id, Vault(), _Repository())
 
     assert exc_info.value.status_code == 403

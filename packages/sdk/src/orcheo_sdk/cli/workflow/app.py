@@ -10,7 +10,7 @@ workflow_app = typer.Typer(help="Inspect and operate on workflows.")
 
 WorkflowIdArgument = Annotated[
     str,
-    typer.Argument(help="Workflow identifier."),
+    typer.Argument(help="Workflow reference (UUID or handle)."),
 ]
 ActorOption = Annotated[
     str,
@@ -56,7 +56,10 @@ FilePathArgument = Annotated[
 ]
 WorkflowIdOption = Annotated[
     str | None,
-    typer.Option("--id", help="Workflow ID (for updates). Creates new if omitted."),
+    typer.Option(
+        "--id",
+        help="Workflow reference (UUID or handle) for updates. Creates new if omitted.",
+    ),
 ]
 EntrypointOption = Annotated[
     str | None,
@@ -73,7 +76,7 @@ WorkflowNameOption = Annotated[
     typer.Option(
         "--name",
         "-n",
-        help="Rename the workflow when uploading.",
+        help="Update the workflow name when uploading.",
     ),
 ]
 OutputPathOption = Annotated[

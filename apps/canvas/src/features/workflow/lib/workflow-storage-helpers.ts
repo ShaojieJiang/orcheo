@@ -80,6 +80,12 @@ export const toCanvasEdges = (edges: WorkflowEdge[]): CanvasEdge[] =>
       }) satisfies CanvasEdge,
   );
 
+export const getWorkflowRouteRef = (
+  workflow:
+    | Pick<ApiWorkflow, "id" | "handle">
+    | Pick<Workflow, "id" | "handle">,
+): string => workflow.handle ?? workflow.id;
+
 const parseCanvasMetadata = (
   metadata: unknown,
   fallbackName: string,
@@ -193,6 +199,7 @@ export const toStoredWorkflow = (
 
   return {
     id: workflow.id,
+    handle: workflow.handle ?? undefined,
     name: workflow.name,
     description: workflow.description ?? undefined,
     createdAt: workflow.created_at,

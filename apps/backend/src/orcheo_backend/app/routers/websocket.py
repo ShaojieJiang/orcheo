@@ -13,14 +13,15 @@ router = APIRouter()
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
 
 
-@router.websocket("/ws/workflow/{workflow_id}")
-async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
+@router.websocket("/ws/workflow/{workflow_ref}")
+async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:
     """Handle workflow websocket connections by delegating to the executor."""
     from orcheo_backend.app import (
         authenticate_websocket,
         execute_workflow,
         execute_workflow_evaluation,
         execute_workflow_training,
+        get_repository,
     )
 
     try:
@@ -36,6 +37,8 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
     websocket.state.auth = context
 
     try:
+        repository = get_repository()
+        resolved_workflow_id = str(await repository.resolve_workflow_ref(workflow_ref))
         while True:
             data = await websocket.receive_json()
 
@@ -44,7 +47,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
                 task = asyncio.create_task(
                     execute_workflow(
-                        workflow_id,
+                        resolved_workflow_id,
                         data["graph_config"],
                         data["inputs"],
                         execution_id,
@@ -60,7 +63,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
                 task = asyncio.create_task(
                     execute_workflow_evaluation(
-                        workflow_id,
+                        resolved_workflow_id,
                         data["graph_config"],
                         data.get("inputs", {}),
                         execution_id,
@@ -76,7 +79,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str) -> None:
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
                 task = asyncio.create_task(
                     execute_workflow_training(
-                        workflow_id,
+                        resolved_workflow_id,
                         data["graph_config"],
                         data.get("inputs", {}),
                         execution_id,

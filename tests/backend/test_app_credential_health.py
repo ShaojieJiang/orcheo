@@ -27,6 +27,14 @@ from orcheo_backend.app.schemas.credentials import CredentialValidationRequest
 
 
 class _MissingWorkflowRepository:
+    async def resolve_workflow_ref(
+        self, workflow_ref, *, include_archived: bool = True
+    ):
+        del include_archived
+        return (
+            workflow_ref if isinstance(workflow_ref, UUID) else UUID(str(workflow_ref))
+        )
+
     async def get_workflow(self, workflow_id):  # pragma: no cover - signature typing
         raise WorkflowNotFoundError("missing")
 
@@ -54,6 +62,10 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
     """A missing cached report results in an UNKNOWN response payload."""
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del include_archived
+            return UUID(str(workflow_ref))
+
         async def get_workflow(self, workflow_id):  # noqa: D401 - simple stub
             return object()
 
@@ -72,6 +84,10 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
 @pytest.mark.asyncio()
 async def test_get_workflow_credential_health_requires_service() -> None:
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del include_archived
+            return UUID(str(workflow_ref))
+
         async def get_workflow(self, workflow_id):
             return object()
 
@@ -88,6 +104,10 @@ async def test_validate_workflow_credentials_reports_failures() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del include_archived
+            return workflow_id
+
         async def get_workflow(self, workflow_id):
             return object()
 
@@ -160,6 +180,10 @@ async def test_validate_workflow_credentials_requires_service() -> None:
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del include_archived
+            return workflow_id
+
         async def get_workflow(self, workflow_id):
             return object()
 
@@ -182,6 +206,10 @@ async def test_invoke_webhook_trigger_wraps_health_error(
     workflow_id = uuid4()
 
     class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del include_archived
+            return workflow_id
+
         async def get_latest_version(self, workflow_id):
             return object()
 
@@ -213,7 +241,7 @@ async def test_invoke_webhook_trigger_wraps_health_error(
 
     with pytest.raises(HTTPException) as exc_info:
         await invoke_webhook_trigger(
-            workflow_id,
+            str(workflow_id),
             request,
             repository=Repository(),
             vault=object(),

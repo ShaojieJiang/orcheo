@@ -9,6 +9,7 @@ from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     HistoryStoreDep,
     RepositoryDep,
+    resolve_workflow_ref_id,
 )
 from orcheo_backend.app.errors import raise_conflict, raise_not_found
 from orcheo_backend.app.history import RunHistoryNotFoundError
@@ -35,17 +36,18 @@ router = APIRouter()
 
 
 @router.post(
-    "/workflows/{workflow_id}/runs",
+    "/workflows/{workflow_ref}/runs",
     response_model=WorkflowRun,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workflow_run(
-    workflow_id: UUID,
+    workflow_ref: str,
     request: WorkflowRunCreateRequest,
     repository: RepositoryDep,
     _service: CredentialServiceDep,
 ) -> WorkflowRun:
     """Create a workflow execution run."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
         config_payload = (
             request.runnable_config.model_dump(mode="json")
@@ -53,7 +55,7 @@ async def create_workflow_run(
             else None
         )
         return await repository.create_run(
-            workflow_id,
+            workflow_uuid,
             workflow_version_id=request.workflow_version_id,
             triggered_by=request.triggered_by,
             input_payload=request.input_payload,
@@ -71,16 +73,17 @@ async def create_workflow_run(
 
 
 @router.get(
-    "/workflows/{workflow_id}/runs",
+    "/workflows/{workflow_ref}/runs",
     response_model=list[WorkflowRun],
 )
 async def list_workflow_runs(
-    workflow_id: UUID,
+    workflow_ref: str,
     repository: RepositoryDep,
 ) -> list[WorkflowRun]:
     """List runs for a given workflow."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
-        return await repository.list_runs_for_workflow(workflow_id)
+        return await repository.list_runs_for_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -170,16 +173,18 @@ async def mark_run_cancelled(
 
 
 @router.get(
-    "/workflows/{workflow_id}/executions",
+    "/workflows/{workflow_ref}/executions",
     response_model=list[RunHistoryResponse],
 )
 async def list_workflow_execution_histories(
-    workflow_id: UUID,
+    workflow_ref: str,
     history_store: HistoryStoreDep,
+    repository: RepositoryDep,
     limit: int = Query(50, ge=1, le=200),
 ) -> list[RunHistoryResponse]:
     """Return execution histories recorded for the workflow."""
-    records = await history_store.list_histories(str(workflow_id), limit=limit)
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    records = await history_store.list_histories(str(workflow_uuid), limit=limit)
     return [history_to_response(record) for record in records]
 
 

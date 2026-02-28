@@ -5,13 +5,13 @@ Configure WeCom to send callback requests to:
 so signatures can be verified.
 
 Configurable inputs (workflow_config.json):
-- corp_id (WeCom corp ID)
 - agent_id (WeCom app agent ID for internal messages)
 - events_database (MongoDB database for events/RSVPs)
 - events_collection (MongoDB collection for events)
 - rsvps_collection (MongoDB collection for RSVPs)
 
 Orcheo vault secrets required:
+- wecom_corp_id: WeCom corp ID
 - wecom_app_secret: WeCom app secret for access token
 - wecom_token: Callback token for signature validation
 - wecom_encoding_aes_key: AES key for callback decryption
@@ -732,7 +732,6 @@ def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
         "wecom_events_parser",
         WeComEventsParserNode(
             name="wecom_events_parser",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 
@@ -741,7 +740,6 @@ def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
         WeComAccessTokenNode(
             name="get_access_token",
             app_secret="[[wecom_app_secret_orcheo]]",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 
@@ -750,7 +748,6 @@ def register_wecom_and_agent_nodes(graph: StateGraph) -> None:
         WeComAccessTokenNode(
             name="get_cs_access_token",
             app_secret="[[wecom_app_secret_orcheo]]",
-            corp_id="{{config.configurable.corp_id}}",
         ),
     )
 

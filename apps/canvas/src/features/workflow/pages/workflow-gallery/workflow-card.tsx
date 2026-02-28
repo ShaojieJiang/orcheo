@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
 interface WorkflowCardProps {
@@ -57,6 +58,7 @@ export const WorkflowCard = ({
   const updatedLabel = new Date(
     workflow.updatedAt || workflow.createdAt,
   ).toLocaleDateString();
+  const workflowRouteRef = getWorkflowRouteRef(workflow);
   const isClickable = !isTemplate;
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -80,7 +82,7 @@ export const WorkflowCard = ({
       if (target.closest('[data-card-action="true"]')) {
         return;
       }
-      onOpenWorkflow(workflow.id);
+      onOpenWorkflow(workflowRouteRef);
     }
   };
 
@@ -94,7 +96,7 @@ export const WorkflowCard = ({
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onOpenWorkflow(workflow.id);
+      onOpenWorkflow(workflowRouteRef);
     }
   };
 
@@ -170,7 +172,7 @@ export const WorkflowCard = ({
                     onSelect={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onOpenWorkflow(workflow.id);
+                      onOpenWorkflow(workflowRouteRef);
                     }}
                   >
                     <Pencil className="mr-2 h-4 w-4" />
@@ -217,6 +219,18 @@ export const WorkflowCard = ({
         <CardDescription className="line-clamp-1">
           {workflow.description || "No description provided"}
         </CardDescription>
+        {!isTemplate && (
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            {workflow.handle && (
+              <code className="rounded bg-muted px-1.5 py-0.5">
+                handle: {workflow.handle}
+              </code>
+            )}
+            <code className="rounded bg-muted px-1.5 py-0.5">
+              id: {workflow.id}
+            </code>
+          </div>
+        )}
 
         {isTemplate && workflow.sourceExample && (
           <p className="mt-1 line-clamp-1 text-xs text-muted-foreground/80">
@@ -301,7 +315,7 @@ export const WorkflowCard = ({
                 data-card-action="true"
                 onClick={(event) => {
                   stopPropagation(event);
-                  onOpenWorkflow(workflow.id);
+                  onOpenWorkflow(workflowRouteRef);
                 }}
                 onPointerDown={stopPropagation}
               >

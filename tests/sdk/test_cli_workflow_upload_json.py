@@ -45,7 +45,7 @@ def test_workflow_upload_json_file_update_existing(
 
     updated = {"id": "wf-1", "name": "TestWorkflow"}
     with respx.mock(assert_all_called=True) as router:
-        router.post("http://api.test/api/workflows/wf-1").mock(
+        router.put("http://api.test/api/workflows/wf-1").mock(
             return_value=httpx.Response(200, json=updated)
         )
         result = runner.invoke(

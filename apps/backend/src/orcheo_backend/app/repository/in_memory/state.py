@@ -6,10 +6,12 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.triggers.layer import TriggerLayer
 from orcheo.vault.oauth import CredentialHealthError, OAuthCredentialService
 from orcheo_backend.app.repository.errors import (
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
@@ -25,6 +27,8 @@ class InMemoryRepositoryState:
         """Initialize the repository state containers and dependencies."""
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
+        self._active_workflow_handles: dict[str, UUID] = {}
+        self._archived_workflow_handles: dict[str, list[UUID]] = {}
         self._workflow_versions: dict[UUID, list[UUID]] = {}
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
@@ -36,6 +40,8 @@ class InMemoryRepositoryState:
         """Clear all stored workflows, versions, and runs."""
         async with self._lock:
             self._workflows.clear()
+            self._active_workflow_handles.clear()
+            self._archived_workflow_handles.clear()
             self._workflow_versions.clear()
             self._versions.clear()
             self._runs.clear()
@@ -134,6 +140,72 @@ class InMemoryRepositoryState:
         report = await service.ensure_workflow_health(workflow_id, actor=actor)
         if not report.is_healthy:
             raise CredentialHealthError(report)
+
+    def _rebuild_handle_indexes_locked(self) -> None:
+        """Rebuild handle indexes from workflow state. Caller must hold the lock."""
+        self._active_workflow_handles.clear()
+        self._archived_workflow_handles.clear()
+        archived_pairs: list[tuple[str, UUID, Any]] = []
+
+        for workflow in self._workflows.values():
+            if workflow.handle is None:
+                continue
+            if workflow.is_archived:
+                archived_pairs.append(
+                    (workflow.handle, workflow.id, workflow.updated_at)
+                )
+                continue
+            self._active_workflow_handles[workflow.handle] = workflow.id
+
+        archived_pairs.sort(key=lambda item: item[2], reverse=True)
+        for handle, workflow_id, _ in archived_pairs:
+            self._archived_workflow_handles.setdefault(handle, []).append(workflow_id)
+
+    def _ensure_handle_available_locked(
+        self,
+        handle: str | None,
+        *,
+        workflow_id: UUID | None,
+        is_archived: bool,
+    ) -> None:
+        """Ensure the provided handle is valid for assignment."""
+        if handle is None:
+            return
+
+        for existing in self._workflows.values():
+            if existing.id == workflow_id or existing.handle != handle:
+                continue
+            if not existing.is_archived or not is_archived:
+                msg = f"Workflow handle '{handle}' is already in use."
+                raise WorkflowHandleConflictError(msg)
+
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        """Resolve a user-facing workflow ref to a canonical UUID."""
+        normalized_ref = workflow_ref.strip().lower()
+        if not normalized_ref:
+            raise WorkflowNotFoundError("workflow ref is empty")
+
+        async with self._lock:
+            active_match = self._active_workflow_handles.get(normalized_ref)
+            if active_match is not None:
+                return active_match
+
+            if include_archived:
+                archived_matches = self._archived_workflow_handles.get(normalized_ref)
+                if archived_matches:
+                    return archived_matches[0]
+
+            if workflow_ref_is_uuid(normalized_ref):
+                workflow_uuid = UUID(normalized_ref)
+                if workflow_uuid in self._workflows:
+                    return workflow_uuid
+
+        raise WorkflowNotFoundError(normalized_ref)
 
 
 __all__ = ["InMemoryRepositoryState"]

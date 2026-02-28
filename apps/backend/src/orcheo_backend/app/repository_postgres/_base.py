@@ -41,10 +41,16 @@ except Exception:  # pragma: no cover - fallback when dependency missing
 POSTGRES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS workflows (
     id TEXT PRIMARY KEY,
+    handle TEXT,
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle
+    ON workflows(handle)
+ WHERE is_archived = FALSE AND handle IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS workflow_versions (
     id TEXT PRIMARY KEY,
@@ -197,6 +203,7 @@ class PostgresRepositoryBase:
                     if stmt:
                         await conn.execute(stmt)
                 await self._ensure_cron_schema_migrations(conn)
+                await self._ensure_workflow_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -215,6 +222,43 @@ class PostgresRepositoryBase:
         if "last_dispatched_at" not in existing_columns:  # pragma: no branch
             await conn.execute(
                 "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TIMESTAMPTZ"
+            )
+
+    async def _ensure_workflow_schema_migrations(self, conn: Any) -> None:
+        """Add mirrored workflow columns and backfill them from payloads."""
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'workflows'
+            """
+        )
+        rows = await cursor.fetchall()
+        existing_columns = {row["column_name"] for row in rows}
+        if "handle" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN handle TEXT")
+        if "is_archived" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE workflows "
+                "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+
+        cursor = await conn.execute("SELECT id, payload FROM workflows")
+        rows = await cursor.fetchall()
+        for row in rows:
+            workflow = Workflow.model_validate(row["payload"])
+            await conn.execute(
+                """
+                UPDATE workflows
+                   SET handle = %s, is_archived = %s, updated_at = %s
+                 WHERE id = %s
+                """,
+                (
+                    workflow.handle,
+                    workflow.is_archived,
+                    workflow.updated_at,
+                    row["id"],
+                ),
             )
 
     async def _hydrate_trigger_state(self) -> None:

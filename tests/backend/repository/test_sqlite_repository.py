@@ -2,14 +2,17 @@ from __future__ import annotations
 import asyncio
 import pathlib
 from datetime import UTC, datetime
+from uuid import uuid4
 import aiosqlite
 import pytest
+from orcheo.models.workflow import Workflow
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
 )
@@ -126,6 +129,60 @@ async def test_sqlite_ensure_cron_schema_migrations_adds_missing_column(
         rows = await cursor.fetchall()
 
     assert any(row["name"] == "last_dispatched_at" for row in rows)
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The workflow migration adds mirrored columns and backfills them."""
+
+    db_path = tmp_path / "legacy-workflows.sqlite"
+    repo_base = SqliteRepositoryBase(db_path)
+    workflow = Workflow(name="Legacy Flow", handle="legacy-flow")
+    workflow.is_archived = True
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO workflows (id, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                str(workflow.id),
+                workflow.model_dump_json(),
+                workflow.created_at.isoformat(),
+                workflow.updated_at.isoformat(),
+            ),
+        )
+        await conn.commit()
+
+        await repo_base._ensure_workflow_schema_migrations(conn)
+
+        cursor = await conn.execute("PRAGMA table_info(workflows)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        cursor = await conn.execute(
+            "SELECT handle, is_archived FROM workflows WHERE id = ?",
+            (str(workflow.id),),
+        )
+        row = await cursor.fetchone()
+
+    assert "handle" in columns
+    assert "is_archived" in columns
+    assert row is not None
+    assert row["handle"] == "legacy-flow"
+    assert row["is_archived"] == 1
 
 
 @pytest.mark.asyncio()
@@ -350,6 +407,86 @@ async def test_sqlite_refresh_cron_triggers_updates_last_dispatched_at(
     finally:
         await worker_repository.reset()
         await api_repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_get_workflow_locked_not_found(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked workflow fetch raises when the record does not exist."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-missing.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository._get_workflow_locked(uuid4())  # noqa: SLF001
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_workflow_exists_locked_returns_false(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked existence checks return False for unknown workflow ids."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-exists.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        exists = await repository._workflow_exists_locked(uuid4())  # noqa: SLF001
+
+        assert exists is False
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_ensure_handle_available_locked_rejects_conflict(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked handle validation raises for duplicate active handles."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-handle.sqlite")
+
+    try:
+        await repository.create_workflow(
+            name="Existing",
+            handle="shared-handle",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="tester",
+        )
+
+        with pytest.raises(WorkflowHandleConflictError):
+            await repository._ensure_handle_available_locked(  # noqa: SLF001
+                "shared-handle",
+                workflow_id=None,
+                is_archived=False,
+            )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_resolve_workflow_ref_locked_rejects_blank_ref(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked workflow-ref resolution rejects blank refs."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-ref.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        with pytest.raises(WorkflowNotFoundError, match="workflow ref is empty"):
+            await repository._resolve_workflow_ref_locked("   ")  # noqa: SLF001
+    finally:
+        await repository.reset()
 
 
 @pytest.mark.asyncio()

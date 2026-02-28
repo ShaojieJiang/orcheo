@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
+from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -35,15 +36,23 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         self,
         *,
         name: str,
+        handle: str | None = None,
         slug: str | None,
         description: str | None,
         tags: Iterable[str] | None,
         actor: str,
     ) -> Workflow:
         await self._ensure_initialized()
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
+            await self._ensure_handle_available_locked(
+                normalized_handle,
+                workflow_id=None,
+                is_archived=False,
+            )
             workflow = Workflow(
                 name=name,
+                handle=normalized_handle,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -52,11 +61,20 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             async with self._connection() as conn:
                 await conn.execute(
                     """
-                    INSERT INTO workflows (id, payload, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO workflows (
+                        id,
+                        handle,
+                        is_archived,
+                        payload,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
                     (
                         str(workflow.id),
+                        workflow.handle,
+                        workflow.is_archived,
                         self._dump_model(workflow),
                         workflow.created_at,
                         workflow.updated_at,
@@ -69,21 +87,51 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         async with self._lock:
             return await self._get_workflow_locked(workflow_id)
 
+    async def resolve_workflow_ref(
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+    ) -> UUID:
+        await self._ensure_initialized()
+        async with self._lock:
+            return await self._resolve_workflow_ref_locked(
+                workflow_ref,
+                include_archived=include_archived,
+            )
+
     async def update_workflow(
         self,
         workflow_id: UUID,
         *,
         name: str | None,
+        handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:
         await self._ensure_initialized()
+        normalized_handle = normalize_workflow_handle(handle)
         async with self._lock:
             workflow = await self._get_workflow_locked(workflow_id)
 
             metadata: dict[str, Any] = {}
+            next_is_archived = (
+                workflow.is_archived if is_archived is None else is_archived
+            )
+
+            if normalized_handle is not None and normalized_handle != workflow.handle:
+                await self._ensure_handle_available_locked(
+                    normalized_handle,
+                    workflow_id=workflow_id,
+                    is_archived=next_is_archived,
+                )
+                metadata["handle"] = {
+                    "from": workflow.handle,
+                    "to": normalized_handle,
+                }
+                workflow.handle = normalized_handle
 
             if name is not None and name != workflow.name:
                 metadata["name"] = {"from": workflow.name, "to": name}
@@ -124,10 +172,12 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 await conn.execute(
                     """
                     UPDATE workflows
-                       SET payload = %s, updated_at = %s
+                       SET handle = %s, is_archived = %s, payload = %s, updated_at = %s
                      WHERE id = %s
                     """,
                     (
+                        workflow.handle,
+                        workflow.is_archived,
                         self._dump_model(workflow),
                         workflow.updated_at,
                         str(workflow.id),
@@ -139,6 +189,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         return await self.update_workflow(
             workflow_id,
             name=None,
+            handle=None,
             description=None,
             tags=None,
             is_archived=True,
@@ -168,10 +219,12 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 await conn.execute(
                     """
                     UPDATE workflows
-                       SET payload = %s, updated_at = %s
+                       SET handle = %s, is_archived = %s, payload = %s, updated_at = %s
                      WHERE id = %s
                     """,
                     (
+                        workflow.handle,
+                        workflow.is_archived,
                         self._dump_model(workflow),
                         workflow.updated_at,
                         str(workflow.id),
@@ -193,10 +246,12 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 await conn.execute(
                     """
                     UPDATE workflows
-                       SET payload = %s, updated_at = %s
+                       SET handle = %s, is_archived = %s, payload = %s, updated_at = %s
                      WHERE id = %s
                     """,
                     (
+                        workflow.handle,
+                        workflow.is_archived,
                         self._dump_model(workflow),
                         workflow.updated_at,
                         str(workflow.id),

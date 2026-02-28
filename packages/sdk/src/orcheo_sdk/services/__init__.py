@@ -40,6 +40,7 @@ from orcheo_sdk.services.workflows import (
     show_workflow_data,
     unpublish_workflow_data,
     unschedule_workflow_cron,
+    update_workflow_data,
     upload_workflow_data,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "run_workflow_data",
     "delete_workflow_data",
     "upload_workflow_data",
+    "update_workflow_data",
     "download_workflow_data",
     "get_latest_workflow_version_data",
     "publish_workflow_data",

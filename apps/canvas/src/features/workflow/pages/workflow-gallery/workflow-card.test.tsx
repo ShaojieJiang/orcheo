@@ -15,6 +15,7 @@ vi.mock("./workflow-thumbnail", () => ({
 
 const workflow = {
   id: "workflow-1",
+  handle: "support-triage",
   name: "Support triage",
   description: "Routes inbound requests.",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -53,7 +54,7 @@ describe("WorkflowCard", () => {
     await user.click(screen.getByTestId("workflow-card"));
 
     expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.id);
+    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.handle);
   });
 
   it("does not trigger card navigation when favorite button is clicked", async () => {
@@ -83,7 +84,7 @@ describe("WorkflowCard", () => {
     await user.click(screen.getByRole("button", { name: /^edit$/i }));
 
     expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.id);
+    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.handle);
   });
 
   it("keeps dropdown actions from triggering card navigation", async () => {

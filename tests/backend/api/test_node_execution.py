@@ -1,8 +1,17 @@
 from __future__ import annotations
-from uuid import uuid4
+from uuid import UUID
 from fastapi.testclient import TestClient
 from orcheo.models import CredentialScope
 from orcheo.vault import InMemoryCredentialVault
+
+
+def _create_workflow(api_client: TestClient) -> str:
+    response = api_client.post(
+        "/api/workflows",
+        json={"name": "Node Flow", "actor": "tester"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
 
 
 def test_node_execution_with_set_variable_node(api_client: TestClient) -> None:
@@ -50,7 +59,7 @@ def test_node_execution_with_delay_node(api_client: TestClient) -> None:
 def test_node_execution_resolves_credentials(api_client: TestClient) -> None:
     """Placeholders in node config should resolve through the vault."""
 
-    workflow_id = uuid4()
+    workflow_id = UUID(_create_workflow(api_client))
     vault: InMemoryCredentialVault = api_client.app.state.vault  # type: ignore[attr-defined]
     vault.create_credential(
         name="telegram_bot",
@@ -158,7 +167,7 @@ def test_node_execution_invalid_config(api_client: TestClient) -> None:
 
 def test_node_execution_with_workflow_context(api_client: TestClient) -> None:
     """Test executing a node with workflow_id for credential context."""
-    workflow_id = str(uuid4())
+    workflow_id = _create_workflow(api_client)
 
     response = api_client.post(
         "/api/nodes/execute",

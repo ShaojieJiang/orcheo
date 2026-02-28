@@ -11,6 +11,7 @@ from typing import Any, NotRequired, TypedDict
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
 from orcheo.models.base import TimestampedAuditModel, _utcnow
+from orcheo.models.workflow_refs import normalize_workflow_handle
 
 
 __all__ = [
@@ -58,6 +59,7 @@ class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
     name: str = Field(min_length=1, max_length=128)
+    handle: str | None = Field(default=None, max_length=64)
     slug: str = ""
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
@@ -76,6 +78,13 @@ class Workflow(TimestampedAuditModel):
             msg = "Workflow name must not be empty."
             raise ValueError(msg)
         return candidate
+
+    @field_validator("handle", mode="before")
+    @classmethod
+    def _normalize_handle(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_workflow_handle(str(value))
 
     @field_validator("description", mode="before")
     @classmethod

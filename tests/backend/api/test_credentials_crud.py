@@ -6,6 +6,15 @@ from orcheo.models import CredentialHealthStatus
 from orcheo.vault import InMemoryCredentialVault, WorkflowScopeError
 
 
+def _create_workflow(api_client: TestClient) -> str:
+    response = api_client.post(
+        "/api/workflows",
+        json={"name": "Credential Flow", "actor": "tester"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 def test_credential_template_crud_and_issuance(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/api/credentials/templates",
@@ -105,7 +114,7 @@ def test_list_credentials_endpoint_returns_vault_entries(
 
 
 def test_create_credential(api_client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
     response = api_client.post(
         "/api/credentials",
         json={
@@ -114,7 +123,7 @@ def test_create_credential(api_client: TestClient) -> None:
             "secret": "sk_test_canvas",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
 
@@ -127,7 +136,7 @@ def test_create_credential(api_client: TestClient) -> None:
 
     fetch_response = api_client.get(
         "/api/credentials",
-        params={"workflow_id": str(workflow_id)},
+        params={"workflow_id": workflow_id},
     )
 
     assert fetch_response.status_code == 200
@@ -136,7 +145,7 @@ def test_create_credential(api_client: TestClient) -> None:
 
 
 def test_reveal_credential_secret(api_client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
     create_response = api_client.post(
         "/api/credentials",
         json={
@@ -145,7 +154,7 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
             "secret": "sk_test_canvas",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
     assert create_response.status_code == 201
@@ -153,7 +162,7 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
 
     reveal_response = api_client.get(
         f"/api/credentials/{credential_id}/secret",
-        params={"workflow_id": str(workflow_id)},
+        params={"workflow_id": workflow_id},
     )
     assert reveal_response.status_code == 200
     payload = reveal_response.json()
@@ -162,7 +171,7 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
 
 
 def test_update_credential(api_client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
     create_response = api_client.post(
         "/api/credentials",
         json={
@@ -171,7 +180,7 @@ def test_update_credential(api_client: TestClient) -> None:
             "secret": "sk_test_canvas",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
     assert create_response.status_code == 201
@@ -185,7 +194,7 @@ def test_update_credential(api_client: TestClient) -> None:
             "secret": "sk_test_updated",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
     assert update_response.status_code == 200
@@ -196,7 +205,7 @@ def test_update_credential(api_client: TestClient) -> None:
 
     reveal_response = api_client.get(
         f"/api/credentials/{credential_id}/secret",
-        params={"workflow_id": str(workflow_id)},
+        params={"workflow_id": workflow_id},
     )
     assert reveal_response.status_code == 200
     assert reveal_response.json()["secret"] == "sk_test_updated"
@@ -266,14 +275,14 @@ def test_update_credential_scope_error_returns_403(
 def test_create_credential_duplicate_name_returns_409(
     api_client: TestClient,
 ) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
     payload = {
         "name": "Canvas API",
         "provider": "api",
         "secret": "sk_test_canvas",
         "actor": "tester",
         "access": "private",
-        "workflow_id": str(workflow_id),
+        "workflow_id": workflow_id,
     }
     first = api_client.post("/api/credentials", json=payload)
     assert first.status_code == 201
@@ -284,7 +293,7 @@ def test_create_credential_duplicate_name_returns_409(
 
 
 def test_delete_credential(api_client: TestClient) -> None:
-    workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
     create_response = api_client.post(
         "/api/credentials",
         json={
@@ -293,7 +302,7 @@ def test_delete_credential(api_client: TestClient) -> None:
             "secret": "sk_test_canvas",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
     assert create_response.status_code == 201
@@ -301,13 +310,13 @@ def test_delete_credential(api_client: TestClient) -> None:
 
     delete_response = api_client.delete(
         f"/api/credentials/{credential_id}",
-        params={"workflow_id": str(workflow_id)},
+        params={"workflow_id": workflow_id},
     )
     assert delete_response.status_code == 204
 
     fetch_response = api_client.get(
         "/api/credentials",
-        params={"workflow_id": str(workflow_id)},
+        params={"workflow_id": workflow_id},
     )
     assert fetch_response.status_code == 200
     payload = fetch_response.json()

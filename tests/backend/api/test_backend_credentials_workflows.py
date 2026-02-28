@@ -11,6 +11,15 @@ from fastapi.testclient import TestClient
 backend_app = importlib.import_module("orcheo_backend.app")
 
 
+def _create_workflow(api_client: TestClient) -> str:
+    response = api_client.post(
+        "/api/workflows",
+        json={"name": "Scoped Flow", "actor": "tester"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 @pytest.mark.asyncio
 async def test_credential_health_get_without_service(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -65,8 +74,8 @@ def test_delete_credential_not_found(api_client: TestClient) -> None:
 
 def test_delete_credential_scope_violation(api_client: TestClient) -> None:
     """Deleting credential with mismatched workflow raises 403."""
-    workflow_id = uuid4()
-    other_workflow_id = uuid4()
+    workflow_id = _create_workflow(api_client)
+    other_workflow_id = _create_workflow(api_client)
 
     create_response = api_client.post(
         "/api/credentials",
@@ -76,14 +85,14 @@ def test_delete_credential_scope_violation(api_client: TestClient) -> None:
             "secret": "secret",
             "actor": "tester",
             "access": "private",
-            "workflow_id": str(workflow_id),
+            "workflow_id": workflow_id,
         },
     )
     credential_id = create_response.json()["id"]
 
     response = api_client.delete(
         f"/api/credentials/{credential_id}",
-        params={"workflow_id": str(other_workflow_id)},
+        params={"workflow_id": other_workflow_id},
     )
     assert response.status_code == 403
 

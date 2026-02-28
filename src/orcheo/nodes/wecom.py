@@ -191,7 +191,10 @@ class WeComEventsParserNode(TaskNode):
     """WeCom callback token for signature validation (from Orcheo vault)."""
     encoding_aes_key: str = "[[wecom_encoding_aes_key]]"
     """WeCom AES key for payload decryption (from Orcheo vault)."""
-    corp_id: str = Field(description="WeCom corp ID for decryption validation")
+    corp_id: str = Field(
+        default="[[wecom_corp_id]]",
+        description="WeCom corp ID for decryption validation",
+    )
     timestamp_tolerance_seconds: int = Field(
         default=300,
         description="Maximum age for WeCom signature timestamps",
@@ -1056,7 +1059,10 @@ class WeComAIBotResponseNode(TaskNode):
 class WeComAccessTokenNode(TaskNode):
     """Fetch and cache WeCom access token."""
 
-    corp_id: str = Field(description="WeCom corp ID")
+    corp_id: str = Field(
+        default="[[wecom_corp_id]]",
+        description="WeCom corp ID",
+    )
     app_secret: str = "[[wecom_app_secret]]"
     """WeCom app secret (from Orcheo vault)."""
 

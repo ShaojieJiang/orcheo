@@ -29,6 +29,10 @@ class StubClient:
         self.calls.append(("POST", url, payload))
         raise NotImplementedError
 
+    def put(self, url: str, **payload: Any) -> Any:
+        self.calls.append(("PUT", url, payload))
+        raise NotImplementedError
+
     def delete(self, url: str) -> None:  # pragma: no cover - convenience helper
         self.calls.append(("DELETE", url))
 
