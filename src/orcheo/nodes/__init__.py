@@ -35,6 +35,7 @@ from orcheo.nodes.mongodb import (
     MongoDBInsertManyNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
+    MongoDBUpsertManyNode,
 )
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
@@ -74,6 +75,7 @@ __all__ = [
     "MongoDBFindNode",
     "MongoDBInsertManyNode",
     "MongoDBUpdateManyNode",
+    "MongoDBUpsertManyNode",
     "MongoDBEnsureSearchIndexNode",
     "MongoDBEnsureVectorIndexNode",
     "MongoDBHybridSearchNode",

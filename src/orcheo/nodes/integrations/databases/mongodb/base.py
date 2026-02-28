@@ -9,7 +9,7 @@ from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pydantic import Field, PrivateAttr, field_validator
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor
@@ -751,11 +751,159 @@ class MongoDBInsertManyNode(MongoDBClientNode):
         return document
 
 
+@registry.register(
+    NodeMetadata(
+        name="MongoDBUpsertManyNode",
+        description="Bulk-upsert upstream records into MongoDB using keyed filters",
+        category="mongodb",
+    )
+)
+class MongoDBUpsertManyNode(MongoDBNode):
+    """Bulk-upsert upstream records into a MongoDB collection.
+
+    Records are resolved from workflow state and converted into ``UpdateOne``
+    operations executed via ``bulk_write``. Each record contributes a filter
+    derived from ``filter_fields`` and an update document composed from
+    ``set_fields`` or the remaining top-level fields.
+    """
+
+    operation: Literal["bulk_write"] = "bulk_write"
+    source_result_key: str = Field(
+        description="Upstream result entry containing records to upsert.",
+    )
+    records_field: str = Field(
+        default="documents",
+        description=(
+            "Field within the upstream result storing the list of records. "
+            "When the upstream result is already a list, this field is ignored."
+        ),
+    )
+    filter_fields: list[str] = Field(
+        default_factory=list,
+        description="Record fields copied into the upsert filter document.",
+    )
+    set_fields: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allowlist of record fields written via $set. "
+            "When omitted, all top-level fields except filter/excluded fields "
+            "are written."
+        ),
+    )
+    exclude_fields: list[str] = Field(
+        default_factory=list,
+        description="Record fields excluded from the generated $set payload.",
+    )
+    set_on_insert: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional values written only when a new record is inserted.",
+    )
+    upsert: bool = Field(
+        default=True,
+        description="Whether to insert a document when no existing match is found.",
+    )
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Read records from state and bulk-upsert them into MongoDB."""
+        del config
+        records = self._resolve_records(state)
+        if not records:
+            msg = "No records available to upsert"
+            raise ValueError(msg)
+        if not self.filter_fields:
+            msg = "filter_fields must contain at least one field"
+            raise ValueError(msg)
+
+        operations = [
+            self._build_update_one(record=record, index=index)
+            for index, record in enumerate(records)
+        ]
+
+        self._ensure_collection()
+        assert self._collection is not None
+        collection = self._collection
+
+        result = self._execute_operation(
+            context=f"bulk_upsert into {self.database}.{self.collection}",
+            operation=lambda: collection.bulk_write(operations, **dict(self.options)),
+        )
+
+        return {"data": self._convert_result_to_dict(result)}
+
+    def _resolve_records(self, state: State) -> list[dict[str, Any]]:
+        """Extract the list of records to upsert from workflow state."""
+        results = state.get("results", {})
+        if not isinstance(results, Mapping):
+            return []
+
+        source = results.get(self.source_result_key)
+        if isinstance(source, list):
+            return [dict(record) for record in source if isinstance(record, Mapping)]
+        if not isinstance(source, Mapping):
+            return []
+
+        records = source.get(self.records_field)
+        if not isinstance(records, list):
+            return []
+
+        normalized_records: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                return []
+            normalized_records.append(dict(record))
+        return normalized_records
+
+    def _build_update_one(self, *, record: dict[str, Any], index: int) -> UpdateOne:
+        """Return the ``UpdateOne`` operation for a single record."""
+        filter_doc = self._build_filter(record=record, index=index)
+        update_doc = self._build_update(record)
+        return UpdateOne(
+            self._coerce_object_ids(filter_doc),
+            self._coerce_object_ids(update_doc),
+            upsert=self.upsert,
+        )
+
+    def _build_filter(self, *, record: dict[str, Any], index: int) -> dict[str, Any]:
+        """Build the MongoDB filter document for a single record."""
+        filter_doc: dict[str, Any] = {}
+        for field in self.filter_fields:
+            if field not in record:
+                msg = f"Record at index {index} is missing filter field {field!r}"
+                raise ValueError(msg)
+            filter_doc[field] = record[field]
+        return filter_doc
+
+    def _build_update(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Build the MongoDB update document for a single record."""
+        excluded = set(self.exclude_fields)
+        if self.set_fields is None:
+            set_payload = {
+                key: value for key, value in record.items() if key not in excluded
+            }
+        else:
+            set_payload = {
+                key: record[key]
+                for key in self.set_fields
+                if key in record and key not in self.exclude_fields
+            }
+
+        update_doc: dict[str, Any] = {}
+        if set_payload:
+            update_doc["$set"] = set_payload
+        if self.set_on_insert:
+            update_doc["$setOnInsert"] = dict(self.set_on_insert)
+        if not update_doc:
+            msg = "Generated update document must not be empty"
+            raise ValueError(msg)
+        return update_doc
+
+
 __all__ = [
     "MongoDBAggregateNode",
     "MongoDBFindNode",
     "MongoDBInsertManyNode",
     "MongoDBNode",
+    "MongoDBUpsertManyNode",
     "MongoDBUpdateManyNode",
 ]
 
