@@ -110,11 +110,6 @@ class SqliteRepositoryBase:
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                     );
-                    CREATE INDEX IF NOT EXISTS idx_workflows_handle
-                        ON workflows(handle);
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle
-                        ON workflows(handle)
-                     WHERE is_archived = 0 AND handle IS NOT NULL;
                     CREATE TABLE IF NOT EXISTS workflow_versions (
                         id TEXT PRIMARY KEY,
                         workflow_id TEXT NOT NULL,
@@ -203,6 +198,16 @@ class SqliteRepositoryBase:
                     row["id"],
                 ),
             )
+
+        # Create indexes after columns are guaranteed to exist
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle"
+            " ON workflows(handle)"
+            " WHERE is_archived = 0 AND handle IS NOT NULL"
+        )
 
     async def _hydrate_trigger_state(self) -> None:
         async with self._connection() as conn:

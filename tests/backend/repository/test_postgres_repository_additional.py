@@ -387,6 +387,8 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
         {},
         {"rows": [{"id": str(workflow_id), "payload": legacy_payload}]},
         {},
+        {},
+        {},
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -402,13 +404,18 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
         in query
         for query in queries
     )
-    update_query, update_params = connection.queries[-1]
-    assert "UPDATE workflows" in update_query
+    # Find the UPDATE query (indexes are created after it)
+    update_entries = [(q, p) for q, p in connection.queries if "UPDATE workflows" in q]
+    assert len(update_entries) == 1
+    update_query, update_params = update_entries[0]
     assert update_params is not None
     assert update_params[0] == "legacy-flow"
     assert update_params[1] is True
     assert isinstance(update_params[2], datetime)
     assert update_params[3] == str(workflow_id)
+    # Indexes should be created after migration
+    assert any("idx_workflows_handle" in q for q in queries)
+    assert any("idx_workflows_active_handle" in q for q in queries)
 
 
 @pytest.mark.asyncio
@@ -421,6 +428,8 @@ async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
         {"rows": [{"column_name": "handle"}]},
         {},
         {"rows": []},
+        {},
+        {},
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -446,6 +455,8 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
     responses: list[Any] = [
         {"rows": [{"column_name": "handle"}, {"column_name": "is_archived"}]},
         {"rows": []},
+        {},
+        {},
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
