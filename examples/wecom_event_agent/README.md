@@ -17,7 +17,6 @@ Edit `workflow_config.json` to set:
 ```json
 {
   "configurable": {
-    "corp_id": "YOUR_WECOM_CORP_ID",
     "agent_id": 1000002,
     "events_database": "events",
     "events_collection": "events",
@@ -28,7 +27,6 @@ Edit `workflow_config.json` to set:
 
 | Field | Description |
 |-------|-------------|
-| `corp_id` | WeCom corporation ID |
 | `agent_id` | WeCom app agent ID for internal messages |
 | `events_database` | MongoDB database name for events/RSVPs |
 | `events_collection` | MongoDB collection for events |
@@ -40,6 +38,7 @@ Configure these secrets in the Orcheo vault (referenced via `[[key]]` syntax):
 
 | Secret Key | Description |
 |------------|-------------|
+| `wecom_corp_id` | WeCom corporation ID |
 | `wecom_app_secret` | WeCom app secret for access token retrieval |
 | `wecom_token` | Callback token for signature validation |
 | `wecom_encoding_aes_key` | AES key for callback payload decryption |
