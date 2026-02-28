@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from fastapi.testclient import TestClient
 
 
@@ -153,8 +154,15 @@ def test_openapi_uses_workflow_ref_for_handle_aware_paths(
 ) -> None:
     """Handle-aware routes should document a consistent path parameter name."""
 
-    response = api_client.get("/openapi.json")
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("always")
+        response = api_client.get("/openapi.json")
     assert response.status_code == 200
+    assert not [
+        warning
+        for warning in recorded_warnings
+        if "Duplicate Operation ID" in str(warning.message)
+    ]
 
     paths = response.json()["paths"]
     expected_paths = [

@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 from datetime import UTC, datetime
+from uuid import uuid4
 import aiosqlite
 import pytest
 from orcheo.models.workflow import Workflow
@@ -11,6 +12,7 @@ from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
 )
@@ -405,6 +407,86 @@ async def test_sqlite_refresh_cron_triggers_updates_last_dispatched_at(
     finally:
         await worker_repository.reset()
         await api_repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_get_workflow_locked_not_found(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked workflow fetch raises when the record does not exist."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-missing.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository._get_workflow_locked(uuid4())  # noqa: SLF001
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_workflow_exists_locked_returns_false(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked existence checks return False for unknown workflow ids."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-exists.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        exists = await repository._workflow_exists_locked(uuid4())  # noqa: SLF001
+
+        assert exists is False
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_ensure_handle_available_locked_rejects_conflict(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked handle validation raises for duplicate active handles."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-handle.sqlite")
+
+    try:
+        await repository.create_workflow(
+            name="Existing",
+            handle="shared-handle",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="tester",
+        )
+
+        with pytest.raises(WorkflowHandleConflictError):
+            await repository._ensure_handle_available_locked(  # noqa: SLF001
+                "shared-handle",
+                workflow_id=None,
+                is_archived=False,
+            )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_persistence_resolve_workflow_ref_locked_rejects_blank_ref(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Locked workflow-ref resolution rejects blank refs."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-ref.sqlite")
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        with pytest.raises(WorkflowNotFoundError, match="workflow ref is empty"):
+            await repository._resolve_workflow_ref_locked("   ")  # noqa: SLF001
+    finally:
+        await repository.reset()
 
 
 @pytest.mark.asyncio()

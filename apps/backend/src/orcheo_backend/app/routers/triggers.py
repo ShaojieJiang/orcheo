@@ -265,11 +265,35 @@ async def _queue_webhook_run(
         ) from exc
 
 
-@public_webhook_router.api_route(
+@public_webhook_router.get(
     "/workflows/{workflow_ref}/triggers/webhook",
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_webhook_trigger_get",
+)
+@public_webhook_router.post(
+    "/workflows/{workflow_ref}/triggers/webhook",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_webhook_trigger_post",
+)
+@public_webhook_router.put(
+    "/workflows/{workflow_ref}/triggers/webhook",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_webhook_trigger_put",
+)
+@public_webhook_router.patch(
+    "/workflows/{workflow_ref}/triggers/webhook",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_webhook_trigger_patch",
+)
+@public_webhook_router.delete(
+    "/workflows/{workflow_ref}/triggers/webhook",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_webhook_trigger_delete",
 )
 async def invoke_webhook_trigger(
     workflow_ref: str,

@@ -40,6 +40,27 @@ class _MissingWorkflowRepo:
 
 
 @pytest.mark.asyncio()
+async def test_get_public_workflow_not_found_after_resolution() -> None:
+    class _ResolveThenMissRepo:
+        async def resolve_workflow_ref(
+            self, workflow_ref: str, *, include_archived: bool = True
+        ) -> UUID:
+            del include_archived
+            return UUID(str(workflow_ref))
+
+        async def get_workflow(self, workflow_id: UUID) -> Workflow:
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    with pytest.raises(HTTPException) as excinfo:
+        await workflows.get_public_workflow(
+            str(uuid4()),
+            _ResolveThenMissRepo(),
+        )
+
+    assert excinfo.value.status_code == 404
+
+
+@pytest.mark.asyncio()
 async def test_get_public_workflow_not_found() -> None:
     with pytest.raises(HTTPException) as excinfo:
         await workflows.get_public_workflow(

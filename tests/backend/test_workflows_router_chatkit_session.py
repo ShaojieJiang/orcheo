@@ -50,6 +50,17 @@ class _MissingWorkflowRepo:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
+class _ResolveThenMissingWorkflowRepo:
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived: bool = True
+    ) -> UUID:
+        del include_archived
+        return UUID(str(workflow_ref))
+
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        raise WorkflowNotFoundError(str(workflow_id))
+
+
 def _issuer() -> ChatKitSessionTokenIssuer:
     return ChatKitSessionTokenIssuer(
         ChatKitTokenSettings(
@@ -137,6 +148,21 @@ async def test_create_workflow_chatkit_session_validates_workflow_exists() -> No
         await workflows.create_workflow_chatkit_session(
             str(uuid4()),
             repo,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_missing_after_resolution() -> None:
+    policy = _policy({"workflows:read", "workflows:execute"})
+
+    with pytest.raises(HTTPException) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            str(uuid4()),
+            _ResolveThenMissingWorkflowRepo(),
             policy=policy,
             issuer=_issuer(),
         )

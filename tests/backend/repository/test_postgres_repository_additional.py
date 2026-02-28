@@ -16,6 +16,7 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError, CredentialHealthReport
 from orcheo_backend.app.repository.errors import (
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
@@ -294,6 +295,81 @@ async def test_persistence_resolve_workflow_ref_locked_uses_single_query(
 
 
 @pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_rejects_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Handle validation raises when another active workflow owns the handle."""
+
+    responses: list[Any] = [
+        {"rows": [{"id": str(uuid4()), "is_archived": False}]},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowHandleConflictError, match="already in use"):
+        await repo._ensure_handle_available_locked(
+            "shared-handle",
+            workflow_id=None,
+            is_archived=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_allows_archived_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived workflows may reuse a handle owned only by archived workflows."""
+
+    responses: list[Any] = [
+        {"rows": [{"id": str(uuid4()), "is_archived": True}]},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "shared-handle",
+        workflow_id=None,
+        is_archived=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_blank_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Blank workflow refs raise before any query is issued."""
+
+    repo = make_repository(monkeypatch, [])
+
+    with pytest.raises(WorkflowNotFoundError, match="workflow ref is empty"):
+        await repo._resolve_workflow_ref_locked("   ")
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_not_found_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow ref resolution raises when no matching row is found."""
+
+    repo = make_repository(monkeypatch, [{"row": None}])
+
+    with pytest.raises(WorkflowNotFoundError, match="missing-handle"):
+        await repo._resolve_workflow_ref_locked("missing-handle")
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_resolve_workflow_ref_delegates_to_locked_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public resolve_workflow_ref delegates through the initialized wrapper."""
+
+    workflow_id = uuid4()
+    repo = make_repository(monkeypatch, [{"row": {"id": str(workflow_id)}}])
+
+    resolved = await repo.resolve_workflow_ref("handle-flow")
+
+    assert resolved == workflow_id
+
+
+@pytest.mark.asyncio
 async def test_base_ensure_workflow_schema_migrations_backfills_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,6 +409,57 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
     assert update_params[1] is True
     assert isinstance(update_params[2], datetime)
     assert update_params[3] == str(workflow_id)
+
+
+@pytest.mark.asyncio
+async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing mirrored columns should not be re-added during migration."""
+
+    responses: list[Any] = [
+        {"rows": [{"column_name": "handle"}]},
+        {},
+        {"rows": []},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_workflow_schema_migrations(connection)
+
+    queries = [query for query, _ in connection.queries]
+    assert not any(
+        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
+    )
+    assert any(
+        "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE" in query
+        for query in queries
+    )
+
+
+@pytest.mark.asyncio
+async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing mirrored columns should bypass both ALTER statements."""
+
+    responses: list[Any] = [
+        {"rows": [{"column_name": "handle"}, {"column_name": "is_archived"}]},
+        {"rows": []},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_workflow_schema_migrations(connection)
+
+    queries = [query for query, _ in connection.queries]
+    assert not any(
+        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
+    )
+    assert not any(
+        "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE" in query
+        for query in queries
+    )
 
 
 @pytest.mark.asyncio

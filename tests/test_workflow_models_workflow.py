@@ -10,6 +10,7 @@ from orcheo.models import (
     WorkflowRunStatus,
     WorkflowVersion,
 )
+from orcheo.models.workflow_refs import normalize_workflow_handle
 
 
 def test_workflow_slug_is_derived_from_name() -> None:
@@ -56,6 +57,21 @@ def test_workflow_handle_is_normalized_and_validated() -> None:
 def test_workflow_handle_rejects_uuid_format() -> None:
     with pytest.raises(ValidationError, match="must not use a UUID format"):
         Workflow(name="Demo Flow", handle="550e8400-e29b-41d4-a716-446655440000")
+
+
+def test_normalize_workflow_handle_rejects_empty_value() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        normalize_workflow_handle("   ")
+
+
+def test_normalize_workflow_handle_rejects_overlong_value() -> None:
+    with pytest.raises(ValueError, match="at most 64 characters"):
+        normalize_workflow_handle("a" * 65)
+
+
+def test_normalize_workflow_handle_rejects_invalid_characters() -> None:
+    with pytest.raises(ValueError, match="single hyphens"):
+        normalize_workflow_handle("not_valid")
 
 
 def test_workflow_tag_normalization() -> None:

@@ -314,6 +314,37 @@ async def test_postgres_repository_update_workflow(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_update_workflow_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Updating a workflow can also rename its handle."""
+
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, handle="original-handle")}},
+        {"rows": []},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.update_workflow(
+        workflow_id,
+        name=None,
+        handle="renamed-handle",
+        description=None,
+        tags=None,
+        is_archived=None,
+        actor="updater",
+    )
+
+    assert workflow.handle == "renamed-handle"
+    assert any(
+        event.metadata.get("handle", {}).get("to") == "renamed-handle"
+        for event in workflow.audit_log
+    )
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_archive_workflow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

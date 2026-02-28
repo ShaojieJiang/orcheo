@@ -2,6 +2,7 @@ from __future__ import annotations
 from uuid import uuid4
 import pytest
 from orcheo_backend.app.repository import (
+    WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowRepository,
 )
@@ -227,3 +228,114 @@ async def test_resolve_workflow_ref_finds_archived_handle_when_requested(
             "shared-handle",
             include_archived=False,
         )
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_updates_handle_and_resolves_new_ref(
+    repository: WorkflowRepository,
+) -> None:
+    """Updating a workflow handle makes the new ref resolvable."""
+
+    created = await repository.create_workflow(
+        name="Handle Flow",
+        handle="handle-flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    updated = await repository.update_workflow(
+        created.id,
+        name=None,
+        handle="renamed-flow",
+        description=None,
+        tags=None,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert updated.handle == "renamed-flow"
+    assert await repository.resolve_workflow_ref("renamed-flow") == created.id
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_rejects_duplicate_active_handle(
+    repository: WorkflowRepository,
+) -> None:
+    """Active workflows cannot reuse another active workflow handle."""
+
+    await repository.create_workflow(
+        name="Primary",
+        handle="shared-handle",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    created = await repository.create_workflow(
+        name="Secondary",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    with pytest.raises(WorkflowHandleConflictError):
+        await repository.update_workflow(
+            created.id,
+            name=None,
+            handle="shared-handle",
+            description=None,
+            tags=None,
+            is_archived=None,
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_allows_reusing_handle_for_archived_workflows(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows may reuse an archived handle."""
+
+    first = await repository.create_workflow(
+        name="Archived Primary",
+        handle="shared-handle",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.archive_workflow(first.id, actor="tester")
+
+    second = await repository.create_workflow(
+        name="Archived Secondary",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+
+    updated = await repository.update_workflow(
+        second.id,
+        name=None,
+        handle="shared-handle",
+        description=None,
+        tags=None,
+        is_archived=True,
+        actor="tester",
+    )
+
+    assert updated.handle == "shared-handle"
+    assert updated.is_archived is True
+
+
+@pytest.mark.asyncio()
+async def test_resolve_workflow_ref_rejects_blank_value(
+    repository: WorkflowRepository,
+) -> None:
+    """Blank workflow refs raise a not-found error."""
+
+    with pytest.raises(WorkflowNotFoundError, match="workflow ref is empty"):
+        await repository.resolve_workflow_ref("   ")

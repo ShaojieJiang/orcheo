@@ -21,6 +21,16 @@ async def test_webhook_configuration_requires_workflow(
 
 
 @pytest.mark.asyncio()
+async def test_get_webhook_configuration_requires_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Fetching webhook config for a missing workflow raises an error."""
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.get_webhook_trigger_config(uuid4())
+
+
+@pytest.mark.asyncio()
 async def test_webhook_configuration_roundtrip(
     repository: WorkflowRepository,
 ) -> None:
