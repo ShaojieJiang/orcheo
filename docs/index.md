@@ -44,6 +44,12 @@ Use the installation path that matches your setup:
     orcheo install
     ```
 
+=== "macOS/Linux (non-interactive)"
+
+    ```bash
+    curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
+    ```
+
 === "Upgrade"
 
     ```bash

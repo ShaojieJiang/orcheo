@@ -57,6 +57,15 @@ orcheo install
 </details>
 
 <details>
+<summary>macOS/Linux (non-interactive)</summary>
+
+```bash
+curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
+```
+
+</details>
+
+<details>
 <summary>Upgrade</summary>
 
 ```bash
