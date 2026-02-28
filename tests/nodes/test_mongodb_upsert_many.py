@@ -72,6 +72,37 @@ def _build_node(**overrides: Any) -> MongoDBUpsertManyNode:
     return MongoDBUpsertManyNode(**defaults)
 
 
+def test_upsert_many_resolve_records_returns_empty_for_non_mapping_results() -> None:
+    node = _build_node()
+    state = State(messages=[], inputs={}, results="invalid")
+
+    assert node._resolve_records(state) == []
+
+
+def test_upsert_many_resolve_records_returns_empty_for_non_list_documents() -> None:
+    node = _build_node()
+    state = State(
+        messages=[],
+        inputs={},
+        results={"fetch_rss": {"documents": "invalid"}},
+    )
+
+    assert node._resolve_records(state) == []
+
+
+def test_upsert_many_resolve_records_returns_empty_for_non_mapping_record() -> None:
+    node = _build_node()
+    state = State(
+        messages=[],
+        inputs={},
+        results={
+            "fetch_rss": {"documents": [{"link": "https://example.com/1"}, "bad"]}
+        },
+    )
+
+    assert node._resolve_records(state) == []
+
+
 @pytest.mark.asyncio
 async def test_upsert_many_builds_bulk_operations(
     mongo_context: MongoTestContext,
