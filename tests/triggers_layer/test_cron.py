@@ -92,7 +92,9 @@ def test_collect_due_cron_dispatches_skips_unhealthy_workflows() -> None:
     layer = TriggerLayer(health_guard=Guard())
     layer.configure_cron(
         workflow_id,
-        CronTriggerConfig(expression="* * * * *", timezone="UTC"),
+        CronTriggerConfig(
+            expression="* * * * *", timezone="UTC", allow_overlapping=True
+        ),
     )
 
     plans = layer.collect_due_cron_dispatches(now=datetime.now(tz=UTC))

@@ -12,8 +12,9 @@ async def test_run_mongodb_node_uses_active_config(monkeypatch) -> None:
     captured: dict[str, RunnableConfig | None] = {}
 
     class FakeNode:
-        def decode_variables(self, state, config=None):  # type: ignore[no-untyped-def]
-            captured["decode_config"] = config
+        def resolved_for_run(self, state, config=None):  # type: ignore[no-untyped-def]
+            captured["resolved_config"] = config
+            return self
 
         async def run(self, state, config):  # type: ignore[no-untyped-def]
             captured["run_config"] = config
@@ -30,7 +31,7 @@ async def test_run_mongodb_node_uses_active_config(monkeypatch) -> None:
 
     result = await tools._run_mongodb_node(FakeNode())
     assert result == {"ok": True}
-    assert captured["decode_config"] is config
+    assert captured["resolved_config"] is config
     assert captured["run_config"] is config
     assert called.get("requested")
 

@@ -137,6 +137,36 @@ class CronTriggerConfig(BaseModel):
             raise CronValidationError(msg)
         return self
 
+    _HIGH_FREQUENCY_THRESHOLD_SECONDS = 300  # 5 minutes
+
+    @model_validator(mode="after")
+    def _validate_overlap_frequency(self) -> CronTriggerConfig:
+        """Reject allow_overlapping=False with high-frequency schedules.
+
+        Cron expressions that fire more often than every 5 minutes are almost
+        certainly misconfigured when combined with overlap protection, as any
+        run exceeding the interval will permanently block future dispatches.
+        """
+        if self.allow_overlapping:
+            return self
+        try:
+            it = croniter(self.expression)
+            first = it.get_next(datetime)
+            second = it.get_next(datetime)
+            interval = (second - first).total_seconds()
+        except Exception:
+            return self
+        if interval < self._HIGH_FREQUENCY_THRESHOLD_SECONDS:
+            msg = (
+                f"Cron expression '{self.expression}' fires every "
+                f"{int(interval)}s, but allow_overlapping is disabled. "
+                f"This risks permanently blocking the schedule. Either "
+                f"increase the interval to at least 5 minutes or set "
+                f"allow_overlapping to true."
+            )
+            raise CronValidationError(msg)
+        return self
+
     def timezone_info(self) -> ZoneInfo:
         """Return the ZoneInfo instance for the configured timezone."""
         return ZoneInfo(self.timezone)

@@ -191,6 +191,24 @@ class AgentNode(AINode):
     history_value_field: str = "content"
     """Field name used when persisting text content into store records."""
 
+    _DEFERRED_DECODE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"history_key_template", "history_key_candidates"}
+    )
+    """Fields resolved by ``_resolve_history_key``, skipped in general decode."""
+
+    def decode_variables(
+        self,
+        state: Any,
+        *,
+        config: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Decode variables, skipping fields handled by _resolve_history_key."""
+        del config
+        for key, value in self.__dict__.items():
+            if key in self._DEFERRED_DECODE_FIELDS:
+                continue
+            self.__dict__[key] = self._decode_value(value, state)
+
     @field_serializer("system_prompt", when_used="json")
     def _serialize_system_prompt(self, value: str | TextTensor | None) -> str | None:
         """Normalize TextTensor prompts into JSON-safe strings."""

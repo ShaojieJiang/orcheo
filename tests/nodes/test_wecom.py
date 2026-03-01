@@ -1826,6 +1826,45 @@ class TestWeComCustomerServiceSendNode:
         assert result["errmsg"] == "invalid external_userid"
 
     @pytest.mark.asyncio
+    async def test_send_message_api_error_raises_when_configured(
+        self, patch_redis: FakeRedis
+    ) -> None:
+        """Opt-in strict mode raises instead of returning an error result."""
+        node = WeComCustomerServiceSendNode(
+            name="wecom_cs_send",
+            open_kf_id="wkABC123",
+            external_userid="wmXYZ789",
+            message="Hello!",
+            raise_on_error=True,
+        )
+
+        state = State(
+            messages=[],
+            inputs={},
+            results={
+                "get_access_token": {
+                    "access_token": "test_token",
+                    "expires_in": 7200,
+                },
+            },
+        )
+
+        send_response = MagicMock()
+        send_response.json.return_value = {
+            "errcode": 95017,
+            "errmsg": "invalid external_userid",
+        }
+        send_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=send_response)
+        mock_client.aclose = AsyncMock()
+
+        with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="WeCom customer service send failed"):
+                await node.run(state, RunnableConfig())
+
+    @pytest.mark.asyncio
     async def test_send_non_text_message_falls_back_to_text(
         self, patch_redis: FakeRedis
     ) -> None:

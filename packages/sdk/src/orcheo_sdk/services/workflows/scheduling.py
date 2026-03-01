@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.triggers.cron import CronTriggerConfig
-from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.services.workflows.versions import get_latest_workflow_version_data
 
@@ -35,6 +35,42 @@ def schedule_workflow_cron(
     return {
         "status": "scheduled",
         "message": f"Cron trigger scheduled for workflow '{workflow_id}'.",
+        "config": response or payload,
+    }
+
+
+def sync_cron_schedule_if_changed(
+    client: ApiClient,
+    workflow_id: str,
+) -> dict[str, Any]:
+    """Update the cron schedule when one exists and the config changed."""
+    try:
+        existing = client.get(f"/api/workflows/{workflow_id}/triggers/cron/config")
+    except APICallError as exc:
+        if exc.status_code == 404:
+            return {"status": "noop", "reason": "no_existing_schedule"}
+        raise
+
+    version = get_latest_workflow_version_data(client, workflow_id)
+    graph = version.get("graph")
+    if not isinstance(graph, Mapping):
+        return {"status": "noop", "reason": "no_graph"}
+    new_config = _extract_cron_config(graph)
+    if new_config is None:
+        return {"status": "noop", "reason": "no_cron_trigger"}
+
+    existing_config = CronTriggerConfig(**existing)
+    if new_config == existing_config:
+        return {"status": "noop", "reason": "unchanged"}
+
+    payload = new_config.model_dump(mode="json")
+    response = client.put(
+        f"/api/workflows/{workflow_id}/triggers/cron/config",
+        json_body=payload,
+    )
+    return {
+        "status": "updated",
+        "message": f"Cron schedule updated for workflow '{workflow_id}'.",
         "config": response or payload,
     }
 
@@ -94,4 +130,8 @@ def _extract_nodes(graph: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return []
 
 
-__all__ = ["schedule_workflow_cron", "unschedule_workflow_cron"]
+__all__ = [
+    "schedule_workflow_cron",
+    "sync_cron_schedule_if_changed",
+    "unschedule_workflow_cron",
+]

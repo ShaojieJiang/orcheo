@@ -35,8 +35,8 @@ async def _run_mongodb_node(
         "messages": [],
     }
     runnable_config = config or RunnableConfig()
-    node.decode_variables(state, config=runnable_config)
-    return await node.run(state, runnable_config)
+    resolved = node.resolved_for_run(state, config=runnable_config)
+    return await resolved.run(state, runnable_config)
 
 
 def _normalize_mongodb_sort(

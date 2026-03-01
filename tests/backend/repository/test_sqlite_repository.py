@@ -257,7 +257,9 @@ async def test_sqlite_cron_dispatch_reflects_external_unschedule(
         )
         await api_repository.configure_cron_trigger(
             workflow.id,
-            CronTriggerConfig(expression="* * * * *", timezone="UTC"),
+            CronTriggerConfig(
+                expression="* * * * *", timezone="UTC", allow_overlapping=True
+            ),
         )
 
         first_runs = await worker_repository.dispatch_due_cron_runs(

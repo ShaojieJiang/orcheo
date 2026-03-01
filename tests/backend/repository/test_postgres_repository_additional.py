@@ -1222,9 +1222,9 @@ async def test_hydrate_trigger_state_with_cron_run(
     """Test _hydrate_trigger_state registers runs triggered by cron."""
     w_id = uuid4()
     run_id = uuid4()
-    cron_conf = CronTriggerConfig(expression="* * * * *", timezone="UTC").model_dump(
-        mode="json"
-    )
+    cron_conf = CronTriggerConfig(
+        expression="* * * * *", timezone="UTC", allow_overlapping=True
+    ).model_dump(mode="json")
 
     class SmartFakeConnection:
         def __init__(self) -> None:
@@ -1426,7 +1426,9 @@ async def test_triggers_dispatch_due_cron_runs_with_naive_datetime(
     version_payload = _version_payload(version_id, workflow_id)
 
     repo = make_repository(monkeypatch, [])
-    config = CronTriggerConfig(expression="* * * * *", timezone="UTC")
+    config = CronTriggerConfig(
+        expression="* * * * *", timezone="UTC", allow_overlapping=True
+    )
     repo._trigger_layer.configure_cron(workflow_id, config)
 
     # Mock to return version
@@ -1484,7 +1486,9 @@ async def test_triggers_dispatch_due_cron_runs_enqueues_runs(
     version_payload = _version_payload(version_id, workflow_id)
 
     repo = make_repository(monkeypatch, [])
-    config = CronTriggerConfig(expression="* * * * *", timezone="UTC")
+    config = CronTriggerConfig(
+        expression="* * * * *", timezone="UTC", allow_overlapping=True
+    )
     repo._trigger_layer.configure_cron(workflow_id, config)
 
     version = WorkflowVersion.model_validate(version_payload)

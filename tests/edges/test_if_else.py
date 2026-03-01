@@ -144,3 +144,28 @@ async def test_if_else_node_with_and_logic_all_fail() -> None:
     result = await node(state, RunnableConfig())
 
     assert result == "false"
+
+
+@pytest.mark.asyncio
+async def test_if_else_re_resolves_templates_per_invocation() -> None:
+    node = IfElse(
+        name="condition",
+        conditions=[
+            {
+                "left": "{{loop.done}}",
+                "operator": "is_falsy",
+            }
+        ],
+    )
+
+    first = await node(
+        State({"results": {"loop": {"done": False}}}),
+        RunnableConfig(),
+    )
+    second = await node(
+        State({"results": {"loop": {"done": True}}}),
+        RunnableConfig(),
+    )
+
+    assert first == "true"
+    assert second == "false"

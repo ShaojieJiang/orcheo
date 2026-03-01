@@ -158,6 +158,30 @@ def test_cron_trigger_rejects_invalid_timezone() -> None:
         CronTriggerConfig(expression="0 * * * *", timezone="Mars/Phobos")
 
 
+def test_cron_trigger_rejects_high_frequency_without_overlap() -> None:
+    """High-frequency cron with allow_overlapping=False should be rejected."""
+
+    with pytest.raises(ValidationError) as exc:
+        CronTriggerConfig(expression="* * * * *", allow_overlapping=False)
+
+    assert "fires every 60s" in str(exc.value)
+    assert "allow_overlapping" in str(exc.value)
+
+
+def test_cron_trigger_allows_high_frequency_with_overlap() -> None:
+    """High-frequency cron with allow_overlapping=True should be accepted."""
+
+    config = CronTriggerConfig(expression="* * * * *", allow_overlapping=True)
+    assert config.expression == "* * * * *"
+
+
+def test_cron_trigger_allows_low_frequency_without_overlap() -> None:
+    """Low-frequency cron (>= 5 min) with allow_overlapping=False is fine."""
+
+    config = CronTriggerConfig(expression="0 9 * * *", allow_overlapping=False)
+    assert config.expression == "0 9 * * *"
+
+
 def test_cron_state_with_last_dispatched_at_computes_next_correctly() -> None:
     """When last_dispatched_at is provided, the next fire time is computed from it."""
     config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")

@@ -27,3 +27,21 @@ async def test_ai_node_call() -> None:
     result = await node(state, config)
 
     assert result == {"messages": {"result": "test_value"}}
+
+
+@pytest.mark.asyncio
+async def test_ai_node_call_re_resolves_templates_per_invocation() -> None:
+    node = MockAINode(name="test_ai", input_var="{{payload.value}}")
+
+    first = await node(
+        State({"results": {"payload": {"value": "first"}}}),
+        RunnableConfig(),
+    )
+    second = await node(
+        State({"results": {"payload": {"value": "second"}}}),
+        RunnableConfig(),
+    )
+
+    assert first == {"messages": {"result": "first"}}
+    assert second == {"messages": {"result": "second"}}
+    assert node.input_var == "{{payload.value}}"

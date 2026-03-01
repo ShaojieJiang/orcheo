@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 from xml.etree import ElementTree
 import httpx
@@ -82,6 +83,31 @@ class RSSNode(TaskNode):
                 return text
         return fallback_href
 
+    @staticmethod
+    def _normalize_date(raw: str) -> str:
+        """Normalize an RSS/Atom date string to UTC ISO 8601.
+
+        Handles RFC 2822 (RSS 2.0) and ISO 8601 (Atom) formats.
+        Returns an empty string when the date cannot be parsed.
+        """
+        if not raw:
+            return ""
+        # RFC 2822 – used by RSS 2.0 <pubDate>
+        try:
+            dt = parsedate_to_datetime(raw)
+            return dt.astimezone(datetime.UTC).isoformat()
+        except (ValueError, TypeError):
+            pass
+        # ISO 8601 – used by Atom <published>/<updated>
+        try:
+            dt = datetime.datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.UTC)
+            return dt.astimezone(datetime.UTC).isoformat()
+        except ValueError:
+            pass
+        return ""
+
     @classmethod
     def _parse_items(cls, body: str) -> list[dict[str, str]]:
         """Parse RSS/Atom items from an XML body."""
@@ -108,6 +134,7 @@ class RSSNode(TaskNode):
                     "link": link,
                     "description": description,
                     "pubDate": pub_date,
+                    "isoDate": cls._normalize_date(pub_date),
                 }
             )
         return items
@@ -146,6 +173,7 @@ class RSSNode(TaskNode):
                     "link": item.get("link", ""),
                     "description": item.get("description", ""),
                     "pubDate": item.get("pubDate", ""),
+                    "isoDate": item.get("isoDate", ""),
                     "source": url,
                     "read": False,
                     "fetched_at": now_iso,

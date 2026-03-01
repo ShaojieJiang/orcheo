@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
@@ -44,17 +44,25 @@ class BaseRunnable(BaseModel):
         if isinstance(value, str):
             return self._decode_string_value(value, state)
         if isinstance(value, BaseModel):
-            # Handle Pydantic models by decoding their dict representation
-            for field_name in value.__class__.model_fields:
-                field_value = getattr(value, field_name)
-                decoded = self._decode_value(field_value, state)
-                setattr(value, field_name, decoded)
-            return value
+            # Rebuild nested Pydantic models so shared node instances
+            # do not retain resolved template state across invocations.
+            updates = {
+                field_name: self._decode_value(getattr(value, field_name), state)
+                for field_name in value.__class__.model_fields
+            }
+            return value.model_copy(update=updates)
         if isinstance(value, dict):
             return {k: self._decode_value(v, state) for k, v in value.items()}
         if isinstance(value, list):
             return [self._decode_value(item, state) for item in value]
         return value
+
+    def _decoded_updates(self, state: State) -> dict[str, Any]:
+        """Return decoded field values without mutating the runnable."""
+        return {
+            key: self._decode_value(value, state)
+            for key, value in self.__dict__.items()
+        }
 
     def _decode_string_value(
         self,
@@ -157,8 +165,18 @@ class BaseRunnable(BaseModel):
     ) -> None:
         """Decode the variables in attributes of the runnable."""
         del config
-        for key, value in self.__dict__.items():
-            self.__dict__[key] = self._decode_value(value, state)
+        self.__dict__.update(self._decoded_updates(state))
+
+    def resolved_for_run(
+        self,
+        state: State,
+        *,
+        config: Mapping[str, Any] | None = None,
+    ) -> Self:
+        """Return a copy with templates resolved for the current invocation."""
+        runnable = cast(Self, self.model_copy())
+        runnable.decode_variables(state, config=config)
+        return runnable
 
 
 class BaseNode(BaseRunnable):
@@ -206,9 +224,9 @@ class AINode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        return self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        return runnable._serialize_result(result)
 
     @abstractmethod
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -221,9 +239,9 @@ class TaskNode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        serialized_result = self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        serialized_result = runnable._serialize_result(result)
         return {"results": {self.name: serialized_result}}
 
     @abstractmethod

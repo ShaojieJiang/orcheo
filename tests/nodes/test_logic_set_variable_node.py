@@ -197,6 +197,24 @@ async def test_for_loop_node_raw_index_none() -> None:
     assert result["index"] == 1
 
 
+@pytest.mark.asyncio
+async def test_for_loop_node_re_resolves_templated_items_per_invocation() -> None:
+    """Templated item sources should be resolved fresh for each invocation."""
+    node = ForLoopNode(name="loop", items="{{source.items}}")
+
+    first = await node(
+        State({"results": {"source": {"items": ["a"]}}}),
+        RunnableConfig(),
+    )
+    second = await node(
+        State({"results": {"source": {"items": ["b"]}}}),
+        RunnableConfig(),
+    )
+
+    assert first["results"]["loop"]["current_item"] == "a"
+    assert second["results"]["loop"]["current_item"] == "b"
+
+
 def test_build_nested_empty_path_raises() -> None:
     """An empty path string raises ValueError."""
     with pytest.raises(ValueError, match="non-empty string"):
