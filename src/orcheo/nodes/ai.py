@@ -196,6 +196,17 @@ class AgentNode(AINode):
     )
     """Fields resolved by ``_resolve_history_key``, skipped in general decode."""
 
+    def _compute_run_updates(self, state: State) -> dict[str, Any]:
+        """Skip deferred fields that are resolved by _resolve_history_key."""
+        updates: dict[str, Any] = {}
+        for key, value in self.__dict__.items():
+            if key in self._DEFERRED_DECODE_FIELDS:
+                continue
+            decoded = self._decode_value(value, state)
+            if decoded is not value:
+                updates[key] = decoded
+        return updates
+
     def decode_variables(
         self,
         state: Any,
