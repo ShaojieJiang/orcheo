@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
@@ -139,6 +139,11 @@ class TestExtractPayload:
         assert result["version"] == 0
         assert result["messages"] == []
 
+    def test_invalid_types_get_sanitized_defaults(self) -> None:
+        item = MockItem({"version": "1", "messages": {"role": "user"}})
+        result = GraphStoreAppendMessageNode._extract_payload(item)
+        assert result == {"version": 0, "messages": []}
+
 
 # ---------------------------------------------------------------------------
 # GraphStoreAppendMessageNode._namespace_tuple() tests
@@ -207,6 +212,20 @@ async def test_unresolved_template_in_key_returns_false() -> None:
     state = State({"results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
+
+
+@pytest.mark.asyncio
+async def test_non_string_key_coerces_to_string() -> None:
+    store = MockStore(existing_item=None)
+    node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="digest")
+    node.key = cast(Any, 123)
+    state = State({"results": {}})
+
+    result = await node.run(state, _config_with_store(store))
+
+    assert result == {"history_written": True}
+    _, key, _ = store.put_calls[0]
+    assert key == "123"
 
 
 @pytest.mark.asyncio
@@ -282,3 +301,18 @@ async def test_aput_exception_returns_false() -> None:
     state = State({"results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
+
+
+@pytest.mark.asyncio
+async def test_invalid_existing_payload_types_do_not_fail() -> None:
+    existing = MockItem({"version": "4", "messages": "bad"})
+    store = MockStore(existing_item=existing)
+    node = GraphStoreAppendMessageNode(name="t", key="k", content="msg")
+    state = State({"results": {}})
+
+    result = await node.run(state, _config_with_store(store))
+
+    assert result == {"history_written": True}
+    _, _, payload = store.put_calls[0]
+    assert payload["version"] == 1
+    assert payload["messages"] == [{"role": "assistant", "content": "msg"}]

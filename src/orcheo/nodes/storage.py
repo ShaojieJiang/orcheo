@@ -245,9 +245,14 @@ class GraphStoreAppendMessageNode(TaskNode):
             value = item.get("value")
 
         if isinstance(value, dict):
-            value.setdefault("version", 0)
-            value.setdefault("messages", [])
-            return value
+            payload = dict(value)
+            version = payload.get("version", 0)
+            payload["version"] = version if isinstance(version, int | float) else 0
+
+            messages = payload.get("messages", [])
+            payload["messages"] = messages if isinstance(messages, list) else []
+
+            return payload
 
         return {"version": 0, "messages": []}
 
@@ -261,12 +266,21 @@ class GraphStoreAppendMessageNode(TaskNode):
             )
             return {"history_written": False}
 
-        key = (self.key or "").strip()
+        key_raw = self.key
+        if key_raw is None:
+            key = ""
+        elif isinstance(key_raw, str):
+            key = key_raw.strip()
+        elif isinstance(key_raw, int | float | bool):
+            key = str(key_raw).strip()
+        else:
+            key = ""
+
         if not key or "{{" in key or "}}" in key:
             logger.warning(
                 "GraphStoreAppendMessageNode '%s': invalid key after resolution: %r",
                 self.name,
-                key,
+                key_raw,
             )
             return {"history_written": False}
 
