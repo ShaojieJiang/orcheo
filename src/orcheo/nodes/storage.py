@@ -1,7 +1,8 @@
-"""Storage nodes providing database access."""
+"""Storage nodes providing database access and graph store operations."""
 
 from __future__ import annotations
 import asyncio
+import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -15,12 +16,43 @@ from orcheo.nodes.registry import NodeMetadata, registry
 if TYPE_CHECKING:
     pass
 
+logger = logging.getLogger(__name__)
+
 
 def _rows_to_dicts(
     columns: Sequence[str], rows: Sequence[Sequence[Any]]
 ) -> list[dict[str, Any]]:
     """Convert database rows into dictionaries keyed by column name."""
     return [dict(zip(columns, row, strict=False)) for row in rows]
+
+
+def get_graph_store(config: RunnableConfig | None) -> Any | None:
+    """Return the LangGraph runtime store from a :class:`RunnableConfig`.
+
+    Resolution order:
+
+    1. ``config["configurable"]["__pregel_runtime"].store`` (Mapping or attribute)
+    2. ``config["configurable"]["__pregel_store"]`` (direct fallback)
+
+    Returns ``None`` when no store is available.
+    """
+    if not isinstance(config, Mapping):
+        return None
+    configurable = config.get("configurable", {})
+    if not isinstance(configurable, Mapping):
+        return None
+
+    runtime = configurable.get("__pregel_runtime")
+    if runtime is not None:
+        if isinstance(runtime, Mapping):
+            maybe_store = runtime.get("store")
+            if maybe_store is not None:
+                return maybe_store
+        maybe_store = getattr(runtime, "store", None)
+        if maybe_store is not None:
+            return maybe_store
+
+    return configurable.get("__pregel_store")
 
 
 @registry.register(
@@ -145,4 +177,144 @@ class SQLiteNode(TaskNode):
         return await asyncio.to_thread(self._execute)
 
 
-__all__ = ["PostgresNode", "SQLiteNode"]
+@registry.register(
+    NodeMetadata(
+        name="GraphStoreAppendMessageNode",
+        description=(
+            "Append a message to a versioned chat history item in the "
+            "LangGraph graph store."
+        ),
+        category="storage",
+    )
+)
+class GraphStoreAppendMessageNode(TaskNode):
+    """Append a single message to a versioned graph-store history item.
+
+    All string fields support ``{{template}}`` resolution via Orcheo's
+    ``resolved_for_run`` mechanism.  Example usage::
+
+        GraphStoreAppendMessageNode(
+            name="persist_history",
+            key="telegram:{{for_each_subscriber.current_item.chat_id}}",
+            content="{{format_digest.content}}",
+        )
+    """
+
+    namespace: list[str] = Field(
+        default_factory=lambda: ["agent_chat_history"],
+        description="Store namespace (converted to tuple internally).",
+    )
+    key: str = Field(
+        description=(
+            "Store key identifying the conversation slot. "
+            "Supports {{template}} resolution."
+        ),
+    )
+    role: str = Field(
+        default="assistant",
+        description="Message role, e.g. 'assistant' or 'user'.",
+    )
+    content: str = Field(
+        description="Message content to append. Supports {{template}} resolution.",
+    )
+
+    def _namespace_tuple(self) -> tuple[str, ...]:
+        """Convert the namespace list to a tuple, filtering blanks."""
+        ns = tuple(
+            entry.strip()
+            for entry in self.namespace
+            if isinstance(entry, str) and entry.strip()
+        )
+        return ns or ("agent_chat_history",)
+
+    @staticmethod
+    def _extract_payload(item: Any) -> dict[str, Any]:
+        """Extract a mutable payload dict from a store item.
+
+        Handles three representations:
+
+        1. ``None`` → fresh payload
+        2. Object with ``.value`` attribute (LangGraph ``Item``)
+        3. ``Mapping`` with ``"value"`` key (serialised item)
+        """
+        if item is None:
+            return {"version": 0, "messages": []}
+
+        value = getattr(item, "value", None)
+        if value is None and isinstance(item, Mapping):
+            value = item.get("value")
+
+        if isinstance(value, dict):
+            value.setdefault("version", 0)
+            value.setdefault("messages", [])
+            return value
+
+        return {"version": 0, "messages": []}
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Append the message to the graph store and return write status."""
+        store = get_graph_store(config)
+        if store is None:
+            logger.debug(
+                "GraphStoreAppendMessageNode '%s': no graph store available.",
+                self.name,
+            )
+            return {"history_written": False}
+
+        key = (self.key or "").strip()
+        if not key or "{{" in key or "}}" in key:
+            logger.warning(
+                "GraphStoreAppendMessageNode '%s': invalid key after resolution: %r",
+                self.name,
+                key,
+            )
+            return {"history_written": False}
+
+        if not self.content:
+            logger.warning(
+                "GraphStoreAppendMessageNode '%s': empty content after resolution.",
+                self.name,
+            )
+            return {"history_written": False}
+
+        namespace = self._namespace_tuple()
+
+        try:
+            item = await store.aget(namespace, key)
+        except Exception:
+            logger.warning(
+                "GraphStoreAppendMessageNode '%s': failed to read store "
+                "(namespace=%s, key='%s').",
+                self.name,
+                namespace,
+                key,
+                exc_info=True,
+            )
+            return {"history_written": False}
+
+        payload = self._extract_payload(item)
+        payload["messages"].append({"role": self.role, "content": self.content})
+        payload["version"] = payload.get("version", 0) + 1
+
+        try:
+            await store.aput(namespace, key, payload)
+        except Exception:
+            logger.warning(
+                "GraphStoreAppendMessageNode '%s': failed to write store "
+                "(namespace=%s, key='%s').",
+                self.name,
+                namespace,
+                key,
+                exc_info=True,
+            )
+            return {"history_written": False}
+
+        return {"history_written": True}
+
+
+__all__ = [
+    "get_graph_store",
+    "GraphStoreAppendMessageNode",
+    "PostgresNode",
+    "SQLiteNode",
+]

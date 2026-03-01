@@ -27,6 +27,7 @@ from orcheo.nodes.agent_tools.context import (
 from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.nodes.storage import get_graph_store as _get_graph_store_fn
 
 
 logger = logging.getLogger(__name__)
@@ -413,23 +414,7 @@ class AgentNode(AINode):
 
     def _get_graph_store(self, config: RunnableConfig | None) -> Any | None:
         """Return the runtime graph store when available."""
-        if not isinstance(config, Mapping):
-            return None
-        configurable = config.get("configurable", {})
-        if not isinstance(configurable, Mapping):
-            return None
-
-        runtime = configurable.get("__pregel_runtime")
-        if runtime is not None:
-            if isinstance(runtime, Mapping):
-                maybe_store = runtime.get("store")
-                if maybe_store is not None:
-                    return maybe_store
-            maybe_store = getattr(runtime, "store", None)
-            if maybe_store is not None:
-                return maybe_store
-
-        return configurable.get("__pregel_store")
+        return _get_graph_store_fn(config)
 
     def _history_namespace_tuple(self) -> tuple[str, ...]:
         namespace = tuple(

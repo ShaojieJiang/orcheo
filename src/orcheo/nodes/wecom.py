@@ -44,6 +44,7 @@ MIN_DECRYPTED_LEN = RANDOM_PREFIX_LEN + MSG_LEN_BYTES
 CS_MESSAGE_TTL_SECONDS = 3 * 24 * 60 * 60
 CS_REDIS_PREFIX = "wecom:cs"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+DEFAULT_TIMEOUT = 10.0
 
 
 def verify_wecom_signature(
@@ -890,7 +891,7 @@ class WeComAIBotResponseNode(TaskNode):
         description="Template card payload for template_card replies",
     )
     timeout: float | None = Field(
-        default=10.0,
+        default=DEFAULT_TIMEOUT,
         description="Timeout in seconds for the response_url request",
     )
 
@@ -1065,13 +1066,17 @@ class WeComAccessTokenNode(TaskNode):
     )
     app_secret: str = "[[wecom_app_secret]]"
     """WeCom app secret (from Orcheo vault)."""
+    timeout: float | None = Field(
+        default=DEFAULT_TIMEOUT,
+        description="Timeout in seconds for the access token request",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Fetch access token from WeCom API."""
         url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
         params = {"corpid": self.corp_id, "corpsecret": self.app_secret}
 
-        client = httpx.AsyncClient(timeout=10.0)
+        client = httpx.AsyncClient(timeout=self.timeout)
         try:
             response = await client.get(url, params=params)
             response.raise_for_status()
@@ -1110,6 +1115,10 @@ class WeComSendMessageNode(TaskNode):
     )
     message: str = Field(description="Message content to send")
     msg_type: str = Field(default="text", description="Message type (text or markdown)")
+    timeout: float | None = Field(
+        default=DEFAULT_TIMEOUT,
+        description="Timeout in seconds for the send message request",
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to WeCom chat."""
@@ -1176,7 +1185,7 @@ class WeComSendMessageNode(TaskNode):
         else:
             payload["text"] = {"content": self.message}
 
-        client = httpx.AsyncClient(timeout=10.0)
+        client = httpx.AsyncClient(timeout=self.timeout)
         try:
             response = await client.post(url, params=params, json=payload)
             response.raise_for_status()
@@ -1252,7 +1261,7 @@ class WeComGroupPushNode(TaskNode):
     )
     content: str = Field(description="Message content to send")
     timeout: float | None = Field(
-        default=10.0,
+        default=DEFAULT_TIMEOUT,
         description="Timeout in seconds for the webhook request",
     )
 
@@ -1815,6 +1824,10 @@ class WeComCustomerServiceSyncNode(TaskNode):
         default=1000,
         description="Maximum number of messages to fetch (1-1000)",
     )
+    timeout: float | None = Field(
+        default=DEFAULT_TIMEOUT,
+        description="Timeout in seconds for the sync request",
+    )
 
     @staticmethod
     def _build_agent_messages(
@@ -1889,7 +1902,7 @@ class WeComCustomerServiceSyncNode(TaskNode):
             base_payload["token"] = kf_token
 
         redis_client = _create_cs_redis_client()
-        client = httpx.AsyncClient(timeout=10.0)
+        client = httpx.AsyncClient(timeout=self.timeout)
         try:
             sync_result = await _pull_cs_pages(
                 client, redis_client, url, params, base_payload, self.cursor
@@ -1978,6 +1991,10 @@ class WeComCustomerServiceSendNode(TaskNode):
         default=False,
         description="Raise ValueError when send fails instead of returning is_error",
     )
+    timeout: float | None = Field(
+        default=DEFAULT_TIMEOUT,
+        description="Timeout in seconds for the send request",
+    )
 
     def _error_result(
         self,
@@ -2014,7 +2031,7 @@ class WeComCustomerServiceSendNode(TaskNode):
         url = "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg"
         params: dict[str, str] = {"access_token": access_token}
 
-        client = httpx.AsyncClient(timeout=10.0)
+        client = httpx.AsyncClient(timeout=self.timeout)
         try:
             response = await client.post(url, params=params, json=payload)
             response.raise_for_status()
