@@ -107,3 +107,30 @@ def test_decode_variables_interpolates_mixed_system_prompt_templates() -> None:
     node.decode_variables(state)
 
     assert node.system_prompt == "internal=alice external=wxid_42"
+
+
+def test_compute_run_updates_skips_deferred_fields_and_decodes_others() -> None:
+    """_compute_run_updates omits history_key_template/candidates and resolves
+    other template fields such as system_prompt (lines 201-208)."""
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        # history_key_template contains {{ so stays as str, but is deferred
+        history_key_template="{{inputs.ctx}}",
+        # system_prompt also contains {{ so stays as str, and is NOT deferred
+        system_prompt="user:{{inputs.ctx}}",
+    )
+    state = State(
+        {
+            "inputs": {"ctx": "my-ctx"},
+            "results": {},
+        }
+    )
+
+    updates = node._compute_run_updates(state)
+
+    # Deferred fields must not appear in updates
+    assert "history_key_template" not in updates
+    assert "history_key_candidates" not in updates
+    # Non-deferred template field is decoded
+    assert updates.get("system_prompt") == "user:my-ctx"

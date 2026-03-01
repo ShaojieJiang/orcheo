@@ -506,9 +506,9 @@ class WeComEventsParserNode(TaskNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and merge agent messages into state."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        serialized = self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        serialized = runnable._serialize_result(result)
         output: dict[str, Any] = {"results": {self.name: serialized}}
         if isinstance(serialized, dict):  # pragma: no branch
             agent_messages = serialized.pop("agent_messages", None)
@@ -1570,7 +1570,7 @@ async def _close_cs_redis_client(redis_client: redis.Redis | None) -> None:
     if redis_client is None:
         return
     try:
-        await redis_client.close()
+        await redis_client.aclose()
     except redis.RedisError:
         return
 
@@ -1935,9 +1935,9 @@ class WeComCustomerServiceSyncNode(TaskNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and merge agent messages into state."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        serialized = self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        serialized = runnable._serialize_result(result)
         output: dict[str, Any] = {"results": {self.name: serialized}}
         if isinstance(serialized, dict):  # pragma: no branch
             agent_messages = serialized.pop("agent_messages", None)
@@ -1974,6 +1974,32 @@ class WeComCustomerServiceSendNode(TaskNode):
     )
     message: str = Field(description="Message content to send")
     msg_type: str = Field(default="text", description="Message type (text only)")
+    raise_on_error: bool = Field(
+        default=False,
+        description="Raise ValueError when send fails instead of returning is_error",
+    )
+
+    def _error_result(
+        self,
+        *,
+        error: str | None = None,
+        errcode: int | None = None,
+        errmsg: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a structured error result or raise when configured."""
+        result: dict[str, Any] = {"is_error": True}
+        if error is not None:
+            result["error"] = error
+        if errcode is not None:
+            result["errcode"] = errcode
+        if errmsg is not None:
+            result["errmsg"] = errmsg
+
+        if self.raise_on_error:
+            detail = error or errmsg or "Unknown error"
+            raise ValueError(f"WeCom customer service send failed: {detail}")
+
+        return result
 
     async def send_message(
         self,
@@ -2011,11 +2037,10 @@ class WeComCustomerServiceSendNode(TaskNode):
                     "external_userid": external_userid,
                 },
             )
-            return {
-                "is_error": True,
-                "errcode": errcode,
-                "errmsg": data.get("errmsg", "Unknown error"),
-            }
+            return self._error_result(
+                errcode=errcode,
+                errmsg=data.get("errmsg", "Unknown error"),
+            )
 
         logger.info(
             "WeCom CS message delivered",
@@ -2067,7 +2092,7 @@ class WeComCustomerServiceSendNode(TaskNode):
             )
         finally:
             if redis_client is not None:  # pragma: no branch
-                await redis_client.close()
+                await redis_client.aclose()
         return {
             "is_error": False,
             "errcode": 0,
@@ -2100,7 +2125,7 @@ class WeComCustomerServiceSendNode(TaskNode):
                     "reason": "missing_access_token",
                 },
             )
-            return {"is_error": True, "error": "No access token available"}
+            return self._error_result(error="No access token available")
 
         open_kf_id = (
             self.open_kf_id
@@ -2118,7 +2143,7 @@ class WeComCustomerServiceSendNode(TaskNode):
                     "reason": "missing_open_kf_id",
                 },
             )
-            return {"is_error": True, "error": "No open_kf_id provided"}
+            return self._error_result(error="No open_kf_id provided")
 
         if not external_userid:
             logger.warning(
@@ -2129,7 +2154,7 @@ class WeComCustomerServiceSendNode(TaskNode):
                     "reason": "missing_external_userid",
                 },
             )
-            return {"is_error": True, "error": "No external_userid provided"}
+            return self._error_result(error="No external_userid provided")
 
         payload: dict[str, Any] = {
             "touser": external_userid,

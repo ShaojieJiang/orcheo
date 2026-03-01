@@ -21,6 +21,7 @@ from orcheo_sdk.services.workflows.publish import (
 )
 from orcheo_sdk.services.workflows.scheduling import (
     schedule_workflow_cron,
+    sync_cron_schedule_if_changed,
     unschedule_workflow_cron,
 )
 from orcheo_sdk.services.workflows.upload import upload_workflow_data
@@ -42,5 +43,6 @@ __all__ = [
     "unpublish_workflow_data",
     "enrich_workflow_publish_metadata",
     "schedule_workflow_cron",
+    "sync_cron_schedule_if_changed",
     "unschedule_workflow_cron",
 ]

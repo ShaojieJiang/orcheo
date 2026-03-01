@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
@@ -38,23 +38,61 @@ class BaseRunnable(BaseModel):
         value: Any,
         state: State,
     ) -> Any:
-        """Recursively decode a value that may contain template strings."""
+        """Recursively decode a value that may contain template strings.
+
+        Identity-preserving: returns the *same* object when no resolution
+        is needed, enabling cheap ``is`` checks for copy-on-write callers.
+        """
         if isinstance(value, CredentialReference):
             return self._resolve_credential_reference(value)
         if isinstance(value, str):
             return self._decode_string_value(value, state)
         if isinstance(value, BaseModel):
-            # Handle Pydantic models by decoding their dict representation
-            for field_name in value.__class__.model_fields:
-                field_value = getattr(value, field_name)
-                decoded = self._decode_value(field_value, state)
-                setattr(value, field_name, decoded)
-            return value
+            return self._decode_model_value(value, state)
         if isinstance(value, dict):
-            return {k: self._decode_value(v, state) for k, v in value.items()}
+            return self._decode_dict_value(value, state)
         if isinstance(value, list):
-            return [self._decode_value(item, state) for item in value]
+            return self._decode_list_value(value, state)
         return value
+
+    def _decode_model_value(self, value: BaseModel, state: State) -> BaseModel:
+        """Decode a nested Pydantic model, returning the same object if unchanged."""
+        changed: dict[str, Any] = {}
+        for field_name in value.__class__.model_fields:
+            original = getattr(value, field_name)
+            decoded = self._decode_value(original, state)
+            if decoded is not original:
+                changed[field_name] = decoded
+        return value.model_copy(update=changed) if changed else value
+
+    def _decode_dict_value(self, value: dict[str, Any], state: State) -> dict[str, Any]:
+        """Decode a dict, returning the same object if no values changed."""
+        new_dict: dict[str, Any] = {}
+        any_changed = False
+        for k, v in value.items():
+            decoded = self._decode_value(v, state)
+            new_dict[k] = decoded
+            if decoded is not v:
+                any_changed = True
+        return new_dict if any_changed else value
+
+    def _decode_list_value(self, value: list[Any], state: State) -> list[Any]:
+        """Decode a list, returning the same object if no items changed."""
+        new_list: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_list.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return new_list if any_changed else value
+
+    def _decoded_updates(self, state: State) -> dict[str, Any]:
+        """Return decoded field values without mutating the runnable."""
+        return {
+            key: self._decode_value(value, state)
+            for key, value in self.__dict__.items()
+        }
 
     def _decode_string_value(
         self,
@@ -157,8 +195,37 @@ class BaseRunnable(BaseModel):
     ) -> None:
         """Decode the variables in attributes of the runnable."""
         del config
+        self.__dict__.update(self._decoded_updates(state))
+
+    def _compute_run_updates(self, state: State) -> dict[str, Any]:
+        """Return only the fields whose values changed during resolution.
+
+        Subclasses may override to exclude fields from resolution (see
+        ``AgentNode`` which defers history-key fields).
+        """
+        updates: dict[str, Any] = {}
         for key, value in self.__dict__.items():
-            self.__dict__[key] = self._decode_value(value, state)
+            decoded = self._decode_value(value, state)
+            if decoded is not value:
+                updates[key] = decoded
+        return updates
+
+    def resolved_for_run(
+        self,
+        state: State,
+        *,
+        config: Mapping[str, Any] | None = None,
+    ) -> Self:
+        """Return a copy with templates resolved for the current invocation.
+
+        Uses copy-on-write: avoids the ``model_copy()`` allocation when no
+        field values actually changed during template resolution.
+        """
+        del config
+        changed = self._compute_run_updates(state)
+        if not changed:
+            return self
+        return cast(Self, self.model_copy(update=changed))
 
 
 class BaseNode(BaseRunnable):
@@ -206,9 +273,9 @@ class AINode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        return self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        return runnable._serialize_result(result)
 
     @abstractmethod
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -221,9 +288,9 @@ class TaskNode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
-        self.decode_variables(state, config=config)
-        result = await self.run(state, config)
-        serialized_result = self._serialize_result(result)
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        serialized_result = runnable._serialize_result(result)
         return {"results": {self.name: serialized_result}}
 
     @abstractmethod

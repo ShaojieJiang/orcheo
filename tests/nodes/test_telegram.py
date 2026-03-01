@@ -499,3 +499,25 @@ async def test_parser_run_username_fallback_to_username_field() -> None:
     payload = result["results"]["parser"]
 
     assert payload["username"] == "alice_bot"
+
+
+@pytest.mark.asyncio
+async def test_parser_run_whitespace_text_does_not_inject_message() -> None:
+    """should_process=True but whitespace-only text skips HumanMessage injection."""
+    # Whitespace text is truthy so bool(chat_id and text) is True, but text.strip()
+    # returns "" which is falsy – the 'messages' key must NOT appear in the output.
+    state = _message_state(
+        body={
+            "message": {
+                "message_id": 1,
+                "from": {"id": 1, "first_name": "Alice"},
+                "chat": {"id": 5, "type": "private"},
+                "text": "   ",
+            }
+        }
+    )
+    node = _make_parser()
+    result = await node(state, None)
+
+    assert "messages" not in result
+    assert result["results"]["parser"]["should_process"] is True

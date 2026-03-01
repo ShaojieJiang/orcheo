@@ -216,3 +216,21 @@ async def test_task_node_call() -> None:
 
     result = await node(state, config)
     assert result == {"results": {"test_task": {"result": "test_value"}}}
+
+
+@pytest.mark.asyncio
+async def test_task_node_call_re_resolves_templates_per_invocation() -> None:
+    node = MockTaskNode(name="test_task", input_var="{{payload.value}}")
+
+    first = await node(
+        State({"results": {"payload": {"value": "first"}}}),
+        RunnableConfig(),
+    )
+    second = await node(
+        State({"results": {"payload": {"value": "second"}}}),
+        RunnableConfig(),
+    )
+
+    assert first == {"results": {"test_task": {"result": "first"}}}
+    assert second == {"results": {"test_task": {"result": "second"}}}
+    assert node.input_var == "{{payload.value}}"

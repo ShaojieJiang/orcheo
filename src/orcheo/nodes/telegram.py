@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Mapping
 from typing import Any
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from telegram import Bot
@@ -264,6 +265,18 @@ class TelegramEventsParserNode(TaskNode):
             "message_id": msg.get("message_id"),
             "should_process": should_process,
         }
+
+    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Execute the node and inject user text as a HumanMessage into state."""
+        runnable = self.resolved_for_run(state, config=config)
+        result = await runnable.run(state, config)
+        serialized = runnable._serialize_result(result)
+        output: dict[str, Any] = {"results": {self.name: serialized}}
+        if isinstance(serialized, dict) and serialized.get("should_process"):
+            text = serialized.get("text", "")
+            if isinstance(text, str) and text.strip():
+                output["messages"] = [HumanMessage(content=text)]
+        return output
 
 
 __all__ = ["MessageTelegram", "TelegramEventsParserNode", "escape_markdown"]

@@ -29,6 +29,7 @@ from orcheo_sdk.cli.workflow.inputs import (
 from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
+    sync_cron_schedule_if_changed,
     update_workflow_data,
     upload_workflow_data,
 )
@@ -91,14 +92,29 @@ def upload_workflow(
         runnable_config=runnable_config,
         console=state.console,
     )
+    resolved_id = workflow_id or result.get("id")
+
+    # Auto-update cron schedule if it was already registered and has changed.
+    cron_sync: dict[str, str] | None = None
+    if resolved_id:
+        try:
+            cron_sync = sync_cron_schedule_if_changed(state.client, resolved_id)
+        except Exception:  # noqa: BLE001
+            cron_sync = None
+
     if not state.human:
+        if cron_sync and cron_sync.get("status") == "updated":
+            result["cron_schedule"] = cron_sync
         print_json(result)
         return
-    identifier = workflow_id or result.get("id") or "workflow"
+    identifier = resolved_id or "workflow"
     action = "updated" if workflow_id else "uploaded"
     success_message = f"[green]Workflow '{identifier}' {action} successfully.[/green]"
     state.console.print(success_message)
     render_json(state.console, result, title="Workflow")
+    if cron_sync and cron_sync.get("status") == "updated":
+        state.console.print(f"[green]{cron_sync['message']}[/green]")
+        render_json(state.console, cron_sync.get("config", {}), title="Cron trigger")
 
 
 @workflow_app.command("update")

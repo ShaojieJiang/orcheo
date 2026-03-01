@@ -1095,9 +1095,9 @@ async def test_hydrate_trigger_state(monkeypatch: pytest.MonkeyPatch) -> None:
     w_id = uuid4()
     retry_conf = RetryPolicyConfig(max_attempts=5).model_dump(mode="json")
     webhook_conf = WebhookTriggerConfig(allowed_methods={"GET"}).model_dump(mode="json")
-    cron_conf = CronTriggerConfig(expression="* * * * *", timezone="UTC").model_dump(
-        mode="json"
-    )
+    cron_conf = CronTriggerConfig(
+        expression="* * * * *", timezone="UTC", allow_overlapping=True
+    ).model_dump(mode="json")
 
     # We need to skip schema exec in _ensure_initialized implicitly by mocking
     # _connection to consume schema statements
@@ -1162,7 +1162,9 @@ async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> No
     assert w_id not in repo._trigger_layer._cron_states
 
     # 1. Add cron
-    cron_conf = CronTriggerConfig(expression="* * * * *", timezone="UTC")
+    cron_conf = CronTriggerConfig(
+        expression="* * * * *", timezone="UTC", allow_overlapping=True
+    )
     responses = [
         {
             "rows": [

@@ -158,6 +158,30 @@ def test_cron_trigger_rejects_invalid_timezone() -> None:
         CronTriggerConfig(expression="0 * * * *", timezone="Mars/Phobos")
 
 
+def test_cron_trigger_rejects_high_frequency_without_overlap() -> None:
+    """High-frequency cron with allow_overlapping=False should be rejected."""
+
+    with pytest.raises(ValidationError) as exc:
+        CronTriggerConfig(expression="* * * * *", allow_overlapping=False)
+
+    assert "fires every 60s" in str(exc.value)
+    assert "allow_overlapping" in str(exc.value)
+
+
+def test_cron_trigger_allows_high_frequency_with_overlap() -> None:
+    """High-frequency cron with allow_overlapping=True should be accepted."""
+
+    config = CronTriggerConfig(expression="* * * * *", allow_overlapping=True)
+    assert config.expression == "* * * * *"
+
+
+def test_cron_trigger_allows_low_frequency_without_overlap() -> None:
+    """Low-frequency cron (>= 5 min) with allow_overlapping=False is fine."""
+
+    config = CronTriggerConfig(expression="0 9 * * *", allow_overlapping=False)
+    assert config.expression == "0 9 * * *"
+
+
 def test_cron_state_with_last_dispatched_at_computes_next_correctly() -> None:
     """When last_dispatched_at is provided, the next fire time is computed from it."""
     config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
@@ -253,3 +277,24 @@ def test_cron_state_with_start_at_and_last_dispatched_prefers_last_dispatched() 
     tomorrow_9am = datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
     due_tomorrow = state.peek_due(now=tomorrow_9am)
     assert due_tomorrow == tomorrow_9am
+
+
+def test_cron_validate_overlap_frequency_exception_falls_back_gracefully() -> None:
+    """When croniter raises during interval calculation the validator returns self."""
+    from unittest.mock import MagicMock, patch
+
+    # Patch croniter so the first call (field_validator) succeeds but
+    # the second call (model_validator) raises an unexpected exception.
+    original_croniter_results = [MagicMock(), Exception("unexpected")]
+
+    def side_effect(*args: object, **kwargs: object) -> object:
+        result = original_croniter_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch("orcheo.triggers.cron.croniter", side_effect=side_effect):
+        # Should NOT raise – the except block returns self
+        config = CronTriggerConfig(expression="0 9 * * *", allow_overlapping=False)
+
+    assert config.expression == "0 9 * * *"

@@ -38,6 +38,7 @@ from orcheo_sdk.services.workflows import (
     run_workflow_data,
     schedule_workflow_cron,
     show_workflow_data,
+    sync_cron_schedule_if_changed,
     unpublish_workflow_data,
     unschedule_workflow_cron,
     update_workflow_data,
@@ -59,6 +60,7 @@ __all__ = [
     "unpublish_workflow_data",
     "enrich_workflow_publish_metadata",
     "schedule_workflow_cron",
+    "sync_cron_schedule_if_changed",
     "unschedule_workflow_cron",
     # Nodes
     "list_nodes_data",

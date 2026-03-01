@@ -253,9 +253,21 @@ class SqliteRepositoryBase:
             for row in await cursor.fetchall():
                 run_id = UUID(row["id"])
                 workflow_id = UUID(row["workflow_id"])
+                status = row["status"]
                 self._trigger_layer.track_run(workflow_id, run_id)
-                if row["triggered_by"] == "cron":
-                    self._trigger_layer.register_cron_run(run_id)
+                if (
+                    row["triggered_by"] == "cron"
+                    and status != WorkflowRunStatus.FAILED.value
+                ):
+                    try:
+                        self._trigger_layer.register_cron_run(run_id)
+                    except Exception:
+                        logger.warning(
+                            "Skipped cron overlap registration for run %s "
+                            "(workflow %s): overlap conflict during hydration",
+                            run_id,
+                            workflow_id,
+                        )
 
     async def _refresh_cron_triggers(self) -> None:
         """Refresh cron trigger configs to reflect the latest persisted state."""
