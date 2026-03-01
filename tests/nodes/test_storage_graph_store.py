@@ -229,6 +229,26 @@ async def test_non_string_key_coerces_to_string() -> None:
 
 
 @pytest.mark.asyncio
+async def test_none_key_returns_false() -> None:
+    store = MockStore()
+    node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="hello")
+    node.key = cast(Any, None)
+    state = State({"results": {}})
+    result = await node.run(state, _config_with_store(store))
+    assert result == {"history_written": False}
+
+
+@pytest.mark.asyncio
+async def test_non_coercible_key_returns_false() -> None:
+    store = MockStore()
+    node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="hello")
+    node.key = cast(Any, ["not", "a", "string"])
+    state = State({"results": {}})
+    result = await node.run(state, _config_with_store(store))
+    assert result == {"history_written": False}
+
+
+@pytest.mark.asyncio
 async def test_creates_new_entry() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="telegram:123", content="digest")
