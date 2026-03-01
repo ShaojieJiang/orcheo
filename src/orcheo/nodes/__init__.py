@@ -39,7 +39,12 @@ from orcheo.nodes.mongodb import (
 )
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
-from orcheo.nodes.storage import PostgresNode, SQLiteNode
+from orcheo.nodes.storage import (
+    GraphStoreAppendMessageNode,
+    PostgresNode,
+    SQLiteNode,
+    get_graph_store,
+)
 from orcheo.nodes.sub_workflow import SubWorkflowNode
 from orcheo.nodes.telegram import MessageTelegram, TelegramEventsParserNode
 from orcheo.nodes.triggers import (
@@ -79,6 +84,8 @@ __all__ = [
     "MongoDBEnsureSearchIndexNode",
     "MongoDBEnsureVectorIndexNode",
     "MongoDBHybridSearchNode",
+    "GraphStoreAppendMessageNode",
+    "get_graph_store",
     "PostgresNode",
     "SQLiteNode",
     "SlackNode",
