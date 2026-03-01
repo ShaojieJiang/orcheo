@@ -277,3 +277,24 @@ def test_cron_state_with_start_at_and_last_dispatched_prefers_last_dispatched() 
     tomorrow_9am = datetime(2025, 1, 2, 9, 0, tzinfo=UTC)
     due_tomorrow = state.peek_due(now=tomorrow_9am)
     assert due_tomorrow == tomorrow_9am
+
+
+def test_cron_validate_overlap_frequency_exception_falls_back_gracefully() -> None:
+    """When croniter raises during interval calculation the validator returns self."""
+    from unittest.mock import MagicMock, patch
+
+    # Patch croniter so the first call (field_validator) succeeds but
+    # the second call (model_validator) raises an unexpected exception.
+    original_croniter_results = [MagicMock(), Exception("unexpected")]
+
+    def side_effect(*args: object, **kwargs: object) -> object:
+        result = original_croniter_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch("orcheo.triggers.cron.croniter", side_effect=side_effect):
+        # Should NOT raise – the except block returns self
+        config = CronTriggerConfig(expression="0 9 * * *", allow_overlapping=False)
+
+    assert config.expression == "0 9 * * *"

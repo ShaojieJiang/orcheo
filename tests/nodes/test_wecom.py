@@ -180,7 +180,7 @@ class FakeRedis:
                 zset.pop(member, None)
         return removed
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         return None
 
 
@@ -2012,14 +2012,14 @@ class TestWeComCustomerServiceSendNode:
         mock_client.aclose = AsyncMock()
 
         fake_redis = AsyncMock()
-        fake_redis.close = AsyncMock()
+        fake_redis.aclose = AsyncMock()
 
         with patch("orcheo.nodes.wecom.httpx.AsyncClient", return_value=mock_client):
             with patch("redis.asyncio.from_url", return_value=fake_redis):
                 result = await node.run(state, RunnableConfig())
 
         assert result["is_error"] is False
-        fake_redis.close.assert_awaited_once()
+        fake_redis.aclose.assert_awaited_once()
 
 
 # get_access_token_from_state tests
@@ -2329,7 +2329,7 @@ class TestWeComHelperFunctions:
     @pytest.mark.asyncio
     async def test_close_cs_redis_client_ignores_errors(self):
         class Dummy:
-            async def close(self) -> None:
+            async def aclose(self) -> None:
                 raise redis.RedisError("boom")
 
         await _close_cs_redis_client(Dummy())

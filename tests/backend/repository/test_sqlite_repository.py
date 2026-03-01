@@ -732,3 +732,80 @@ async def test_sqlite_revoke_archived_workflow_raises_not_found(
             await repository.revoke_publish(workflow.id, actor="author")
     finally:
         await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_hydrate_cron_overlap_logs_warning(
+    tmp_path_factory: pytest.TempPathFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When two non-failed cron runs exist with allow_overlapping=False the second
+    register_cron_run call raises and the warning is logged during hydration."""
+    import json
+    import logging
+    from uuid import uuid4
+
+    db_path = tmp_path_factory.mktemp("repo") / "overlap-hydrate.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Overlap Hydrate",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        version = await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        await repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+        )
+
+        now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        now_str = now.isoformat()
+        run_id_1 = uuid4()
+        run_id_2 = uuid4()
+
+        # Insert two pending cron-triggered runs directly to bypass dispatch logic
+        async with repository._connection() as conn:
+            for run_id in (run_id_1, run_id_2):
+                await conn.execute(
+                    """
+                    INSERT INTO workflow_runs
+                        (id, workflow_id, workflow_version_id, status,
+                         triggered_by, payload, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(run_id),
+                        str(workflow.id),
+                        str(version.id),
+                        "pending",
+                        "cron",
+                        json.dumps({}),
+                        now_str,
+                        now_str,
+                    ),
+                )
+
+        # Create a fresh repository on the same DB so hydration runs from scratch
+        fresh_repository = SqliteWorkflowRepository(db_path)
+        try:
+            with caplog.at_level(logging.WARNING):
+                await fresh_repository._ensure_initialized()
+
+            assert any(
+                "Skipped cron overlap registration" in record.message
+                for record in caplog.records
+            )
+        finally:
+            await fresh_repository.reset()
+    finally:
+        await repository.reset()

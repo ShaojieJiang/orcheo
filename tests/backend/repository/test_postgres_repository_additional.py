@@ -1695,3 +1695,162 @@ async def test_triggers_dispatch_manual_runs_success(
     assert len(runs) == 1
     assert runs[0].id == run_id
     assert mock_enqueue.called
+
+
+@pytest.mark.asyncio
+async def test_hydrate_trigger_state_non_cron_run_skips_registration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-cron triggered runs are tracked but not registered in the cron overlap set.
+
+    This exercises the False branch of the 'triggered_by == cron' condition inside
+    _hydrate_trigger_state (line 320->315 in coverage terms).
+    """
+    w_id = uuid4()
+    run_id = uuid4()
+    cron_conf = CronTriggerConfig(expression="0 9 * * *", timezone="UTC").model_dump(
+        mode="json"
+    )
+
+    class SmartFakeConnection:
+        def __init__(self) -> None:
+            self.queries: list[tuple[str, Any]] = []
+            self.commits = 0
+            self.rollbacks = 0
+
+        async def execute(self, query: str, params: Any = None) -> FakeCursor:
+            self.queries.append((query, params))
+            if "information_schema.columns" in query:
+                return FakeCursor(rows=[])
+            if "FROM cron_triggers" in query:
+                return FakeCursor(
+                    rows=[
+                        {
+                            "workflow_id": str(w_id),
+                            "config": cron_conf,
+                            "last_dispatched_at": None,
+                        }
+                    ]
+                )
+            if "workflow_runs" in query and "status" in query:
+                # Return a webhook-triggered (non-cron) PENDING run
+                return FakeCursor(
+                    rows=[
+                        {
+                            "id": str(run_id),
+                            "workflow_id": str(w_id),
+                            "triggered_by": "webhook",
+                            "status": "pending",
+                        }
+                    ]
+                )
+            return FakeCursor(rows=[])
+
+        async def commit(self) -> None:
+            self.commits += 1
+
+        async def rollback(self) -> None:
+            self.rollbacks += 1
+
+        async def __aenter__(self) -> SmartFakeConnection:
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+    repo = make_repository(monkeypatch, [], initialized=False)
+    repo._pool = FakePool(SmartFakeConnection())  # type: ignore[arg-type]
+    repo._initialized = False
+
+    await repo._ensure_initialized()
+
+    # The run should be tracked but NOT in the cron overlap registry
+    assert run_id in repo._trigger_layer._run_workflows  # noqa: SLF001
+    assert run_id not in repo._trigger_layer._cron_run_index  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_hydrate_trigger_state_cron_overlap_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two non-failed cron runs with allow_overlapping=False logs a warning.
+
+    When the second register_cron_run raises CronOverlapError during hydration
+    the exception is caught and a warning is emitted (lines 326-327 in coverage).
+    """
+    import logging
+
+    w_id = uuid4()
+    run_id_1 = uuid4()
+    run_id_2 = uuid4()
+    cron_conf = CronTriggerConfig(
+        expression="0 9 * * *", timezone="UTC", allow_overlapping=False
+    ).model_dump(mode="json")
+
+    class SmartFakeConnection:
+        def __init__(self) -> None:
+            self.queries: list[tuple[str, Any]] = []
+            self.commits = 0
+            self.rollbacks = 0
+
+        async def execute(self, query: str, params: Any = None) -> FakeCursor:
+            self.queries.append((query, params))
+            if "information_schema.columns" in query:
+                return FakeCursor(rows=[])
+            if "FROM cron_triggers" in query:
+                return FakeCursor(
+                    rows=[
+                        {
+                            "workflow_id": str(w_id),
+                            "config": cron_conf,
+                            "last_dispatched_at": None,
+                        }
+                    ]
+                )
+            if "workflow_runs" in query and "status" in query:
+                # Two PENDING cron runs for the same workflow
+                return FakeCursor(
+                    rows=[
+                        {
+                            "id": str(run_id_1),
+                            "workflow_id": str(w_id),
+                            "triggered_by": "cron",
+                            "status": "pending",
+                        },
+                        {
+                            "id": str(run_id_2),
+                            "workflow_id": str(w_id),
+                            "triggered_by": "cron",
+                            "status": "pending",
+                        },
+                    ]
+                )
+            return FakeCursor(rows=[])
+
+        async def commit(self) -> None:
+            self.commits += 1
+
+        async def rollback(self) -> None:
+            self.rollbacks += 1
+
+        async def __aenter__(self) -> SmartFakeConnection:
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+    repo = make_repository(monkeypatch, [], initialized=False)
+    repo._pool = FakePool(SmartFakeConnection())  # type: ignore[arg-type]
+    repo._initialized = False
+
+    with caplog.at_level(logging.WARNING):
+        await repo._ensure_initialized()
+
+    assert any(
+        "Skipped cron overlap registration" in record.message
+        for record in caplog.records
+    )
+    # First run should be registered; second skipped due to overlap
+    assert run_id_1 in repo._trigger_layer._cron_run_index  # noqa: SLF001
+    assert run_id_2 not in repo._trigger_layer._cron_run_index  # noqa: SLF001

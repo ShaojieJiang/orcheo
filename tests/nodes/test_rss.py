@@ -260,3 +260,28 @@ def test_extract_link_second_non_alternate_href_skips_overwrite() -> None:
     )
     result = RSSNode._extract_link(parent)
     assert result == "https://example.com/first"
+
+
+# ---------------------------------------------------------------------------
+# _normalize_date – targeting uncovered lines 98, 105, 107-109
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_date_rfc2822_returns_utc_iso() -> None:
+    """_normalize_date converts a valid RFC 2822 date to UTC ISO 8601 (line 98)."""
+    raw = "Mon, 15 Jan 2024 10:00:00 +0000"
+    result = RSSNode._normalize_date(raw)
+    assert result == "2024-01-15T10:00:00+00:00"
+
+
+def test_normalize_date_naive_iso_datetime_gains_utc() -> None:
+    """_normalize_date adds UTC to a naive ISO 8601 datetime (line 105)."""
+    raw = "2024-01-15T10:00:00"  # no timezone suffix
+    result = RSSNode._normalize_date(raw)
+    assert result == "2024-01-15T10:00:00+00:00"
+
+
+def test_normalize_date_invalid_string_returns_empty() -> None:
+    """_normalize_date returns empty string when both parsers fail (lines 107-109)."""
+    result = RSSNode._normalize_date("not-a-date")
+    assert result == ""

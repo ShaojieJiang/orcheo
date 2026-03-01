@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.triggers.cron import CronTriggerConfig
-from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.services.workflows import scheduling
 
 
@@ -41,7 +41,7 @@ def test_schedule_workflow_cron_configures_trigger(
                 {
                     "name": "cron_trigger",
                     "type": "CronTriggerNode",
-                    "expression": "* * * * *",
+                    "expression": "*/5 * * * *",
                     "timezone": "UTC",
                     "allow_overlapping": False,
                     "start_at": None,
@@ -72,7 +72,7 @@ def test_schedule_workflow_cron_configures_trigger(
 
     assert result["status"] == "scheduled"
     assert captured["path"] == "/api/workflows/wf-123/triggers/cron/config"
-    assert captured["json_body"]["expression"] == "* * * * *"
+    assert captured["json_body"]["expression"] == "*/5 * * * *"
 
 
 def test_schedule_workflow_cron_rejects_multiple_triggers(
@@ -192,3 +192,148 @@ def test_extract_cron_config_uses_defaults_when_expression_and_timezone_blank() 
     assert config.expression == default_config.expression
     assert config.timezone == default_config.timezone
     assert config.allow_overlapping is False
+
+
+# ---------------------------------------------------------------------------
+# sync_cron_schedule_if_changed – lines 50-71
+# ---------------------------------------------------------------------------
+
+
+def test_sync_cron_schedule_noop_when_no_existing_schedule() -> None:
+    """Returns noop when no cron schedule exists (404 on GET)."""
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            raise APICallError("Not Found", status_code=404)
+
+    result = scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+    assert result == {"status": "noop", "reason": "no_existing_schedule"}
+
+
+def test_sync_cron_schedule_reraises_non_404_api_error() -> None:
+    """Re-raises APICallError when the status code is not 404."""
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            raise APICallError("Server Error", status_code=500)
+
+    with pytest.raises(APICallError, match="Server Error"):
+        scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+
+
+def test_sync_cron_schedule_noop_when_graph_not_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns noop with no_graph reason when graph data is not a Mapping."""
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            return {"expression": "* * * * *"}
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {"graph": "not-a-map"},
+    )
+
+    result = scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+    assert result == {"status": "noop", "reason": "no_graph"}
+
+
+def test_sync_cron_schedule_noop_when_no_cron_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns noop with no_cron_trigger reason when workflow has no cron node."""
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            return {"expression": "* * * * *"}
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {"graph": {"nodes": []}},
+    )
+
+    result = scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+    assert result == {"status": "noop", "reason": "no_cron_trigger"}
+
+
+def test_sync_cron_schedule_noop_when_config_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns noop with unchanged reason when existing and new configs match."""
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            return {
+                "expression": "0 * * * *",
+                "timezone": "UTC",
+                "allow_overlapping": False,
+            }
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {
+            "graph": {
+                "nodes": [
+                    {
+                        "type": "CronTriggerNode",
+                        "expression": "0 * * * *",
+                        "timezone": "UTC",
+                        "allow_overlapping": False,
+                    }
+                ]
+            }
+        },
+    )
+
+    result = scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+    assert result == {"status": "noop", "reason": "unchanged"}
+
+
+def test_sync_cron_schedule_updates_when_config_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PUTs the new config and returns updated status when cron config differs."""
+    captured: dict[str, object] = {}
+
+    class _Client:
+        def get(self, _path: str) -> dict[str, object]:
+            return {
+                "expression": "0 * * * *",
+                "timezone": "UTC",
+                "allow_overlapping": False,
+            }
+
+        def put(
+            self, path: str, *, json_body: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            captured["path"] = path
+            captured["json_body"] = json_body
+            return json_body or {}
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {
+            "graph": {
+                "nodes": [
+                    {
+                        "type": "CronTriggerNode",
+                        "expression": "*/30 * * * *",
+                        "timezone": "UTC",
+                        "allow_overlapping": False,
+                    }
+                ]
+            }
+        },
+    )
+
+    result = scheduling.sync_cron_schedule_if_changed(_Client(), "wf-123")
+
+    assert result["status"] == "updated"
+    assert "wf-123" in result["message"]
+    assert captured["path"] == "/api/workflows/wf-123/triggers/cron/config"
+    assert captured["json_body"]["expression"] == "*/30 * * * *"  # type: ignore[index]
