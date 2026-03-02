@@ -113,6 +113,38 @@ async def test_run_tool_graph_propagates_config_into_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_tool_graph_strips_internal_configurable_keys() -> None:
+    """Internal __pregel_* keys must be stripped from the state config."""
+    from unittest.mock import AsyncMock
+    from orcheo.nodes.agent_tools.context import tool_execution_context
+    from orcheo.nodes.ai import _run_tool_graph
+
+    config: RunnableConfig = {
+        "configurable": {
+            "user_key": "keep-me",
+            "__pregel_runtime": "non-serializable-runtime",
+            "__pregel_checkpointer": "non-serializable-checkpointer",
+            "__pregel_store": "non-serializable-store",
+        }
+    }
+
+    captured_payload: dict[str, Any] = {}
+    fake_graph = AsyncMock()
+
+    async def capture_ainvoke(payload: Any, **kwargs: Any) -> dict[str, Any]:
+        captured_payload.update(payload)
+        return {"inputs": {}, "results": {}, "messages": []}
+
+    fake_graph.ainvoke = capture_ainvoke
+
+    with tool_execution_context(config):
+        await _run_tool_graph(fake_graph, {"inputs": {}, "results": {}, "messages": []})
+
+    # Only user-facing configurable keys survive; __pregel_* are stripped.
+    assert captured_payload["config"] == {"configurable": {"user_key": "keep-me"}}
+
+
+@pytest.mark.asyncio
 async def test_run_tool_graph_streaming_no_values_raises() -> None:
     """Cover _run_tool_graph RuntimeError when streaming yields no values."""
     from unittest.mock import AsyncMock

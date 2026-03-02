@@ -46,7 +46,11 @@ async def _run_tool_graph(
     # can be resolved. Storing the full RunnableConfig would embed non-serializable
     # objects (e.g. Runtime/callbacks) that break checkpoint persistence.
     if config is not None:
-        configurable = dict(config.get("configurable") or {})
+        configurable = {
+            k: v
+            for k, v in (config.get("configurable") or {}).items()
+            if not k.startswith("__")
+        }
         payload = {**payload, "config": {"configurable": configurable}}
 
     if progress_callback is None or config is None:
