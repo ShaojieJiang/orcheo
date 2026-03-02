@@ -107,7 +107,9 @@ async def test_run_tool_graph_propagates_config_into_state() -> None:
         await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
 
     assert captured_states, "Node was not executed"
-    assert captured_states[0].get("config") == config
+    # Only the configurable portion is stored (full RunnableConfig is not
+    # msgpack-serializable due to Runtime/callback objects in checkpoints).
+    assert captured_states[0].get("config") == {"configurable": config["configurable"]}
 
 
 @pytest.mark.asyncio

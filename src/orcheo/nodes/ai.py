@@ -41,10 +41,13 @@ async def _run_tool_graph(
     config = get_active_tool_config()
     progress_callback = get_active_tool_progress_callback()
 
-    # Propagate the runnable config into the sub-workflow state so that
-    # {{config.configurable.xxx}} templates can be resolved within tool graphs.
+    # Propagate only the serializable configurable portion of the runnable config
+    # into the sub-workflow state so that {{config.configurable.xxx}} templates
+    # can be resolved. Storing the full RunnableConfig would embed non-serializable
+    # objects (e.g. Runtime/callbacks) that break checkpoint persistence.
     if config is not None:
-        payload = {**payload, "config": config}
+        configurable = dict(config.get("configurable") or {})
+        payload = {**payload, "config": {"configurable": configurable}}
 
     if progress_callback is None or config is None:
         if config is None:
