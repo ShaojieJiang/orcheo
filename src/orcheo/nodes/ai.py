@@ -41,6 +41,11 @@ async def _run_tool_graph(
     config = get_active_tool_config()
     progress_callback = get_active_tool_progress_callback()
 
+    # Propagate the runnable config into the sub-workflow state so that
+    # {{config.configurable.xxx}} templates can be resolved within tool graphs.
+    if config is not None:
+        payload = {**payload, "config": config}
+
     if progress_callback is None or config is None:
         if config is None:
             return await compiled_graph.ainvoke(payload)

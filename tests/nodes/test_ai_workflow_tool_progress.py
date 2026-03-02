@@ -79,6 +79,38 @@ async def test_run_tool_graph_without_progress_but_with_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_tool_graph_propagates_config_into_state() -> None:
+    """Config from tool_execution_context should appear in sub-workflow state."""
+    from orcheo.nodes.ai import _run_tool_graph
+
+    captured_states: list[dict[str, Any]] = []
+
+    graph = StateGraph(State)
+
+    def capture_node(state: State) -> dict[str, Any]:
+        captured_states.append(dict(state))
+        return {}
+
+    graph.add_node("capture", capture_node)
+    graph.add_edge(START, "capture")
+    graph.add_edge("capture", END)
+    compiled = graph.compile()
+
+    config: RunnableConfig = {
+        "configurable": {
+            "embed_model": "openai:text-embedding-3-small",
+            "dimensions": 1536,
+        }
+    }
+
+    with tool_execution_context(config):
+        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+
+    assert captured_states, "Node was not executed"
+    assert captured_states[0].get("config") == config
+
+
+@pytest.mark.asyncio
 async def test_run_tool_graph_streaming_no_values_raises() -> None:
     """Cover _run_tool_graph RuntimeError when streaming yields no values."""
     from unittest.mock import AsyncMock
