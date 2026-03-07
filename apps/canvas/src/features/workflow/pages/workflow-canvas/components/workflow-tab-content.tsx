@@ -4,6 +4,7 @@ import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
+import { Switch } from "@/design-system/ui/switch";
 import type {
   WorkflowRunnableConfig,
   WorkflowVersionRecord,
@@ -17,6 +18,7 @@ export interface WorkflowTabContentProps {
   isLoading: boolean;
   loadError: string | null;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
+  hasCronTriggerNode: boolean;
 }
 
 interface MermaidSvgNodeData {
@@ -162,11 +164,20 @@ export function WorkflowTabContent({
   isLoading,
   loadError,
   onSaveConfig,
+  hasCronTriggerNode,
 }: WorkflowTabContentProps) {
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+  const [isScheduled, setIsScheduled] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasCronTriggerNode) {
+      setIsScheduled(false);
+    }
+  }, [hasCronTriggerNode]);
 
   const mermaidSource = useMemo(() => {
     if (!latestVersion?.mermaid || latestVersion.mermaid.trim().length === 0) {
@@ -273,13 +284,32 @@ export function WorkflowTabContent({
             {latestVersion ? ` · ${latestVersion.version}` : ""}
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setIsConfigOpen(true)}
-          disabled={!canConfigure}
-        >
-          Config
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Publish</span>
+            <Switch
+              aria-label="Publish workflow"
+              checked={isPublished}
+              onCheckedChange={setIsPublished}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Schedule</span>
+            <Switch
+              aria-label="Schedule workflow"
+              checked={isScheduled}
+              onCheckedChange={setIsScheduled}
+              disabled={!hasCronTriggerNode}
+            />
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setIsConfigOpen(true)}
+            disabled={!canConfigure}
+          >
+            Config
+          </Button>
+        </div>
       </div>
 
       {!latestVersion && (

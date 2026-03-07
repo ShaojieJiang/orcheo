@@ -7,6 +7,25 @@ import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
 import { summarizeTrace } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
+const hasCronTriggerNode = (
+  nodes: WorkflowCanvasCore["history"]["nodes"],
+): boolean =>
+  nodes.some((node) => {
+    if (typeof node.data?.backendType === "string") {
+      return node.data.backendType === "CronTriggerNode";
+    }
+
+    if (typeof node.data?.iconKey === "string") {
+      return node.data.iconKey.toLowerCase() === "schedule";
+    }
+
+    if (typeof node.data?.type === "string") {
+      return node.data.type.toLowerCase() === "crontriggernode";
+    }
+
+    return node.id.toLowerCase().includes("schedule-trigger");
+  });
+
 export interface WorkflowLayoutProps {
   topNavigationProps: {
     currentWorkflow: { name: string; path: string[] };
@@ -58,6 +77,7 @@ export function buildWorkflowLayoutProps(
     isLoading: core.metadata.isWorkflowLoading,
     loadError: core.metadata.workflowLoadError,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
+    hasCronTriggerNode: hasCronTriggerNode(core.history.nodes),
   };
 
   const activeTrace = execution.trace.activeTrace;
