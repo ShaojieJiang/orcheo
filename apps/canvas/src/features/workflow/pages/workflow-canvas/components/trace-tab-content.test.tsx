@@ -56,9 +56,6 @@ const createProps = (
   onRefresh: vi.fn(),
   isRefreshing: false,
   onSelectTrace: vi.fn(),
-  summary: undefined,
-  lastUpdatedAt: undefined,
-  isLive: false,
   ...overrides,
 });
 
@@ -124,30 +121,18 @@ describe("TraceTabContent", () => {
     expect(screen.getByText(/server unavailable/i)).toBeInTheDocument();
   });
 
-  it("renders viewer and summary when data is available", () => {
-    render(
-      <TraceTabContent
-        {...createProps({
-          summary: { spanCount: 5, totalTokens: 84 },
-          lastUpdatedAt: "2024-01-01T12:00:00Z",
-        })}
-      />,
-    );
+  it("renders viewer when data is available", () => {
+    render(<TraceTabContent {...createProps()} />);
 
     expect(screen.getByTestId("trace-viewer")).toBeInTheDocument();
     expect(screen.getByTestId("trace-viewer-count")).toHaveTextContent("1");
-    expect(screen.getByText("5")).toBeInTheDocument();
-    expect(screen.getByText("84")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/recorded nodes and events/i),
+    ).not.toBeInTheDocument();
   });
 
   it("passes the active trace id to the viewer", () => {
-    render(
-      <TraceTabContent
-        {...createProps({
-          summary: { spanCount: 2, totalTokens: 10 },
-        })}
-      />,
-    );
+    render(<TraceTabContent {...createProps()} />);
 
     expect(screen.getByTestId("trace-viewer-active-id")).toHaveTextContent(
       sampleViewerData.traceRecord.id,
@@ -161,8 +146,6 @@ describe("TraceTabContent", () => {
       <TraceTabContent
         {...createProps({
           onRefresh,
-          summary: { spanCount: 1, totalTokens: 10 },
-          isLive: true,
         })}
       />,
     );
@@ -197,7 +180,6 @@ describe("TraceTabContent", () => {
       <TraceTabContent
         {...createProps({
           onSelectTrace,
-          summary: { spanCount: 1, totalTokens: 10 },
         })}
       />,
     );
@@ -215,7 +197,6 @@ describe("TraceTabContent", () => {
         {...createProps({
           viewerData: [sampleViewerData, sampleViewerData2],
           activeViewer: sampleViewerData2,
-          summary: { spanCount: 3, totalTokens: 66 },
         })}
       />,
     );

@@ -5,7 +5,6 @@ import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
-import { summarizeTrace } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
 const hasCronTriggerNode = (
   nodes: WorkflowCanvasCore["history"]["nodes"],
@@ -80,9 +79,6 @@ export function buildWorkflowLayoutProps(
     hasCronTriggerNode: hasCronTriggerNode(core.history.nodes),
   };
 
-  const activeTrace = execution.trace.activeTrace;
-  const traceSummary = activeTrace ? summarizeTrace(activeTrace) : undefined;
-
   const traceProps: TraceTabContentProps = {
     status: execution.trace.status,
     error: execution.trace.error,
@@ -91,9 +87,6 @@ export function buildWorkflowLayoutProps(
     onRefresh: () => execution.trace.refresh(),
     isRefreshing: execution.trace.isRefreshing,
     onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
-    summary: traceSummary,
-    lastUpdatedAt: activeTrace?.lastUpdatedAt,
-    isLive: Boolean(activeTrace && !activeTrace.isComplete),
   };
 
   const readinessProps: ReadinessTabContentProps = {

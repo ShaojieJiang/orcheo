@@ -1,28 +1,17 @@
 import "@features/workflow/components/trace/agent-prism/theme/theme.css";
 
-import { formatDistanceToNow } from "date-fns";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
-import { Card, CardDescription, CardTitle } from "@/design-system/ui/card";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
 import { deriveThreadStitchedViewerDataList } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceEntryStatus } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceSpanMetadata } from "@features/workflow/pages/workflow-canvas/helpers/trace";
-
-interface TraceSummary {
-  spanCount: number;
-  totalTokens: number;
-}
-
-const SUMMARY_CARD_CLASS = "px-3 py-2";
-const SUMMARY_CARD_BODY_CLASS =
-  "flex w-full items-center justify-between gap-3 text-sm";
 
 export interface TraceTabContentProps {
   status: TraceEntryStatus;
@@ -32,21 +21,7 @@ export interface TraceTabContentProps {
   onRefresh: () => void;
   isRefreshing: boolean;
   onSelectTrace?: (traceId: string) => void;
-  summary?: TraceSummary;
-  lastUpdatedAt?: string;
-  isLive: boolean;
 }
-
-const formatTimestamp = (timestamp?: string): string => {
-  if (!timestamp) {
-    return "Never";
-  }
-  try {
-    return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
-  } catch {
-    return timestamp;
-  }
-};
 
 const renderArtifactActions = (span: TraceSpan) => {
   const metadata = span.metadata as
@@ -90,9 +65,6 @@ export function TraceTabContent({
   onRefresh,
   isRefreshing,
   onSelectTrace,
-  summary,
-  lastUpdatedAt,
-  isLive,
 }: TraceTabContentProps) {
   const [isStitchedTimeline, setIsStitchedTimeline] = useState(false);
   const canStitchByThread = useMemo(
@@ -180,56 +152,6 @@ export function TraceTabContent({
           </Button>
         </div>
       </div>
-
-      {summary && (
-        <div className="grid gap-3 md:grid-cols-3">
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Spans
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Recorded nodes and events
-                </CardDescription>
-              </div>
-              <span className="text-sm font-semibold text-foreground">
-                {summary.spanCount}
-              </span>
-            </div>
-          </Card>
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Total tokens
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Input + output consumption
-                </CardDescription>
-              </div>
-              <span className="text-sm font-semibold text-foreground">
-                {summary.totalTokens}
-              </span>
-            </div>
-          </Card>
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Last update
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  {isLive ? "Live" : "Completed"}
-                </CardDescription>
-              </div>
-              <span className="text-xs font-semibold text-foreground">
-                {formatTimestamp(lastUpdatedAt)}
-              </span>
-            </div>
-          </Card>
-        </div>
-      )}
 
       {error && (
         <Alert variant="destructive">
