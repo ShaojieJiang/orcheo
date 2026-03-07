@@ -2,6 +2,7 @@ import "@features/workflow/components/trace/agent-prism/theme/theme.css";
 
 import { formatDistanceToNow } from "date-fns";
 import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
@@ -10,6 +11,7 @@ import { Card, CardDescription, CardTitle } from "@/design-system/ui/card";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
+import { deriveThreadStitchedViewerDataList } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceEntryStatus } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceSpanMetadata } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
@@ -92,8 +94,58 @@ export function TraceTabContent({
   lastUpdatedAt,
   isLive,
 }: TraceTabContentProps) {
+  const [isStitchedTimeline, setIsStitchedTimeline] = useState(false);
+  const canStitchByThread = useMemo(
+    () => viewerData.some((trace) => Boolean(trace.threadId)),
+    [viewerData],
+  );
+
+  useEffect(() => {
+    if (!canStitchByThread && isStitchedTimeline) {
+      setIsStitchedTimeline(false);
+    }
+  }, [canStitchByThread, isStitchedTimeline]);
+
+  const displayedViewerData = useMemo(() => {
+    if (!isStitchedTimeline) {
+      return viewerData;
+    }
+    return deriveThreadStitchedViewerDataList(
+      viewerData,
+      activeViewer?.traceRecord.id,
+    );
+  }, [activeViewer?.traceRecord.id, isStitchedTimeline, viewerData]);
+
+  const displayedActiveTraceId = useMemo(() => {
+    if (!isStitchedTimeline) {
+      return activeViewer?.traceRecord.id;
+    }
+
+    const activeTraceId = activeViewer?.traceRecord.id;
+    if (
+      activeTraceId &&
+      displayedViewerData.some(
+        (trace) => trace.traceRecord.id === activeTraceId,
+      )
+    ) {
+      return activeTraceId;
+    }
+
+    const activeThreadId = activeViewer?.threadId;
+    if (activeThreadId) {
+      const stitchedGroup = displayedViewerData.find(
+        (trace) => trace.threadId === activeThreadId,
+      );
+      if (stitchedGroup) {
+        return stitchedGroup.traceRecord.id;
+      }
+    }
+
+    return displayedViewerData[0]?.traceRecord.id;
+  }, [activeViewer, displayedViewerData, isStitchedTimeline]);
+
   const isLoading = status === "loading" && !activeViewer;
-  const hasData = viewerData.length > 0;
+  const hasData = displayedViewerData.length > 0;
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -105,6 +157,16 @@ export function TraceTabContent({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={isStitchedTimeline ? "default" : "outline"}
+            disabled={!canStitchByThread}
+            onClick={() => {
+              setIsStitchedTimeline((current) => !current);
+            }}
+          >
+            {isStitchedTimeline ? "Stitched: On" : "Stitched: Off"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -192,8 +254,8 @@ export function TraceTabContent({
       {hasData && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
           <TraceViewer
-            data={viewerData}
-            activeTraceId={activeViewer?.traceRecord.id}
+            data={displayedViewerData}
+            activeTraceId={displayedActiveTraceId}
             onTraceSelect={(trace) => {
               onSelectTrace?.(trace.id);
             }}

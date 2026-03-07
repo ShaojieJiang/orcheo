@@ -4,6 +4,7 @@ import {
   applyTraceResponse,
   buildTraceViewerData,
   createEmptyTraceEntry,
+  deriveThreadStitchedViewerDataList,
   type TraceResponse,
 } from "./trace";
 
@@ -64,5 +65,67 @@ describe("trace helpers", () => {
       count: 2,
       result: "ok",
     });
+  });
+
+  it("exposes thread id on viewer data when metadata includes thread_id", () => {
+    const entry = applyTraceResponse(createEmptyTraceEntry("exec-1"), {
+      ...traceResponse,
+      execution: {
+        ...traceResponse.execution,
+        thread_id: "thread-1",
+      },
+    });
+    const viewer = buildTraceViewerData(entry);
+
+    expect(viewer?.threadId).toBe("thread-1");
+  });
+
+  it("stitches traces that share the same thread id into one grouped trace", () => {
+    const firstEntry = applyTraceResponse(createEmptyTraceEntry("exec-1"), {
+      ...traceResponse,
+      execution: {
+        ...traceResponse.execution,
+        id: "exec-1",
+        thread_id: "thread-shared",
+        started_at: "2024-01-01T12:00:00Z",
+        finished_at: "2024-01-01T12:00:02Z",
+      },
+    });
+    const secondEntry = applyTraceResponse(createEmptyTraceEntry("exec-2"), {
+      ...traceResponse,
+      execution: {
+        ...traceResponse.execution,
+        id: "exec-2",
+        trace_id: "trace-2",
+        thread_id: "thread-shared",
+        started_at: "2024-01-01T12:00:03Z",
+        finished_at: "2024-01-01T12:00:05Z",
+      },
+      spans: [
+        {
+          ...traceResponse.spans[0],
+          span_id: "span-2",
+        },
+      ],
+    });
+
+    const firstViewer = buildTraceViewerData(firstEntry);
+    const secondViewer = buildTraceViewerData(secondEntry);
+
+    if (!firstViewer || !secondViewer) {
+      throw new Error("expected both viewer payloads to be built");
+    }
+
+    const stitched = deriveThreadStitchedViewerDataList(
+      [firstViewer, secondViewer],
+      "exec-2",
+    );
+
+    expect(stitched).toHaveLength(1);
+    expect(stitched[0].threadId).toBe("thread-shared");
+    expect(stitched[0].traceRecord.id).toBe("exec-2");
+    expect(stitched[0].traceRecord.agentDescription).toContain("2 executions");
+    expect(stitched[0].spans).toHaveLength(2);
+    expect(stitched[0].spans[0].title).toContain("Execution");
   });
 });

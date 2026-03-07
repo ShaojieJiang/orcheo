@@ -19,6 +19,7 @@ export interface TraceViewerData {
   badges?: Array<BadgeProps>;
   spans: TraceSpan[];
   spanCardViewOptions?: SpanCardViewOptions;
+  threadId?: string;
 }
 
 export interface TraceViewerProps {

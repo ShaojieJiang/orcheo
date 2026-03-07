@@ -40,7 +40,8 @@ class _WorkflowStateSnapshot(TypedDict):
 def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
     """Convert a history record into a trace response."""
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
-    root_span = _build_root_span(record, root_span_id)
+    runtime_thread_id = _extract_runtime_thread_id(record)
+    root_span = _build_root_span(record, root_span_id, runtime_thread_id)
     spans: list[TraceSpanResponse] = [root_span]
     state_snapshots = _build_workflow_state_snapshots(record)
 
@@ -61,6 +62,7 @@ def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
     execution_metadata = TraceExecutionMetadata(
         id=record.execution_id,
         status=record.status,
+        thread_id=runtime_thread_id,
         started_at=record.trace_started_at or record.started_at,
         finished_at=record.trace_completed_at or record.completed_at,
         trace_id=record.trace_id or root_span_id,
@@ -83,10 +85,11 @@ def build_trace_update(
 ) -> TraceUpdateMessage | None:
     """Assemble a websocket trace update message."""
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
+    runtime_thread_id = _extract_runtime_thread_id(record)
     state_snapshots = _build_workflow_state_snapshots(record)
     spans: list[TraceSpanResponse] = []
     if include_root:
-        spans.append(_build_root_span(record, root_span_id))
+        spans.append(_build_root_span(record, root_span_id, runtime_thread_id))
     if step is not None:
         spans.extend(
             _build_spans_for_step(
@@ -123,12 +126,18 @@ def _derive_child_span_id(execution_id: str, step_index: int, node_key: str) -> 
     return digest.hexdigest()
 
 
-def _build_root_span(record: RunHistoryRecord, span_id: str) -> TraceSpanResponse:
+def _build_root_span(
+    record: RunHistoryRecord,
+    span_id: str,
+    runtime_thread_id: str | None,
+) -> TraceSpanResponse:
     status = _status_from_history(record)
     attributes: dict[str, Any] = {
         "orcheo.execution.id": record.execution_id,
         "orcheo.workflow.id": record.workflow_id,
     }
+    if runtime_thread_id:
+        attributes["orcheo.execution.thread_id"] = runtime_thread_id
     if record.tags:
         attributes["orcheo.execution.tags"] = list(record.tags)
         attributes["orcheo.execution.tag_count"] = len(record.tags)
@@ -156,6 +165,17 @@ def _build_root_span(record: RunHistoryRecord, span_id: str) -> TraceSpanRespons
         attributes=attributes,
         status=status,
     )
+
+
+def _extract_runtime_thread_id(record: RunHistoryRecord) -> str | None:
+    configurable = record.runnable_config.get("configurable")
+    if not isinstance(configurable, Mapping):
+        return None
+    runtime_thread_id = configurable.get("thread_id")
+    if not isinstance(runtime_thread_id, str):
+        return None
+    normalized = runtime_thread_id.strip()
+    return normalized or None
 
 
 def _build_spans_for_step(

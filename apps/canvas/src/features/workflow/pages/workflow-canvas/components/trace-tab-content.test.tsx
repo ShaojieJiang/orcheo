@@ -29,6 +29,21 @@ const sampleViewerData: TraceViewerData = {
     startTime: Date.now(),
   },
   spans: [],
+  threadId: "thread-1",
+};
+
+const sampleViewerData2: TraceViewerData = {
+  traceRecord: {
+    id: "exec-2",
+    name: "Trace 2",
+    spansCount: 2,
+    durationMs: 900,
+    agentDescription: "success",
+    totalTokens: 24,
+    startTime: Date.now() + 1000,
+  },
+  spans: [],
+  threadId: "thread-1",
 };
 
 const createProps = (
@@ -190,5 +205,32 @@ describe("TraceTabContent", () => {
     getByRole("button", { name: /select-trace/i }).click();
 
     expect(onSelectTrace).toHaveBeenCalledWith(sampleViewerData.traceRecord.id);
+  });
+
+  it("toggles stitched mode and passes grouped traces to the viewer", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TraceTabContent
+        {...createProps({
+          viewerData: [sampleViewerData, sampleViewerData2],
+          activeViewer: sampleViewerData2,
+          summary: { spanCount: 3, totalTokens: 66 },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("trace-viewer-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("trace-viewer-active-id")).toHaveTextContent(
+      "exec-2",
+    );
+
+    await user.click(screen.getByRole("button", { name: /stitched: off/i }));
+
+    expect(screen.getByRole("button", { name: /stitched: on/i }));
+    expect(screen.getByTestId("trace-viewer-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("trace-viewer-active-id")).toHaveTextContent(
+      "exec-2",
+    );
   });
 });

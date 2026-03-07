@@ -8,6 +8,7 @@ import type {
   OpenTelemetrySpan,
   TraceRecord,
   TraceSpan,
+  TraceSpanStatus,
   TraceSpanAttribute,
   TraceSpanAttributeValue,
 } from "@evilmartians/agent-prism-types";
@@ -42,6 +43,7 @@ export interface TraceSpanResponse {
 export interface TraceExecutionMetadataResponse {
   id: string;
   status: string;
+  thread_id?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
   trace_id?: string | null;
@@ -115,6 +117,10 @@ const STATUS_CODE_MAP: Record<TraceSpanStatusResponse["code"], string> = {
   ERROR: "STATUS_CODE_ERROR",
   UNSET: "STATUS_CODE_UNSET",
 };
+
+const SUCCESS_STATUSES = new Set(["completed", "success", "succeeded"]);
+const ERROR_STATUSES = new Set(["error", "failed", "cancelled", "canceled"]);
+const PENDING_STATUSES = new Set(["running", "pending", "queued"]);
 
 const MS_TO_NANO = BigInt(1_000_000);
 
@@ -233,6 +239,14 @@ const createSpanMetadata = (span: TraceSpanResponse): TraceSpanMetadata => {
   }
 
   return metadata;
+};
+
+const normalizeThreadId = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
 };
 
 const mergeAttributes = (
@@ -436,6 +450,31 @@ const buildTraceRecord = (
   };
 };
 
+const resolveEntryThreadId = (
+  entry: ExecutionTraceEntry,
+): string | undefined => {
+  const metadataThreadId = normalizeThreadId(entry.metadata?.thread_id);
+  if (metadataThreadId) {
+    return metadataThreadId;
+  }
+
+  for (const span of Object.values(entry.spansById)) {
+    if (span.parent_span_id) {
+      continue;
+    }
+    const rootThreadId = normalizeThreadId(
+      span.attributes["orcheo.execution.thread_id"] ??
+        span.attributes["thread_id"] ??
+        span.attributes["threadId"],
+    );
+    if (rootThreadId) {
+      return rootThreadId;
+    }
+  }
+
+  return undefined;
+};
+
 const attachMetadataToSpan = (
   span: TraceSpan,
   metadata: Record<string, TraceSpanMetadata>,
@@ -543,6 +582,7 @@ export const buildTraceViewerData = (
     traceRecord,
     spans: enrichedTree,
     badges,
+    threadId: resolveEntryThreadId(entry),
   };
 };
 
@@ -601,6 +641,197 @@ export const deriveViewerDataList = (
       const bStart = b.traceRecord.startTime ?? 0;
       return bStart - aStart;
     });
+
+const deriveSpanTimeBounds = (
+  spans: TraceSpan[],
+): {
+  start: number;
+  end: number;
+} => {
+  const flattened = flattenSpans(spans);
+  if (flattened.length === 0) {
+    const now = Date.now();
+    return { start: now, end: now };
+  }
+
+  let start = Number.POSITIVE_INFINITY;
+  let end = Number.NEGATIVE_INFINITY;
+  for (const span of flattened) {
+    const spanStart = span.startTime.getTime();
+    const spanEnd = span.endTime.getTime();
+    if (Number.isFinite(spanStart)) {
+      start = Math.min(start, spanStart);
+    }
+    if (Number.isFinite(spanEnd)) {
+      end = Math.max(end, spanEnd);
+    }
+  }
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    const now = Date.now();
+    return { start: now, end: now };
+  }
+
+  return {
+    start,
+    end: Math.max(end, start),
+  };
+};
+
+const resolveSegmentBounds = (
+  trace: TraceViewerData,
+): {
+  start: number;
+  end: number;
+} => {
+  const spanBounds = deriveSpanTimeBounds(trace.spans);
+  const start = trace.traceRecord.startTime ?? spanBounds.start;
+  const durationMs = Math.max(trace.traceRecord.durationMs ?? 0, 0);
+  const endFromRecord = start + durationMs;
+  const end =
+    durationMs > 0 ? endFromRecord : Math.max(spanBounds.end, endFromRecord);
+  return { start, end: Math.max(end, start) };
+};
+
+const toSpanStatus = (executionStatus: string | undefined): TraceSpanStatus => {
+  if (!executionStatus) {
+    return "warning";
+  }
+  const normalized = executionStatus.toLowerCase();
+  if (SUCCESS_STATUSES.has(normalized)) {
+    return "success";
+  }
+  if (ERROR_STATUSES.has(normalized)) {
+    return "error";
+  }
+  if (PENDING_STATUSES.has(normalized)) {
+    return "pending";
+  }
+  return "warning";
+};
+
+const buildStitchedSegment = (
+  trace: TraceViewerData,
+  threadId: string,
+  segmentIndex: number,
+): TraceSpan => {
+  const { start, end } = resolveSegmentBounds(trace);
+  return {
+    id: `stitched:${threadId}:${trace.traceRecord.id}:${segmentIndex}`,
+    title: `Execution ${trace.traceRecord.id}`,
+    startTime: new Date(start),
+    endTime: new Date(end),
+    duration: Math.max(end - start, 0),
+    type: "span",
+    raw: JSON.stringify({
+      stitched: true,
+      threadId,
+      executionId: trace.traceRecord.id,
+    }),
+    status: toSpanStatus(trace.traceRecord.agentDescription),
+    children: trace.spans,
+    metadata: {
+      stitched: true,
+      isSegment: true,
+      threadId,
+      executionId: trace.traceRecord.id,
+      traceId: trace.traceRecord.name,
+    },
+  };
+};
+
+export const deriveThreadStitchedViewerDataList = (
+  data: TraceViewerData[],
+  activeTraceId?: string,
+): TraceViewerData[] => {
+  const grouped = new Map<string, TraceViewerData[]>();
+  for (const trace of data) {
+    const key = trace.threadId
+      ? `thread:${trace.threadId}`
+      : `execution:${trace.traceRecord.id}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.push(trace);
+    } else {
+      grouped.set(key, [trace]);
+    }
+  }
+
+  const stitched: TraceViewerData[] = [];
+  for (const traces of grouped.values()) {
+    if (traces.length === 0) {
+      continue;
+    }
+    const sortedByStartDesc = [...traces].sort((a, b) => {
+      const aStart = a.traceRecord.startTime ?? 0;
+      const bStart = b.traceRecord.startTime ?? 0;
+      return bStart - aStart;
+    });
+
+    const latestTrace = sortedByStartDesc[0];
+    if (!latestTrace) {
+      continue;
+    }
+
+    const threadId = latestTrace.threadId;
+    if (!threadId || sortedByStartDesc.length === 1) {
+      stitched.push(latestTrace);
+      continue;
+    }
+
+    const sortedByStartAsc = [...sortedByStartDesc].sort((a, b) => {
+      const aStart = a.traceRecord.startTime ?? 0;
+      const bStart = b.traceRecord.startTime ?? 0;
+      return aStart - bStart;
+    });
+    const representative =
+      sortedByStartDesc.find(
+        (trace) => trace.traceRecord.id === activeTraceId,
+      ) ?? sortedByStartDesc[0];
+
+    const segmentSpans = sortedByStartAsc.map((trace, index) =>
+      buildStitchedSegment(trace, threadId, index),
+    );
+    const earliestStart = Math.min(
+      ...segmentSpans.map((segment) => segment.startTime.getTime()),
+    );
+    const latestEnd = Math.max(
+      ...segmentSpans.map((segment) => segment.endTime.getTime()),
+    );
+    const totalTokens = sortedByStartDesc.reduce(
+      (sum, trace) => sum + (trace.traceRecord.totalTokens ?? 0),
+      0,
+    );
+
+    stitched.push({
+      traceRecord: {
+        id: representative.traceRecord.id,
+        name: `Thread ${threadId}`,
+        spansCount: sortedByStartDesc.reduce(
+          (sum, trace) => sum + trace.traceRecord.spansCount,
+          0,
+        ),
+        durationMs: Math.max(latestEnd - earliestStart, 0),
+        agentDescription: `${sortedByStartDesc.length} executions`,
+        totalTokens,
+        startTime: representative.traceRecord.startTime,
+      },
+      spans: segmentSpans,
+      badges: [
+        { label: `Thread: ${threadId}` },
+        { label: `Executions: ${sortedByStartDesc.length}` },
+        { label: "Stitched timeline" },
+      ],
+      threadId,
+    });
+  }
+
+  return stitched.sort((a, b) => {
+    const aStart = a.traceRecord.startTime ?? 0;
+    const bStart = b.traceRecord.startTime ?? 0;
+    return bStart - aStart;
+  });
+};
 
 export const DEFAULT_TRACE_BADGES: BadgeProps[] = [{ label: "Trace" }];
 

@@ -22,6 +22,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
         workflow_id="wf-1",
         execution_id="exec-1",
         status="completed",
+        runnable_config={"configurable": {"thread_id": "thread-123"}},
     )
     record.trace_started_at = _timestamp()
     record.trace_completed_at = _timestamp(5)
@@ -49,6 +50,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
 
     response = build_trace_response(record)
     assert response.execution.id == "exec-1"
+    assert response.execution.thread_id == "thread-123"
     assert response.execution.token_usage.input == 5
     assert response.execution.token_usage.output == 7
 
@@ -56,6 +58,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
     root_span, node_span = response.spans
     assert root_span.parent_span_id is None
     assert root_span.attributes["orcheo.execution.id"] == "exec-1"
+    assert root_span.attributes["orcheo.execution.thread_id"] == "thread-123"
     assert len(node_span.events) == 4  # prompt, response, two message events
     assert node_span.attributes["orcheo.node.kind"] == "ai_model"
     assert node_span.attributes["orcheo.token.output"] == 7
