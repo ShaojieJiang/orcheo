@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import mermaid from "mermaid";
+import { Copy, ExternalLink } from "lucide-react";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
+import { toast } from "@/hooks/use-toast";
+import {
+  fetchCronTriggerConfig,
+  fetchWorkflow,
+  publishWorkflow,
+  resolveWorkflowShareUrl,
+  scheduleWorkflowFromLatestVersion,
+  unpublishWorkflow,
+  unscheduleWorkflow,
+} from "@features/workflow/lib/workflow-storage-api";
 import type {
   WorkflowRunnableConfig,
   WorkflowVersionRecord,
@@ -157,6 +168,38 @@ const nodeTypes = {
   mermaidSvg: MermaidSvgNode,
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const rawMessage = error.message.trim();
+  if (!rawMessage) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(rawMessage);
+    if (!isRecord(parsed)) {
+      return rawMessage;
+    }
+    const detail = parsed.detail;
+    if (typeof detail === "string" && detail.trim().length > 0) {
+      return detail;
+    }
+    if (isRecord(detail) && typeof detail.message === "string") {
+      return detail.message;
+    }
+  } catch {
+    return rawMessage;
+  }
+
+  return rawMessage;
+};
+
 export function WorkflowTabContent({
   workflowId,
   workflowName,
@@ -170,14 +213,60 @@ export function WorkflowTabContent({
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isPublishPending, setIsPublishPending] = useState(false);
+  const [isSchedulePending, setIsSchedulePending] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hasCronTriggerNode) {
+    if (!workflowId) {
+      setIsPublished(false);
       setIsScheduled(false);
+      setShareUrl(null);
+      return;
     }
-  }, [hasCronTriggerNode]);
+
+    let isMounted = true;
+
+    const loadWorkflowToggles = async () => {
+      try {
+        const [workflow, cronConfig] = await Promise.all([
+          fetchWorkflow(workflowId),
+          fetchCronTriggerConfig(workflowId),
+        ]);
+        if (!isMounted) {
+          return;
+        }
+
+        if (!workflow) {
+          setIsPublished(false);
+          setShareUrl(null);
+        } else {
+          setIsPublished(workflow.is_public);
+          setShareUrl(resolveWorkflowShareUrl(workflow));
+        }
+        setIsScheduled(Boolean(cronConfig));
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        toast({
+          title: "Failed to load workflow state",
+          description: getErrorMessage(
+            error,
+            "Unable to load publish/schedule status.",
+          ),
+          variant: "destructive",
+        });
+      }
+    };
+
+    void loadWorkflowToggles();
+    return () => {
+      isMounted = false;
+    };
+  }, [workflowId]);
 
   const mermaidSource = useMemo(() => {
     if (!latestVersion?.mermaid || latestVersion.mermaid.trim().length === 0) {
@@ -273,6 +362,127 @@ export function WorkflowTabContent({
 
   const canConfigure = Boolean(workflowId);
   const latestConfig = latestVersion?.runnableConfig ?? null;
+  const canToggleSchedule = hasCronTriggerNode || isScheduled;
+
+  const handleCopyShareUrl = async () => {
+    if (!shareUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({
+        title: "Public URL copied",
+        description: "The workflow URL has been copied to your clipboard.",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to copy public URL",
+        description: getErrorMessage(error, "Clipboard access is unavailable."),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePublishToggle = async (nextValue: boolean) => {
+    if (!workflowId) {
+      setIsPublished(false);
+      toast({
+        title: "Save workflow first",
+        description: "Publishing requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsPublishPending(true);
+    try {
+      if (nextValue) {
+        const result = await publishWorkflow(workflowId, { actor: "canvas" });
+        setIsPublished(true);
+        setShareUrl(result.shareUrl);
+        toast({
+          title: "Workflow published",
+          description:
+            result.message ??
+            "Workflow is now public and available via its chat URL.",
+        });
+      } else {
+        await unpublishWorkflow(workflowId, "canvas");
+        setIsPublished(false);
+        setShareUrl(null);
+        toast({
+          title: "Workflow unpublished",
+          description: "Workflow is now private.",
+        });
+      }
+    } catch (error) {
+      setIsPublished(!nextValue);
+      toast({
+        title: nextValue
+          ? "Failed to publish workflow"
+          : "Failed to unpublish workflow",
+        description: getErrorMessage(error, "Unable to update publish status."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsPublishPending(false);
+    }
+  };
+
+  const handleScheduleToggle = async (nextValue: boolean) => {
+    if (!workflowId) {
+      setIsScheduled(false);
+      toast({
+        title: "Save workflow first",
+        description: "Scheduling requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSchedulePending(true);
+    try {
+      if (nextValue) {
+        const result = await scheduleWorkflowFromLatestVersion(workflowId);
+        if (result.status === "noop") {
+          setIsScheduled(false);
+          toast({
+            title: "No schedule applied",
+            description: result.message,
+          });
+          return;
+        }
+
+        setIsScheduled(true);
+        toast({
+          title: "Workflow scheduled",
+          description: result.message,
+        });
+      } else {
+        const result = await unscheduleWorkflow(workflowId);
+        setIsScheduled(false);
+        toast({
+          title: "Workflow unscheduled",
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      setIsScheduled(!nextValue);
+      toast({
+        title: nextValue
+          ? "Failed to schedule workflow"
+          : "Failed to unschedule workflow",
+        description: getErrorMessage(
+          error,
+          "Unable to update schedule status.",
+        ),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSchedulePending(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col gap-4 p-4">
@@ -290,7 +500,8 @@ export function WorkflowTabContent({
             <Switch
               aria-label="Publish workflow"
               checked={isPublished}
-              onCheckedChange={setIsPublished}
+              onCheckedChange={(checked) => void handlePublishToggle(checked)}
+              disabled={isPublishPending}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -298,8 +509,8 @@ export function WorkflowTabContent({
             <Switch
               aria-label="Schedule workflow"
               checked={isScheduled}
-              onCheckedChange={setIsScheduled}
-              disabled={!hasCronTriggerNode}
+              onCheckedChange={(checked) => void handleScheduleToggle(checked)}
+              disabled={isSchedulePending || !canToggleSchedule}
             />
           </div>
           <Button
@@ -311,6 +522,40 @@ export function WorkflowTabContent({
           </Button>
         </div>
       </div>
+
+      {isPublished && shareUrl && (
+        <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Public URL
+            </p>
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate text-sm text-primary hover:underline"
+            >
+              {shareUrl}
+            </a>
+          </div>
+          <div className="ml-3 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCopyShareUrl()}
+            >
+              <Copy className="mr-1.5 h-3.5 w-3.5" />
+              Copy
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <a href={shareUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                Open
+              </a>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {!latestVersion && (
         <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">

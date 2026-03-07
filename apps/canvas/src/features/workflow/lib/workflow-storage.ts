@@ -6,6 +6,7 @@ import {
 import {
   cloneEdges,
   cloneNodes,
+  getWorkflowRouteRef,
   toStoredWorkflow,
 } from "./workflow-storage-helpers";
 import {
@@ -253,3 +254,4 @@ export type {
 } from "./workflow-storage.types";
 
 export { WORKFLOW_STORAGE_EVENT } from "./workflow-storage.constants";
+export { getWorkflowRouteRef };

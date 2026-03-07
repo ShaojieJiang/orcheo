@@ -1,10 +1,12 @@
 import { authFetch } from "@/lib/auth-fetch";
-import { buildBackendHttpUrl } from "@/lib/config";
+import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
   ApiWorkflowVersion,
+  CronTriggerConfig,
   PublicWorkflowMetadata,
   RequestOptions,
+  WorkflowPublishResponse,
 } from "./workflow-storage.types";
 
 export const API_BASE = "/api/workflows";
@@ -111,6 +113,246 @@ export const fetchWorkflowVersions = async (
     }
     throw error;
   }
+};
+
+const SCHEDULED_CONFIG_PATH = (workflowId: string) =>
+  `${API_BASE}/${workflowId}/triggers/cron/config`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const toOptionalString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0 ? value : undefined;
+
+const toOptionalNullableString = (
+  value: unknown,
+): string | null | undefined => {
+  if (value === null) {
+    return null;
+  }
+  return toOptionalString(value);
+};
+
+export const resolveWorkflowShareUrl = (
+  workflow: Pick<ApiWorkflow, "id" | "handle" | "is_public" | "share_url">,
+): string | null => {
+  if (!workflow.is_public) {
+    return null;
+  }
+
+  if (workflow.share_url) {
+    return workflow.share_url;
+  }
+
+  const base = getBackendBaseUrl().replace(/\/+$/, "");
+  const workflowRef = workflow.handle ?? workflow.id;
+  return `${base}/chat/${workflowRef}`;
+};
+
+const extractCronConfigFromGraphIndex = (
+  graph: Record<string, unknown>,
+): CronTriggerConfig | null => {
+  const index = graph.index;
+  if (!isRecord(index) || !Array.isArray(index.cron)) {
+    return null;
+  }
+
+  const entries = index.cron.filter(isRecord);
+  if (entries.length === 0) {
+    return null;
+  }
+  if (entries.length > 1) {
+    throw new Error("Workflow contains multiple cron triggers.");
+  }
+
+  const entry = entries[0];
+  const expression = toOptionalString(entry.expression);
+  if (!expression) {
+    return null;
+  }
+
+  return {
+    expression,
+    timezone: toOptionalString(entry.timezone),
+    allow_overlapping:
+      typeof entry.allow_overlapping === "boolean"
+        ? entry.allow_overlapping
+        : undefined,
+    start_at: toOptionalNullableString(entry.start_at),
+    end_at: toOptionalNullableString(entry.end_at),
+  };
+};
+
+const extractCronConfigFromGraphNodes = (
+  graph: Record<string, unknown>,
+): CronTriggerConfig | null => {
+  const graphFormat = toOptionalString(graph.format);
+  const nodes =
+    graphFormat === "langgraph_script" && isRecord(graph.summary)
+      ? Array.isArray(graph.summary.nodes)
+        ? graph.summary.nodes
+        : []
+      : Array.isArray(graph.nodes)
+        ? graph.nodes
+        : [];
+
+  const cronNodes = nodes
+    .filter(isRecord)
+    .filter((node) => node.type === "CronTriggerNode");
+  if (cronNodes.length === 0) {
+    return null;
+  }
+  if (cronNodes.length > 1) {
+    throw new Error("Workflow contains multiple cron triggers.");
+  }
+
+  const node = cronNodes[0];
+  const expression = toOptionalString(node.expression);
+  if (!expression) {
+    return null;
+  }
+
+  return {
+    expression,
+    timezone: toOptionalString(node.timezone),
+    allow_overlapping:
+      typeof node.allow_overlapping === "boolean"
+        ? node.allow_overlapping
+        : undefined,
+    start_at: toOptionalNullableString(node.start_at),
+    end_at: toOptionalNullableString(node.end_at),
+  };
+};
+
+export const extractCronConfigFromVersionGraph = (
+  graph: unknown,
+): CronTriggerConfig | null => {
+  if (!isRecord(graph)) {
+    throw new Error("Latest workflow version is missing graph data.");
+  }
+
+  const indexConfig = extractCronConfigFromGraphIndex(graph);
+  if (indexConfig) {
+    return indexConfig;
+  }
+  return extractCronConfigFromGraphNodes(graph);
+};
+
+export const publishWorkflow = async (
+  workflowId: string,
+  options: {
+    requireLogin?: boolean;
+    actor?: string;
+  } = {},
+): Promise<{
+  workflow: ApiWorkflow;
+  shareUrl: string | null;
+  message: string | null;
+}> => {
+  const payload = await request<WorkflowPublishResponse>(
+    `${API_BASE}/${workflowId}/publish`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        require_login: options.requireLogin ?? false,
+        actor: options.actor ?? "canvas",
+      }),
+    },
+  );
+
+  const workflow = payload.workflow;
+  const shareUrl = payload.share_url ?? resolveWorkflowShareUrl(workflow);
+
+  return {
+    workflow: { ...workflow, share_url: shareUrl },
+    shareUrl,
+    message: payload.message ?? null,
+  };
+};
+
+export const unpublishWorkflow = async (
+  workflowId: string,
+  actor = "canvas",
+): Promise<{ workflow: ApiWorkflow; shareUrl: string | null }> => {
+  const workflow = await request<ApiWorkflow>(
+    `${API_BASE}/${workflowId}/publish/revoke`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    },
+  );
+
+  return {
+    workflow: { ...workflow, share_url: null },
+    shareUrl: null,
+  };
+};
+
+export const fetchCronTriggerConfig = async (
+  workflowId: string,
+): Promise<CronTriggerConfig | null> => {
+  try {
+    return await request<CronTriggerConfig>(SCHEDULED_CONFIG_PATH(workflowId));
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+export const scheduleWorkflowFromLatestVersion = async (
+  workflowId: string,
+): Promise<{
+  status: "scheduled" | "noop";
+  config?: CronTriggerConfig;
+  message: string;
+}> => {
+  const versions = await fetchWorkflowVersions(workflowId);
+  const latest = versions
+    .slice()
+    .sort((left, right) => right.version - left.version)
+    .at(0);
+
+  if (!latest || !isRecord(latest.graph)) {
+    throw new Error("Latest workflow version is missing graph data.");
+  }
+
+  const cronConfig = extractCronConfigFromVersionGraph(latest.graph);
+  if (!cronConfig) {
+    return {
+      status: "noop",
+      message: `Workflow '${workflowId}' has no cron trigger to schedule.`,
+    };
+  }
+
+  await request<CronTriggerConfig>(SCHEDULED_CONFIG_PATH(workflowId), {
+    method: "PUT",
+    body: JSON.stringify(cronConfig),
+  });
+
+  return {
+    status: "scheduled",
+    message: `Cron trigger scheduled for workflow '${workflowId}'.`,
+    config: cronConfig,
+  };
+};
+
+export const unscheduleWorkflow = async (
+  workflowId: string,
+): Promise<{ status: "unscheduled"; message: string }> => {
+  await request<void>(SCHEDULED_CONFIG_PATH(workflowId), {
+    method: "DELETE",
+    expectJson: false,
+  });
+
+  return {
+    status: "unscheduled",
+    message: `Cron trigger unscheduled for workflow '${workflowId}'.`,
+  };
 };
 
 export const upsertWorkflow = async (
