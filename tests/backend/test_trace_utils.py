@@ -60,6 +60,10 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert node_span.attributes["orcheo.node.kind"] == "ai_model"
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
+    assert "orcheo.workflow.state.before" in node_span.attributes
+    assert "orcheo.workflow.state.after" in node_span.attributes
+    assert node_span.attributes["orcheo.workflow.state.before"]["inputs"] == {}
+    assert node_span.attributes["orcheo.workflow.state.after"]["id"] == "node-1"
     assert node_span.status.code == "OK"
 
 
@@ -267,6 +271,8 @@ def test_build_spans_for_step_skips_none_results(
         node_key: str,
         payload: dict[str, Any],
         parent_id: str,
+        *,
+        state_snapshot: Any = None,
     ) -> TraceSpanResponse | None:
         if node_key == "node-a":
             return None
@@ -365,3 +371,37 @@ def test_build_trace_response_includes_execution_attributes() -> None:
     assert attributes["orcheo.execution.recursion_limit"] == 7
     assert attributes["orcheo.execution.max_concurrency"] == 2
     assert attributes["orcheo.execution.prompts.count"] == 1
+
+
+def test_build_trace_response_redacts_and_truncates_workflow_state() -> None:
+    """Workflow snapshots redact sensitive keys and truncate long values."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-privacy",
+        execution_id="exec-privacy",
+        status="completed",
+        inputs={"api_key": "secret-value", "query": "hello"},
+    )
+    record.append_step(
+        {
+            "node": {
+                "result": "x" * 3000,
+                "nested": {
+                    "session_token": "token-123",
+                },
+            }
+        },
+        at=_timestamp(),
+    )
+
+    response = build_trace_response(record)
+    node_span = response.spans[1]
+
+    before_state = node_span.attributes["orcheo.workflow.state.before"]
+    after_state = node_span.attributes["orcheo.workflow.state.after"]
+    assert before_state["api_key"] == "[REDACTED]"
+    assert after_state["nested"]["session_token"] == "[REDACTED]"
+    assert node_span.attributes["orcheo.workflow.state.redacted"] is True
+    assert node_span.attributes["orcheo.workflow.state.truncated"] is True
+    assert isinstance(after_state["result"], str)
+    assert len(after_state["result"]) <= 2049

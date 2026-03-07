@@ -84,6 +84,10 @@ export interface TraceSpanMetadata {
   nodeStatus?: string;
   tokenInput?: number;
   tokenOutput?: number;
+  workflowStateBefore?: Record<string, unknown>;
+  workflowStateAfter?: Record<string, unknown>;
+  workflowStateRedacted?: boolean;
+  workflowStateTruncated?: boolean;
 }
 
 export interface ExecutionTraceEntry {
@@ -197,6 +201,35 @@ const createSpanMetadata = (span: TraceSpanResponse): TraceSpanMetadata => {
   }
   if (typeof output === "number" && Number.isFinite(output)) {
     metadata.tokenOutput = output;
+  }
+
+  const workflowStateBefore = span.attributes?.["orcheo.workflow.state.before"];
+  if (
+    workflowStateBefore &&
+    typeof workflowStateBefore === "object" &&
+    !Array.isArray(workflowStateBefore)
+  ) {
+    metadata.workflowStateBefore = workflowStateBefore as Record<
+      string,
+      unknown
+    >;
+  }
+
+  const workflowStateAfter = span.attributes?.["orcheo.workflow.state.after"];
+  if (
+    workflowStateAfter &&
+    typeof workflowStateAfter === "object" &&
+    !Array.isArray(workflowStateAfter)
+  ) {
+    metadata.workflowStateAfter = workflowStateAfter as Record<string, unknown>;
+  }
+
+  if (span.attributes?.["orcheo.workflow.state.redacted"] === true) {
+    metadata.workflowStateRedacted = true;
+  }
+
+  if (span.attributes?.["orcheo.workflow.state.truncated"] === true) {
+    metadata.workflowStateTruncated = true;
   }
 
   return metadata;
