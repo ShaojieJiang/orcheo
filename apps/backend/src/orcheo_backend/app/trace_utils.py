@@ -227,7 +227,7 @@ def _build_node_span(
     artifact_ids = _extract_artifact_ids(payload)
     if artifact_ids:
         attributes["orcheo.artifact.ids"] = artifact_ids
-    if state_snapshot is not None:
+    if state_snapshot is not None:  # pragma: no branch
         attributes["orcheo.workflow.state.before"] = state_snapshot["before"]
         attributes["orcheo.workflow.state.after"] = state_snapshot["after"]
         if state_snapshot["redacted"]:

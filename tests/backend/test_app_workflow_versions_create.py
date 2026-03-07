@@ -249,3 +249,40 @@ async def test_update_workflow_version_runnable_config_missing_version() -> None
         )
 
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_version_runnable_config_missing_workflow() -> None:
+    """Version runnable-config endpoint maps missing workflows to 404."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def update_version_runnable_config(
+            self,
+            wf_id,
+            *,
+            version_number,
+            runnable_config,
+            actor,
+        ):
+            del wf_id, version_number, runnable_config, actor
+            raise WorkflowNotFoundError("wf-missing")
+
+    request = WorkflowVersionRunnableConfigUpdateRequest(
+        runnable_config={"tags": ["x"]},
+        actor="cli",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await update_workflow_version_runnable_config(
+            str(workflow_id),
+            1,
+            request,
+            Repository(),
+        )
+
+    assert exc_info.value.status_code == 404

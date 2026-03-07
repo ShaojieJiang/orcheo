@@ -15,6 +15,7 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
     _start_chatkit_history,
+    _with_thread_id,
 )
 from orcheo_backend.app.history import RunHistoryError
 
@@ -400,6 +401,11 @@ def test_resolve_runtime_thread_id_prefers_thread_and_session_fallback() -> None
         )
         == "exec-1"
     )
+
+
+def test_with_thread_id_replaces_non_mapping_configurable() -> None:
+    updated = _with_thread_id({"configurable": "invalid"}, "thr-override")
+    assert updated["configurable"] == {"thread_id": "thr-override"}
 
 
 @pytest.mark.asyncio

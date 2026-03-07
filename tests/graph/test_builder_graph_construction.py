@@ -26,6 +26,16 @@ def test_build_graph_rejects_unknown_format() -> None:
         builder.build_graph({"format": "unsupported-format"})
 
 
+def test_build_graph_rejects_missing_format_as_unknown() -> None:
+    """Missing format and graph keys are classified as unknown."""
+
+    with pytest.raises(
+        builder.UnsupportedWorkflowGraphFormatError,
+        match="unknown",
+    ):
+        builder.build_graph({})
+
+
 def test_build_graph_script_format_empty_source() -> None:
     """Script format with empty source raises ValueError."""
 

@@ -243,6 +243,18 @@ def test_extract_nodes_returns_summary_nodes_for_langgraph_format() -> None:
     assert scheduling._extract_nodes(graph) == [{"id": "cron_node"}]
 
 
+def test_extract_cron_config_from_index_requires_list_entries() -> None:
+    graph = {"index": {"cron": "not-a-list"}}
+
+    assert scheduling._extract_cron_config_from_index(graph) is None
+
+
+def test_extract_cron_config_from_index_ignores_non_mapping_entries() -> None:
+    graph = {"index": {"cron": [1, "cron"]}}
+
+    assert scheduling._extract_cron_config_from_index(graph) is None
+
+
 def test_extract_cron_config_uses_defaults_when_expression_and_timezone_blank() -> None:
     default_config = CronTriggerConfig()
     graph = {

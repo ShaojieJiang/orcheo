@@ -408,3 +408,95 @@ def test_build_trace_response_redacts_and_truncates_workflow_state() -> None:
     assert node_span.attributes["orcheo.workflow.state.truncated"] is True
     assert isinstance(after_state["result"], str)
     assert len(after_state["result"]) <= 2049
+
+
+def test_extract_runtime_thread_id_requires_string() -> None:
+    """Non-string runtime thread IDs should be ignored."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-thread",
+        execution_id="exec-thread",
+        status="running",
+        runnable_config={"configurable": {"thread_id": 123}},
+    )
+
+    assert trace_utils._extract_runtime_thread_id(record) is None
+
+
+def test_merge_workflow_state_recursively_merges_nested_mappings() -> None:
+    """Nested mapping payloads should merge recursively into existing state."""
+
+    current_state = {"nested": {"a": 1, "b": 2}}
+    payload = {"nested": {"b": 3, "c": 4}}
+
+    merged = trace_utils._merge_workflow_state(current_state, payload)
+
+    assert merged["nested"] == {"a": 1, "b": 3, "c": 4}
+
+
+def test_clone_json_like_decodes_bytes_values() -> None:
+    """Bytes values should be UTF-8 decoded during clone."""
+
+    cloned = trace_utils._clone_json_like({"payload": b"hello"})
+
+    assert cloned == {"payload": "hello"}
+
+
+def test_sanitize_state_snapshot_wraps_non_mapping_values() -> None:
+    """Non-mapping snapshots should be wrapped under a value key."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_state_snapshot("plain-state")
+
+    assert sanitized == {"value": "plain-state"}
+    assert redacted is False
+    assert truncated is False
+
+
+def test_sanitize_value_truncates_when_depth_limit_reached() -> None:
+    """Values at max depth should be replaced by the truncation marker."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_value(
+        {"nested": "value"},
+        depth=trace_utils._STATE_MAX_DEPTH,
+    )
+
+    assert sanitized == trace_utils._STATE_TRUNCATED_MARKER
+    assert redacted is False
+    assert truncated is True
+
+
+def test_sanitize_value_decodes_bytes_payload() -> None:
+    """Byte payloads should be decoded instead of returned as bytes."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_value(b"hello", depth=0)
+
+    assert sanitized == "hello"
+    assert redacted is False
+    assert truncated is False
+
+
+def test_sanitize_mapping_value_marks_truncated_items() -> None:
+    """Mappings larger than max collection items should include truncation metadata."""
+
+    value = {f"k{i}": i for i in range(trace_utils._STATE_MAX_COLLECTION_ITEMS + 1)}
+
+    sanitized, redacted, truncated = trace_utils._sanitize_mapping_value(value, depth=0)
+
+    assert sanitized["__truncated_items__"] == 1
+    assert redacted is False
+    assert truncated is True
+
+
+def test_sanitize_sequence_value_truncates_long_sequences() -> None:
+    """Long sequences should append a truncation marker at the collection boundary."""
+
+    value = list(range(trace_utils._STATE_MAX_COLLECTION_ITEMS + 1))
+
+    sanitized, redacted, truncated = trace_utils._sanitize_sequence_value(
+        value, depth=0
+    )
+
+    assert sanitized[-1] == trace_utils._STATE_TRUNCATED_MARKER
+    assert len(sanitized) == trace_utils._STATE_MAX_COLLECTION_ITEMS + 1
+    assert redacted is False
+    assert truncated is True

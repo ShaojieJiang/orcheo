@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 import json
+import pytest
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
+from orcheo.graph.ingestion import summary as summary_module
 from orcheo.graph.ingestion.summary import summarise_graph_index, summarise_state_graph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, WorkflowTool
@@ -126,3 +128,20 @@ def test_summarise_graph_index_extracts_cron_nodes() -> None:
     assert cron[0]["expression"] == "*/5 * * * *"
     assert cron[0]["timezone"] == "UTC"
     assert cron[0]["allow_overlapping"] is False
+
+
+def test_extract_cron_index_skips_missing_cron_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing cron fields are skipped when serialising cron index metadata."""
+    graph = StateGraph(State)
+    graph.add_node("cron_trigger", lambda state: state)
+
+    monkeypatch.setattr(
+        summary_module,
+        "_serialise_node",
+        lambda _name, _runnable: {"type": "CronTriggerNode"},
+    )
+
+    cron = summary_module._extract_cron_index(graph)
+    assert cron == [{}]

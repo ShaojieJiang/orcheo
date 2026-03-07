@@ -254,3 +254,29 @@ async def test_diff_workflow_versions_version_not_found() -> None:
         await diff_workflow_versions(str(workflow_id), 1, 2, Repository())
 
     assert exc_info.value.status_code == 404
+
+
+def test_attach_mermaid_non_mapping_graph_uses_renderer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_attach_mermaid should fall back to renderer when graph is not a mapping."""
+
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=uuid4(),
+        version=1,
+        graph={},
+        created_by="admin",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+    object.__setattr__(version, "graph", "serialized-graph")
+    monkeypatch.setattr(
+        workflow_router,
+        "_mermaid_from_graph",
+        lambda _graph: "flowchart TD; A-->B",
+    )
+
+    result = workflow_router._attach_mermaid(version)
+
+    assert result.mermaid == "flowchart TD; A-->B"

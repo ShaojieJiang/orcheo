@@ -91,3 +91,14 @@ def test_format_workflow_as_python_rejects_non_script_payload() -> None:
 
     with pytest.raises(CLIError, match="unsupported format"):
         _format_workflow_as_python({"name": "legacy"}, {"nodes": [], "edges": []})
+
+
+def test_format_workflow_as_python_rejects_blank_script_source() -> None:
+    """Blank script source should be rejected even for langgraph-script format."""
+    from orcheo_sdk.cli.workflow import _format_workflow_as_python
+
+    with pytest.raises(CLIError, match="unsupported format"):
+        _format_workflow_as_python(
+            {"name": "empty-source"},
+            {"format": "langgraph-script", "source": "   "},
+        )
