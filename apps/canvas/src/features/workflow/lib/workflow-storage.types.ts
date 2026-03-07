@@ -19,6 +19,7 @@ export interface ApiWorkflow {
   published_by: string | null;
   created_at: string;
   updated_at: string;
+  share_url?: string | null;
 }
 
 export interface PublicWorkflowMetadata {
@@ -54,6 +55,20 @@ export interface ApiWorkflowVersion {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkflowPublishResponse {
+  workflow: ApiWorkflow;
+  message?: string | null;
+  share_url?: string | null;
+}
+
+export interface CronTriggerConfig {
+  expression: string;
+  timezone?: string;
+  allow_overlapping?: boolean;
+  start_at?: string | null;
+  end_at?: string | null;
 }
 
 export interface CanvasVersionMetadata {
@@ -99,6 +114,5 @@ export interface SaveWorkflowInput {
 export interface SaveWorkflowOptions {
   versionMessage?: string;
   actor?: string;
-  forceVersion?: boolean;
   runnableConfig?: WorkflowRunnableConfig | null;
 }

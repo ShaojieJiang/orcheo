@@ -22,6 +22,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
         workflow_id="wf-1",
         execution_id="exec-1",
         status="completed",
+        runnable_config={"configurable": {"thread_id": "thread-123"}},
     )
     record.trace_started_at = _timestamp()
     record.trace_completed_at = _timestamp(5)
@@ -49,6 +50,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
 
     response = build_trace_response(record)
     assert response.execution.id == "exec-1"
+    assert response.execution.thread_id == "thread-123"
     assert response.execution.token_usage.input == 5
     assert response.execution.token_usage.output == 7
 
@@ -56,10 +58,15 @@ def test_build_trace_response_emits_span_metadata() -> None:
     root_span, node_span = response.spans
     assert root_span.parent_span_id is None
     assert root_span.attributes["orcheo.execution.id"] == "exec-1"
+    assert root_span.attributes["orcheo.execution.thread_id"] == "thread-123"
     assert len(node_span.events) == 4  # prompt, response, two message events
     assert node_span.attributes["orcheo.node.kind"] == "ai_model"
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
+    assert "orcheo.workflow.state.before" in node_span.attributes
+    assert "orcheo.workflow.state.after" in node_span.attributes
+    assert node_span.attributes["orcheo.workflow.state.before"]["inputs"] == {}
+    assert node_span.attributes["orcheo.workflow.state.after"]["id"] == "node-1"
     assert node_span.status.code == "OK"
 
 
@@ -267,6 +274,8 @@ def test_build_spans_for_step_skips_none_results(
         node_key: str,
         payload: dict[str, Any],
         parent_id: str,
+        *,
+        state_snapshot: Any = None,
     ) -> TraceSpanResponse | None:
         if node_key == "node-a":
             return None
@@ -365,3 +374,129 @@ def test_build_trace_response_includes_execution_attributes() -> None:
     assert attributes["orcheo.execution.recursion_limit"] == 7
     assert attributes["orcheo.execution.max_concurrency"] == 2
     assert attributes["orcheo.execution.prompts.count"] == 1
+
+
+def test_build_trace_response_redacts_and_truncates_workflow_state() -> None:
+    """Workflow snapshots redact sensitive keys and truncate long values."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-privacy",
+        execution_id="exec-privacy",
+        status="completed",
+        inputs={"api_key": "secret-value", "query": "hello"},
+    )
+    record.append_step(
+        {
+            "node": {
+                "result": "x" * 3000,
+                "nested": {
+                    "session_token": "token-123",
+                },
+            }
+        },
+        at=_timestamp(),
+    )
+
+    response = build_trace_response(record)
+    node_span = response.spans[1]
+
+    before_state = node_span.attributes["orcheo.workflow.state.before"]
+    after_state = node_span.attributes["orcheo.workflow.state.after"]
+    assert before_state["api_key"] == "[REDACTED]"
+    assert after_state["nested"]["session_token"] == "[REDACTED]"
+    assert node_span.attributes["orcheo.workflow.state.redacted"] is True
+    assert node_span.attributes["orcheo.workflow.state.truncated"] is True
+    assert isinstance(after_state["result"], str)
+    assert len(after_state["result"]) <= 2049
+
+
+def test_extract_runtime_thread_id_requires_string() -> None:
+    """Non-string runtime thread IDs should be ignored."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-thread",
+        execution_id="exec-thread",
+        status="running",
+        runnable_config={"configurable": {"thread_id": 123}},
+    )
+
+    assert trace_utils._extract_runtime_thread_id(record) is None
+
+
+def test_merge_workflow_state_recursively_merges_nested_mappings() -> None:
+    """Nested mapping payloads should merge recursively into existing state."""
+
+    current_state = {"nested": {"a": 1, "b": 2}}
+    payload = {"nested": {"b": 3, "c": 4}}
+
+    merged = trace_utils._merge_workflow_state(current_state, payload)
+
+    assert merged["nested"] == {"a": 1, "b": 3, "c": 4}
+
+
+def test_clone_json_like_decodes_bytes_values() -> None:
+    """Bytes values should be UTF-8 decoded during clone."""
+
+    cloned = trace_utils._clone_json_like({"payload": b"hello"})
+
+    assert cloned == {"payload": "hello"}
+
+
+def test_sanitize_state_snapshot_wraps_non_mapping_values() -> None:
+    """Non-mapping snapshots should be wrapped under a value key."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_state_snapshot("plain-state")
+
+    assert sanitized == {"value": "plain-state"}
+    assert redacted is False
+    assert truncated is False
+
+
+def test_sanitize_value_truncates_when_depth_limit_reached() -> None:
+    """Values at max depth should be replaced by the truncation marker."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_value(
+        {"nested": "value"},
+        depth=trace_utils._STATE_MAX_DEPTH,
+    )
+
+    assert sanitized == trace_utils._STATE_TRUNCATED_MARKER
+    assert redacted is False
+    assert truncated is True
+
+
+def test_sanitize_value_decodes_bytes_payload() -> None:
+    """Byte payloads should be decoded instead of returned as bytes."""
+
+    sanitized, redacted, truncated = trace_utils._sanitize_value(b"hello", depth=0)
+
+    assert sanitized == "hello"
+    assert redacted is False
+    assert truncated is False
+
+
+def test_sanitize_mapping_value_marks_truncated_items() -> None:
+    """Mappings larger than max collection items should include truncation metadata."""
+
+    value = {f"k{i}": i for i in range(trace_utils._STATE_MAX_COLLECTION_ITEMS + 1)}
+
+    sanitized, redacted, truncated = trace_utils._sanitize_mapping_value(value, depth=0)
+
+    assert sanitized["__truncated_items__"] == 1
+    assert redacted is False
+    assert truncated is True
+
+
+def test_sanitize_sequence_value_truncates_long_sequences() -> None:
+    """Long sequences should append a truncation marker at the collection boundary."""
+
+    value = list(range(trace_utils._STATE_MAX_COLLECTION_ITEMS + 1))
+
+    sanitized, redacted, truncated = trace_utils._sanitize_sequence_value(
+        value, depth=0
+    )
+
+    assert sanitized[-1] == trace_utils._STATE_TRUNCATED_MARKER
+    assert len(sanitized) == trace_utils._STATE_MAX_COLLECTION_ITEMS + 1
+    assert redacted is False
+    assert truncated is True

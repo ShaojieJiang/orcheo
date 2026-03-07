@@ -1,13 +1,10 @@
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
-import { computeWorkflowDiff, type WorkflowSnapshot } from "./workflow-diff";
+import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
 import {
   DEFAULT_ACTOR,
   WORKFLOW_STORAGE_EVENT,
 } from "./workflow-storage.constants";
 import {
-  cloneEdges,
-  cloneNodes,
-  emptySnapshot,
+  getWorkflowRouteRef,
   toStoredWorkflow,
 } from "./workflow-storage-helpers";
 import {
@@ -17,9 +14,8 @@ import {
   upsertWorkflow,
 } from "./workflow-storage-api";
 import {
-  defaultVersionMessage,
   ensureWorkflow,
-  persistVersion,
+  persistRunnableConfig,
 } from "./workflow-storage-versioning";
 import type {
   ApiWorkflow,
@@ -125,44 +121,9 @@ export const saveWorkflow = async (
   options?: SaveWorkflowOptions,
 ): Promise<StoredWorkflow> => {
   const actor = resolveActor(options?.actor);
-  const existing = input.id ? await ensureWorkflow(input.id) : undefined;
-  const previousSnapshot: WorkflowSnapshot =
-    existing?.versions.at(-1)?.snapshot ??
-    emptySnapshot(existing?.name ?? input.name, existing?.description);
-
-  const currentSnapshot: WorkflowSnapshot = {
-    name: input.name,
-    description: input.description,
-    nodes: cloneNodes(input.nodes),
-    edges: cloneEdges(input.edges),
-  };
-
-  const diff = computeWorkflowDiff(previousSnapshot, currentSnapshot);
-  const latestRunnableConfig =
-    existing?.versions.at(-1)?.runnableConfig ?? null;
-  const runnableConfigToPersist =
-    options?.runnableConfig === undefined
-      ? latestRunnableConfig
-      : options.runnableConfig;
-  const needsVersion =
-    !existing ||
-    existing.versions.length === 0 ||
-    diff.entries.length > 0 ||
-    options?.forceVersion === true;
-
   const workflowId = await upsertWorkflow(input, actor);
-
-  if (needsVersion) {
-    const message = options?.versionMessage ?? defaultVersionMessage();
-    await persistVersion(
-      workflowId,
-      input,
-      currentSnapshot,
-      diff,
-      actor,
-      message,
-      runnableConfigToPersist,
-    );
+  if (options?.runnableConfig !== undefined) {
+    await persistRunnableConfig(workflowId, actor, options.runnableConfig);
   }
 
   const stored = await ensureWorkflow(workflowId);
@@ -175,59 +136,56 @@ export const saveWorkflow = async (
   return stored;
 };
 
-export const createWorkflow = async (
-  input: Omit<SaveWorkflowInput, "id">,
-): Promise<StoredWorkflow> => {
-  return saveWorkflow(input, { versionMessage: "Initial draft" });
-};
-
 export const createWorkflowFromTemplate = async (
   templateId: string,
   overrides?: Partial<Omit<SaveWorkflowInput, "nodes" | "edges">>,
 ): Promise<StoredWorkflow | undefined> => {
-  const template = SAMPLE_WORKFLOWS.find(
-    (workflow) => workflow.id === templateId,
-  );
-  if (!template) {
+  const templateDefinition = getWorkflowTemplateDefinition(templateId);
+  if (!templateDefinition) {
     return undefined;
   }
 
-  return saveWorkflow({
-    name: overrides?.name ?? `${template.name} Copy`,
-    description: overrides?.description ?? template.description,
-    tags: overrides?.tags ?? template.tags.filter((tag) => tag !== "template"),
-    nodes: cloneNodes(template.nodes),
-    edges: cloneEdges(template.edges),
+  const actor = resolveActor();
+  const templateWorkflow = templateDefinition.workflow;
+  const workflowName = overrides?.name ?? `${templateWorkflow.name} Copy`;
+  const workflowDescription =
+    overrides?.description ?? templateWorkflow.description;
+  const workflowTags =
+    overrides?.tags ??
+    templateWorkflow.tags.filter((tag) => tag !== "template");
+
+  const created = await request<ApiWorkflow>(API_BASE, {
+    method: "POST",
+    body: JSON.stringify({
+      name: workflowName,
+      description: workflowDescription,
+      tags: workflowTags,
+      actor,
+    }),
   });
-};
 
-export const duplicateWorkflow = async (
-  workflowId: string,
-): Promise<StoredWorkflow | undefined> => {
-  const existing = await getWorkflowById(workflowId);
-  if (!existing) {
-    return undefined;
+  await request(`${API_BASE}/${created.id}/versions/ingest`, {
+    method: "POST",
+    body: JSON.stringify({
+      script: templateDefinition.script,
+      entrypoint: templateDefinition.entrypoint ?? null,
+      metadata: {
+        source: "canvas-template",
+        template_id: templateWorkflow.id,
+      },
+      notes: templateDefinition.notes,
+      created_by: actor,
+    }),
+  });
+
+  const stored = await ensureWorkflow(created.id);
+  if (!stored) {
+    throw new Error("Failed to load workflow created from template");
   }
 
-  const snapshot =
-    existing.versions.at(-1)?.snapshot ??
-    ({
-      name: existing.name,
-      description: existing.description,
-      nodes: existing.nodes,
-      edges: existing.edges,
-    } satisfies WorkflowSnapshot);
-
-  return saveWorkflow(
-    {
-      name: `${existing.name} Copy`,
-      description: existing.description,
-      tags: existing.tags,
-      nodes: cloneNodes(snapshot.nodes),
-      edges: cloneEdges(snapshot.edges),
-    },
-    { versionMessage: `Duplicated from ${existing.name}` },
-  );
+  invalidateWorkflowListCache();
+  emitUpdate();
+  return stored;
 };
 
 export const getVersionSnapshot = async (
@@ -259,3 +217,4 @@ export type {
 } from "./workflow-storage.types";
 
 export { WORKFLOW_STORAGE_EVENT } from "./workflow-storage.constants";
+export { getWorkflowRouteRef };

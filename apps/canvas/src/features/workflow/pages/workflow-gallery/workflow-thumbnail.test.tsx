@@ -80,6 +80,12 @@ describe("WorkflowThumbnail", () => {
       ).not.toBeNull();
     });
 
+    const thumbnailRoot = container.querySelector(
+      ".workflow-thumbnail-mermaid",
+    );
+    expect(thumbnailRoot?.className).toContain("items-center");
+    expect(thumbnailRoot?.className).toContain("justify-center");
+
     expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
     expect(mermaidMock.initialize).toHaveBeenCalledTimes(1);
   });

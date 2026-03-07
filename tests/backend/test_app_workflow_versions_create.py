@@ -1,4 +1,4 @@
-"""Tests for creating and ingesting workflow versions."""
+"""Tests for ingesting workflow versions and config-only updates."""
 
 from __future__ import annotations
 from datetime import UTC, datetime
@@ -6,96 +6,18 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models.workflow import WorkflowVersion
-from orcheo_backend.app import create_workflow_version, ingest_workflow_version
-from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas.workflows import (
-    WorkflowVersionCreateRequest,
-    WorkflowVersionIngestRequest,
+from orcheo_backend.app import (
+    ingest_workflow_version,
+    update_workflow_version_runnable_config,
 )
-
-
-@pytest.mark.asyncio()
-async def test_create_workflow_version_success() -> None:
-    """Create workflow version endpoint creates and returns new version."""
-
-    workflow_id = uuid4()
-    version_id = uuid4()
-    captured_config: dict[str, object] | None = None
-
-    class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
-            del workflow_ref, include_archived
-            return workflow_id
-
-        async def create_version(
-            self,
-            wf_id,
-            graph,
-            metadata,
-            notes,
-            created_by,
-            runnable_config=None,
-        ):
-            nonlocal captured_config
-            captured_config = runnable_config
-            return WorkflowVersion(
-                id=version_id,
-                workflow_id=wf_id,
-                version=1,
-                graph=graph,
-                created_by=created_by,
-                notes=notes,
-                created_at=datetime.now(tz=UTC),
-                updated_at=datetime.now(tz=UTC),
-            )
-
-    request = WorkflowVersionCreateRequest(
-        graph={"nodes": []},
-        metadata={"test": "data"},
-        runnable_config={"tags": ["v1"]},
-        notes="Test version",
-        created_by="admin",
-    )
-
-    result = await create_workflow_version(str(workflow_id), request, Repository())
-
-    assert result.id == version_id
-    assert result.workflow_id == workflow_id
-    assert result.version == 1
-    assert captured_config == {"tags": ["v1"]}
-
-
-@pytest.mark.asyncio()
-async def test_create_workflow_version_not_found() -> None:
-    """Create workflow version raises 404 for missing workflow."""
-
-    workflow_id = uuid4()
-
-    class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
-            del workflow_ref, include_archived
-            return workflow_id
-
-        async def create_version(
-            self,
-            wf_id,
-            graph,
-            metadata,
-            notes,
-            created_by,
-            runnable_config=None,
-        ):
-            raise WorkflowNotFoundError("not found")
-
-    request = WorkflowVersionCreateRequest(
-        graph={"nodes": []},
-        created_by="admin",
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_version(str(workflow_id), request, Repository())
-
-    assert exc_info.value.status_code == 404
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
+from orcheo_backend.app.schemas.workflows import (
+    WorkflowVersionIngestRequest,
+    WorkflowVersionRunnableConfigUpdateRequest,
+)
 
 
 @pytest.mark.asyncio()
@@ -227,5 +149,140 @@ async def test_ingest_workflow_version_not_found() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await ingest_workflow_version(str(workflow_id), request, Repository())
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_version_runnable_config_success() -> None:
+    """Version runnable-config endpoint persists config-only updates."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    captured_actor: str | None = None
+    captured_version: int | None = None
+    captured_config: dict[str, object] | None = None
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def update_version_runnable_config(
+            self,
+            wf_id,
+            *,
+            version_number,
+            runnable_config,
+            actor,
+        ):
+            nonlocal captured_actor, captured_version, captured_config
+            captured_actor = actor
+            captured_version = version_number
+            captured_config = runnable_config
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=version_number,
+                graph={
+                    "format": "langgraph-script",
+                    "source": (
+                        "from langgraph.graph import StateGraph\ngraph=StateGraph(dict)"
+                    ),
+                },
+                created_by="admin",
+                runnable_config=runnable_config,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowVersionRunnableConfigUpdateRequest(
+        runnable_config={"tags": ["canvas"], "run_name": "canvas-save"},
+        actor="canvas-user",
+    )
+
+    result = await update_workflow_version_runnable_config(
+        str(workflow_id),
+        3,
+        request,
+        Repository(),
+    )
+
+    assert result.id == version_id
+    assert captured_actor == "canvas-user"
+    assert captured_version == 3
+    assert captured_config == {"tags": ["canvas"], "run_name": "canvas-save"}
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_version_runnable_config_missing_version() -> None:
+    """Version runnable-config endpoint maps missing versions to 404."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def update_version_runnable_config(
+            self,
+            wf_id,
+            *,
+            version_number,
+            runnable_config,
+            actor,
+        ):
+            del wf_id, version_number, runnable_config, actor
+            raise WorkflowVersionNotFoundError("v99")
+
+    request = WorkflowVersionRunnableConfigUpdateRequest(
+        runnable_config={"tags": ["x"]},
+        actor="cli",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await update_workflow_version_runnable_config(
+            str(workflow_id),
+            99,
+            request,
+            Repository(),
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_version_runnable_config_missing_workflow() -> None:
+    """Version runnable-config endpoint maps missing workflows to 404."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def update_version_runnable_config(
+            self,
+            wf_id,
+            *,
+            version_number,
+            runnable_config,
+            actor,
+        ):
+            del wf_id, version_number, runnable_config, actor
+            raise WorkflowNotFoundError("wf-missing")
+
+    request = WorkflowVersionRunnableConfigUpdateRequest(
+        runnable_config={"tags": ["x"]},
+        actor="cli",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await update_workflow_version_runnable_config(
+            str(workflow_id),
+            1,
+            request,
+            Repository(),
+        )
 
     assert exc_info.value.status_code == 404

@@ -108,3 +108,80 @@ async def test_get_latest_version_validation(
 
     with pytest.raises(WorkflowVersionNotFoundError):
         await repository.get_latest_version(workflow.id)
+
+
+@pytest.mark.asyncio()
+async def test_update_version_runnable_config_finds_requested_version(
+    repository: WorkflowRepository,
+) -> None:
+    """Runnable config updates target the requested version number."""
+
+    workflow = await repository.create_workflow(
+        name="Runnable Config",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="author",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={"nodes": ["v1"]},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={"nodes": ["v2"]},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+
+    updated = await repository.update_version_runnable_config(
+        workflow.id,
+        version_number=2,
+        runnable_config={"configurable": {"thread_id": "thr-2"}},
+        actor="editor",
+    )
+
+    assert updated.version == 2
+    assert updated.runnable_config == {"configurable": {"thread_id": "thr-2"}}
+
+
+@pytest.mark.asyncio()
+async def test_update_version_runnable_config_validation_errors(
+    repository: WorkflowRepository,
+) -> None:
+    """Updating runnable config validates workflow and version existence."""
+
+    workflow = await repository.create_workflow(
+        name="Runnable Config Validation",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="author",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.update_version_runnable_config(
+            uuid4(),
+            version_number=1,
+            runnable_config={"tags": ["missing"]},
+            actor="editor",
+        )
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.update_version_runnable_config(
+            workflow.id,
+            version_number=99,
+            runnable_config={"tags": ["missing-version"]},
+            actor="editor",
+        )

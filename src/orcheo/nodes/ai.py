@@ -353,12 +353,31 @@ class AgentNode(AINode):
             or inputs.get("query")
             or inputs.get("prompt")
         )
-        if (
-            isinstance(message_value, str) and message_value.strip()
-        ):  # pragma: no branch
-            messages.append(HumanMessage(content=message_value.strip()))
+        if isinstance(message_value, str):
+            normalized_message_value = message_value.strip()
+            if normalized_message_value:  # pragma: no branch
+                if not self._is_duplicate_latest_user_turn(
+                    messages, normalized_message_value
+                ):
+                    messages.append(HumanMessage(content=normalized_message_value))
 
         return messages
+
+    @staticmethod
+    def _is_duplicate_latest_user_turn(
+        messages: list[BaseMessage],
+        candidate: str,
+    ) -> bool:
+        if not messages:
+            return False
+        latest_message = messages[-1]
+        if not isinstance(latest_message, HumanMessage):
+            return False
+        latest_content = latest_message.content
+        latest_text = (
+            latest_content if isinstance(latest_content, str) else str(latest_content)
+        )
+        return latest_text.strip() == candidate
 
     def _normalize_messages(self, messages: Any) -> list[BaseMessage]:
         """Normalize caller-provided messages into LangChain BaseMessages."""

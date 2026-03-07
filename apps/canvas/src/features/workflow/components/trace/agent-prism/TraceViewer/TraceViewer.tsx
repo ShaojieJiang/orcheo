@@ -19,6 +19,7 @@ export interface TraceViewerData {
   badges?: Array<BadgeProps>;
   spans: TraceSpan[];
   spanCardViewOptions?: SpanCardViewOptions;
+  threadId?: string;
 }
 
 export interface TraceViewerProps {
@@ -169,11 +170,11 @@ export const TraceViewer = ({
   };
 
   return (
-    <div className="h-[calc(100vh-50px)]">
-      <div className="hidden h-full lg:block">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="hidden min-h-0 flex-1 lg:block">
         <TraceViewerDesktopLayout {...props} />
       </div>
-      <div className="h-full lg:hidden">
+      <div className="min-h-0 flex-1 lg:hidden">
         <TraceViewerMobileLayout {...props} />
       </div>
     </div>

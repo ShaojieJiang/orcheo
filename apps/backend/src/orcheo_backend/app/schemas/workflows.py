@@ -46,16 +46,6 @@ class WorkflowUpdateRequest(BaseModel):
         return normalize_workflow_handle(str(value))
 
 
-class WorkflowVersionCreateRequest(BaseModel):
-    """Payload for creating a workflow version."""
-
-    graph: dict[str, Any]
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    runnable_config: RunnableConfigModel | None = None
-    notes: str | None = None
-    created_by: str
-
-
 class WorkflowVersionIngestRequest(BaseModel):
     """Payload for ingesting a LangGraph Python script."""
 
@@ -77,6 +67,13 @@ class WorkflowVersionIngestRequest(BaseModel):
             )
             raise ValueError(msg)
         return value
+
+
+class WorkflowVersionRunnableConfigUpdateRequest(BaseModel):
+    """Payload for updating workflow-version runnable config only."""
+
+    runnable_config: RunnableConfigModel | None = None
+    actor: str = Field(default="system")
 
 
 class WorkflowRunCreateRequest(BaseModel):

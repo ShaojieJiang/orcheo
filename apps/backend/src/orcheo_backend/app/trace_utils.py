@@ -1,10 +1,11 @@
 """Helpers for assembling workflow trace payloads."""
 
 from __future__ import annotations
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from hashlib import blake2b
-from typing import Any
+from typing import Any, TypedDict
 from orcheo.tracing import workflow as tracing_workflow
 from orcheo_backend.app.history import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import (
@@ -19,16 +20,40 @@ from orcheo_backend.app.schemas.traces import (
 )
 
 
+_STATE_MAX_DEPTH = 6
+_STATE_MAX_COLLECTION_ITEMS = 64
+_STATE_MAX_STRING_LENGTH = 2048
+_STATE_REDACTED_MARKER = "[REDACTED]"
+_STATE_TRUNCATED_MARKER = "[TRUNCATED]"
+_SENSITIVE_STATE_KEY_PATTERN = re.compile(
+    r"(?i)(password|secret|token|api[_-]?key|authorization|cookie|credential|private[_-]?key)"
+)
+
+
+class _WorkflowStateSnapshot(TypedDict):
+    before: dict[str, Any]
+    after: dict[str, Any]
+    redacted: bool
+    truncated: bool
+
+
 def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
     """Convert a history record into a trace response."""
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
-    root_span = _build_root_span(record, root_span_id)
+    runtime_thread_id = _extract_runtime_thread_id(record)
+    root_span = _build_root_span(record, root_span_id, runtime_thread_id)
     spans: list[TraceSpanResponse] = [root_span]
+    state_snapshots = _build_workflow_state_snapshots(record)
 
     total_input = 0
     total_output = 0
     for step in record.steps:
-        node_spans = _build_spans_for_step(record, step, root_span_id)
+        node_spans = _build_spans_for_step(
+            record,
+            step,
+            root_span_id,
+            state_snapshots=state_snapshots,
+        )
         spans.extend(node_spans)
         for span in node_spans:
             total_input += int(span.attributes.get("orcheo.token.input", 0))
@@ -37,6 +62,7 @@ def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
     execution_metadata = TraceExecutionMetadata(
         id=record.execution_id,
         status=record.status,
+        thread_id=runtime_thread_id,
         started_at=record.trace_started_at or record.started_at,
         finished_at=record.trace_completed_at or record.completed_at,
         trace_id=record.trace_id or root_span_id,
@@ -59,11 +85,20 @@ def build_trace_update(
 ) -> TraceUpdateMessage | None:
     """Assemble a websocket trace update message."""
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
+    runtime_thread_id = _extract_runtime_thread_id(record)
+    state_snapshots = _build_workflow_state_snapshots(record)
     spans: list[TraceSpanResponse] = []
     if include_root:
-        spans.append(_build_root_span(record, root_span_id))
+        spans.append(_build_root_span(record, root_span_id, runtime_thread_id))
     if step is not None:
-        spans.extend(_build_spans_for_step(record, step, root_span_id))
+        spans.extend(
+            _build_spans_for_step(
+                record,
+                step,
+                root_span_id,
+                state_snapshots=state_snapshots,
+            )
+        )
 
     if not spans and not complete:
         return None
@@ -91,12 +126,18 @@ def _derive_child_span_id(execution_id: str, step_index: int, node_key: str) -> 
     return digest.hexdigest()
 
 
-def _build_root_span(record: RunHistoryRecord, span_id: str) -> TraceSpanResponse:
+def _build_root_span(
+    record: RunHistoryRecord,
+    span_id: str,
+    runtime_thread_id: str | None,
+) -> TraceSpanResponse:
     status = _status_from_history(record)
     attributes: dict[str, Any] = {
         "orcheo.execution.id": record.execution_id,
         "orcheo.workflow.id": record.workflow_id,
     }
+    if runtime_thread_id:
+        attributes["orcheo.execution.thread_id"] = runtime_thread_id
     if record.tags:
         attributes["orcheo.execution.tags"] = list(record.tags)
         attributes["orcheo.execution.tag_count"] = len(record.tags)
@@ -126,16 +167,39 @@ def _build_root_span(record: RunHistoryRecord, span_id: str) -> TraceSpanRespons
     )
 
 
+def _extract_runtime_thread_id(record: RunHistoryRecord) -> str | None:
+    configurable = record.runnable_config.get("configurable")
+    if not isinstance(configurable, Mapping):
+        return None
+    runtime_thread_id = configurable.get("thread_id")
+    if not isinstance(runtime_thread_id, str):
+        return None
+    normalized = runtime_thread_id.strip()
+    return normalized or None
+
+
 def _build_spans_for_step(
     record: RunHistoryRecord,
     step: RunHistoryStep,
     root_span_id: str,
+    *,
+    state_snapshots: Mapping[tuple[int, str], _WorkflowStateSnapshot] | None = None,
 ) -> list[TraceSpanResponse]:
     spans: list[TraceSpanResponse] = []
     for node_key, payload in step.payload.items():
         if not isinstance(payload, Mapping):
             continue
-        span = _build_node_span(record, step, node_key, payload, root_span_id)
+        state_snapshot = None
+        if state_snapshots is not None:
+            state_snapshot = state_snapshots.get((step.index, node_key))
+        span = _build_node_span(
+            record,
+            step,
+            node_key,
+            payload,
+            root_span_id,
+            state_snapshot=state_snapshot,
+        )
         if span is not None:
             spans.append(span)
     return spans
@@ -147,6 +211,8 @@ def _build_node_span(
     node_key: str,
     payload: Mapping[str, Any],
     parent_id: str,
+    *,
+    state_snapshot: _WorkflowStateSnapshot | None = None,
 ) -> TraceSpanResponse | None:
     attributes = _node_attributes(node_key, payload)
     span_id = _derive_child_span_id(record.execution_id, step.index, node_key)
@@ -161,6 +227,13 @@ def _build_node_span(
     artifact_ids = _extract_artifact_ids(payload)
     if artifact_ids:
         attributes["orcheo.artifact.ids"] = artifact_ids
+    if state_snapshot is not None:  # pragma: no branch
+        attributes["orcheo.workflow.state.before"] = state_snapshot["before"]
+        attributes["orcheo.workflow.state.after"] = state_snapshot["after"]
+        if state_snapshot["redacted"]:
+            attributes["orcheo.workflow.state.redacted"] = True
+        if state_snapshot["truncated"]:
+            attributes["orcheo.workflow.state.truncated"] = True
     events = list(_collect_message_events(payload, start_time))
     status = _status_from_payload(payload)
     return TraceSpanResponse(
@@ -173,6 +246,157 @@ def _build_node_span(
         events=events,
         status=status,
     )
+
+
+def _build_workflow_state_snapshots(
+    record: RunHistoryRecord,
+) -> dict[tuple[int, str], _WorkflowStateSnapshot]:
+    state = _initial_workflow_state(record.inputs)
+    snapshots: dict[tuple[int, str], _WorkflowStateSnapshot] = {}
+
+    for step in record.steps:
+        for node_key, payload in step.payload.items():
+            if not isinstance(payload, Mapping):
+                continue
+            before_state = _clone_json_like(state)
+            state = _merge_workflow_state(state, payload)
+            after_state = _clone_json_like(state)
+            sanitized_before, before_redacted, before_truncated = (
+                _sanitize_state_snapshot(before_state)
+            )
+            sanitized_after, after_redacted, after_truncated = _sanitize_state_snapshot(
+                after_state
+            )
+            snapshots[(step.index, node_key)] = {
+                "before": sanitized_before,
+                "after": sanitized_after,
+                "redacted": before_redacted or after_redacted,
+                "truncated": before_truncated or after_truncated,
+            }
+
+    return snapshots
+
+
+def _initial_workflow_state(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    state = _clone_json_like(inputs)
+    state.setdefault("inputs", _clone_json_like(inputs))
+    state.setdefault("results", {})
+    state.setdefault("messages", [])
+    return state
+
+
+def _merge_workflow_state(
+    current_state: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = _clone_json_like(current_state)
+    for key, value in payload.items():
+        key_str = str(key)
+        existing = merged.get(key_str)
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            merged[key_str] = _merge_workflow_state(existing, value)
+            continue
+        merged[key_str] = _clone_json_like(value)
+    return merged
+
+
+def _clone_json_like(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _clone_json_like(val) for key, val in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [_clone_json_like(item) for item in value]
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _sanitize_state_snapshot(
+    value: Any,
+    *,
+    depth: int = 0,
+) -> tuple[dict[str, Any], bool, bool]:
+    sanitized, redacted, truncated = _sanitize_value(value, depth=depth)
+    if isinstance(sanitized, Mapping):
+        return dict(sanitized), redacted, truncated
+    return {"value": sanitized}, redacted, truncated
+
+
+def _sanitize_value(
+    value: Any,
+    *,
+    depth: int,
+) -> tuple[Any, bool, bool]:
+    if depth >= _STATE_MAX_DEPTH:
+        return _STATE_TRUNCATED_MARKER, False, True
+
+    if isinstance(value, Mapping):
+        return _sanitize_mapping_value(value, depth=depth)
+
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return _sanitize_sequence_value(value, depth=depth)
+
+    if isinstance(value, bytes | bytearray):
+        value = value.decode("utf-8", errors="replace")
+
+    if isinstance(value, str) and len(value) > _STATE_MAX_STRING_LENGTH:
+        return value[:_STATE_MAX_STRING_LENGTH] + "…", False, True
+
+    return value, False, False
+
+
+def _sanitize_mapping_value(
+    value: Mapping[Any, Any],
+    *,
+    depth: int,
+) -> tuple[dict[str, Any], bool, bool]:
+    redacted = False
+    truncated = False
+    sanitized: dict[str, Any] = {}
+    items = list(value.items())
+    for index, (raw_key, raw_value) in enumerate(items):
+        if index >= _STATE_MAX_COLLECTION_ITEMS:
+            sanitized["__truncated_items__"] = len(items) - index
+            truncated = True
+            break
+
+        key = str(raw_key)
+        if _SENSITIVE_STATE_KEY_PATTERN.search(key):
+            sanitized[key] = _STATE_REDACTED_MARKER
+            redacted = True
+            continue
+
+        child_value, child_redacted, child_truncated = _sanitize_value(
+            raw_value,
+            depth=depth + 1,
+        )
+        sanitized[key] = child_value
+        redacted = redacted or child_redacted
+        truncated = truncated or child_truncated
+
+    return sanitized, redacted, truncated
+
+
+def _sanitize_sequence_value(
+    value: Sequence[Any],
+    *,
+    depth: int,
+) -> tuple[list[Any], bool, bool]:
+    redacted = False
+    truncated = False
+    sanitized_list: list[Any] = []
+    for index, item in enumerate(value):
+        if index >= _STATE_MAX_COLLECTION_ITEMS:
+            sanitized_list.append(_STATE_TRUNCATED_MARKER)
+            truncated = True
+            break
+        child_value, child_redacted, child_truncated = _sanitize_value(
+            item,
+            depth=depth + 1,
+        )
+        sanitized_list.append(child_value)
+        redacted = redacted or child_redacted
+        truncated = truncated or child_truncated
+    return sanitized_list, redacted, truncated
 
 
 def _compute_end_time(

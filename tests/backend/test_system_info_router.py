@@ -126,6 +126,20 @@ def test_system_health_is_public_when_auth_required(
     assert health_response.json() == {"status": "ok"}
 
 
+def test_robots_txt_is_public_when_auth_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Robots endpoint remains available without auth tokens."""
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "required")
+
+    client = create_test_client()
+    response = client.get("/robots.txt")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == "User-agent: *\nDisallow: /\n"
+
+
 def test_versioning_private_helpers_cover_error_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

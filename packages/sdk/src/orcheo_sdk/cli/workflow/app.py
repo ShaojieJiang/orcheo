@@ -52,7 +52,7 @@ ForceOption = Annotated[
 ]
 FilePathArgument = Annotated[
     str,
-    typer.Argument(help="Path to workflow file (Python or JSON)."),
+    typer.Argument(help="Path to workflow file (Python only)."),
 ]
 WorkflowIdOption = Annotated[
     str | None,
@@ -83,10 +83,6 @@ OutputPathOption = Annotated[
     str | None,
     typer.Option("--output", "-o", help="Output file path (default: stdout)."),
 ]
-FormatOption = Annotated[
-    str,
-    typer.Option("--format", "-f", help="Output format (auto, json, or python)."),
-]
 VersionOption = Annotated[
     int | None,
     typer.Option("--version", "-v", help="Specific version number to use."),
@@ -114,7 +110,6 @@ __all__ = [
     "EntrypointOption",
     "WorkflowNameOption",
     "OutputPathOption",
-    "FormatOption",
     "VersionOption",
     "_state",
 ]

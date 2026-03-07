@@ -11,6 +11,17 @@ from orcheo.graph.ingestion import (
 )
 
 
+def _assert_payload_index(payload: dict[str, object], *, node_name: str) -> None:
+    index = payload.get("index")
+    assert isinstance(index, dict)
+    assert "summary" not in payload
+    cron = index.get("cron")
+    assert isinstance(cron, list)
+    mermaid = index.get("mermaid")
+    assert isinstance(mermaid, str)
+    assert node_name in mermaid
+
+
 def test_ingest_script_with_entrypoint() -> None:
     script = textwrap.dedent(
         """
@@ -31,9 +42,7 @@ def test_ingest_script_with_entrypoint() -> None:
 
     assert payload["format"] == LANGGRAPH_SCRIPT_FORMAT
     assert payload["entrypoint"] == "build_graph"
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "rss"), ("rss", "END")]
-    assert summary["nodes"][0]["type"] == "RSSNode"
+    _assert_payload_index(payload, node_name="rss")
 
     graph = build_graph(payload)
     assert set(graph.nodes.keys()) == {"rss"}
@@ -55,8 +64,7 @@ def test_ingest_script_without_entrypoint_auto_discovers_graph() -> None:
     payload = ingest_langgraph_script(script)
 
     assert payload["entrypoint"] is None
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "first"), ("first", "END")]
+    _assert_payload_index(payload, node_name="first")
 
 
 def test_ingest_script_with_async_entrypoint() -> None:
@@ -77,8 +85,7 @@ def test_ingest_script_with_async_entrypoint() -> None:
     payload = ingest_langgraph_script(script, entrypoint="build_graph")
 
     assert payload["entrypoint"] == "build_graph"
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "first"), ("first", "END")]
+    _assert_payload_index(payload, node_name="first")
 
 
 def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
@@ -123,8 +130,7 @@ def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
     payload = ingest_langgraph_script(script)
 
     assert payload["entrypoint"] is None
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "first"), ("first", "END")]
+    _assert_payload_index(payload, node_name="first")
 
 
 def test_ingest_script_rejects_forbidden_imports() -> None:
@@ -206,8 +212,7 @@ def test_ingest_script_handles_compiled_graph_entrypoint() -> None:
 
     payload = ingest_langgraph_script(script, entrypoint="compiled")
 
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "first"), ("first", "END")]
+    _assert_payload_index(payload, node_name="first")
 
 
 def test_ingest_script_entrypoint_not_resolvable() -> None:
@@ -245,5 +250,4 @@ def test_ingest_script_ignores_non_graph_functions() -> None:
     payload = ingest_langgraph_script(script)
 
     assert payload["entrypoint"] is None
-    summary = payload["summary"]
-    assert summary["edges"] == [("START", "first"), ("first", "END")]
+    _assert_payload_index(payload, node_name="first")

@@ -15,15 +15,6 @@ interface WorkflowThumbnailProps {
   workflow: Workflow;
 }
 
-interface WorkflowVersionLike {
-  id: string;
-  mermaid?: string | null;
-}
-
-interface WorkflowWithVersions extends Workflow {
-  versions?: WorkflowVersionLike[];
-}
-
 let mermaidInitialized = false;
 
 const ensureMermaidInitialized = () => {
@@ -46,7 +37,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
 
-  const latestVersion = (workflow as WorkflowWithVersions).versions?.at(-1);
+  const latestVersion = workflow.versions?.at(-1);
 
   const mermaidSource = useMemo(() => {
     const source = latestVersion?.mermaid;
@@ -108,7 +99,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
     <div className="relative h-24 w-full overflow-hidden rounded-md bg-muted/30">
       {showMermaidThumbnail ? (
         <div
-          className="workflow-thumbnail-mermaid absolute inset-0 p-1 [&_svg]:h-full [&_svg]:w-full [&_svg]:max-h-full [&_svg]:max-w-full"
+          className="workflow-thumbnail-mermaid absolute inset-0 flex items-center justify-center p-1 [&_svg]:block [&_svg]:max-h-full [&_svg]:max-w-full [&_svg]:!h-auto [&_svg]:!w-auto"
           dangerouslySetInnerHTML={{ __html: diagramSvg }}
         />
       ) : (

@@ -29,6 +29,19 @@ def summarise_state_graph(graph: StateGraph) -> dict[str, Any]:
     }
 
 
+def summarise_graph_index(
+    graph: StateGraph,
+) -> dict[str, Any]:
+    """Return compact graph metadata for downstream CLI/UI consumers."""
+    index: dict[str, Any] = {
+        "cron": _extract_cron_index(graph),
+    }
+    mermaid = _render_mermaid(graph)
+    if mermaid:
+        index["mermaid"] = mermaid
+    return index
+
+
 def _serialise_node(name: str, runnable: Any) -> dict[str, Any]:
     """Return a JSON representation for a LangGraph node."""
     runnable_obj = _unwrap_runnable(runnable)
@@ -60,6 +73,36 @@ def _serialise_fallback(value: Any) -> Any:
     if isinstance(value, set):
         return [_serialise_fallback(item) for item in value]
     return repr(value)
+
+
+def _render_mermaid(graph: StateGraph) -> str | None:
+    """Return Mermaid text for a graph when rendering succeeds."""
+    try:
+        return graph.compile().get_graph().draw_mermaid()
+    except Exception:
+        return None
+
+
+def _extract_cron_index(graph: StateGraph) -> list[dict[str, Any]]:
+    """Extract cron trigger fields from ``CronTriggerNode`` graph nodes."""
+    cron_nodes: list[dict[str, Any]] = []
+    for name, spec in graph.nodes.items():
+        node = _serialise_node(name, spec.runnable)
+        if node.get("type") != "CronTriggerNode":
+            continue
+
+        payload: dict[str, Any] = {}
+        for key in (
+            "expression",
+            "timezone",
+            "allow_overlapping",
+            "start_at",
+            "end_at",
+        ):
+            if key in node:
+                payload[key] = node.get(key)
+        cron_nodes.append(payload)
+    return cron_nodes
 
 
 def _unwrap_runnable(runnable: Any) -> Any:
@@ -112,4 +155,4 @@ def _normalise_vertex(value: str) -> str:
     return value
 
 
-__all__ = ["summarise_state_graph"]
+__all__ = ["summarise_graph_index", "summarise_state_graph"]

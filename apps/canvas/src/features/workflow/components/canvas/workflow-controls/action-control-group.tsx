@@ -33,7 +33,7 @@ type ActionControlGroupProps = Pick<
   | "isRunning"
   | "onPause"
   | "onRun"
-  | "onSave"
+  | "onSaveConfig"
   | "onDuplicate"
   | "onExport"
   | "onImport"
@@ -47,7 +47,7 @@ export function ActionControlGroup({
   isRunning = false,
   onPause,
   onRun,
-  onSave,
+  onSaveConfig,
   onDuplicate,
   onExport,
   onImport,
@@ -88,14 +88,14 @@ export function ActionControlGroup({
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={onSave}
-              aria-label="Save workflow"
+              onClick={onSaveConfig}
+              aria-label="Save config"
             >
               <Save className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Save Workflow</p>
+            <p>Save Config</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

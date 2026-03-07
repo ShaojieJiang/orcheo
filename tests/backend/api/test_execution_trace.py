@@ -22,6 +22,7 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
             workflow_id=workflow_id,
             execution_id=execution_id,
             inputs={"input": "value"},
+            runnable_config={"configurable": {"thread_id": "thread-exec-1"}},
             trace_id=trace_id,
             trace_started_at=started_at,
         )
@@ -51,6 +52,7 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
 
     assert payload["execution"]["id"] == execution_id
     assert payload["execution"]["trace_id"] == trace_id
+    assert payload["execution"]["thread_id"] == "thread-exec-1"
     assert payload["execution"]["token_usage"] == {"input": 5, "output": 7}
     assert payload["page_info"] == {"has_next_page": False, "cursor": None}
 
@@ -59,6 +61,7 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
     root_span = spans[0]
     assert root_span["parent_span_id"] is None
     assert root_span["attributes"]["orcheo.execution.id"] == execution_id
+    assert root_span["attributes"]["orcheo.execution.thread_id"] == "thread-exec-1"
 
     node_span = spans[1]
     assert node_span["parent_span_id"] == root_span["span_id"]

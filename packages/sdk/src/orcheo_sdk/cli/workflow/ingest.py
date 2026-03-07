@@ -1,9 +1,7 @@
 """Helpers for ingesting workflow definitions."""
 
 from __future__ import annotations
-import json
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from orcheo_sdk.cli.errors import CLIError
@@ -160,32 +158,10 @@ def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     }
 
 
-def _load_workflow_from_json(path: Path) -> dict[str, Any]:
-    """Load a workflow configuration from a JSON file."""
-    try:
-        content = path.read_text(encoding="utf-8")
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:  # pragma: no cover
-        raise CLIError(f"Invalid JSON file: {exc}") from exc
-    except Exception as exc:  # pragma: no cover
-        raise CLIError(f"Failed to read file: {exc}") from exc
-
-    if not isinstance(data, Mapping):
-        raise CLIError("Workflow file must contain a JSON object.")
-
-    if "name" not in data:
-        raise CLIError("Workflow configuration must include a 'name' field.")
-    if "graph" not in data:
-        raise CLIError("Workflow configuration must include a 'graph' field.")
-
-    return dict(data)
-
-
 __all__ = [
     "_generate_slug",
     "_normalize_workflow_name",
     "_upload_langgraph_script",
     "_strip_main_block",
     "_load_workflow_from_python",
-    "_load_workflow_from_json",
 ]

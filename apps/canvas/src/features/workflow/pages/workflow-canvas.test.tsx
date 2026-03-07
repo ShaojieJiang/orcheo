@@ -92,18 +92,18 @@ afterEach(() => {
   cleanup();
 });
 
-const renderCanvas = () => {
-  const initialNodes = [
-    {
-      id: "node-1",
-      type: "default" as const,
-      position: { x: 0, y: 0 },
-      data: { type: "default", label: "Initial Node", status: "idle" as const },
-      selected: true,
-      draggable: true,
-    },
-  ];
+const DEFAULT_INITIAL_NODES = [
+  {
+    id: "node-1",
+    type: "default" as const,
+    position: { x: 0, y: 0 },
+    data: { type: "default", label: "Initial Node", status: "idle" as const },
+    selected: true,
+    draggable: true,
+  },
+];
 
+const renderCanvas = (initialNodes = DEFAULT_INITIAL_NODES) => {
   return render(
     <MemoryRouter initialEntries={["/workflow-canvas"]}>
       <Routes>
@@ -142,8 +142,50 @@ describe("WorkflowCanvas tabs", () => {
 
     expect(
       await screen.findByText(
-        /save this workflow to generate a versioned mermaid diagram/i,
+        /no version is available yet to generate a mermaid diagram/i,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("disables schedule toggle when a cron trigger node is missing", async () => {
+    renderCanvas();
+
+    const publishToggle = await screen.findByRole("switch", {
+      name: /publish workflow/i,
+    });
+    const scheduleToggle = screen.getByRole("switch", {
+      name: /schedule workflow/i,
+    });
+
+    expect(publishToggle).toBeEnabled();
+    expect(scheduleToggle).toBeDisabled();
+  });
+
+  it("enables schedule toggle when a cron trigger node exists", async () => {
+    const initialNodes = [
+      ...DEFAULT_INITIAL_NODES,
+      {
+        id: "schedule-trigger-1",
+        type: "default" as const,
+        position: { x: 100, y: 100 },
+        data: {
+          type: "trigger",
+          label: "Schedule",
+          status: "idle" as const,
+          backendType: "CronTriggerNode",
+          iconKey: "schedule",
+        },
+        selected: false,
+        draggable: true,
+      },
+    ];
+
+    renderCanvas(initialNodes);
+
+    const scheduleToggle = await screen.findByRole("switch", {
+      name: /schedule workflow/i,
+    });
+
+    expect(scheduleToggle).toBeEnabled();
   });
 });

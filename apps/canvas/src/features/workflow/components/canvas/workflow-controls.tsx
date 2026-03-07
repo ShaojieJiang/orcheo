@@ -10,7 +10,7 @@ export default function WorkflowControls({
   isRunning = false,
   onRun,
   onPause,
-  onSave,
+  onSaveConfig,
   onUndo,
   onRedo,
   canUndo = false,
@@ -30,7 +30,7 @@ export default function WorkflowControls({
         isRunning={isRunning}
         onPause={onPause}
         onRun={onRun}
-        onSave={onSave}
+        onSaveConfig={onSaveConfig}
         onDuplicate={onDuplicate}
         onExport={onExport}
         onImport={onImport}

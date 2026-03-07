@@ -1,15 +1,39 @@
-"""Integration-style tests for building full LangGraph graphs."""
+"""Tests for script-only graph construction."""
 
 from __future__ import annotations
+from unittest.mock import sentinel
 import pytest
 from orcheo.graph import builder
 
 
-def test_build_graph_unknown_node_type() -> None:
-    """Unknown node types produce a clear ValueError."""
+def test_build_graph_rejects_legacy_json_payload() -> None:
+    """Legacy JSON graph payloads are rejected with guidance."""
 
-    with pytest.raises(ValueError, match="Unknown node type: missing"):
+    with pytest.raises(
+        builder.UnsupportedWorkflowGraphFormatError,
+        match="legacy-json-graph",
+    ):
         builder.build_graph({"nodes": [{"name": "foo", "type": "missing"}]})
+
+
+def test_build_graph_rejects_unknown_format() -> None:
+    """Unknown graph formats are rejected with explicit format label."""
+
+    with pytest.raises(
+        builder.UnsupportedWorkflowGraphFormatError,
+        match="unsupported-format",
+    ):
+        builder.build_graph({"format": "unsupported-format"})
+
+
+def test_build_graph_rejects_missing_format_as_unknown() -> None:
+    """Missing format and graph keys are classified as unknown."""
+
+    with pytest.raises(
+        builder.UnsupportedWorkflowGraphFormatError,
+        match="unknown",
+    ):
+        builder.build_graph({})
 
 
 def test_build_graph_script_format_empty_source() -> None:
@@ -31,97 +55,29 @@ def test_build_graph_script_format_invalid_entrypoint_type() -> None:
         )
 
 
-def test_build_graph_with_edge_nodes_integration() -> None:
-    """Integration test for building a graph with edges."""
+def test_build_graph_script_format_delegates_to_ingestion_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Script payloads are delegated to ``load_graph_from_script``."""
 
-    graph_config = {
-        "nodes": [
-            {
-                "name": "start_node",
-                "type": "SetVariableNode",
-                "variables": {"value": 1},
-            },
-            {
-                "name": "true_branch",
-                "type": "SetVariableNode",
-                "variables": {"result": "yes"},
-            },
-            {
-                "name": "false_branch",
-                "type": "SetVariableNode",
-                "variables": {"result": "no"},
-            },
-        ],
-        "edge_nodes": [
-            {
-                "name": "decision",
-                "type": "IfElse",
-                "conditions": [
-                    {"left": "{{start_node.value}}", "operator": "is_truthy"}
-                ],
-            }
-        ],
-        "edges": [{"source": "START", "target": "start_node"}],
-        "conditional_edges": [
-            {
-                "source": "start_node",
-                "path": "decision",
-                "mapping": {"true": "true_branch", "false": "false_branch"},
-                "default": "false_branch",
-            }
-        ],
+    captured: dict[str, object] = {}
+
+    def fake_loader(source: str, *, entrypoint: str | None = None):
+        captured["source"] = source
+        captured["entrypoint"] = entrypoint
+        return sentinel.graph
+
+    monkeypatch.setattr(builder, "load_graph_from_script", fake_loader)
+    result = builder.build_graph(
+        {
+            "format": "langgraph-script",
+            "source": "from langgraph.graph import StateGraph",
+            "entrypoint": "build_graph",
+        }
+    )
+
+    assert result is sentinel.graph
+    assert captured == {
+        "source": "from langgraph.graph import StateGraph",
+        "entrypoint": "build_graph",
     }
-
-    graph = builder.build_graph(graph_config)
-
-    assert graph is not None
-    assert "start_node" in graph.nodes
-    assert "true_branch" in graph.nodes
-    assert "false_branch" in graph.nodes
-
-
-def test_build_graph_with_regular_nodes_and_edges() -> None:
-    """Test building a graph with regular nodes and edges."""
-
-    graph_config = {
-        "nodes": [
-            {"name": "node_a", "type": "SetVariableNode", "variables": {"x": 1}},
-            {"name": "node_b", "type": "SetVariableNode", "variables": {"y": 2}},
-            {"name": "node_c", "type": "SetVariableNode", "variables": {"z": 3}},
-        ],
-        "edges": [
-            {"source": "START", "target": "node_a"},
-            {"source": "node_a", "target": "node_b"},
-            {"source": "node_b", "target": "node_c"},
-            {"source": "node_c", "target": "END"},
-        ],
-    }
-
-    graph = builder.build_graph(graph_config)
-
-    assert graph is not None
-    assert "node_a" in graph.nodes
-    assert "node_b" in graph.nodes
-    assert "node_c" in graph.nodes
-
-
-def test_build_graph_skips_start_and_end_nodes() -> None:
-    """Test that START and END node types are properly skipped."""
-
-    graph_config = {
-        "nodes": [
-            {"name": "START", "type": "START"},
-            {"name": "actual_node", "type": "SetVariableNode", "variables": {}},
-            {"name": "END", "type": "END"},
-        ],
-        "edges": [
-            {"source": "START", "target": "actual_node"},
-            {"source": "actual_node", "target": "END"},
-        ],
-    }
-
-    graph = builder.build_graph(graph_config)
-
-    assert "actual_node" in graph.nodes
-    assert "START" not in graph.nodes
-    assert "END" not in graph.nodes

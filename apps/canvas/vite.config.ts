@@ -109,6 +109,7 @@ export default defineConfig({
     }
   },
   server: {
+    hmr: process.env.VITE_DISABLE_HMR === 'true' ? false : undefined,
     allowedHosts: [
       'localhost',
       ...((process.env.VITE_ALLOWED_HOSTS || '')

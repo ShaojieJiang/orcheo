@@ -11,16 +11,16 @@ def download_workflow_data(
     client: ApiClient,
     workflow_id: str,
     output_path: str | Path | None = None,
-    format_type: str = "auto",
+    format_type: str = "python",
     target_version: int | None = None,
 ) -> dict[str, Any]:
-    """Download a workflow definition in json or python form.
+    """Download a workflow definition in Python form.
 
     Args:
         client: API client for making requests.
         workflow_id: ID of the workflow.
         output_path: Optional path to write the output to.
-        format_type: Output format ('auto', 'json', or 'python').
+        format_type: Output format ('python' only).
         target_version: Specific version number to download. If None,
             downloads the latest version.
 
@@ -28,7 +28,6 @@ def download_workflow_data(
         Dictionary with content and format, or status message if output_path given.
     """
     from orcheo_sdk.cli.workflow import (
-        _format_workflow_as_json,
         _format_workflow_as_python,
     )
 
@@ -48,20 +47,9 @@ def download_workflow_data(
     graph = graph_raw if isinstance(graph_raw, dict) else {}
 
     resolved_format = format_type.lower()
-    if resolved_format == "auto":
-        if graph.get("format") == "langgraph-script":
-            resolved_format = "python"
-        else:
-            resolved_format = "json"
-
-    if resolved_format == "json":
-        output_content = _format_workflow_as_json(workflow, graph)
-    elif resolved_format == "python":
-        output_content = _format_workflow_as_python(workflow, graph)
-    else:
-        raise CLIError(
-            f"Unsupported format '{format_type}'. Use 'auto', 'json', or 'python'."
-        )
+    if resolved_format != "python":
+        raise CLIError(f"Unsupported format '{format_type}'. Use 'python'.")
+    output_content = _format_workflow_as_python(workflow, graph)
 
     if output_path:
         try:

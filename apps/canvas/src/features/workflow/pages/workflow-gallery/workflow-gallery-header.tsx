@@ -8,10 +8,7 @@ import {
   SelectValue,
 } from "@/design-system/ui/select";
 import { Search, ArrowUpDown, Clock } from "lucide-react";
-import {
-  WorkflowCreateFolderDialog,
-  WorkflowCreateWorkflowDialog,
-} from "./workflow-create-dialogs";
+import { WorkflowCreateFolderDialog } from "./workflow-create-dialogs";
 import { WorkflowFilterPopover } from "./workflow-filter-popover";
 import { type WorkflowGalleryFilters, type WorkflowGallerySort } from "./types";
 
@@ -29,11 +26,6 @@ interface WorkflowGalleryHeaderProps {
   newFolderName: string;
   onFolderNameChange: (value: string) => void;
   onCreateFolder: () => void;
-  showNewWorkflowDialog: boolean;
-  onNewWorkflowDialogChange: (open: boolean) => void;
-  newWorkflowName: string;
-  onWorkflowNameChange: (value: string) => void;
-  onCreateWorkflow: () => void;
   onApplyFilters: () => void;
 }
 
@@ -51,11 +43,6 @@ export const WorkflowGalleryHeader = ({
   newFolderName,
   onFolderNameChange,
   onCreateFolder,
-  showNewWorkflowDialog,
-  onNewWorkflowDialogChange,
-  newWorkflowName,
-  onWorkflowNameChange,
-  onCreateWorkflow,
   onApplyFilters,
 }: WorkflowGalleryHeaderProps) => {
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -81,13 +68,6 @@ export const WorkflowGalleryHeader = ({
           folderName={newFolderName}
           onFolderNameChange={onFolderNameChange}
           onCreateFolder={onCreateFolder}
-        />
-        <WorkflowCreateWorkflowDialog
-          open={showNewWorkflowDialog}
-          onOpenChange={onNewWorkflowDialogChange}
-          workflowName={newWorkflowName}
-          onWorkflowNameChange={onWorkflowNameChange}
-          onCreateWorkflow={onCreateWorkflow}
         />
       </div>
 

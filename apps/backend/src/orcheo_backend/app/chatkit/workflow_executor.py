@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import BaseMessage
@@ -35,16 +35,20 @@ async def _start_chatkit_history(
     history_store: RunHistoryStore,
     workflow_id: UUID,
     execution_id: str,
+    runtime_thread_id: str,
     inputs: Mapping[str, Any],
     merged_config: Any,
 ) -> None:
     """Persist run metadata in execution history for ChatKit executions."""
     try:
+        stored_config = _with_thread_id(
+            merged_config.to_json_config(execution_id), runtime_thread_id
+        )
         await history_store.start_run(
             workflow_id=str(workflow_id),
             execution_id=execution_id,
             inputs=dict(inputs),
-            runnable_config=merged_config.to_json_config(execution_id),
+            runnable_config=stored_config,
             tags=merged_config.tags,
             callbacks=merged_config.callbacks,
             metadata=merged_config.metadata,
@@ -131,14 +135,23 @@ class WorkflowExecutor:
         history_store = get_history_store()
         run = await self._create_run_record(workflow_id, version.id, actor, inputs)
         execution_id = self._resolve_execution_id(run)
+        runtime_thread_id = self._resolve_runtime_thread_id(inputs, execution_id)
         merged_config = merge_runnable_configs(version.runnable_config, None)
-        config: RunnableConfig = merged_config.to_runnable_config(execution_id)
-        state_config = merged_config.to_state_config(execution_id)
+        config = cast(
+            RunnableConfig,
+            _with_thread_id(
+                merged_config.to_runnable_config(execution_id), runtime_thread_id
+            ),
+        )
+        state_config = _with_thread_id(
+            merged_config.to_state_config(execution_id), runtime_thread_id
+        )
 
         await _start_chatkit_history(
             history_store=history_store,
             workflow_id=workflow_id,
             execution_id=execution_id,
+            runtime_thread_id=runtime_thread_id,
             inputs=inputs,
             merged_config=merged_config,
         )
@@ -199,6 +212,17 @@ class WorkflowExecutor:
         if run is not None:
             return str(run.id)
         return str(uuid4())
+
+    @staticmethod
+    def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> str:
+        """Resolve the LangGraph thread identifier for ChatKit executions."""
+        for key in ("thread_id", "session_id"):
+            candidate = inputs.get(key)
+            if isinstance(candidate, str):
+                normalized = candidate.strip()
+                if normalized:
+                    return normalized
+        return execution_id
 
     async def _create_run_record(
         self,
@@ -359,3 +383,16 @@ class WorkflowExecutor:
 
 
 __all__ = ["WorkflowExecutor"]
+
+
+def _with_thread_id(config: Mapping[str, Any], thread_id: str) -> dict[str, Any]:
+    """Return a config mapping with ``configurable.thread_id`` set."""
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    if isinstance(configurable, Mapping):
+        configurable_payload = dict(configurable)
+    else:
+        configurable_payload = {}
+    configurable_payload["thread_id"] = thread_id
+    normalized["configurable"] = configurable_payload
+    return normalized

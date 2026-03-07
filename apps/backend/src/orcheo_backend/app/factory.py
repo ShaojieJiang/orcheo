@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from orcheo.tracing import configure_tracing
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
@@ -149,6 +150,11 @@ def create_app(
         await cancel_chatkit_cleanup_task()
 
     application = FastAPI(lifespan=lifespan)
+
+    @application.get("/robots.txt", include_in_schema=False)
+    async def robots_txt() -> PlainTextResponse:
+        """Expose crawl policy for public backend deployments."""
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
     allowed_origins = _load_allowed_origins()
 
