@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 import httpx
 import respx
@@ -12,6 +13,7 @@ from orcheo_sdk.cli.main import app
 
 SCRIPT_V1 = "from langgraph.graph import StateGraph\n"
 SCRIPT_V2 = "from langgraph.graph import StateGraph\n# v2\n"
+ANSI_ESCAPE_PATTERN = re.compile("\x1b\\[[0-9;]*m")
 
 
 def _version(version: int, source: str) -> dict[str, object]:
@@ -102,7 +104,9 @@ def test_workflow_download_rejects_removed_format_option(
     )
 
     assert result.exit_code == 2
-    assert "No such option: --format" in result.output
+    clean_output = ANSI_ESCAPE_PATTERN.sub("", result.output)
+    assert "no such option" in clean_output.lower()
+    assert "--format" in clean_output
 
 
 def test_workflow_download_no_versions_error(

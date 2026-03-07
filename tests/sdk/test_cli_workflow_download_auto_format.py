@@ -1,6 +1,7 @@
 """Workflow download CLI tests for removed auto/json formats."""
 
 from __future__ import annotations
+import re
 import httpx
 import respx
 from typer.testing import CliRunner
@@ -17,6 +18,7 @@ VERSION = {
         "index": {"cron": []},
     },
 }
+ANSI_ESCAPE_PATTERN = re.compile("\x1b\\[[0-9;]*m")
 
 
 def test_workflow_download_rejects_removed_format_option(
@@ -28,7 +30,9 @@ def test_workflow_download_rejects_removed_format_option(
         env=env,
     )
     assert result.exit_code == 2
-    assert "No such option: --format" in result.output
+    clean_output = ANSI_ESCAPE_PATTERN.sub("", result.output)
+    assert "no such option" in clean_output.lower()
+    assert "--format" in clean_output
 
 
 def test_workflow_download_with_cache_notice(
