@@ -77,8 +77,13 @@ async def fake_checkpointer(_settings: object | None):
 class DummyCompiledGraph:
     def __init__(self, final_state: CustomState) -> None:
         self._final_state = final_state
+        self.last_payload: object | None = None
+        self.last_config: object | None = None
 
     async def ainvoke(self, *args: object, **kwargs: object) -> CustomState:
+        if args:
+            self.last_payload = args[0]
+        self.last_config = kwargs.get("config")
         return self._final_state
 
 
@@ -86,6 +91,7 @@ class DummyGraph:
     def __init__(self, final_state: CustomState) -> None:
         self._final_state = final_state
         self.last_store: object | None = None
+        self.last_compiled: DummyCompiledGraph | None = None
 
     def compile(
         self,
@@ -95,7 +101,8 @@ class DummyGraph:
     ) -> DummyCompiledGraph:
         self.last_store = store
         del checkpointer, store
-        return DummyCompiledGraph(self._final_state)
+        self.last_compiled = DummyCompiledGraph(self._final_state)
+        return self.last_compiled
 
 
 class DummyStateSnapshot:
@@ -109,8 +116,13 @@ class DummyStreamingCompiledGraph:
     ) -> None:
         self._steps = steps
         self._final_state = final_state
+        self.last_payload: object | None = None
+        self.last_config: object | None = None
 
     async def astream(self, *_args: object, **_kwargs: object):
+        if _args:
+            self.last_payload = _args[0]
+        self.last_config = _kwargs.get("config")
         for step in self._steps:
             yield step
 
@@ -125,6 +137,7 @@ class DummyStreamingGraph:
         self._steps = steps
         self._final_state = final_state
         self.last_store: object | None = None
+        self.last_compiled: DummyStreamingCompiledGraph | None = None
 
     def compile(
         self,
@@ -134,7 +147,8 @@ class DummyStreamingGraph:
     ) -> DummyStreamingCompiledGraph:
         self.last_store = store
         del checkpointer, store
-        return DummyStreamingCompiledGraph(self._steps, self._final_state)
+        self.last_compiled = DummyStreamingCompiledGraph(self._steps, self._final_state)
+        return self.last_compiled
 
 
 @pytest.mark.asyncio
@@ -287,6 +301,57 @@ async def test_run_streams_progress_updates(
 
 
 @pytest.mark.asyncio
+async def test_run_uses_chatkit_thread_id_for_langgraph_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = Mock(id="version", graph={"format": "standard"}, runnable_config=None)
+    repository = AsyncMock()
+    repository.get_latest_version.return_value = version
+    repository.create_run.return_value = Mock(id="run-id")
+    repository.mark_run_started = AsyncMock()
+    repository.mark_run_succeeded = AsyncMock()
+    history_store = AsyncMock()
+
+    final_state = CustomState(
+        reply="final reply", messages=[HumanMessage(content="ok")]
+    )
+    graph = DummyGraph(final_state)
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
+    monkeypatch.setattr(
+        workflow_executor_module, "get_history_store", lambda: history_store
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "create_checkpointer", fake_checkpointer
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "create_graph_store", fake_checkpointer
+    )
+    monkeypatch.setattr(workflow_executor_module, "build_graph", lambda config: graph)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda _: nullcontext(),  # type: ignore[assignment]
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "CredentialResolver", lambda vault, context: Mock()
+    )
+
+    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
+    await executor.run(
+        uuid4(),
+        {"thread_id": "thr-123", "session_id": "thr-123", "message": "hello"},
+    )
+
+    assert graph.last_compiled is not None
+    assert isinstance(graph.last_compiled.last_config, dict)
+    assert graph.last_compiled.last_config["configurable"]["thread_id"] == "thr-123"
+
+    start_run_kwargs = history_store.start_run.await_args.kwargs
+    assert start_run_kwargs["runnable_config"]["configurable"]["thread_id"] == "thr-123"
+
+
+@pytest.mark.asyncio
 async def test_start_chatkit_history_logs_run_history_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -305,11 +370,36 @@ async def test_start_chatkit_history_logs_run_history_error(
         history_store=history_store,
         workflow_id=uuid4(),
         execution_id="exec-1",
+        runtime_thread_id="thr-1",
         inputs={"a": 1},
         merged_config=merged_config,
     )
 
     logger.exception.assert_called_once()
+
+
+def test_resolve_runtime_thread_id_prefers_thread_and_session_fallback() -> None:
+    assert (
+        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
+            {"thread_id": "  thr-1  ", "session_id": "sess-1"},
+            "exec-1",
+        )
+        == "thr-1"
+    )
+    assert (
+        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
+            {"session_id": "sess-1"},
+            "exec-1",
+        )
+        == "sess-1"
+    )
+    assert (
+        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
+            {"thread_id": "   ", "session_id": ""},
+            "exec-1",
+        )
+        == "exec-1"
+    )
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,7 @@ class TraceExecutionMetadata(BaseModel):
 
     id: str
     status: str
+    thread_id: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     trace_id: str | None = None
