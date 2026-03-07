@@ -138,6 +138,7 @@ def test_mcp_download_workflow(mock_env: None) -> None:
 
 
 def test_mcp_publish_workflow(mock_env: None) -> None:
+    """Test that publishing a workflow returns the share URL."""
     import orcheo_sdk.mcp_server.main as main_module
 
     payload = {
@@ -161,6 +162,7 @@ def test_mcp_publish_workflow(mock_env: None) -> None:
 
 
 def test_mcp_unpublish_workflow(mock_env: None) -> None:
+    """Test that unpublishing a workflow succeeds."""
     import orcheo_sdk.mcp_server.main as main_module
 
     workflow = {

@@ -80,13 +80,11 @@ export function useWorkflowSaver(
   const persistCurrentWorkflow = useCallback(
     async ({
       versionMessage,
-      forceVersion = false,
       runnableConfig,
       successTitle,
       successDescription,
     }: {
       versionMessage: string;
-      forceVersion?: boolean;
       runnableConfig?: WorkflowRunnableConfig | null;
       successTitle: string;
       successDescription: (saved: StoredWorkflow) => string;
@@ -107,7 +105,6 @@ export function useWorkflowSaver(
         },
         {
           versionMessage,
-          forceVersion,
           runnableConfig,
         },
       );
@@ -178,11 +175,10 @@ export function useWorkflowSaver(
       try {
         await persistCurrentWorkflow({
           versionMessage: `Workflow config updated (${timestampLabel})`,
-          forceVersion: true,
           runnableConfig,
           successTitle: "Workflow config saved",
           successDescription: (saved) =>
-            `Saved config for "${saved.name}" as a new version.`,
+            `Saved config for "${saved.name}" without creating a new version.`,
         });
       } catch (error) {
         toast({

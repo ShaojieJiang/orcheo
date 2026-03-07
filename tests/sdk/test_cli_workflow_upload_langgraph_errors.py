@@ -1,7 +1,6 @@
 """Workflow upload CLI tests for LangGraph error scenarios."""
 
 from __future__ import annotations
-import json
 from pathlib import Path
 import httpx
 import respx
@@ -72,15 +71,15 @@ def test_workflow_upload_with_blank_name_error(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:
     """Test workflow upload rejects empty rename values."""
-    json_file = tmp_path / "workflow.json"
-    json_file.write_text(
-        json.dumps({"name": "Original", "graph": {"nodes": [], "edges": []}}),
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text(
+        "from orcheo_sdk import Workflow\nworkflow = Workflow(name='Original')",
         encoding="utf-8",
     )
 
     result = runner.invoke(
         app,
-        ["workflow", "upload", str(json_file), "--name", "   "],
+        ["workflow", "upload", str(py_file), "--name", "   "],
         env=env,
     )
     assert result.exit_code != 0

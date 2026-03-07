@@ -100,6 +100,16 @@ class WorkflowRepository(Protocol):
     ) -> WorkflowVersion:
         """Return a workflow version by human-friendly number."""
 
+    async def update_version_runnable_config(
+        self,
+        workflow_id: UUID,
+        *,
+        version_number: int,
+        runnable_config: dict[str, Any] | None,
+        actor: str,
+    ) -> WorkflowVersion:
+        """Update only runnable config for an existing workflow version."""
+
     async def get_version(self, version_id: UUID) -> WorkflowVersion:
         """Return a workflow version by identifier."""
 

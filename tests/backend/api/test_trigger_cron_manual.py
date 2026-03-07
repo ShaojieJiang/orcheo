@@ -190,9 +190,20 @@ def test_manual_trigger_dispatch_batch(api_client: TestClient) -> None:
 
     workflow_id, version_one = create_workflow_with_version(api_client)
     version_two_response = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start", "branch"], "edges": []},
+            "script": (
+                "from langgraph.graph import END, START, StateGraph\n\n"
+                "def build_graph():\n"
+                "    graph = StateGraph(dict)\n"
+                "    graph.add_node('start', lambda state: state)\n"
+                "    graph.add_node('branch', lambda state: state)\n"
+                "    graph.add_edge(START, 'start')\n"
+                "    graph.add_edge('start', 'branch')\n"
+                "    graph.add_edge('branch', END)\n"
+                "    return graph\n"
+            ),
+            "entrypoint": "build_graph",
             "metadata": {},
             "created_by": "tester",
         },

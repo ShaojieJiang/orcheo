@@ -1,10 +1,4 @@
-import { buildGraphConfigFromCanvas } from "./graph-config";
-import type { WorkflowDiffResult, WorkflowSnapshot } from "./workflow-diff";
-import {
-  toCanvasEdges,
-  toCanvasNodes,
-  toStoredWorkflow,
-} from "./workflow-storage-helpers";
+import { toStoredWorkflow } from "./workflow-storage-helpers";
 import {
   API_BASE,
   fetchWorkflow,
@@ -12,13 +6,10 @@ import {
   request,
 } from "./workflow-storage-api";
 import type {
-  SaveWorkflowInput,
+  ApiWorkflowVersion,
   StoredWorkflow,
   WorkflowRunnableConfig,
 } from "./workflow-storage.types";
-
-export const defaultVersionMessage = () =>
-  `Updated from canvas on ${new Date().toLocaleString()}`;
 
 export const ensureWorkflow = async (
   workflowId: string,
@@ -33,42 +24,41 @@ export const ensureWorkflow = async (
   return toStoredWorkflow(workflow, versions);
 };
 
-export const persistVersion = async (
-  workflowId: string,
-  input: SaveWorkflowInput,
-  snapshot: WorkflowSnapshot,
-  diff: WorkflowDiffResult,
-  actor: string,
-  message: string,
-  runnableConfig?: WorkflowRunnableConfig | null,
-) => {
-  const canvasNodes = toCanvasNodes(snapshot.nodes);
-  const canvasEdges = toCanvasEdges(snapshot.edges);
-  const { config, canvasToGraph, graphToCanvas, warnings } =
-    await buildGraphConfigFromCanvas(canvasNodes, canvasEdges);
-
-  if (warnings.length > 0) {
-    warnings.forEach((warning) => console.warn(warning));
+const resolveTargetVersion = (
+  versions: ApiWorkflowVersion[],
+  versionNumber?: number,
+): number => {
+  if (versions.length === 0) {
+    throw new Error(
+      "Canvas can only save config for workflows with an existing Python version. Ingest a Python script first.",
+    );
   }
+  if (versionNumber !== undefined) {
+    const matched = versions.find((entry) => entry.version === versionNumber);
+    if (!matched) {
+      throw new Error(`Workflow version ${versionNumber} not found.`);
+    }
+    return versionNumber;
+  }
+  return Math.max(...versions.map((entry) => entry.version));
+};
 
-  await request(`${API_BASE}/${workflowId}/versions`, {
-    method: "POST",
-    body: JSON.stringify({
-      graph: config,
-      metadata: {
-        canvas: {
-          snapshot,
-          summary: diff.summary,
-          entries: diff.entries,
-          message,
-          canvasToGraph,
-          graphToCanvas,
-          tags: input.tags ?? [],
-        },
-      },
-      notes: message,
-      created_by: actor,
-      runnable_config: runnableConfig,
-    }),
-  });
+export const persistRunnableConfig = async (
+  workflowId: string,
+  actor: string,
+  runnableConfig: WorkflowRunnableConfig | null,
+  versionNumber?: number,
+) => {
+  const versions = await fetchWorkflowVersions(workflowId);
+  const targetVersion = resolveTargetVersion(versions, versionNumber);
+  await request(
+    `${API_BASE}/${workflowId}/versions/${targetVersion}/runnable-config`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        runnable_config: runnableConfig,
+        actor,
+      }),
+    },
+  );
 };

@@ -1,10 +1,10 @@
 """Workflow download CLI tests for LangGraph source handling."""
 
 from __future__ import annotations
-import json
 import httpx
 import respx
 from typer.testing import CliRunner
+from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
 
 
@@ -62,10 +62,10 @@ graph.set_finish_point("my_node")
     assert "from orcheo_sdk import Workflow" not in result.stdout
 
 
-def test_workflow_download_langgraph_script_json_includes_source(
+def test_workflow_download_langgraph_script_rejects_json_format(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    """Test workflow download as JSON includes original LangGraph source."""
+    """JSON workflow downloads are no longer supported."""
     original_source = "from langgraph.graph import StateGraph\n"
     workflow = {"id": "wf-1", "name": "LangGraphWorkflow"}
     versions = [
@@ -93,7 +93,6 @@ def test_workflow_download_langgraph_script_json_includes_source(
             ["workflow", "download", "wf-1", "--format", "json"],
             env=env,
         )
-    assert result.exit_code == 0
-    output = json.loads(result.stdout)
-    assert output["graph"]["format"] == "langgraph-script"
-    assert output["graph"]["source"] == original_source
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Unsupported format" in str(result.exception)

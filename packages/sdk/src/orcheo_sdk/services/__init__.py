@@ -1,8 +1,8 @@
 """Service layer for Orcheo SDK.
 
 This module contains the core business logic for interacting with the Orcheo API.
-Services are pure functions that operate on data and are reused by both CLI and
-MCP interfaces.
+Services are pure functions that operate on data and are reused by CLI
+command modules.
 """
 
 from orcheo_sdk.services.agent_tools import (
@@ -36,6 +36,7 @@ from orcheo_sdk.services.workflows import (
     list_workflows_data,
     publish_workflow_data,
     run_workflow_data,
+    save_workflow_runnable_config_data,
     schedule_workflow_cron,
     show_workflow_data,
     sync_cron_schedule_if_changed,
@@ -59,6 +60,7 @@ __all__ = [
     "publish_workflow_data",
     "unpublish_workflow_data",
     "enrich_workflow_publish_metadata",
+    "save_workflow_runnable_config_data",
     "schedule_workflow_cron",
     "sync_cron_schedule_if_changed",
     "unschedule_workflow_cron",

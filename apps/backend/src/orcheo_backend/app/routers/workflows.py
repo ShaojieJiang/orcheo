@@ -37,9 +37,9 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
     WorkflowUpdateRequest,
-    WorkflowVersionCreateRequest,
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
+    WorkflowVersionRunnableConfigUpdateRequest,
 )
 from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
@@ -298,32 +298,6 @@ async def archive_workflow(
 
 
 @router.post(
-    "/workflows/{workflow_ref}/versions",
-    response_model=WorkflowVersion,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_workflow_version(
-    workflow_ref: str,
-    request: WorkflowVersionCreateRequest,
-    repository: RepositoryDep,
-) -> WorkflowVersion:
-    """Create a new version for the specified workflow."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
-    try:
-        version = await repository.create_version(
-            workflow_id,
-            graph=request.graph,
-            metadata=request.metadata,
-            notes=request.notes,
-            created_by=request.created_by,
-            runnable_config=_serialize_runnable_config(request.runnable_config),
-        )
-        return _attach_mermaid(version)
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
-
-
-@router.post(
     "/workflows/{workflow_ref}/versions/ingest",
     response_model=WorkflowVersion,
     status_code=status.HTTP_201_CREATED,
@@ -358,6 +332,32 @@ async def ingest_workflow_version(
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+
+
+@router.put(
+    "/workflows/{workflow_ref}/versions/{version_number}/runnable-config",
+    response_model=WorkflowVersion,
+)
+async def update_workflow_version_runnable_config(
+    workflow_ref: str,
+    version_number: int,
+    request: WorkflowVersionRunnableConfigUpdateRequest,
+    repository: RepositoryDep,
+) -> WorkflowVersion:
+    """Update runnable config for an existing workflow version."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    try:
+        version = await repository.update_version_runnable_config(
+            workflow_id,
+            version_number=version_number,
+            runnable_config=_serialize_runnable_config(request.runnable_config),
+            actor=request.actor,
+        )
+        return _attach_mermaid(version)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    except WorkflowVersionNotFoundError as exc:
+        raise_not_found("Workflow version not found", exc)
 
 
 @router.get(

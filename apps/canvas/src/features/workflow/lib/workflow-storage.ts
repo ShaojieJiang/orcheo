@@ -1,5 +1,4 @@
 import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
-import { computeWorkflowDiff, type WorkflowSnapshot } from "./workflow-diff";
 import {
   DEFAULT_ACTOR,
   WORKFLOW_STORAGE_EVENT,
@@ -7,7 +6,6 @@ import {
 import {
   cloneEdges,
   cloneNodes,
-  emptySnapshot,
   toStoredWorkflow,
 } from "./workflow-storage-helpers";
 import {
@@ -17,9 +15,8 @@ import {
   upsertWorkflow,
 } from "./workflow-storage-api";
 import {
-  defaultVersionMessage,
   ensureWorkflow,
-  persistVersion,
+  persistRunnableConfig,
 } from "./workflow-storage-versioning";
 import type {
   ApiWorkflow,
@@ -125,44 +122,9 @@ export const saveWorkflow = async (
   options?: SaveWorkflowOptions,
 ): Promise<StoredWorkflow> => {
   const actor = resolveActor(options?.actor);
-  const existing = input.id ? await ensureWorkflow(input.id) : undefined;
-  const previousSnapshot: WorkflowSnapshot =
-    existing?.versions.at(-1)?.snapshot ??
-    emptySnapshot(existing?.name ?? input.name, existing?.description);
-
-  const currentSnapshot: WorkflowSnapshot = {
-    name: input.name,
-    description: input.description,
-    nodes: cloneNodes(input.nodes),
-    edges: cloneEdges(input.edges),
-  };
-
-  const diff = computeWorkflowDiff(previousSnapshot, currentSnapshot);
-  const latestRunnableConfig =
-    existing?.versions.at(-1)?.runnableConfig ?? null;
-  const runnableConfigToPersist =
-    options?.runnableConfig === undefined
-      ? latestRunnableConfig
-      : options.runnableConfig;
-  const needsVersion =
-    !existing ||
-    existing.versions.length === 0 ||
-    diff.entries.length > 0 ||
-    options?.forceVersion === true;
-
   const workflowId = await upsertWorkflow(input, actor);
-
-  if (needsVersion) {
-    const message = options?.versionMessage ?? defaultVersionMessage();
-    await persistVersion(
-      workflowId,
-      input,
-      currentSnapshot,
-      diff,
-      actor,
-      message,
-      runnableConfigToPersist,
-    );
+  if (options?.runnableConfig !== undefined) {
+    await persistRunnableConfig(workflowId, actor, options.runnableConfig);
   }
 
   const stored = await ensureWorkflow(workflowId);
@@ -178,7 +140,7 @@ export const saveWorkflow = async (
 export const createWorkflow = async (
   input: Omit<SaveWorkflowInput, "id">,
 ): Promise<StoredWorkflow> => {
-  return saveWorkflow(input, { versionMessage: "Initial draft" });
+  return saveWorkflow(input);
 };
 
 export const createWorkflowFromTemplate = async (

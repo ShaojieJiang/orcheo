@@ -71,15 +71,12 @@ def test_workflow_upload_invalid_runnable_config(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:
     """Test workflow upload rejects invalid JSON config payloads."""
-    json_file = tmp_path / "workflow.json"
-    json_file.write_text(
-        '{"name": "TestWorkflow", "graph": {"nodes": [], "edges": []}}',
-        encoding="utf-8",
-    )
+    py_file = tmp_path / "workflow.py"
+    py_file.write_text("from orcheo_sdk import Workflow\nworkflow = Workflow(name='t')")
 
     result = runner.invoke(
         app,
-        ["workflow", "upload", str(json_file), "--config", "{not-json"],
+        ["workflow", "upload", str(py_file), "--config", "{not-json"],
         env=env,
     )
     assert result.exit_code != 0

@@ -99,6 +99,5 @@ export interface SaveWorkflowInput {
 export interface SaveWorkflowOptions {
   versionMessage?: string;
   actor?: string;
-  forceVersion?: boolean;
   runnableConfig?: WorkflowRunnableConfig | null;
 }

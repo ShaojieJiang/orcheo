@@ -1,7 +1,4 @@
-"""Workflow service operations.
-
-Pure business logic for workflow operations, shared by CLI and MCP interfaces.
-"""
+"""Workflow service operations shared by CLI commands."""
 
 from __future__ import annotations
 from orcheo_sdk.services.workflows.download import download_workflow_data
@@ -18,6 +15,9 @@ from orcheo_sdk.services.workflows.publish import (
     enrich_workflow_publish_metadata,
     publish_workflow_data,
     unpublish_workflow_data,
+)
+from orcheo_sdk.services.workflows.runnable_config import (
+    save_workflow_runnable_config_data,
 )
 from orcheo_sdk.services.workflows.scheduling import (
     schedule_workflow_cron,
@@ -42,6 +42,7 @@ __all__ = [
     "publish_workflow_data",
     "unpublish_workflow_data",
     "enrich_workflow_publish_metadata",
+    "save_workflow_runnable_config_data",
     "schedule_workflow_cron",
     "sync_cron_schedule_if_changed",
     "unschedule_workflow_cron",

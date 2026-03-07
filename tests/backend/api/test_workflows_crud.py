@@ -3,6 +3,23 @@ import warnings
 from fastapi.testclient import TestClient
 
 
+def _langgraph_script(node_name: str = "start", response: str = "v1") -> str:
+    return f"""
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def {node_name}(state):
+        return {{"message": "{response}"}}
+
+    graph.add_node("{node_name}", {node_name})
+    graph.add_edge(START, "{node_name}")
+    graph.add_edge("{node_name}", END)
+    return graph
+""".strip()
+
+
 def test_workflow_crud_operations(api_client: TestClient) -> None:
     """Validate workflow creation, retrieval, update, and archival."""
 
@@ -54,21 +71,20 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     workflow_id = workflow["id"]
 
     version_one = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start"], "edges": []},
+            "script": _langgraph_script(node_name="start", response="v1"),
+            "entrypoint": "build_graph",
             "metadata": {"notes": "v1"},
             "created_by": "author",
         },
     )
     assert version_one.status_code == 201
     version_two = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {
-                "nodes": ["start", "end"],
-                "edges": [{"from": "start", "to": "end"}],
-            },
+            "script": _langgraph_script(node_name="end", response="v2"),
+            "entrypoint": "build_graph",
             "metadata": {"notes": "v2"},
             "created_by": "author",
             "notes": "Adds end node",
@@ -91,7 +107,7 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     assert diff_payload["base_version"] == 1
     assert diff_payload["target_version"] == 2
     diff_lines = diff_payload["diff"]
-    assert any('+    "end"' in line for line in diff_lines)
+    assert any("end" in line for line in diff_lines)
 
 
 def test_workflow_handle_lookup_and_update(api_client: TestClient) -> None:

@@ -79,8 +79,10 @@ archive_workflow = _workflows_routes.archive_workflow
 publish_workflow = _workflows_routes.publish_workflow
 revoke_workflow_publish = _workflows_routes.revoke_workflow_publish
 create_workflow_chatkit_session = _workflows_routes.create_workflow_chatkit_session
-create_workflow_version = _workflows_routes.create_workflow_version
 ingest_workflow_version = _workflows_routes.ingest_workflow_version
+update_workflow_version_runnable_config = (
+    _workflows_routes.update_workflow_version_runnable_config
+)
 list_workflow_versions = _workflows_routes.list_workflow_versions
 get_workflow_version = _workflows_routes.get_workflow_version
 diff_workflow_versions = _workflows_routes.diff_workflow_versions
@@ -123,7 +125,6 @@ __all__ = [
     "create_credential_template",
     "create_workflow",
     "create_workflow_run",
-    "create_workflow_version",
     "delete_credential",
     "delete_credential_template",
     "diff_workflow_versions",
@@ -161,6 +162,7 @@ __all__ = [
     "update_credential_template",
     "update_credential",
     "update_workflow",
+    "update_workflow_version_runnable_config",
     "validate_workflow_credentials",
     "workflow_websocket",
     "_resolve_chatkit_workspace_id",
