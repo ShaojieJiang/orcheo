@@ -187,8 +187,7 @@ async def test_update_workflow_version_runnable_config_success() -> None:
                 graph={
                     "format": "langgraph-script",
                     "source": (
-                        "from langgraph.graph import StateGraph\n"
-                        "graph=StateGraph(dict)"
+                        "from langgraph.graph import StateGraph\ngraph=StateGraph(dict)"
                     ),
                 },
                 created_by="admin",

@@ -17,6 +17,7 @@ interface WorkflowGalleryTabsProps {
   isTemplateView: boolean;
   searchQuery: string;
   onCreateWorkflowRequest: () => void;
+  onImportStarterPack: () => void;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
   onDuplicateWorkflow: (workflowId: string) => void;
@@ -31,6 +32,7 @@ export const WorkflowGalleryTabs = ({
   isTemplateView,
   searchQuery,
   onCreateWorkflowRequest,
+  onImportStarterPack,
   onOpenWorkflow,
   onUseTemplate,
   onDuplicateWorkflow,
@@ -70,6 +72,11 @@ export const WorkflowGalleryTabs = ({
               <Plus className="mr-2 h-4 w-4" />
               Create Workflow
             </Button>
+            {!isTemplateView ? (
+              <Button variant="outline" onClick={onImportStarterPack}>
+                Import Starter Pack
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">

@@ -163,7 +163,7 @@ export const WorkflowCard = ({
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Export JSON
+                    Export
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -196,7 +196,7 @@ export const WorkflowCard = ({
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Export JSON
+                    Export
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

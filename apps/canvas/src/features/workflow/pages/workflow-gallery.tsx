@@ -38,6 +38,7 @@ export default function WorkflowGallery() {
     handleCreateFolder,
     handleCreateWorkflow,
     handleUseTemplate,
+    handleImportStarterPack,
     handleDuplicateWorkflow,
     handleExportWorkflow,
     handleDeleteWorkflow,
@@ -89,6 +90,7 @@ export default function WorkflowGallery() {
                 isTemplateView={isTemplateView}
                 searchQuery={searchQuery}
                 onCreateWorkflowRequest={() => setShowNewWorkflowDialog(true)}
+                onImportStarterPack={handleImportStarterPack}
                 onOpenWorkflow={handleOpenWorkflow}
                 onUseTemplate={handleUseTemplate}
                 onDuplicateWorkflow={handleDuplicateWorkflow}

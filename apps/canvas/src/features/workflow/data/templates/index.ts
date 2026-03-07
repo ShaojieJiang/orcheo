@@ -1,30 +1,25 @@
 import { Workflow } from "../workflow-types";
+import type { WorkflowTemplateDefinition } from "./template-definition";
 import { TEMPLATE_OWNER } from "./template-owner";
-import { QUICKSTART_WELCOME_WORKFLOW } from "./quickstart-welcome";
-import { SIMPLE_PYTHON_WORKFLOW } from "./python-task";
-import { FEEDLY_DIGEST_WORKFLOW } from "./feedly-digest";
-import { SLACK_BROADCAST_WORKFLOW } from "./slack-broadcast";
-import { RSS_MONITOR_WORKFLOW } from "./rss-monitor";
-import { MONGODB_SESSION_WORKFLOW } from "./mongodb-session";
-import { TELEGRAM_BROADCAST_WORKFLOW } from "./telegram-broadcast";
+import { PYTHON_AGENT_TEMPLATE, PYTHON_AGENT_WORKFLOW } from "./python-agent";
 
-export const SAMPLE_WORKFLOWS: Workflow[] = [
-  QUICKSTART_WELCOME_WORKFLOW,
-  SIMPLE_PYTHON_WORKFLOW,
-  FEEDLY_DIGEST_WORKFLOW,
-  SLACK_BROADCAST_WORKFLOW,
-  RSS_MONITOR_WORKFLOW,
-  MONGODB_SESSION_WORKFLOW,
-  TELEGRAM_BROADCAST_WORKFLOW,
+export const SAMPLE_WORKFLOWS: Workflow[] = [PYTHON_AGENT_WORKFLOW];
+
+export const WORKFLOW_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] = [
+  PYTHON_AGENT_TEMPLATE,
 ];
 
-export {
-  TEMPLATE_OWNER,
-  QUICKSTART_WELCOME_WORKFLOW,
-  SIMPLE_PYTHON_WORKFLOW,
-  FEEDLY_DIGEST_WORKFLOW,
-  SLACK_BROADCAST_WORKFLOW,
-  RSS_MONITOR_WORKFLOW,
-  MONGODB_SESSION_WORKFLOW,
-  TELEGRAM_BROADCAST_WORKFLOW,
+const TEMPLATE_BY_ID = new Map(
+  WORKFLOW_TEMPLATE_DEFINITIONS.map((definition) => [
+    definition.workflow.id,
+    definition,
+  ]),
+);
+
+export const getWorkflowTemplateDefinition = (
+  templateId: string,
+): WorkflowTemplateDefinition | undefined => {
+  return TEMPLATE_BY_ID.get(templateId);
 };
+
+export { TEMPLATE_OWNER, PYTHON_AGENT_WORKFLOW, PYTHON_AGENT_TEMPLATE };

@@ -24,6 +24,11 @@ export interface WorkflowEdge {
   style?: Record<string, unknown>;
 }
 
+export interface WorkflowMermaidPreviewVersion {
+  id: string;
+  mermaid?: string | null;
+}
+
 export interface Workflow {
   id: string;
   handle?: string;
@@ -45,4 +50,5 @@ export interface Workflow {
   };
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  versions?: WorkflowMermaidPreviewVersion[];
 }

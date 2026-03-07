@@ -4,7 +4,6 @@ from __future__ import annotations
 import httpx
 import respx
 from typer.testing import CliRunner
-from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
 
 
@@ -15,31 +14,21 @@ VERSION = {
         "format": "langgraph-script",
         "source": "from langgraph.graph import StateGraph\n",
         "entrypoint": None,
-        "summary": {"nodes": [], "edges": []},
+        "index": {"cron": []},
     },
 }
 
 
-def test_workflow_download_rejects_auto_format(
+def test_workflow_download_rejects_removed_format_option(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    workflow = {"id": "wf-1", "name": "LangGraphWorkflow"}
-
-    with respx.mock(assert_all_called=True) as router:
-        router.get("http://api.test/api/workflows/wf-1").mock(
-            return_value=httpx.Response(200, json=workflow)
-        )
-        router.get("http://api.test/api/workflows/wf-1/versions").mock(
-            return_value=httpx.Response(200, json=[VERSION])
-        )
-        result = runner.invoke(
-            app,
-            ["workflow", "download", "wf-1", "--format", "auto"],
-            env=env,
-        )
-    assert result.exit_code != 0
-    assert isinstance(result.exception, CLIError)
-    assert "Unsupported format 'auto'" in str(result.exception)
+    result = runner.invoke(
+        app,
+        ["workflow", "download", "wf-1", "--format", "auto"],
+        env=env,
+    )
+    assert result.exit_code == 2
+    assert "No such option: --format" in result.output
 
 
 def test_workflow_download_with_cache_notice(

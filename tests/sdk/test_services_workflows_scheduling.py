@@ -75,6 +75,51 @@ def test_schedule_workflow_cron_configures_trigger(
     assert captured["json_body"]["expression"] == "*/5 * * * *"
 
 
+def test_schedule_workflow_cron_uses_index_cron_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scheduling prefers graph.index.cron for langgraph payloads."""
+
+    graph = {
+        "format": "langgraph-script",
+        "index": {
+            "cron": [
+                {
+                    "expression": "0 * * * *",
+                    "timezone": "UTC",
+                    "allow_overlapping": False,
+                    "start_at": None,
+                    "end_at": None,
+                }
+            ]
+        },
+        "summary": {"nodes": []},
+    }
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {"graph": graph},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_put(
+        path: str, *, json_body: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        captured["path"] = path
+        captured["json_body"] = json_body
+        return json_body or {}
+
+    client = SimpleNamespace(put=fake_put)
+
+    result = scheduling.schedule_workflow_cron(client, workflow_id="wf-idx")
+
+    assert result["status"] == "scheduled"
+    assert captured["path"] == "/api/workflows/wf-idx/triggers/cron/config"
+    assert captured["json_body"]["expression"] == "0 * * * *"
+
+
 def test_schedule_workflow_cron_rejects_multiple_triggers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -85,6 +130,30 @@ def test_schedule_workflow_cron_rejects_multiple_triggers(
             {"name": "cron_1", "type": "CronTriggerNode", "expression": "* * * * *"},
             {"name": "cron_2", "type": "CronTriggerNode", "expression": "0 * * * *"},
         ]
+    }
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: {"graph": graph},
+    )
+
+    with pytest.raises(CLIError, match="multiple cron triggers"):
+        scheduling.schedule_workflow_cron(SimpleNamespace(), workflow_id="wf-123")
+
+
+def test_schedule_workflow_cron_rejects_multiple_index_triggers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scheduling fails when multiple cron entries are present in graph.index."""
+    graph = {
+        "format": "langgraph-script",
+        "index": {
+            "cron": [
+                {"expression": "*/5 * * * *", "timezone": "UTC"},
+                {"expression": "0 * * * *", "timezone": "UTC"},
+            ]
+        },
     }
 
     monkeypatch.setattr(

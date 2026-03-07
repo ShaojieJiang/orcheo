@@ -1,4 +1,4 @@
-import { SAMPLE_WORKFLOWS } from "@features/workflow/data/workflow-data";
+import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
 import {
   DEFAULT_ACTOR,
   WORKFLOW_STORAGE_EVENT,
@@ -147,20 +147,52 @@ export const createWorkflowFromTemplate = async (
   templateId: string,
   overrides?: Partial<Omit<SaveWorkflowInput, "nodes" | "edges">>,
 ): Promise<StoredWorkflow | undefined> => {
-  const template = SAMPLE_WORKFLOWS.find(
-    (workflow) => workflow.id === templateId,
-  );
-  if (!template) {
+  const templateDefinition = getWorkflowTemplateDefinition(templateId);
+  if (!templateDefinition) {
     return undefined;
   }
 
-  return saveWorkflow({
-    name: overrides?.name ?? `${template.name} Copy`,
-    description: overrides?.description ?? template.description,
-    tags: overrides?.tags ?? template.tags.filter((tag) => tag !== "template"),
-    nodes: cloneNodes(template.nodes),
-    edges: cloneEdges(template.edges),
+  const actor = resolveActor();
+  const templateWorkflow = templateDefinition.workflow;
+  const workflowName = overrides?.name ?? `${templateWorkflow.name} Copy`;
+  const workflowDescription =
+    overrides?.description ?? templateWorkflow.description;
+  const workflowTags =
+    overrides?.tags ??
+    templateWorkflow.tags.filter((tag) => tag !== "template");
+
+  const created = await request<ApiWorkflow>(API_BASE, {
+    method: "POST",
+    body: JSON.stringify({
+      name: workflowName,
+      description: workflowDescription,
+      tags: workflowTags,
+      actor,
+    }),
   });
+
+  await request(`${API_BASE}/${created.id}/versions/ingest`, {
+    method: "POST",
+    body: JSON.stringify({
+      script: templateDefinition.script,
+      entrypoint: templateDefinition.entrypoint ?? null,
+      metadata: {
+        source: "canvas-template",
+        template_id: templateWorkflow.id,
+      },
+      notes: templateDefinition.notes,
+      created_by: actor,
+    }),
+  });
+
+  const stored = await ensureWorkflow(created.id);
+  if (!stored) {
+    throw new Error("Failed to load workflow created from template");
+  }
+
+  invalidateWorkflowListCache();
+  emitUpdate();
+  return stored;
 };
 
 export const duplicateWorkflow = async (

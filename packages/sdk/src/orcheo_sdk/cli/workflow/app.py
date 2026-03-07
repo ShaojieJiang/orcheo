@@ -83,10 +83,6 @@ OutputPathOption = Annotated[
     str | None,
     typer.Option("--output", "-o", help="Output file path (default: stdout)."),
 ]
-FormatOption = Annotated[
-    str,
-    typer.Option("--format", "-f", help="Output format (python only)."),
-]
 VersionOption = Annotated[
     int | None,
     typer.Option("--version", "-v", help="Specific version number to use."),
@@ -114,7 +110,6 @@ __all__ = [
     "EntrypointOption",
     "WorkflowNameOption",
     "OutputPathOption",
-    "FormatOption",
     "VersionOption",
     "_state",
 ]

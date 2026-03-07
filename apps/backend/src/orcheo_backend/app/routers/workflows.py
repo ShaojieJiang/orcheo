@@ -110,15 +110,24 @@ def _serialize_public_workflow(
 def _attach_mermaid(version: WorkflowVersion) -> WorkflowVersion:
     """Attach Mermaid output to a workflow version payload."""
     mermaid: str | None = None
-    try:
-        mermaid = _mermaid_from_graph(version.graph)
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        logger.warning(
-            "Failed to render Mermaid for workflow version %s: %s",
-            version.id,
-            exc,
-            exc_info=True,
-        )
+    graph = version.graph
+    if isinstance(graph, dict):
+        index = graph.get("index")
+        if isinstance(index, dict):
+            index_mermaid = index.get("mermaid")
+            if isinstance(index_mermaid, str) and index_mermaid.strip():
+                mermaid = index_mermaid
+
+    if mermaid is None:
+        try:
+            mermaid = _mermaid_from_graph(version.graph)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Failed to render Mermaid for workflow version %s: %s",
+                version.id,
+                exc,
+                exc_info=True,
+            )
     return version.model_copy(update={"mermaid": mermaid})
 
 

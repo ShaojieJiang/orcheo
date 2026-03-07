@@ -22,7 +22,7 @@ def _version(version: int, source: str) -> dict[str, object]:
             "format": "langgraph-script",
             "source": source,
             "entrypoint": None,
-            "summary": {"nodes": [], "edges": []},
+            "index": {"cron": []},
         },
     }
 
@@ -92,27 +92,17 @@ def test_workflow_download_to_file_machine_mode(
     assert output_file.read_text(encoding="utf-8") == SCRIPT_V1
 
 
-def test_workflow_download_rejects_non_python_format(
+def test_workflow_download_rejects_removed_format_option(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    workflow = {"id": "wf-1", "name": "Test"}
-    versions = [_version(1, SCRIPT_V1)]
+    result = runner.invoke(
+        app,
+        ["workflow", "download", "wf-1", "--format", "json"],
+        env=env,
+    )
 
-    with respx.mock(assert_all_called=True) as router:
-        router.get("http://api.test/api/workflows/wf-1").mock(
-            return_value=httpx.Response(200, json=workflow)
-        )
-        router.get("http://api.test/api/workflows/wf-1/versions").mock(
-            return_value=httpx.Response(200, json=versions)
-        )
-        result = runner.invoke(
-            app,
-            ["workflow", "download", "wf-1", "--format", "json"],
-            env=env,
-        )
-    assert result.exit_code != 0
-    assert isinstance(result.exception, CLIError)
-    assert "Unsupported format" in str(result.exception)
+    assert result.exit_code == 2
+    assert "No such option: --format" in result.output
 
 
 def test_workflow_download_no_versions_error(
