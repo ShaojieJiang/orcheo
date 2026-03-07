@@ -125,7 +125,7 @@ export function buildWorkflowLayoutProps(
     topNavigationProps: {
       currentWorkflow: {
         name: core.metadata.workflowName,
-        path: ["Projects", "Workflows", core.metadata.workflowName],
+        path: ["Projects", "Workflows"],
       },
       credentials: resources.credentials.credentials,
       isCredentialsLoading: resources.credentials.isCredentialsLoading,

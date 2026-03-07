@@ -21,12 +21,26 @@ export default function WorkflowBreadcrumbs({
   currentWorkflow,
   windowWidth,
 }: WorkflowBreadcrumbsProps) {
+  const normalizedPath = useMemo(() => {
+    const path = currentWorkflow.path ?? [];
+    if (path.length === 0) {
+      return path;
+    }
+
+    const lastPathItem = path[path.length - 1];
+    if (lastPathItem === currentWorkflow.name) {
+      return path.slice(0, -1);
+    }
+
+    return path;
+  }, [currentWorkflow.name, currentWorkflow.path]);
+
   const visibleItems = useMemo(
-    () => getVisiblePathItems(currentWorkflow.path ?? [], windowWidth),
-    [currentWorkflow.path, windowWidth],
+    () => getVisiblePathItems(normalizedPath, windowWidth),
+    [normalizedPath, windowWidth],
   );
 
-  if (!currentWorkflow.path) {
+  if (normalizedPath.length === 0) {
     return (
       <span className="truncate font-medium text-foreground">
         {currentWorkflow.name}
@@ -47,7 +61,7 @@ export default function WorkflowBreadcrumbs({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {currentWorkflow.path.slice(1, -1).map((item) => (
+                  {normalizedPath.slice(1).map((item) => (
                     <DropdownMenuItem key={item}>
                       <Link to="/" className="flex w-full items-center">
                         {item}
