@@ -4,8 +4,6 @@ import {
   WORKFLOW_STORAGE_EVENT,
 } from "./workflow-storage.constants";
 import {
-  cloneEdges,
-  cloneNodes,
   getWorkflowRouteRef,
   toStoredWorkflow,
 } from "./workflow-storage-helpers";
@@ -138,12 +136,6 @@ export const saveWorkflow = async (
   return stored;
 };
 
-export const createWorkflow = async (
-  input: Omit<SaveWorkflowInput, "id">,
-): Promise<StoredWorkflow> => {
-  return saveWorkflow(input);
-};
-
 export const createWorkflowFromTemplate = async (
   templateId: string,
   overrides?: Partial<Omit<SaveWorkflowInput, "nodes" | "edges">>,
@@ -194,35 +186,6 @@ export const createWorkflowFromTemplate = async (
   invalidateWorkflowListCache();
   emitUpdate();
   return stored;
-};
-
-export const duplicateWorkflow = async (
-  workflowId: string,
-): Promise<StoredWorkflow | undefined> => {
-  const existing = await getWorkflowById(workflowId);
-  if (!existing) {
-    return undefined;
-  }
-
-  const snapshot =
-    existing.versions.at(-1)?.snapshot ??
-    ({
-      name: existing.name,
-      description: existing.description,
-      nodes: existing.nodes,
-      edges: existing.edges,
-    } satisfies WorkflowSnapshot);
-
-  return saveWorkflow(
-    {
-      name: `${existing.name} Copy`,
-      description: existing.description,
-      tags: existing.tags,
-      nodes: cloneNodes(snapshot.nodes),
-      edges: cloneEdges(snapshot.edges),
-    },
-    { versionMessage: `Duplicated from ${existing.name}` },
-  );
 };
 
 export const getVersionSnapshot = async (
