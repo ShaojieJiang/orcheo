@@ -3,6 +3,23 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 
+def _langgraph_script(node_name: str = "start") -> str:
+    return f"""
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def {node_name}(state):
+        return state
+
+    graph.add_node("{node_name}", {node_name})
+    graph.add_edge(START, "{node_name}")
+    graph.add_edge("{node_name}", END)
+    return graph
+""".strip()
+
+
 def test_workflow_run_lifecycle(api_client: TestClient) -> None:
     """Exercise the workflow run state transitions."""
 
@@ -13,9 +30,10 @@ def test_workflow_run_lifecycle(api_client: TestClient) -> None:
     workflow_id = workflow_response.json()["id"]
 
     version_response = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start"], "edges": []},
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
             "metadata": {},
             "created_by": "runner",
         },
@@ -64,8 +82,13 @@ def test_workflow_run_invalid_transitions(api_client: TestClient) -> None:
     workflow_id = workflow["id"]
 
     version = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "runner"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "runner",
+        },
     ).json()
 
     run = api_client.post(
@@ -136,9 +159,10 @@ def test_create_run_rejects_archived_workflow(api_client: TestClient) -> None:
     workflow_id = workflow_response.json()["id"]
 
     version_response = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start"], "edges": []},
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
             "metadata": {},
             "created_by": "runner",
         },
@@ -177,8 +201,13 @@ def test_not_found_responses(api_client: TestClient) -> None:
     assert delete_missing_workflow.status_code == 404
 
     create_version_missing = api_client.post(
-        f"/api/workflows/{missing}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{missing}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
     assert create_version_missing.status_code == 404
 
@@ -203,8 +232,13 @@ def test_version_and_run_error_responses(api_client: TestClient) -> None:
     workflow_id = workflow["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     missing_version_response = api_client.get(

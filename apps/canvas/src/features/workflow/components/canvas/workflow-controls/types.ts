@@ -2,7 +2,7 @@ export interface WorkflowControlsProps {
   isRunning?: boolean;
   onRun?: () => void;
   onPause?: () => void;
-  onSave?: () => void;
+  onSaveConfig?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;

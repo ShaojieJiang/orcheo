@@ -5,7 +5,25 @@ import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
-import { summarizeTrace } from "@features/workflow/pages/workflow-canvas/helpers/trace";
+
+const hasCronTriggerNode = (
+  nodes: WorkflowCanvasCore["history"]["nodes"],
+): boolean =>
+  nodes.some((node) => {
+    if (typeof node.data?.backendType === "string") {
+      return node.data.backendType === "CronTriggerNode";
+    }
+
+    if (typeof node.data?.iconKey === "string") {
+      return node.data.iconKey.toLowerCase() === "schedule";
+    }
+
+    if (typeof node.data?.type === "string") {
+      return node.data.type.toLowerCase() === "crontriggernode";
+    }
+
+    return node.id.toLowerCase().includes("schedule-trigger");
+  });
 
 export interface WorkflowLayoutProps {
   topNavigationProps: {
@@ -58,10 +76,8 @@ export function buildWorkflowLayoutProps(
     isLoading: core.metadata.isWorkflowLoading,
     loadError: core.metadata.workflowLoadError,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
+    hasCronTriggerNode: hasCronTriggerNode(core.history.nodes),
   };
-
-  const activeTrace = execution.trace.activeTrace;
-  const traceSummary = activeTrace ? summarizeTrace(activeTrace) : undefined;
 
   const traceProps: TraceTabContentProps = {
     status: execution.trace.status,
@@ -71,9 +87,6 @@ export function buildWorkflowLayoutProps(
     onRefresh: () => execution.trace.refresh(),
     isRefreshing: execution.trace.isRefreshing,
     onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
-    summary: traceSummary,
-    lastUpdatedAt: activeTrace?.lastUpdatedAt,
-    isLive: Boolean(activeTrace && !activeTrace.isComplete),
   };
 
   const readinessProps: ReadinessTabContentProps = {
@@ -98,14 +111,13 @@ export function buildWorkflowLayoutProps(
     onTagsChange: resources.saver.handleTagsChange,
     workflowVersions: core.metadata.workflowVersions ?? [],
     onRestoreVersion: resources.saver.handleRestoreVersion,
-    onSaveWorkflow: resources.saver.handleSaveWorkflow,
   };
 
   return {
     topNavigationProps: {
       currentWorkflow: {
         name: core.metadata.workflowName,
-        path: ["Projects", "Workflows", core.metadata.workflowName],
+        path: ["Projects", "Workflows"],
       },
       credentials: resources.credentials.credentials,
       isCredentialsLoading: resources.credentials.isCredentialsLoading,

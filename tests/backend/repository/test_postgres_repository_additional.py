@@ -910,6 +910,56 @@ async def test_versions_get_version_by_number_not_found(
 
 
 @pytest.mark.asyncio
+async def test_versions_update_version_runnable_config_persists_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """update_version_runnable_config updates payload and returns the version."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    payload = _version_payload(version_id, workflow_id, version=2, runnable_config=None)
+    json_payload = json.dumps(payload)
+
+    responses = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {"row": {"id": str(version_id), "payload": json_payload}},  # SELECT version row
+        {},  # UPDATE workflow_versions
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    updated = await repo.update_version_runnable_config(
+        workflow_id,
+        version_number=2,
+        runnable_config={"configurable": {"thread_id": "thr-2"}},
+        actor="editor",
+    )
+
+    assert updated.id == version_id
+    assert updated.runnable_config == {"configurable": {"thread_id": "thr-2"}}
+
+
+@pytest.mark.asyncio
+async def test_versions_update_version_runnable_config_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """update_version_runnable_config raises when the version does not exist."""
+    workflow_id = uuid4()
+
+    responses = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {"row": None},  # Missing version row
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowVersionNotFoundError, match="v2"):
+        await repo.update_version_runnable_config(
+            workflow_id,
+            version_number=2,
+            runnable_config=None,
+            actor="editor",
+        )
+
+
+@pytest.mark.asyncio
 async def test_versions_get_latest_version_string_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -27,18 +27,13 @@ export default function WorkflowGallery() {
     setShowNewFolderDialog,
     newFolderName,
     setNewFolderName,
-    showNewWorkflowDialog,
-    setShowNewWorkflowDialog,
-    newWorkflowName,
-    setNewWorkflowName,
     selectedTab,
     setSelectedTab,
     sortedWorkflows,
     isTemplateView,
     handleCreateFolder,
-    handleCreateWorkflow,
     handleUseTemplate,
-    handleDuplicateWorkflow,
+    handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
     handleApplyFilters,
@@ -74,11 +69,6 @@ export default function WorkflowGallery() {
                 newFolderName={newFolderName}
                 onFolderNameChange={setNewFolderName}
                 onCreateFolder={handleCreateFolder}
-                showNewWorkflowDialog={showNewWorkflowDialog}
-                onNewWorkflowDialogChange={setShowNewWorkflowDialog}
-                newWorkflowName={newWorkflowName}
-                onWorkflowNameChange={setNewWorkflowName}
-                onCreateWorkflow={handleCreateWorkflow}
                 onApplyFilters={handleApplyFilters}
               />
 
@@ -88,10 +78,9 @@ export default function WorkflowGallery() {
                 sortedWorkflows={sortedWorkflows}
                 isTemplateView={isTemplateView}
                 searchQuery={searchQuery}
-                onCreateWorkflowRequest={() => setShowNewWorkflowDialog(true)}
+                onImportStarterPack={handleImportStarterPack}
                 onOpenWorkflow={handleOpenWorkflow}
                 onUseTemplate={handleUseTemplate}
-                onDuplicateWorkflow={handleDuplicateWorkflow}
                 onExportWorkflow={handleExportWorkflow}
                 onDeleteWorkflow={handleDeleteWorkflow}
               />

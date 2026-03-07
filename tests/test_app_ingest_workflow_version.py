@@ -64,7 +64,9 @@ def test_ingest_workflow_version_endpoint_creates_version(
     assert version["metadata"] == {"language": "python"}
     assert version["notes"] == "Initial LangGraph import"
     assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
-    assert "summary" in version["graph"]
+    assert "summary" not in version["graph"]
+    assert "index" in version["graph"]
+    assert isinstance(version["graph"]["index"].get("cron"), list)
 
 
 def test_ingest_workflow_version_invalid_script_returns_400(

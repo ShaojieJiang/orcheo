@@ -12,19 +12,16 @@ def _load_workflow_config_from_path(
     path_obj: Path,
     *,
     load_python: Callable[[Path], dict[str, Any]],
-    load_json: Callable[[Path], dict[str, Any]],
 ) -> dict[str, Any]:
-    """Load a workflow configuration from disk supporting python/json."""
+    """Load a workflow configuration from a Python source file."""
     file_extension = path_obj.suffix.lower()
-    if file_extension not in {".py", ".json"}:
+    if file_extension != ".py":
         raise CLIError(
-            f"Unsupported file type '{file_extension}'. Use .py or .json files."
+            f"Unsupported file type '{file_extension}'. Only .py files are supported."
         )
 
     try:
-        if file_extension == ".py":
-            return load_python(path_obj)
-        return load_json(path_obj)
+        return load_python(path_obj)
     except CLIError:
         raise
     except Exception as exc:  # pragma: no cover - defensive error context
@@ -57,21 +54,6 @@ def _upload_langgraph_workflow(
         raise CLIError("Failed to upload LangGraph workflow script via API.") from exc
 
 
-def _submit_workflow_configuration(
-    client: ApiClient,
-    workflow_config: dict[str, Any],
-    workflow_id: str | None,
-) -> dict[str, Any]:
-    """Submit workflow configuration payload to Orcheo."""
-    url = f"/api/workflows/{workflow_id}" if workflow_id else "/api/workflows"
-    try:
-        if workflow_id:
-            return client.put(url, json_body=workflow_config)
-        return client.post(url, json_body=workflow_config)
-    except Exception as exc:  # pragma: no cover - http errors handled upstream
-        raise CLIError("Failed to upload workflow configuration to Orcheo.") from exc
-
-
 def upload_workflow_data(
     client: ApiClient,
     file_path: str | Path,
@@ -83,7 +65,6 @@ def upload_workflow_data(
 ) -> dict[str, Any]:
     """Upload workflow definition from a local file."""
     from orcheo_sdk.cli.workflow import (
-        _load_workflow_from_json,
         _load_workflow_from_python,
         _normalize_workflow_name,
         _upload_langgraph_script,
@@ -106,31 +87,22 @@ def upload_workflow_data(
     workflow_config = _load_workflow_config_from_path(
         path_obj,
         load_python=_load_workflow_from_python,
-        load_json=_load_workflow_from_json,
     )
 
-    if workflow_config.get("_type") == "langgraph_script":
-        if entrypoint:
-            workflow_config["entrypoint"] = entrypoint
-        if runnable_config is not None:
-            workflow_config["runnable_config"] = runnable_config
-        result = _upload_langgraph_workflow(
-            state,  # type: ignore[arg-type]
-            workflow_config,
-            workflow_id,
-            path_obj,
-            requested_name,
-            uploader=_upload_langgraph_script,
-        )
-    else:
-        if requested_name:
-            workflow_config["name"] = requested_name
-        if runnable_config is not None:
-            workflow_config["runnable_config"] = runnable_config
-        result = _submit_workflow_configuration(
-            client,
-            workflow_config,
-            workflow_id,
-        )
+    if workflow_config.get("_type") != "langgraph_script":
+        msg = "Only LangGraph Python scripts can be uploaded."
+        raise CLIError(msg)
+    if entrypoint:
+        workflow_config["entrypoint"] = entrypoint
+    if runnable_config is not None:
+        workflow_config["runnable_config"] = runnable_config
+    result = _upload_langgraph_workflow(
+        state,  # type: ignore[arg-type]
+        workflow_config,
+        workflow_id,
+        path_obj,
+        requested_name,
+        uploader=_upload_langgraph_script,
+    )
 
     return result

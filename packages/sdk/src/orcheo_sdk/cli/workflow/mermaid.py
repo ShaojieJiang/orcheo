@@ -8,6 +8,11 @@ from typing import Any
 def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
     """Render Mermaid definition for the provided workflow graph."""
     if isinstance(graph, Mapping):
+        index = graph.get("index")
+        if isinstance(index, Mapping):
+            mermaid = index.get("mermaid")
+            if isinstance(mermaid, str) and mermaid.strip():
+                return mermaid
         summary = graph.get("summary")
         if isinstance(summary, Mapping):
             return _compiled_mermaid(summary)

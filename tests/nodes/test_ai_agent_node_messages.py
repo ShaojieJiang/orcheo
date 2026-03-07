@@ -171,6 +171,33 @@ def test_messages_from_inputs_handles_query_value() -> None:
     assert messages[0].content == "q"
 
 
+def test_messages_from_inputs_skips_duplicate_latest_user_turn() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "history": [
+            {"role": "assistant", "content": "Previous answer"},
+            {"role": "user", "content": "Latest question"},
+        ],
+        "message": "  Latest question  ",
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert len(messages) == 2
+    assert messages[0].content == "Previous answer"
+    assert messages[1].content == "Latest question"
+
+
+def test_messages_from_inputs_keeps_message_when_latest_turn_not_user() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "history": [{"role": "assistant", "content": "Latest question"}],
+        "message": "Latest question",
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert len(messages) == 2
+    assert messages[0].content == "Latest question"
+    assert messages[1].content == "Latest question"
+
+
 def test_build_messages_prefers_existing_state_messages() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     state = State(

@@ -44,10 +44,9 @@ The show command already includes publish metadata (current visibility,
 require-login flag, last publish timestamp) so you know whether the workflow is
 safe to expose.
 
-## Step 2 – Publish via CLI or MCP
-Run the publish command from the CLI (or invoke `orcheo-mcp.workflows.publish`
-programmatically). The CLI prompts for confirmation unless you pass `--force`.
-Add `--require-login` to gate ChatKit behind OAuth:
+## Step 2 – Publish via CLI
+Run the publish command from the CLI. The CLI prompts for confirmation unless
+you pass `--force`. Add `--require-login` to gate ChatKit behind OAuth:
 
 ```bash
 orcheo workflow publish wf_123 --require-login
@@ -65,9 +64,6 @@ Require login: Yes
 Published at: 2024-03-22T12:31:00Z
 Share URL: https://canvas.example/chat/wf_123
 ```
-
-The MCP tool returns the same payload (`workflow`, `share_url`, `message`) so
-assistants can narrate the link without special casing.
 
 ## Step 3 – Capture and share the URL
 The `Share URL` field is the canonical ChatKit UI entry point. Its origin comes

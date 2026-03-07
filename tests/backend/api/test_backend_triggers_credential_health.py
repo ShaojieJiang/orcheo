@@ -34,8 +34,21 @@ def test_webhook_trigger_credential_health_error(
     workflow_id = workflow_response.json()["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": (
+                "from langgraph.graph import END, START, StateGraph\n\n"
+                "def build_graph():\n"
+                "    graph = StateGraph(dict)\n"
+                "    graph.add_node('start', lambda state: state)\n"
+                "    graph.add_edge(START, 'start')\n"
+                "    graph.add_edge('start', END)\n"
+                "    return graph\n"
+            ),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     repository = api_client.app.dependency_overrides[backend_app.get_repository]()

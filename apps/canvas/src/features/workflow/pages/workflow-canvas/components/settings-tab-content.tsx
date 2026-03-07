@@ -1,6 +1,5 @@
 import React from "react";
 
-import { Button } from "@/design-system/ui/button";
 import { Separator } from "@/design-system/ui/separator";
 import WorkflowHistory from "@features/workflow/components/panels/workflow-history";
 
@@ -13,7 +12,6 @@ export interface SettingsTabContentProps {
   onTagsChange: (value: string) => void;
   workflowVersions: Array<{ version: string; createdAt: string }>;
   onRestoreVersion: (version: { version: string; createdAt: string }) => void;
-  onSaveWorkflow: () => void;
 }
 
 export function SettingsTabContent({
@@ -25,7 +23,6 @@ export function SettingsTabContent({
   onTagsChange,
   workflowVersions,
   onRestoreVersion,
-  onSaveWorkflow,
 }: SettingsTabContentProps) {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -150,11 +147,6 @@ export function SettingsTabContent({
         currentVersion={workflowVersions.at(-1)?.version}
         onRestoreVersion={onRestoreVersion}
       />
-
-      <div className="flex justify-end gap-2">
-        <Button variant="outline">Cancel</Button>
-        <Button onClick={onSaveWorkflow}>Save Settings</Button>
-      </div>
     </div>
   );
 }

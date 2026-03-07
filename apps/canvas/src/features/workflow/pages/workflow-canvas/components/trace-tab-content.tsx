@@ -1,26 +1,17 @@
 import "@features/workflow/components/trace/agent-prism/theme/theme.css";
 
-import { formatDistanceToNow } from "date-fns";
 import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
-import { Card, CardDescription, CardTitle } from "@/design-system/ui/card";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
+import { deriveThreadStitchedViewerDataList } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceEntryStatus } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceSpanMetadata } from "@features/workflow/pages/workflow-canvas/helpers/trace";
-
-interface TraceSummary {
-  spanCount: number;
-  totalTokens: number;
-}
-
-const SUMMARY_CARD_CLASS = "px-3 py-2";
-const SUMMARY_CARD_BODY_CLASS =
-  "flex w-full items-center justify-between gap-3 text-sm";
 
 export interface TraceTabContentProps {
   status: TraceEntryStatus;
@@ -30,21 +21,7 @@ export interface TraceTabContentProps {
   onRefresh: () => void;
   isRefreshing: boolean;
   onSelectTrace?: (traceId: string) => void;
-  summary?: TraceSummary;
-  lastUpdatedAt?: string;
-  isLive: boolean;
 }
-
-const formatTimestamp = (timestamp?: string): string => {
-  if (!timestamp) {
-    return "Never";
-  }
-  try {
-    return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
-  } catch {
-    return timestamp;
-  }
-};
 
 const renderArtifactActions = (span: TraceSpan) => {
   const metadata = span.metadata as
@@ -88,12 +65,59 @@ export function TraceTabContent({
   onRefresh,
   isRefreshing,
   onSelectTrace,
-  summary,
-  lastUpdatedAt,
-  isLive,
 }: TraceTabContentProps) {
+  const [isStitchedTimeline, setIsStitchedTimeline] = useState(false);
+  const canStitchByThread = useMemo(
+    () => viewerData.some((trace) => Boolean(trace.threadId)),
+    [viewerData],
+  );
+
+  useEffect(() => {
+    if (!canStitchByThread && isStitchedTimeline) {
+      setIsStitchedTimeline(false);
+    }
+  }, [canStitchByThread, isStitchedTimeline]);
+
+  const displayedViewerData = useMemo(() => {
+    if (!isStitchedTimeline) {
+      return viewerData;
+    }
+    return deriveThreadStitchedViewerDataList(
+      viewerData,
+      activeViewer?.traceRecord.id,
+    );
+  }, [activeViewer?.traceRecord.id, isStitchedTimeline, viewerData]);
+
+  const displayedActiveTraceId = useMemo(() => {
+    if (!isStitchedTimeline) {
+      return activeViewer?.traceRecord.id;
+    }
+
+    const activeTraceId = activeViewer?.traceRecord.id;
+    if (
+      activeTraceId &&
+      displayedViewerData.some(
+        (trace) => trace.traceRecord.id === activeTraceId,
+      )
+    ) {
+      return activeTraceId;
+    }
+
+    const activeThreadId = activeViewer?.threadId;
+    if (activeThreadId) {
+      const stitchedGroup = displayedViewerData.find(
+        (trace) => trace.threadId === activeThreadId,
+      );
+      if (stitchedGroup) {
+        return stitchedGroup.traceRecord.id;
+      }
+    }
+
+    return displayedViewerData[0]?.traceRecord.id;
+  }, [activeViewer, displayedViewerData, isStitchedTimeline]);
+
   const isLoading = status === "loading" && !activeViewer;
-  const hasData = viewerData.length > 0;
+  const hasData = displayedViewerData.length > 0;
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -107,6 +131,16 @@ export function TraceTabContent({
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            variant={isStitchedTimeline ? "default" : "outline"}
+            disabled={!canStitchByThread}
+            onClick={() => {
+              setIsStitchedTimeline((current) => !current);
+            }}
+          >
+            {isStitchedTimeline ? "Stitched: On" : "Stitched: Off"}
+          </Button>
+          <Button
+            size="sm"
             variant="outline"
             disabled={isRefreshing}
             onClick={() => {
@@ -118,56 +152,6 @@ export function TraceTabContent({
           </Button>
         </div>
       </div>
-
-      {summary && (
-        <div className="grid gap-3 md:grid-cols-3">
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Spans
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Recorded nodes and events
-                </CardDescription>
-              </div>
-              <span className="text-sm font-semibold text-foreground">
-                {summary.spanCount}
-              </span>
-            </div>
-          </Card>
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Total tokens
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Input + output consumption
-                </CardDescription>
-              </div>
-              <span className="text-sm font-semibold text-foreground">
-                {summary.totalTokens}
-              </span>
-            </div>
-          </Card>
-          <Card className={SUMMARY_CARD_CLASS}>
-            <div className={SUMMARY_CARD_BODY_CLASS}>
-              <div className="space-y-0.5">
-                <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
-                  Last update
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  {isLive ? "Live" : "Completed"}
-                </CardDescription>
-              </div>
-              <span className="text-xs font-semibold text-foreground">
-                {formatTimestamp(lastUpdatedAt)}
-              </span>
-            </div>
-          </Card>
-        </div>
-      )}
 
       {error && (
         <Alert variant="destructive">
@@ -192,8 +176,8 @@ export function TraceTabContent({
       {hasData && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
           <TraceViewer
-            data={viewerData}
-            activeTraceId={activeViewer?.traceRecord.id}
+            data={displayedViewerData}
+            activeTraceId={displayedActiveTraceId}
             onTraceSelect={(trace) => {
               onSelectTrace?.(trace.id);
             }}

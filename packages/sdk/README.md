@@ -121,8 +121,9 @@ Available on all commands:
 | `orcheo workflow show <id>` | Display workflow details, versions, and runs | - |
 | `orcheo workflow run <id>` | Trigger a workflow execution | `--actor` - Actor name (default: "cli")<br>`--inputs` - JSON inputs payload<br>`--inputs-file` - Path to JSON inputs file |
 | `orcheo workflow delete <id>` | Delete a workflow | `--force` - Skip confirmation prompt |
-| `orcheo workflow upload <file>` | Upload workflow from Python or JSON file | `--id` - Workflow ID (for updates)<br>`--config` - JSON runnable config payload<br>`--config-file` - JSON runnable config file |
-| `orcheo workflow download <id>` | Download workflow configuration | `-o, --output` - Output file path<br>`-f, --format` - Format: json or python (default: json) |
+| `orcheo workflow upload <file>` | Upload workflow from Python LangGraph script (`.py`) | `--id` - Workflow ID (for updates)<br>`--config` - JSON runnable config payload<br>`--config-file` - JSON runnable config file |
+| `orcheo workflow save-config <id>` | Update version `runnable_config` without creating a version | `--config` / `--config-file` - Runnable config payload<br>`--version` - Target version (latest by default)<br>`--clear` - Clear stored runnable config |
+| `orcheo workflow download <id>` | Download workflow source as Python | `-o, --output` - Output file path |
 
 **Examples:**
 
@@ -146,11 +147,11 @@ orcheo workflow upload workflow.py --id my-workflow-id
 # Upload with runnable config defaults (stored per version)
 orcheo workflow upload workflow.py --config '{"tags": ["support"], "max_concurrency": 4}'
 
-# Download workflow as JSON
-orcheo workflow download my-workflow-id -o workflow.json
+# Save runnable config only (no new version created)
+orcheo workflow save-config my-workflow-id --config '{"tags": ["support"]}'
 
-# Download workflow as Python template
-orcheo workflow download my-workflow-id -o workflow.py -f python
+# Download workflow source as Python
+orcheo workflow download my-workflow-id -o workflow.py
 
 # Delete a workflow
 orcheo workflow delete my-workflow-id --force

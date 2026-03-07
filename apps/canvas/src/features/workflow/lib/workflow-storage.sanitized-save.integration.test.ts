@@ -10,58 +10,49 @@ import {
 
 setupFetchMock();
 
-describe("workflow-storage API integration - sanitized nodes", () => {
-  it("saves nodes without runtime data or status when pre-sanitized", async () => {
+describe("workflow-storage API integration - config-only save", () => {
+  it("updates runnable config on an existing version without creating a version", async () => {
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
-    const sanitizedNodes = [
+    const versionsPayload = [
       {
-        id: "node-1",
-        type: "default",
-        position: { x: 100, y: 100 },
-        data: {
-          type: "ai",
-          label: "AI Node",
-          description: "An AI node",
-          prompt: "Hello world",
+        id: "version-1",
+        workflow_id: "workflow-456",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
         },
+        metadata: {},
+        runnable_config: null,
+        notes: "Uploaded from Python",
+        created_by: "cli",
+        created_at: timestamp,
+        updated_at: timestamp,
       },
     ];
-
-    const snapshot = {
-      name: "Test Workflow",
-      description: "Test workflow with sanitized data",
-      nodes: sanitizedNodes,
-      edges: [],
-    };
 
     queueResponses([
       jsonResponse({
         id: "workflow-456",
-        name: snapshot.name,
+        name: "Test Workflow",
         slug: "workflow-456",
-        description: snapshot.description,
+        description: "Config-only save",
         tags: [],
         is_archived: false,
         created_at: timestamp,
         updated_at: timestamp,
       }),
+      jsonResponse(versionsPayload),
       jsonResponse({
-        id: "version-1",
-        workflow_id: "workflow-456",
-        version: 1,
-        graph: { nodes: [], edges: [] },
-        metadata: {},
-        notes: "Test save",
-        created_by: "canvas-app",
-        created_at: timestamp,
-        updated_at: timestamp,
+        ...versionsPayload[0],
+        runnable_config: { tags: ["canvas"] },
       }),
       jsonResponse({
         id: "workflow-456",
-        name: snapshot.name,
+        name: "Test Workflow",
         slug: "workflow-456",
-        description: snapshot.description,
+        description: "Config-only save",
         tags: [],
         is_archived: false,
         created_at: timestamp,
@@ -69,48 +60,61 @@ describe("workflow-storage API integration - sanitized nodes", () => {
       }),
       jsonResponse([
         {
-          id: "version-1",
-          workflow_id: "workflow-456",
-          version: 1,
-          graph: { nodes: [], edges: [] },
-          metadata: {
-            canvas: {
-              snapshot,
-              summary: { added: 0, removed: 0, modified: 0 },
-              message: "Test save",
-            },
-          },
-          notes: "Test save",
-          created_by: "canvas-app",
-          created_at: timestamp,
-          updated_at: timestamp,
+          ...versionsPayload[0],
+          runnable_config: { tags: ["canvas"] },
         },
       ]),
     ]);
 
     await saveWorkflow(
       {
-        name: snapshot.name,
-        description: snapshot.description,
+        name: "Test Workflow",
+        description: "Config-only save",
         tags: [],
-        nodes: sanitizedNodes,
-        edges: snapshot.edges,
+        nodes: [],
+        edges: [],
       },
-      { versionMessage: "Test save" },
+      { runnableConfig: { tags: ["canvas"] } },
     );
 
-    const versionPayload = JSON.parse(
-      (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain(
+      "/api/workflows/workflow-456/versions/1/runnable-config",
     );
+    expect(String(mockFetch.mock.calls[2]?.[1]?.method)).toBe("PUT");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+      "/api/workflows/workflow-456/versions",
+    );
+  });
 
-    const savedNode = versionPayload.metadata.canvas.snapshot.nodes[0];
+  it("fails with a clear error when no version exists", async () => {
+    const timestamp = new Date().toISOString();
 
-    expect(savedNode).toBeDefined();
-    expect(savedNode.data.runtime).toBeUndefined();
-    expect(savedNode.data.status).toBeUndefined();
-    expect(savedNode.data.label).toBe("AI Node");
-    expect(savedNode.data.description).toBe("An AI node");
-    expect(savedNode.data.prompt).toBe("Hello world");
-    expect(savedNode.data.type).toBe("ai");
+    queueResponses([
+      jsonResponse({
+        id: "workflow-789",
+        name: "No Version Workflow",
+        slug: "workflow-789",
+        description: "Missing version",
+        tags: [],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([]),
+    ]);
+
+    await expect(
+      saveWorkflow(
+        {
+          name: "No Version Workflow",
+          description: "Missing version",
+          tags: [],
+          nodes: [],
+          edges: [],
+        },
+        { runnableConfig: { tags: ["canvas"] } },
+      ),
+    ).rejects.toThrow("existing Python version");
   });
 });

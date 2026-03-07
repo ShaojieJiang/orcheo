@@ -120,6 +120,55 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                 deep=True
             )
 
+    async def update_version_runnable_config(
+        self,
+        workflow_id: UUID,
+        *,
+        version_number: int,
+        runnable_config: dict[str, Any] | None,
+        actor: str,
+    ) -> WorkflowVersion:
+        """Update only runnable config for an existing workflow version."""
+        await self._ensure_initialized()
+        async with self._lock:
+            await self._get_workflow_locked(workflow_id)
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, payload
+                      FROM workflow_versions
+                     WHERE workflow_id = ? AND version = ?
+                    """,
+                    (str(workflow_id), version_number),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    raise WorkflowVersionNotFoundError(f"v{version_number}")
+
+                version = WorkflowVersion.model_validate_json(row["payload"])
+                version.runnable_config = (
+                    dict(runnable_config) if runnable_config is not None else None
+                )
+                version.record_event(
+                    actor=actor,
+                    action="version_runnable_config_updated",
+                )
+
+                await conn.execute(
+                    """
+                    UPDATE workflow_versions
+                       SET payload = ?,
+                           updated_at = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        self._dump_model(version),
+                        version.updated_at.isoformat(),
+                        row["id"],
+                    ),
+                )
+            return version.model_copy(deep=True)
+
     async def get_version(self, version_id: UUID) -> WorkflowVersion:
         await self._ensure_initialized()
         async with self._lock:

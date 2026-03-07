@@ -15,6 +15,19 @@ from fastapi.testclient import TestClient
 backend_app = importlib.import_module("orcheo_backend.app")
 
 
+def _langgraph_script() -> str:
+    return """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+    graph.add_node("start", lambda state: state)
+    graph.add_edge(START, "start")
+    graph.add_edge("start", END)
+    return graph
+""".strip()
+
+
 class TestEnqueueRunFunction:
     """Direct tests for the _enqueue_run_for_execution function."""
 
@@ -127,8 +140,13 @@ def test_enqueue_run_logs_warning_on_celery_failure(
     workflow_id = workflow_response.json()["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     # Mock the execute_run task at the worker.tasks level
@@ -157,8 +175,13 @@ def test_cron_dispatch_enqueue_failure_does_not_block_response(
     workflow_id = workflow_response.json()["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     api_client.put(
@@ -198,8 +221,13 @@ def test_manual_dispatch_enqueue_failure_does_not_block_response(
     workflow_id = workflow_response.json()["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     mock_execute_run = MagicMock()
@@ -236,8 +264,13 @@ def test_enqueue_run_import_failure_is_handled(
     workflow_id = workflow_response.json()["id"]
 
     api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
-        json={"graph": {}, "metadata": {}, "created_by": "tester"},
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(),
+            "entrypoint": "build_graph",
+            "metadata": {},
+            "created_by": "tester",
+        },
     )
 
     # Simulate an import error by patching sys.modules

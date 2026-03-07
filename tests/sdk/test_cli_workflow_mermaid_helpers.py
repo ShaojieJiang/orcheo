@@ -23,6 +23,25 @@ def test_workflow_mermaid_with_langgraph_summary() -> None:
     assert "store_secret --> __end__" in mermaid
 
 
+def test_workflow_mermaid_prefers_precomputed_index_mermaid() -> None:
+    """Use graph.index.mermaid when present."""
+    from orcheo_sdk.cli.workflow import _mermaid_from_graph
+
+    precomputed = "graph TD;\n\tA --> B;"
+    graph = {
+        "format": "langgraph-script",
+        "index": {"mermaid": precomputed},
+        "summary": {
+            "nodes": [{"name": "ignored", "type": "SetVariableNode"}],
+            "edges": [["START", "ignored"], ["ignored", "END"]],
+            "conditional_edges": [],
+        },
+    }
+
+    mermaid = _mermaid_from_graph(graph)
+    assert mermaid == precomputed
+
+
 def test_workflow_mermaid_with_langgraph_conditional_edges() -> None:
     """Conditional edges from LangGraph summary should be rendered."""
     from orcheo_sdk.cli.workflow import _mermaid_from_graph

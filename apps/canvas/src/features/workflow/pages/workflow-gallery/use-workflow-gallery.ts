@@ -6,11 +6,8 @@ export const useWorkflowGallery = () => {
   const actions = useWorkflowGalleryActions({
     newFolderName: state.newFolderName,
     setNewFolderName: state.setNewFolderName,
-    newWorkflowName: state.newWorkflowName,
-    setNewWorkflowName: state.setNewWorkflowName,
     setSelectedTab: state.setSelectedTab,
     setShowNewFolderDialog: state.setShowNewFolderDialog,
-    setShowNewWorkflowDialog: state.setShowNewWorkflowDialog,
     setShowFilterPopover: state.setShowFilterPopover,
   });
 

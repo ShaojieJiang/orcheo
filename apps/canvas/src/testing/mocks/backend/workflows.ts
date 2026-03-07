@@ -254,6 +254,53 @@ export const handleWorkflowRequest = async (
         return jsonResponse(version, { status: 201 });
       }
     }
+
+    if (
+      segments.length === 5 &&
+      segments[3] === "versions" &&
+      segments[4] === "ingest" &&
+      method === "POST"
+    ) {
+      const payload = await parseRequestBody<{
+        script?: string;
+        entrypoint?: string | null;
+        metadata?: unknown;
+        notes?: string | null;
+        created_by?: string;
+      }>(request);
+
+      if (!payload?.script || typeof payload.script !== "string") {
+        return jsonResponse(
+          { detail: "script is required for ingest endpoint" },
+          { status: 400 },
+        );
+      }
+
+      const nextVersionNumber = record.versions.length + 1;
+      const now = new Date().toISOString();
+      const version = {
+        id: `${workflowId}-version-${nextVersionNumber}`,
+        workflow_id: workflowId,
+        version: nextVersionNumber,
+        graph: {
+          format: "langgraph-script",
+          source: payload.script,
+          entrypoint: payload.entrypoint ?? null,
+          index: { cron: [] },
+        },
+        metadata: payload.metadata ?? {},
+        notes: payload.notes ?? null,
+        created_by: payload.created_by ?? "canvas-app",
+        created_at: now,
+        updated_at: now,
+      };
+
+      record.workflow.updated_at = now;
+      record.versions.push(version);
+      workflowStore.set(workflowId, record);
+
+      return jsonResponse(version, { status: 201 });
+    }
   }
 
   return jsonResponse(

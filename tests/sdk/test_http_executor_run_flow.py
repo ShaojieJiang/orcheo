@@ -57,10 +57,26 @@ def _create_workflow_and_version(http_client: httpx.Client) -> tuple[str, str]:
     create_workflow.raise_for_status()
     workflow_id = create_workflow.json()["id"]
 
+    script = """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def start(state):
+        return state
+
+    graph.add_node("start", start)
+    graph.add_edge(START, "start")
+    graph.add_edge("start", END)
+    return graph
+""".strip()
+
     create_version = http_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start"], "edges": []},
+            "script": script,
+            "entrypoint": "build_graph",
             "metadata": {},
             "created_by": "sdk",
         },

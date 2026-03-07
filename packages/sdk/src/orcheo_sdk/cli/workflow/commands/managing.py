@@ -10,7 +10,6 @@ from orcheo_sdk.cli.workflow.app import (
     EntrypointOption,
     FilePathArgument,
     ForceOption,
-    FormatOption,
     OutputPathOption,
     RunnableConfigFileOption,
     RunnableConfigOption,
@@ -29,6 +28,7 @@ from orcheo_sdk.cli.workflow.inputs import (
 from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
+    save_workflow_runnable_config_data,
     sync_cron_schedule_if_changed,
     update_workflow_data,
     upload_workflow_data,
@@ -77,7 +77,7 @@ def upload_workflow(
     config: RunnableConfigOption = None,
     config_file: RunnableConfigFileOption = None,
 ) -> None:
-    """Upload a workflow from a Python or JSON file."""
+    """Upload a workflow from a Python script."""
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Uploading workflows requires network connectivity.")
@@ -159,16 +159,60 @@ def update_workflow(
     render_json(state.console, result, title="Workflow")
 
 
+@workflow_app.command("save-config")
+def save_workflow_config(
+    ctx: typer.Context,
+    workflow_id: WorkflowIdArgument,
+    config: RunnableConfigOption = None,
+    config_file: RunnableConfigFileOption = None,
+    version: VersionOption = None,
+    actor: ActorOption = "cli",
+    clear: bool = typer.Option(
+        False,
+        "--clear",
+        help="Clear stored runnable config for the selected version.",
+    ),
+) -> None:
+    """Persist runnable config on an existing workflow version."""
+    state = _state(ctx)
+    if state.settings.offline:
+        raise CLIError("Saving workflow config requires network connectivity.")
+    if clear and (config is not None or config_file is not None):
+        msg = "Use either --clear or --config/--config-file, not both."
+        raise CLIError(msg)
+
+    runnable_config = None if clear else _resolve_runnable_config(config, config_file)
+    if not clear and runnable_config is None:
+        msg = "Provide --config, --config-file, or --clear."
+        raise CLIError(msg)
+
+    result = save_workflow_runnable_config_data(
+        state.client,
+        workflow_id,
+        runnable_config=runnable_config,
+        actor=actor,
+        version=version,
+    )
+    if not state.human:
+        print_json(result)
+        return
+
+    state.console.print(
+        "[green]Saved runnable config without creating a new version.[/green]"
+    )
+    render_json(state.console, result, title="Workflow Config")
+
+
 @workflow_app.command("download")
 def download_workflow(
     ctx: typer.Context,
     workflow_id: WorkflowIdArgument,
     output_path: OutputPathOption = None,
-    format_type: FormatOption = "auto",
     version: VersionOption = None,
 ) -> None:
     """Download a workflow configuration to a file or stdout."""
     state = _state(ctx)
+    format_type = "python"
     version_suffix = f":{version}" if version else ""
     payload, from_cache, stale = load_with_cache(
         state,
@@ -208,6 +252,7 @@ def download_workflow(
 
 __all__ = [
     "delete_workflow",
+    "save_workflow_config",
     "update_workflow",
     "upload_workflow",
     "download_workflow",

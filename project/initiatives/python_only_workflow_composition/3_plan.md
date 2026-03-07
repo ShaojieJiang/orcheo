@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-03-07
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -27,13 +27,13 @@ Execute a coordinated refactor to make Python LangGraph ingestion the only suppo
 
 #### Task Checklist
 
-- [ ] Task 1.1: Remove direct JSON workflow version creation route (`POST /workflows/{ref}/versions`)
+- [x] Task 1.1: Remove direct JSON workflow version creation route (`POST /workflows/{ref}/versions`)
   - Dependencies: None
-- [ ] Task 1.2: Keep `/versions/ingest` as sole version-creation path and validate script payloads as current
+- [x] Task 1.2: Keep `/versions/ingest` as sole version-creation path and validate script payloads as current
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Restrict runtime graph build/execution to `langgraph-script` only; add explicit unsupported-format errors for legacy graph payloads
+- [x] Task 1.3: Restrict runtime graph build/execution to `langgraph-script` only; add explicit unsupported-format errors for legacy graph payloads
   - Dependencies: Task 1.2
-- [ ] Task 1.4: Add/enable version runnable-config update endpoint for config-only persistence
+- [x] Task 1.4: Add/enable version runnable-config update endpoint for config-only persistence
   - Dependencies: Task 1.2
 
 ---
@@ -44,15 +44,15 @@ Execute a coordinated refactor to make Python LangGraph ingestion the only suppo
 
 #### Task Checklist
 
-- [ ] Task 2.1: Update Canvas save flow to stop creating versions and write config-only updates to backend version `runnable_config`
+- [x] Task 2.1: Update Canvas save flow to stop creating versions and write config-only updates to backend version `runnable_config`
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Remove CLI/SDK JSON upload path (`.json` workflow files)
+- [x] Task 2.2: Remove CLI/SDK JSON upload path (`.json` workflow files)
   - Dependencies: Milestone 1
-- [ ] Task 2.3: Remove CLI/SDK JSON download/export path and keep Python output only
+- [x] Task 2.3: Remove CLI/SDK JSON download/export path and keep Python output only
   - Dependencies: Task 2.2
-- [ ] Task 2.4: Add CLI config-only save flow to update version `runnable_config` without creating a version
+- [x] Task 2.4: Add CLI config-only save flow to update version `runnable_config` without creating a version
   - Dependencies: Task 1.4
-- [ ] Task 2.5: Update command help/docs/messages for removed JSON support and new config-only save behavior
+- [x] Task 2.5: Update command help/docs/messages for removed JSON support and new config-only save behavior
   - Dependencies: Task 2.2
 
 ---
@@ -63,13 +63,13 @@ Execute a coordinated refactor to make Python LangGraph ingestion the only suppo
 
 #### Task Checklist
 
-- [ ] Task 3.1: Remove the `orcheo_sdk.mcp_server` module and its tool registrations/wrappers from active runtime exports
+- [x] Task 3.1: Remove the `orcheo_sdk.mcp_server` module and its tool registrations/wrappers from active runtime exports
   - Dependencies: Milestone 2
-- [ ] Task 3.2: Move removed implementation/tests/docs to `legacy/` and exclude from lint/test/package runtime
+- [x] Task 3.2: Move removed implementation/tests/docs to `legacy/` and exclude from lint/test/package runtime
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Add/adjust tests for Python-only ingest, config-only save, and legacy unsupported-format failures
+- [x] Task 3.3: Add/adjust tests for Python-only ingest, config-only save, and legacy unsupported-format failures
   - Dependencies: Milestone 1, Milestone 2
-- [ ] Task 3.4: Publish release notes and migration guidance (re-ingest Python for any legacy JSON workflows)
+- [x] Task 3.4: Publish release notes and migration guidance (re-ingest Python for any legacy JSON workflows)
   - Dependencies: Task 3.3
 
 ---

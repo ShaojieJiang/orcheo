@@ -33,7 +33,6 @@ const workflow = {
 const createHandlers = () => ({
   onOpenWorkflow: vi.fn(),
   onUseTemplate: vi.fn(),
-  onDuplicateWorkflow: vi.fn(),
   onExportWorkflow: vi.fn(),
   onDeleteWorkflow: vi.fn(),
 });
@@ -101,11 +100,49 @@ describe("WorkflowCard", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("menuitem", { name: /duplicate/i }),
+      await screen.findByRole("menuitem", { name: /^export$/i }),
     );
 
-    expect(handlers.onDuplicateWorkflow).toHaveBeenCalledTimes(1);
+    expect(handlers.onExportWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("shows Export action label without JSON for workflows", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /workflow actions/i,
+      }),
+    );
+
+    expect(
+      await screen.findByRole("menuitem", { name: /^export$/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /export json/i })).toBeNull();
+  });
+
+  it("shows Export action label without JSON for templates", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(<WorkflowCard workflow={workflow} isTemplate {...handlers} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /workflow actions/i,
+      }),
+    );
+
+    expect(
+      await screen.findByRole("menuitem", { name: /^export$/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /export json/i })).toBeNull();
   });
 
   it("does not trigger card navigation for keyboard events from child actions", async () => {

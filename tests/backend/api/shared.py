@@ -62,10 +62,26 @@ def create_workflow_with_version(api_client: TestClient) -> tuple[str, str]:
     workflow_response.raise_for_status()
     workflow_id = workflow_response.json()["id"]
 
+    script = """
+from langgraph.graph import END, START, StateGraph
+
+def build_graph():
+    graph = StateGraph(dict)
+
+    def start(state):
+        return state
+
+    graph.add_node("start", start)
+    graph.add_edge(START, "start")
+    graph.add_edge("start", END)
+    return graph
+""".strip()
+
     version_response = api_client.post(
-        f"/api/workflows/{workflow_id}/versions",
+        f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "graph": {"nodes": ["start"], "edges": []},
+            "script": script,
+            "entrypoint": "build_graph",
             "metadata": {},
             "created_by": "tester",
         },

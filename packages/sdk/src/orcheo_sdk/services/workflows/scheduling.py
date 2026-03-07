@@ -89,6 +89,10 @@ def unschedule_workflow_cron(
 
 def _extract_cron_config(graph: Mapping[str, Any]) -> CronTriggerConfig | None:
     """Return the cron trigger config if the workflow contains one."""
+    index_config = _extract_cron_config_from_index(graph)
+    if index_config is not None:
+        return index_config
+
     nodes = _extract_nodes(graph)
     cron_nodes = [node for node in nodes if node.get("type") == "CronTriggerNode"]
     if not cron_nodes:
@@ -110,6 +114,38 @@ def _extract_cron_config(graph: Mapping[str, Any]) -> CronTriggerConfig | None:
         config_payload["start_at"] = node.get("start_at")
     if "end_at" in node:
         config_payload["end_at"] = node.get("end_at")
+    return CronTriggerConfig(**config_payload)
+
+
+def _extract_cron_config_from_index(
+    graph: Mapping[str, Any],
+) -> CronTriggerConfig | None:
+    """Return cron config from ``graph.index.cron`` when present."""
+    index = graph.get("index")
+    if not isinstance(index, Mapping):
+        return None
+
+    cron_entries = index.get("cron")
+    if not isinstance(cron_entries, list):
+        return None
+
+    resolved = [entry for entry in cron_entries if isinstance(entry, Mapping)]
+    if not resolved:
+        return None
+    if len(resolved) > 1:
+        raise CLIError("Workflow contains multiple cron triggers.")
+
+    entry = resolved[0]
+    config_payload: dict[str, Any] = {}
+    for key in (
+        "expression",
+        "timezone",
+        "allow_overlapping",
+        "start_at",
+        "end_at",
+    ):
+        if key in entry:  # pragma: no branch
+            config_payload[key] = entry.get(key)
     return CronTriggerConfig(**config_payload)
 
 

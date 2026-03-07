@@ -45,17 +45,6 @@ describe("workflow-storage API integration - save workflow", () => {
         updated_at: timestamp,
       }),
       jsonResponse({
-        id: "version-1",
-        workflow_id: "workflow-123",
-        version: 1,
-        graph: { nodes: [], edges: [] },
-        metadata: {},
-        notes: "Initial draft",
-        created_by: "canvas-app",
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
         id: "workflow-123",
         name: snapshot.name,
         slug: "workflow-123",
@@ -65,25 +54,7 @@ describe("workflow-storage API integration - save workflow", () => {
         created_at: timestamp,
         updated_at: timestamp,
       }),
-      jsonResponse([
-        {
-          id: "version-1",
-          workflow_id: "workflow-123",
-          version: 1,
-          graph: { nodes: [], edges: [] },
-          metadata: {
-            canvas: {
-              snapshot,
-              summary: { added: 0, removed: 0, modified: 0 },
-              message: "Initial draft",
-            },
-          },
-          notes: "Initial draft",
-          created_by: "canvas-app",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]),
+      jsonResponse([]),
     ]);
 
     const listener = vi.fn();
@@ -101,25 +72,14 @@ describe("workflow-storage API integration - save workflow", () => {
     );
 
     expect(saved.id).toBe("workflow-123");
-    expect(saved.versions).toHaveLength(1);
-    expect(saved.nodes).toHaveLength(1);
+    expect(saved.versions).toHaveLength(0);
+    expect(saved.nodes).toHaveLength(0);
     expect(listener).toHaveBeenCalled();
-
-    const versionPayload = JSON.parse(
-      (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
-    );
-
-    expect(versionPayload.metadata.canvas.snapshot.nodes[0]?.id).toBe(
-      "trigger-1",
-    );
 
     window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
 
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain("/api/workflows");
-    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
-      "/api/workflows/workflow-123/versions",
-    );
   });
 
   it("uses default actor when no explicit actor is provided", async () => {
@@ -153,17 +113,6 @@ describe("workflow-storage API integration - save workflow", () => {
         updated_at: timestamp,
       }),
       jsonResponse({
-        id: "version-1",
-        workflow_id: "workflow-actor",
-        version: 1,
-        graph: { nodes: [], edges: [] },
-        metadata: {},
-        notes: "Initial draft",
-        created_by: subject,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
         id: "workflow-actor",
         name: "Workflow with token subject actor",
         slug: "workflow-actor",
@@ -173,30 +122,7 @@ describe("workflow-storage API integration - save workflow", () => {
         created_at: timestamp,
         updated_at: timestamp,
       }),
-      jsonResponse([
-        {
-          id: "version-1",
-          workflow_id: "workflow-actor",
-          version: 1,
-          graph: { nodes: [], edges: [] },
-          metadata: {
-            canvas: {
-              snapshot: {
-                name: "Workflow with token subject actor",
-                description: "",
-                nodes: [],
-                edges: [],
-              },
-              summary: { added: 0, removed: 0, modified: 0 },
-              message: "Initial draft",
-            },
-          },
-          notes: "Initial draft",
-          created_by: subject,
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]),
+      jsonResponse([]),
     ]);
 
     await saveWorkflow(

@@ -7,7 +7,6 @@ from .app import (
     ActorOption,
     FilePathArgument,
     ForceOption,
-    FormatOption,
     InputsFileOption,
     InputsOption,
     OutputPathOption,
@@ -19,16 +18,16 @@ from .commands.listing import list_workflows
 from .commands.managing import (
     delete_workflow,
     download_workflow,
+    save_workflow_config,
     update_workflow,
     upload_workflow,
 )
 from .commands.running import evaluate_workflow, run_workflow
 from .commands.scheduling import schedule_workflow, unschedule_workflow
 from .commands.showing import show_workflow
-from .formatting import _format_workflow_as_json, _format_workflow_as_python
+from .formatting import _format_workflow_as_python
 from .ingest import (
     _generate_slug,
-    _load_workflow_from_json,
     _load_workflow_from_python,
     _normalize_workflow_name,
     _strip_main_block,
@@ -72,7 +71,6 @@ __all__ = [
     "ForceOption",
     "FilePathArgument",
     "OutputPathOption",
-    "FormatOption",
     "_state",
     "_generate_slug",
     "_normalize_workflow_name",
@@ -100,8 +98,6 @@ __all__ = [
     "_cache_notice",
     "_strip_main_block",
     "_load_workflow_from_python",
-    "_load_workflow_from_json",
-    "_format_workflow_as_json",
     "_format_workflow_as_python",
     "render_json",
     "render_table",
@@ -113,6 +109,7 @@ __all__ = [
     "update_workflow",
     "upload_workflow",
     "download_workflow",
+    "save_workflow_config",
     "schedule_workflow",
     "unschedule_workflow",
 ]

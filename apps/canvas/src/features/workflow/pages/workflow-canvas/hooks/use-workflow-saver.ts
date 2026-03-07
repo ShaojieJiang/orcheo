@@ -48,7 +48,6 @@ interface WorkflowSaverOptions {
 }
 
 interface WorkflowSaverHandlers {
-  handleSaveWorkflow: () => Promise<void>;
   handleSaveWorkflowConfig: (
     runnableConfig: WorkflowRunnableConfig | null,
   ) => Promise<void>;
@@ -80,13 +79,11 @@ export function useWorkflowSaver(
   const persistCurrentWorkflow = useCallback(
     async ({
       versionMessage,
-      forceVersion = false,
       runnableConfig,
       successTitle,
       successDescription,
     }: {
       versionMessage: string;
-      forceVersion?: boolean;
       runnableConfig?: WorkflowRunnableConfig | null;
       successTitle: string;
       successDescription: (saved: StoredWorkflow) => string;
@@ -107,7 +104,6 @@ export function useWorkflowSaver(
         },
         {
           versionMessage,
-          forceVersion,
           runnableConfig,
         },
       );
@@ -152,25 +148,6 @@ export function useWorkflowSaver(
     ],
   );
 
-  const handleSaveWorkflow = useCallback(async () => {
-    const timestampLabel = new Date().toLocaleString();
-
-    try {
-      await persistCurrentWorkflow({
-        versionMessage: `Manual save (${timestampLabel})`,
-        successTitle: "Workflow saved",
-        successDescription: (saved) => `"${saved.name}" has been updated.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to save workflow",
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive",
-      });
-    }
-  }, [persistCurrentWorkflow]);
-
   const handleSaveWorkflowConfig = useCallback(
     async (runnableConfig: WorkflowRunnableConfig | null) => {
       const timestampLabel = new Date().toLocaleString();
@@ -178,11 +155,10 @@ export function useWorkflowSaver(
       try {
         await persistCurrentWorkflow({
           versionMessage: `Workflow config updated (${timestampLabel})`,
-          forceVersion: true,
           runnableConfig,
           successTitle: "Workflow config saved",
           successDescription: (saved) =>
-            `Saved config for "${saved.name}" as a new version.`,
+            `Saved config for "${saved.name}" without creating a new version.`,
         });
       } catch (error) {
         toast({
@@ -261,7 +237,6 @@ export function useWorkflowSaver(
   );
 
   return {
-    handleSaveWorkflow,
     handleSaveWorkflowConfig,
     handleTagsChange,
     handleRestoreVersion,

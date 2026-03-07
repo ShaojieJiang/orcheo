@@ -75,6 +75,32 @@ class WorkflowVersionMixin(InMemoryRepositoryState):
                     return version.model_copy(deep=True)
             raise WorkflowVersionNotFoundError(f"v{version_number}")
 
+    async def update_version_runnable_config(
+        self,
+        workflow_id: UUID,
+        *,
+        version_number: int,
+        runnable_config: dict[str, Any] | None,
+        actor: str,
+    ) -> WorkflowVersion:
+        """Update only runnable config for a workflow version."""
+        async with self._lock:
+            version_ids = self._workflow_versions.get(workflow_id)
+            if version_ids is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+            for version_id in version_ids:
+                version = self._versions[version_id]
+                if version.version == version_number:
+                    version.runnable_config = (
+                        dict(runnable_config) if runnable_config is not None else None
+                    )
+                    version.record_event(
+                        actor=actor,
+                        action="version_runnable_config_updated",
+                    )
+                    return version.model_copy(deep=True)
+            raise WorkflowVersionNotFoundError(f"v{version_number}")
+
     async def get_version(self, version_id: UUID) -> WorkflowVersion:
         """Retrieve a workflow version by its identifier."""
         async with self._lock:

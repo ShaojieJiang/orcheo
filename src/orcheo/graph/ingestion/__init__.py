@@ -28,7 +28,7 @@ from orcheo.graph.ingestion.summary import (
     _serialise_branch as _summary_serialise_branch,
 )
 from orcheo.graph.ingestion.summary import _unwrap_runnable as _summary_unwrap_runnable
-from orcheo.graph.ingestion.summary import summarise_state_graph
+from orcheo.graph.ingestion.summary import summarise_graph_index
 
 
 _compile_langgraph_script = _sandbox_compile_langgraph_script
@@ -51,10 +51,10 @@ def ingest_langgraph_script(
 ) -> dict[str, Any]:
     """Return a workflow graph payload produced from a LangGraph Python script.
 
-    The returned payload embeds the original script alongside a lightweight
-    summary of the discovered LangGraph state graph. The summary is useful for
-    visualisation and quick inspection while the original script is required to
-    faithfully rebuild the graph during execution.
+    The returned payload embeds the original script alongside a compact index
+    containing derived metadata (for example, Mermaid output and cron trigger
+    fields) while the original script is required to faithfully rebuild the
+    graph during execution.
     """
     graph = load_graph_from_script(
         source,
@@ -62,12 +62,12 @@ def ingest_langgraph_script(
         max_script_bytes=max_script_bytes,
         execution_timeout_seconds=execution_timeout_seconds,
     )
-    summary = summarise_state_graph(graph)
+    index = summarise_graph_index(graph)
     return {
         "format": LANGGRAPH_SCRIPT_FORMAT,
         "source": source,
         "entrypoint": entrypoint,
-        "summary": summary,
+        "index": index,
     }
 
 
@@ -98,4 +98,5 @@ __all__ = [
     "time",
     "ingest_langgraph_script",
     "load_graph_from_script",
+    "summarise_graph_index",
 ]
