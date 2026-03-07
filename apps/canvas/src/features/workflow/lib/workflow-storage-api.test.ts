@@ -59,6 +59,30 @@ describe("workflow-storage-api helpers", () => {
     });
   });
 
+  it("extracts cron config from script graph summary nodes", () => {
+    const config = extractCronConfigFromVersionGraph({
+      format: "langgraph-script",
+      summary: {
+        nodes: [
+          {
+            type: "CronTriggerNode",
+            expression: "0 12 * * *",
+            timezone: "UTC",
+            allow_overlapping: false,
+          },
+        ],
+      },
+    });
+
+    expect(config).toEqual({
+      expression: "0 12 * * *",
+      timezone: "UTC",
+      allow_overlapping: false,
+      start_at: undefined,
+      end_at: undefined,
+    });
+  });
+
   it("throws when multiple cron triggers exist", () => {
     expect(() =>
       extractCronConfigFromVersionGraph({

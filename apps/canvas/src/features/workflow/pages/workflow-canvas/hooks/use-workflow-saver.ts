@@ -48,7 +48,6 @@ interface WorkflowSaverOptions {
 }
 
 interface WorkflowSaverHandlers {
-  handleSaveWorkflow: () => Promise<void>;
   handleSaveWorkflowConfig: (
     runnableConfig: WorkflowRunnableConfig | null,
   ) => Promise<void>;
@@ -149,25 +148,6 @@ export function useWorkflowSaver(
     ],
   );
 
-  const handleSaveWorkflow = useCallback(async () => {
-    const timestampLabel = new Date().toLocaleString();
-
-    try {
-      await persistCurrentWorkflow({
-        versionMessage: `Manual save (${timestampLabel})`,
-        successTitle: "Workflow saved",
-        successDescription: (saved) => `"${saved.name}" has been updated.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to save workflow",
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive",
-      });
-    }
-  }, [persistCurrentWorkflow]);
-
   const handleSaveWorkflowConfig = useCallback(
     async (runnableConfig: WorkflowRunnableConfig | null) => {
       const timestampLabel = new Date().toLocaleString();
@@ -257,7 +237,6 @@ export function useWorkflowSaver(
   );
 
   return {
-    handleSaveWorkflow,
     handleSaveWorkflowConfig,
     handleTagsChange,
     handleRestoreVersion,

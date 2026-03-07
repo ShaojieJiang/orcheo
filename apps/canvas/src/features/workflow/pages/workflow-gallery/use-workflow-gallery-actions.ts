@@ -6,10 +6,8 @@ import {
   type Workflow,
 } from "@features/workflow/data/workflow-data";
 import {
-  createWorkflow,
   createWorkflowFromTemplate,
   deleteWorkflow,
-  duplicateWorkflow,
 } from "@features/workflow/lib/workflow-storage";
 import { fetchWorkflowVersions } from "@features/workflow/lib/workflow-storage-api";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
@@ -18,11 +16,8 @@ import { type WorkflowGalleryTab } from "./types";
 interface WorkflowGalleryActionsArgs {
   newFolderName: string;
   setNewFolderName: (value: string) => void;
-  newWorkflowName: string;
-  setNewWorkflowName: (value: string) => void;
   setSelectedTab: (value: WorkflowGalleryTab) => void;
   setShowNewFolderDialog: (value: boolean) => void;
-  setShowNewWorkflowDialog: (value: boolean) => void;
   setShowFilterPopover: (value: boolean) => void;
 }
 
@@ -107,38 +102,6 @@ export const useWorkflowGalleryActions = (
     state.setShowNewFolderDialog(false);
   }, [state]);
 
-  const handleCreateWorkflow = useCallback(async () => {
-    const name = state.newWorkflowName.trim() || "Untitled Workflow";
-
-    try {
-      const workflow = await createWorkflow({
-        name,
-        description: "",
-        tags: ["draft"],
-        nodes: [],
-        edges: [],
-      });
-
-      state.setNewWorkflowName("");
-      state.setShowNewWorkflowDialog(false);
-      state.setSelectedTab("all");
-
-      toast({
-        title: "Workflow created",
-        description: `"${workflow.name}" is ready to edit.`,
-      });
-
-      handleOpenWorkflow(getWorkflowRouteRef(workflow));
-    } catch (error) {
-      toast({
-        title: "Failed to create workflow",
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive",
-      });
-    }
-  }, [handleOpenWorkflow, state]);
-
   const handleUseTemplate = useCallback(
     async (templateId: string) => {
       try {
@@ -209,40 +172,6 @@ export const useWorkflowGalleryActions = (
     }
   }, [state]);
 
-  const handleDuplicateWorkflow = useCallback(
-    async (workflowId: string) => {
-      try {
-        const copy = await duplicateWorkflow(workflowId);
-        if (!copy) {
-          toast({
-            title: "Duplicate failed",
-            description:
-              "We couldn't duplicate this workflow. Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        state.setSelectedTab("all");
-
-        toast({
-          title: "Workflow duplicated",
-          description: `"${copy.name}" is ready to edit.`,
-        });
-
-        handleOpenWorkflow(getWorkflowRouteRef(copy));
-      } catch (error) {
-        toast({
-          title: "Failed to duplicate workflow",
-          description:
-            error instanceof Error ? error.message : "Unknown error occurred",
-          variant: "destructive",
-        });
-      }
-    },
-    [handleOpenWorkflow, state],
-  );
-
   const handleExportWorkflow = useCallback(async (workflow: Workflow) => {
     try {
       const source = await resolveWorkflowPythonSource(workflow);
@@ -301,10 +230,8 @@ export const useWorkflowGalleryActions = (
   return {
     handleOpenWorkflow,
     handleCreateFolder,
-    handleCreateWorkflow,
     handleUseTemplate,
     handleImportStarterPack,
-    handleDuplicateWorkflow,
     handleExportWorkflow,
     handleDeleteWorkflow,
     handleApplyFilters,

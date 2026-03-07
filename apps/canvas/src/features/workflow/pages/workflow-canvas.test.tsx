@@ -142,7 +142,7 @@ describe("WorkflowCanvas tabs", () => {
 
     expect(
       await screen.findByText(
-        /save this workflow to generate a versioned mermaid diagram/i,
+        /no version is available yet to generate a mermaid diagram/i,
       ),
     ).toBeInTheDocument();
   });

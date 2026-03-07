@@ -33,7 +33,6 @@ const workflow = {
 const createHandlers = () => ({
   onOpenWorkflow: vi.fn(),
   onUseTemplate: vi.fn(),
-  onDuplicateWorkflow: vi.fn(),
   onExportWorkflow: vi.fn(),
   onDeleteWorkflow: vi.fn(),
 });
@@ -101,10 +100,10 @@ describe("WorkflowCard", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("menuitem", { name: /duplicate/i }),
+      await screen.findByRole("menuitem", { name: /^export$/i }),
     );
 
-    expect(handlers.onDuplicateWorkflow).toHaveBeenCalledTimes(1);
+    expect(handlers.onExportWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 

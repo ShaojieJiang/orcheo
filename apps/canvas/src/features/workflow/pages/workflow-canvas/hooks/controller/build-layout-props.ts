@@ -111,7 +111,6 @@ export function buildWorkflowLayoutProps(
     onTagsChange: resources.saver.handleTagsChange,
     workflowVersions: core.metadata.workflowVersions ?? [],
     onRestoreVersion: resources.saver.handleRestoreVersion,
-    onSaveWorkflow: resources.saver.handleSaveWorkflow,
   };
 
   return {

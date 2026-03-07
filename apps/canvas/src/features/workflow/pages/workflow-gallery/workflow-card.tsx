@@ -41,7 +41,6 @@ interface WorkflowCardProps {
   isTemplate: boolean;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
-  onDuplicateWorkflow: (workflowId: string) => void;
   onExportWorkflow: (workflow: Workflow) => void;
   onDeleteWorkflow: (workflowId: string, workflowName: string) => void;
 }
@@ -51,7 +50,6 @@ export const WorkflowCard = ({
   isTemplate,
   onOpenWorkflow,
   onUseTemplate,
-  onDuplicateWorkflow,
   onExportWorkflow,
   onDeleteWorkflow,
 }: WorkflowCardProps) => {
@@ -177,16 +175,6 @@ export const WorkflowCard = ({
                   >
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onDuplicateWorkflow(workflow.id);
-                    }}
-                  >
-                    <Copy className="mr-2 h-4 w-4" />
-                    Duplicate
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={(event) => {

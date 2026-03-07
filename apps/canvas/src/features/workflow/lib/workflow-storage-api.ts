@@ -188,7 +188,7 @@ const extractCronConfigFromGraphNodes = (
 ): CronTriggerConfig | null => {
   const graphFormat = toOptionalString(graph.format);
   const nodes =
-    graphFormat === "langgraph_script" && isRecord(graph.summary)
+    graphFormat === "langgraph-script" && isRecord(graph.summary)
       ? Array.isArray(graph.summary.nodes)
         ? graph.summary.nodes
         : []

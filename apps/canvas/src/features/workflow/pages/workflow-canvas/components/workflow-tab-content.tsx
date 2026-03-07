@@ -559,7 +559,7 @@ export function WorkflowTabContent({
 
       {!latestVersion && (
         <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-          Save this workflow to generate a versioned Mermaid diagram.
+          No version is available yet to generate a Mermaid diagram.
         </div>
       )}
 
