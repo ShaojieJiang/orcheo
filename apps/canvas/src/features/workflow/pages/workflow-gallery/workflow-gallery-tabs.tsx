@@ -68,15 +68,17 @@ export const WorkflowGalleryTabs = ({
                 ? `No workflows match your search for "${searchQuery}"`
                 : "Get started by creating your first workflow"}
             </p>
-            <Button onClick={onCreateWorkflowRequest}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Workflow
-            </Button>
-            {!isTemplateView ? (
-              <Button variant="outline" onClick={onImportStarterPack}>
-                Import Starter Pack
+            <div className="flex flex-col items-center gap-3">
+              <Button onClick={onCreateWorkflowRequest}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Workflow
               </Button>
-            ) : null}
+              {!isTemplateView ? (
+                <Button variant="outline" onClick={onImportStarterPack}>
+                  Import Starter Pack
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">

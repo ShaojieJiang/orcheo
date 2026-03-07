@@ -9,14 +9,14 @@ from orcheo.nodes.ai import AgentNode
 def orcheo_workflow() -> StateGraph:
     graph = StateGraph(State)
     agent = AgentNode(
-        name="assistant_agent",
+        name="ai_agent",
         ai_model="openai:gpt-4o-mini",
         system_prompt="You are a helpful assistant for workflow demos.",
         model_kwargs={"api_key": "[[openai_api_key]]"},
     )
-    graph.add_node("assistant_agent", agent)
-    graph.set_entry_point("assistant_agent")
-    graph.set_finish_point("assistant_agent")
+    graph.add_node("ai_agent", agent)
+    graph.set_entry_point("ai_agent")
+    graph.set_finish_point("ai_agent")
     return graph
 `;
 
@@ -27,10 +27,10 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	assistant_agent(assistant_agent)
+	ai_agent(ai_agent)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> assistant_agent;
-	assistant_agent --> __end__;
+	__start__ --> ai_agent;
+	ai_agent --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
@@ -56,7 +56,7 @@ export const PYTHON_AGENT_WORKFLOW: Workflow = {
       },
     },
     {
-      id: "assistant_agent",
+      id: "ai_agent",
       type: "agent",
       position: { x: 260, y: 0 },
       data: {
@@ -80,11 +80,11 @@ export const PYTHON_AGENT_WORKFLOW: Workflow = {
     {
       id: "edge-start-agent",
       source: "start",
-      target: "assistant_agent",
+      target: "ai_agent",
     },
     {
       id: "edge-agent-end",
-      source: "assistant_agent",
+      source: "ai_agent",
       target: "end",
     },
   ],
