@@ -89,4 +89,32 @@ describe("WorkflowThumbnail", () => {
     expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
     expect(mermaidMock.initialize).toHaveBeenCalledTimes(1);
   });
+
+  it("shows loading placeholder instead of fallback while Mermaid is rendering", () => {
+    mermaidMock.render.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep promise pending to validate the loading state.
+        }),
+    );
+
+    const workflowWithMermaid = {
+      ...baseWorkflow,
+      versions: [
+        {
+          id: "v1",
+          mermaid: "flowchart TD\nA[Start] --> B[End]",
+        },
+      ],
+    };
+
+    const { container } = render(
+      <WorkflowThumbnail workflow={workflowWithMermaid} />,
+    );
+
+    expect(
+      container.querySelector(".workflow-thumbnail-loading"),
+    ).not.toBeNull();
+    expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
+  });
 });

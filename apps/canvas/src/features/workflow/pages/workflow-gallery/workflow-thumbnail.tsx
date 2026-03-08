@@ -94,6 +94,10 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const showMermaidThumbnail = Boolean(
     mermaidSource && diagramSvg && !diagramError,
   );
+  const showLoadingThumbnail = Boolean(
+    mermaidSource && !diagramSvg && !diagramError,
+  );
+  const showFallbackThumbnail = Boolean(!mermaidSource || diagramError);
 
   return (
     <div className="relative h-24 w-full overflow-hidden rounded-md bg-muted/30">
@@ -102,7 +106,16 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
           className="workflow-thumbnail-mermaid absolute inset-0 flex items-center justify-center p-1 [&_svg]:block [&_svg]:max-h-full [&_svg]:max-w-full [&_svg]:!h-auto [&_svg]:!w-auto"
           dangerouslySetInnerHTML={{ __html: diagramSvg }}
         />
-      ) : (
+      ) : null}
+
+      {showLoadingThumbnail ? (
+        <div
+          className="workflow-thumbnail-loading absolute inset-0 animate-pulse bg-muted/40"
+          aria-hidden="true"
+        />
+      ) : null}
+
+      {showFallbackThumbnail ? (
         <svg
           width="100%"
           height="100%"
@@ -164,7 +177,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
             );
           })}
         </svg>
-      )}
+      ) : null}
     </div>
   );
 };
