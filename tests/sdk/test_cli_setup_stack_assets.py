@@ -127,8 +127,10 @@ def _patch_common(
     base_url: str = "https://example.test/assets",
     assets: dict[str, bytes] | None = None,
     has_docker: bool = True,
+    docker_access: bool = True,
     commands: list[list[str]] | None = None,
     health_ok: bool = True,
+    docker_autoinstall_success: bool | None = None,
 ) -> None:
     """Wire up common monkeypatches for execute_setup tests."""
     resolved_assets = assets or _default_assets()
@@ -149,6 +151,15 @@ def _patch_common(
         "orcheo_sdk.cli.setup._poll_backend_health",
         lambda backend_url, *, console: health_ok,
     )
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.setup._current_shell_has_docker_access",
+        lambda: docker_access,
+    )
+    if docker_autoinstall_success is not None:
+        monkeypatch.setattr(
+            "orcheo_sdk.cli.setup._attempt_docker_autoinstall",
+            lambda *, console: docker_autoinstall_success,
+        )
 
     def _urlopen(url: str, timeout: int) -> _Response:
         del timeout
@@ -586,7 +597,12 @@ def test_execute_setup_skips_stack_start_when_docker_missing_and_install_enabled
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+    _patch_common(
+        monkeypatch,
+        stack_dir=stack_dir,
+        has_docker=False,
+        docker_autoinstall_success=False,
+    )
 
     config = _setup_config()
     config.install_docker_if_missing = True
@@ -594,7 +610,63 @@ def test_execute_setup_skips_stack_start_when_docker_missing_and_install_enabled
     execute_setup(config, console=console)
 
     assert config.start_stack is False
-    assert "automatic installation is not available yet" in console.export_text()
+    assert "automatic installation could not complete" in console.export_text()
+
+
+def test_execute_setup_autoinstalls_docker_then_starts_stack(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    commands: list[list[str]] = []
+    _patch_common(monkeypatch, stack_dir=stack_dir, commands=commands, has_docker=False)
+
+    from orcheo_sdk.cli import setup as setup_mod
+
+    docker_state = {"installed": False}
+    monkeypatch.setattr(
+        setup_mod,
+        "_has_binary",
+        lambda name: docker_state["installed"] and name == "docker",
+    )
+
+    def _autoinstall(*, console: Console) -> bool:
+        del console
+        docker_state["installed"] = True
+        return True
+
+    monkeypatch.setattr(setup_mod, "_attempt_docker_autoinstall", _autoinstall)
+    monkeypatch.setattr(setup_mod, "_current_shell_has_docker_access", lambda: True)
+
+    config = _setup_config()
+    execute_setup(config, console=Console(record=True))
+
+    assert config.start_stack is True
+    assert commands[0][-1] == "pull"
+    assert commands[1][-2:] == ["up", "-d"]
+
+
+def test_execute_setup_skips_stack_when_docker_daemon_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    commands: list[list[str]] = []
+    _patch_common(
+        monkeypatch,
+        stack_dir=stack_dir,
+        commands=commands,
+        has_docker=True,
+        docker_access=False,
+    )
+
+    config = _setup_config()
+    console = Console(record=True)
+    execute_setup(config, console=console)
+
+    assert config.start_stack is False
+    assert commands == []
+    assert "cannot access the daemon yet" in console.export_text()
 
 
 def test_execute_setup_raises_when_docker_missing_and_install_disabled(
@@ -734,6 +806,133 @@ def test_setup_api_key_and_optional_normalization(
     assert setup_mod._resolve_chatkit_domain_key("  key ", yes=True) == "key"
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "  ")
     assert setup_mod._resolve_chatkit_domain_key(None, yes=False) is None
+
+
+def test_supported_docker_autoinstall_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Darwin")
+    assert setup_mod._is_supported_docker_autoinstall_linux() is False
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(setup_mod, "_read_os_release", lambda: {"ID": "ubuntu"})
+    assert setup_mod._is_supported_docker_autoinstall_linux() is True
+
+    monkeypatch.setattr(
+        setup_mod,
+        "_read_os_release",
+        lambda: {"ID": "linuxmint", "ID_LIKE": "ubuntu debian"},
+    )
+    assert setup_mod._is_supported_docker_autoinstall_linux() is True
+
+    monkeypatch.setattr(
+        setup_mod,
+        "_read_os_release",
+        lambda: {"ID": "fedora", "ID_LIKE": "rhel"},
+    )
+    assert setup_mod._is_supported_docker_autoinstall_linux() is False
+
+
+def test_read_os_release_handles_read_errors_and_malformed_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.Path, "exists", lambda self: True)
+
+    def _raise_read_error(_self: Path, *, encoding: str = "utf-8") -> str:
+        del encoding
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(setup_mod.Path, "read_text", _raise_read_error)
+    assert setup_mod._read_os_release() == {}
+
+    monkeypatch.setattr(
+        setup_mod.Path,
+        "read_text",
+        lambda _self, *, encoding="utf-8": (
+            "ID=ubuntu\n"
+            "#comment\n"
+            "BROKEN\n"
+            'ID_LIKE="debian ubuntu"\n'
+            "bad-key=ignored\n"
+            "   =missing\n"
+        ),
+    )
+    assert setup_mod._read_os_release() == {
+        "ID": "ubuntu",
+        "ID_LIKE": "debian ubuntu",
+    }
+
+
+def test_current_username_handles_lookup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    monkeypatch.setattr(
+        setup_mod.getpass, "getuser", lambda: (_ for _ in ()).throw(OSError)
+    )
+    assert setup_mod._current_username() is None
+
+    monkeypatch.setenv("SUDO_USER", "root-user")
+    assert setup_mod._current_username() == "root-user"
+
+
+def test_attempt_docker_autoinstall_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: False
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
+
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
+    )
+    monkeypatch.setattr(
+        setup_mod, "_has_binary", lambda name: name in {"docker", "sudo"}
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
+
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        setup_mod, "_has_binary", lambda name: name in {"apt-get", "docker", "sudo"}
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: commands.append(command),
+    )
+    monkeypatch.setattr(setup_mod, "_current_username", lambda: "alice")
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is True
+    assert commands == [
+        ["apt-get", "update"],
+        ["apt-get", "install", "-y", "docker.io", "docker-compose-v2"],
+        ["systemctl", "enable", "--now", "docker"],
+        ["usermod", "-aG", "docker", "alice"],
+    ]
+
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: (_ for _ in ()).throw(typer.BadParameter("boom")),
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
+
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: (_ for _ in ()).throw(
+            FileNotFoundError("systemctl")
+        ),
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
 
 
 def test_resolve_backend_url_install_yes_uses_default() -> None:

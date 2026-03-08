@@ -1,8 +1,10 @@
 """Guided setup and upgrade command for the Orcheo stack."""
 
 from __future__ import annotations
+import getpass
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -37,6 +39,7 @@ _STACK_ASSET_FILES = (
     "chatkit_widgets/Multi-choice Selector.widget",
 )
 _CHATKIT_DOMAIN_KEY_PLACEHOLDER = "domain_pk_replace_me"
+_OS_RELEASE_KEY_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
 
 @dataclass(slots=True)
@@ -67,6 +70,121 @@ def _run_command(command: list[str], *, console: Console) -> None:
 
 def _has_binary(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def _read_os_release() -> dict[str, str]:
+    os_release = Path("/etc/os-release")
+    if not os_release.exists():
+        return {}
+
+    try:
+        lines = os_release.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return {}
+
+    values: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, raw_value = stripped.partition("=")
+        if separator != "=":
+            continue
+        normalized_key = key.strip()
+        if not _OS_RELEASE_KEY_PATTERN.fullmatch(normalized_key):
+            continue
+        values[normalized_key] = _normalize_dotenv_value(raw_value) or ""
+    return values
+
+
+def _is_supported_docker_autoinstall_linux() -> bool:
+    if platform.system() != "Linux":
+        return False
+
+    os_release = _read_os_release()
+    distro_id = os_release.get("ID", "").lower()
+    distro_like = os_release.get("ID_LIKE", "").lower().split()
+    if distro_id in {"ubuntu", "debian"}:
+        return True
+    return any(token in {"ubuntu", "debian"} for token in distro_like)
+
+
+def _run_privileged_command(command: list[str], *, console: Console) -> None:
+    if os.geteuid() == 0:
+        _run_command(command, console=console)
+        return
+    if not _has_binary("sudo"):
+        raise typer.BadParameter(
+            "Automatic Docker installation requires root privileges or sudo."
+        )
+    _run_command(["sudo", *command], console=console)
+
+
+def _current_username() -> str | None:
+    username = _normalize_optional_value(os.getenv("SUDO_USER"))
+    if username:
+        return username
+    try:
+        return _normalize_optional_value(getpass.getuser())
+    except (KeyError, OSError, ImportError):
+        return None
+
+
+def _current_shell_has_docker_access() -> bool:
+    if not _has_binary("docker"):
+        return False
+    result = subprocess.run(
+        ["docker", "info"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _attempt_docker_autoinstall(*, console: Console) -> bool:
+    if not _is_supported_docker_autoinstall_linux():
+        return False
+    if not _has_binary("apt-get"):
+        console.print(
+            "[yellow]Automatic Docker installation currently supports "
+            "apt-based Ubuntu/Debian systems.[/yellow]"
+        )
+        return False
+
+    console.print(
+        "[cyan]Docker is missing. Attempting automatic installation on "
+        "Ubuntu/Debian...[/cyan]"
+    )
+    try:
+        _run_privileged_command(["apt-get", "update"], console=console)
+        _run_privileged_command(
+            ["apt-get", "install", "-y", "docker.io", "docker-compose-v2"],
+            console=console,
+        )
+        _run_privileged_command(
+            ["systemctl", "enable", "--now", "docker"], console=console
+        )
+
+        username = _current_username()
+        if username:
+            _run_privileged_command(
+                ["usermod", "-aG", "docker", username], console=console
+            )
+    except (typer.BadParameter, FileNotFoundError) as exc:
+        console.print(
+            "[yellow]Automatic Docker installation failed: "
+            f"{exc}. Continuing without starting the stack.[/yellow]"
+        )
+        return False
+
+    if not _has_binary("docker"):
+        console.print(
+            "[yellow]Docker installation completed but the docker binary is still "
+            "not available in PATH.[/yellow]"
+        )
+        return False
+    return True
 
 
 def _resolve_mode(mode: SetupMode | None, *, yes: bool) -> SetupMode:
@@ -675,18 +793,27 @@ def execute_setup(
 
     if config.start_stack and not _has_binary("docker"):
         if config.install_docker_if_missing:
-            console.print(
-                "[yellow]Docker is missing and automatic installation is not "
-                "available yet. Continuing without starting the stack. "
-                "Install Docker Desktop (https://docs.docker.com/get-docker/) "
-                "and rerun with --start-stack.[/yellow]"
-            )
-            config.start_stack = False
+            if not _attempt_docker_autoinstall(console=console):
+                console.print(
+                    "[yellow]Docker is missing and automatic installation could "
+                    "not complete. Continuing without starting the stack. "
+                    "Install Docker (https://docs.docker.com/get-docker/) and "
+                    "rerun with --start-stack.[/yellow]"
+                )
+                config.start_stack = False
         else:
             raise typer.BadParameter(
                 "Docker is required to start the stack, and you chose "
                 "--skip-docker-install. Install Docker and rerun setup."
             )
+
+    if config.start_stack and not _current_shell_has_docker_access():
+        console.print(
+            "[yellow]Docker is installed, but this shell cannot access the daemon "
+            "yet. Run `newgrp docker` or re-login, then rerun with "
+            "--start-stack.[/yellow]"
+        )
+        config.start_stack = False
 
     if config.start_stack and _has_binary("docker"):
         compose_args = [
