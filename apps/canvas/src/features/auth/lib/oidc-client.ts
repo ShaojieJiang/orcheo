@@ -227,6 +227,14 @@ const sha256 = async (value: string): Promise<ArrayBuffer> => {
   return crypto.subtle.digest("SHA-256", data);
 };
 
+interface JwtPayloadWithExpiry {
+  exp?: unknown;
+}
+
+const isJwtPayloadWithExpiry = (
+  value: unknown,
+): value is JwtPayloadWithExpiry => typeof value === "object" && value !== null;
+
 const parseJwtExpiry = (token?: string): number | undefined => {
   if (!token) {
     return undefined;
@@ -239,10 +247,10 @@ const parseJwtExpiry = (token?: string): number | undefined => {
     const payload = JSON.parse(
       atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
     ) as unknown;
-    if (!payload || typeof payload !== "object") {
+    if (!isJwtPayloadWithExpiry(payload)) {
       return undefined;
     }
-    const exp = (payload as { exp?: unknown }).exp;
+    const exp = payload.exp;
     if (typeof exp !== "number" || !Number.isFinite(exp)) {
       return undefined;
     }

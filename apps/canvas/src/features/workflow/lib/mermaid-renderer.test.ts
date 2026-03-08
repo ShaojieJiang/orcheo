@@ -23,6 +23,7 @@ afterEach(() => {
   __resetMermaidRenderCacheForTests();
   mermaidMock.initialize.mockReset();
   mermaidMock.render.mockReset();
+  vi.restoreAllMocks();
 });
 
 describe("mermaid-renderer", () => {
@@ -137,5 +138,65 @@ describe("mermaid-renderer", () => {
     await Promise.all(requests);
 
     expect(maxActiveRenders).toBeLessThanOrEqual(3);
+  });
+
+  it("logs when session cache hydration fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const storagePrototype = Object.getPrototypeOf(window.sessionStorage) as {
+      getItem: (key: string) => string | null;
+    };
+    vi.spyOn(storagePrototype, "getItem").mockImplementation(() => {
+      throw new Error("read failed");
+    });
+    mermaidMock.render.mockResolvedValue({
+      svg: "<svg id='read-fallback'></svg>",
+    });
+
+    const source = "flowchart TD\nA --> Read";
+    const cacheKey = buildMermaidCacheKey({
+      scope: "gallery-thumbnail",
+      workflowId: "wf-read-failure",
+      versionId: "v1",
+      source,
+    });
+    const renderId = buildMermaidRenderId("workflow-gallery-mermaid", cacheKey);
+
+    await expect(
+      renderMermaidSvg({ source, cacheKey, renderId }),
+    ).resolves.toBe("<svg id='read-fallback'></svg>");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Failed to read Mermaid SVG session cache",
+      expect.any(Error),
+    );
+  });
+
+  it("logs when session cache persistence fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const storagePrototype = Object.getPrototypeOf(window.sessionStorage) as {
+      setItem: (key: string, value: string) => void;
+    };
+    vi.spyOn(storagePrototype, "setItem").mockImplementation(() => {
+      throw new Error("write failed");
+    });
+    mermaidMock.render.mockResolvedValue({
+      svg: "<svg id='write-fallback'></svg>",
+    });
+
+    const source = "flowchart TD\nA --> Write";
+    const cacheKey = buildMermaidCacheKey({
+      scope: "gallery-thumbnail",
+      workflowId: "wf-write-failure",
+      versionId: "v1",
+      source,
+    });
+    const renderId = buildMermaidRenderId("workflow-gallery-mermaid", cacheKey);
+
+    await expect(
+      renderMermaidSvg({ source, cacheKey, renderId }),
+    ).resolves.toBe("<svg id='write-fallback'></svg>");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Failed to write Mermaid SVG session cache",
+      expect.any(Error),
+    );
   });
 });

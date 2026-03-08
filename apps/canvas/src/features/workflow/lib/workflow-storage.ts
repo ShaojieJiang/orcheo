@@ -96,13 +96,10 @@ export const listWorkflows = async (
         return toStoredWorkflow(workflow, versions);
       }),
     );
-    const filteredItems = items.filter(
-      (workflow) => workflow.isArchived !== true,
-    );
     if (requestId === workflowListRequestId) {
-      workflowListCache = { items: filteredItems, cachedAt: Date.now() };
+      workflowListCache = { items, cachedAt: Date.now() };
     }
-    return filteredItems;
+    return items;
   })();
 
   workflowListInflight = inflightPromise;

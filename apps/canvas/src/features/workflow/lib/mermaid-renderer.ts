@@ -60,6 +60,13 @@ const touchCacheEntry = <T>(cache: Map<string, T>, key: string, value: T) => {
 const isSessionStorageAvailable = (): boolean =>
   typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
 
+const logSessionCacheWarning = (
+  operation: "read" | "write",
+  error: unknown,
+) => {
+  console.warn(`Failed to ${operation} Mermaid SVG session cache`, error);
+};
+
 const readSessionCache = () => {
   if (hydratedSessionCache || !isSessionStorageAvailable()) {
     return;
@@ -90,8 +97,8 @@ const readSessionCache = () => {
     });
 
     trimCache(sessionCache, SESSION_CACHE_LIMIT);
-  } catch {
-    // Ignore session cache read failures and continue with in-memory cache only.
+  } catch (error) {
+    logSessionCacheWarning("read", error);
   }
 };
 
@@ -106,8 +113,8 @@ const writeSessionCache = () => {
     ).map(([key, svg]) => ({ key, svg }));
 
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // Ignore session cache write failures and continue with in-memory cache only.
+  } catch (error) {
+    logSessionCacheWarning("write", error);
   }
 };
 
