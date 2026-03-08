@@ -154,7 +154,7 @@ services:
       && npm config set fund false
       && npm config set audit false
       && npm init -y >/dev/null
-      && npm install --silent orcheo-canvas
+      && npm install --silent orcheo-canvas@latest
       && npm --prefix node_modules/orcheo-canvas run dev -- --host 0.0.0.0"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5173/', r => { r.resume(); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1))\""]
