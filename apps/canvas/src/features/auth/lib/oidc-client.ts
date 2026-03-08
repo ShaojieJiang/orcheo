@@ -2,6 +2,14 @@ import { setAuthTokens } from "@features/auth/lib/auth-session";
 
 type AuthProvider = "google" | "github";
 
+interface OidcInviteContext {
+  invitation?: string;
+  organization?: string;
+  organizationName?: string;
+  loginHint?: string;
+  screenHint?: string;
+}
+
 interface OidcDiscovery {
   authorization_endpoint: string;
   token_endpoint: string;
@@ -305,14 +313,36 @@ const clearOidcState = (): void => {
   window.sessionStorage.removeItem(AUTH_STATE_ISSUED_AT_KEY);
 };
 
+const normalizeOptionalParam = (value?: string): string | undefined => {
+  const normalized = value?.trim();
+  return normalized || undefined;
+};
+
 export const startOidcLogin = async ({
   provider,
   redirectTo,
+  invitation,
+  organization,
+  organizationName,
+  loginHint,
+  screenHint,
 }: {
   provider?: AuthProvider;
   redirectTo?: string;
-}): Promise<void> => {
+} & OidcInviteContext): Promise<void> => {
+  const normalizedInvitation = normalizeOptionalParam(invitation);
+  const normalizedOrganization = normalizeOptionalParam(organization);
+  const normalizedOrganizationName = normalizeOptionalParam(organizationName);
+  const normalizedLoginHint = normalizeOptionalParam(loginHint);
+  const normalizedScreenHint = normalizeOptionalParam(screenHint);
+
   const config = getAuthConfig();
+  // Configured tenant restriction must remain authoritative over URL params.
+  const effectiveOrganization =
+    (config.organization ?? normalizedOrganization) || undefined;
+  const effectiveOrganizationName = config.organization
+    ? undefined
+    : normalizedOrganizationName || undefined;
   const discovery = await loadDiscovery(config.issuer);
   const state = createRandomString(STATE_BYTES);
   const verifier = createRandomString(VERIFIER_BYTES);
@@ -328,11 +358,23 @@ export const startOidcLogin = async ({
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
+  if (effectiveOrganization) {
+    url.searchParams.set("organization", effectiveOrganization);
+  }
+  if (effectiveOrganizationName) {
+    url.searchParams.set("organization_name", effectiveOrganizationName);
+  }
+  if (normalizedInvitation) {
+    url.searchParams.set("invitation", normalizedInvitation);
+  }
+  if (normalizedLoginHint) {
+    url.searchParams.set("login_hint", normalizedLoginHint);
+  }
+  if (normalizedScreenHint) {
+    url.searchParams.set("screen_hint", normalizedScreenHint);
+  }
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
-  }
-  if (config.organization) {
-    url.searchParams.set("organization", config.organization);
   }
   if (provider && config.providerParam) {
     const providerValue = config.providerValues[provider] ?? provider;
