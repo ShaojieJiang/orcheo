@@ -6,12 +6,16 @@ import { WorkflowThumbnail } from "./workflow-thumbnail";
 const mermaidRendererMock = vi.hoisted(() => ({
   buildMermaidCacheKey: vi.fn(),
   buildMermaidRenderId: vi.fn(),
+  forceMermaidLeftToRight: vi.fn((source: string) =>
+    source.replace(/\b(?:TB|TD|BT|RL|LR)\b/, "LR"),
+  ),
   renderMermaidSvg: vi.fn(),
 }));
 
 vi.mock("@features/workflow/lib/mermaid-renderer", () => ({
   buildMermaidCacheKey: mermaidRendererMock.buildMermaidCacheKey,
   buildMermaidRenderId: mermaidRendererMock.buildMermaidRenderId,
+  forceMermaidLeftToRight: mermaidRendererMock.forceMermaidLeftToRight,
   renderMermaidSvg: mermaidRendererMock.renderMermaidSvg,
 }));
 
@@ -35,6 +39,7 @@ afterEach(() => {
   cleanup();
   mermaidRendererMock.buildMermaidCacheKey.mockReset();
   mermaidRendererMock.buildMermaidRenderId.mockReset();
+  mermaidRendererMock.forceMermaidLeftToRight.mockClear();
   mermaidRendererMock.renderMermaidSvg.mockReset();
 });
 
@@ -72,11 +77,14 @@ describe("WorkflowThumbnail", () => {
 
     await waitFor(() => {
       expect(mermaidRendererMock.renderMermaidSvg).toHaveBeenCalledWith({
-        source: "flowchart TD\nA[Start] --> B[End]",
+        source: "flowchart LR\nA[Start] --> B[End]",
         cacheKey: "cache-key",
         renderId: "render-id",
       });
     });
+    expect(mermaidRendererMock.forceMermaidLeftToRight).toHaveBeenCalledWith(
+      "flowchart TD\nA[Start] --> B[End]",
+    );
 
     await waitFor(() => {
       expect(

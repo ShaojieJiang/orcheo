@@ -22,6 +22,7 @@ import type {
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
+  forceMermaidLeftToRight,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet";
@@ -42,7 +43,7 @@ interface MermaidSvgNodeData {
   height: number;
 }
 
-const defaultMermaid = "flowchart TD\n  START([Start]) --> END([End])";
+const defaultMermaid = "flowchart LR\n  START([Start]) --> END([End])";
 const DEFAULT_SVG_SIZE = { width: 960, height: 560 };
 const MIN_SVG_WIDTH = 320;
 const MIN_SVG_HEIGHT = 220;
@@ -259,7 +260,9 @@ export function WorkflowTabContent({
       return null;
     }
     const trimmedSource = latestVersion.mermaid.trim();
-    return trimmedSource.length > 0 ? trimmedSource : null;
+    return trimmedSource.length > 0
+      ? forceMermaidLeftToRight(trimmedSource)
+      : null;
   }, [latestVersion?.mermaid]);
 
   const mermaidCacheKey = useMemo(() => {

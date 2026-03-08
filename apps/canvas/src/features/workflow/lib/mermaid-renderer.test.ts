@@ -3,6 +3,7 @@ import {
   __resetMermaidRenderCacheForTests,
   buildMermaidCacheKey,
   buildMermaidRenderId,
+  forceMermaidLeftToRight,
   renderMermaidSvg,
 } from "./mermaid-renderer";
 
@@ -25,6 +26,18 @@ afterEach(() => {
 });
 
 describe("mermaid-renderer", () => {
+  it("normalizes flow direction to left-to-right", () => {
+    expect(forceMermaidLeftToRight("flowchart TD\nA --> B")).toBe(
+      "flowchart LR\nA --> B",
+    );
+    expect(forceMermaidLeftToRight("graph TD; A --> B")).toBe(
+      "graph LR; A --> B",
+    );
+    expect(forceMermaidLeftToRight("flowchart\nA --> B")).toBe(
+      "flowchart LR\nA --> B",
+    );
+  });
+
   it("reuses cached svg for the same key", async () => {
     mermaidMock.render.mockResolvedValue({ svg: "<svg id='first'></svg>" });
 

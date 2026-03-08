@@ -3,6 +3,7 @@ import { type Workflow } from "@features/workflow/data/workflow-data";
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
+  forceMermaidLeftToRight,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
 
@@ -34,7 +35,9 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
     }
 
     const trimmedSource = source.trim();
-    return trimmedSource.length > 0 ? trimmedSource : null;
+    return trimmedSource.length > 0
+      ? forceMermaidLeftToRight(trimmedSource)
+      : null;
   }, [latestVersion?.mermaid]);
 
   const mermaidCacheKey = useMemo(() => {

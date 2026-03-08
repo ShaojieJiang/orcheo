@@ -170,6 +170,23 @@ const releaseRenderSlot = () => {
 export const sanitizeMermaidIdPart = (value: string): string =>
   value.replace(/[^a-zA-Z0-9_-]/g, "-");
 
+export const forceMermaidLeftToRight = (source: string): string => {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) {
+    return normalizedSource;
+  }
+
+  const withDirection = normalizedSource.replace(
+    /^(\s*(?:flowchart|graph)\s+)(?:TB|TD|BT|RL|LR)\b([^\n\r]*)/im,
+    "$1LR$2",
+  );
+  if (withDirection !== normalizedSource) {
+    return withDirection;
+  }
+
+  return normalizedSource.replace(/^(\s*(?:flowchart|graph))(\s*)$/im, "$1 LR");
+};
+
 export const hashMermaidSource = (value: string): string => {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
