@@ -1,6 +1,7 @@
 """Workflow CRUD and version management routes."""
 
 from __future__ import annotations
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -168,6 +169,45 @@ async def _resolve_workflow_uuid(
     return UUID(workflow_id)
 
 
+async def _get_workflow_latest_version_summary(
+    repository: RepositoryDep,
+    workflow_id: UUID,
+) -> WorkflowVersion | None:
+    """Fetch latest version metadata for list responses."""
+    try:
+        return _attach_mermaid(await repository.get_latest_version(workflow_id))
+    except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
+        return None
+
+
+async def _get_workflow_schedule_summary(
+    repository: RepositoryDep,
+    workflow_id: UUID,
+) -> bool:
+    """Return whether a workflow currently has a cron schedule."""
+    try:
+        await repository.get_cron_trigger_config(workflow_id)
+        return True
+    except (WorkflowNotFoundError, CronTriggerNotFoundError):
+        return False
+
+
+async def _build_workflow_list_item(
+    repository: RepositoryDep,
+    workflow: Workflow,
+) -> WorkflowListItem:
+    """Build a list item by fetching workflow summaries concurrently."""
+    latest_version, is_scheduled = await asyncio.gather(
+        _get_workflow_latest_version_summary(repository, workflow.id),
+        _get_workflow_schedule_summary(repository, workflow.id),
+    )
+    return WorkflowListItem(
+        **workflow.model_dump(),
+        latest_version=latest_version,
+        is_scheduled=is_scheduled,
+    )
+
+
 @public_router.get("/workflows/{workflow_ref}/public", response_model=PublicWorkflow)
 async def get_public_workflow(
     workflow_ref: str,
@@ -200,30 +240,12 @@ async def list_workflows(
     """Return workflows with latest-version and schedule summaries."""
     workflows = await repository.list_workflows(include_archived=include_archived)
     public_base_url = _resolve_chatkit_public_base_url()
-    items: list[WorkflowListItem] = []
-    for workflow in _apply_share_urls(workflows, public_base_url):
-        try:
-            latest_version = _attach_mermaid(
-                await repository.get_latest_version(workflow.id)
-            )
-        except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
-            latest_version = None
-
-        is_scheduled = False
-        try:
-            await repository.get_cron_trigger_config(workflow.id)
-            is_scheduled = True
-        except (WorkflowNotFoundError, CronTriggerNotFoundError):
-            is_scheduled = False
-
-        items.append(
-            WorkflowListItem(
-                **workflow.model_dump(),
-                latest_version=latest_version,
-                is_scheduled=is_scheduled,
-            )
-        )
-    return items
+    return await asyncio.gather(
+        *[
+            _build_workflow_list_item(repository, workflow)
+            for workflow in _apply_share_urls(workflows, public_base_url)
+        ]
+    )
 
 
 @router.post(

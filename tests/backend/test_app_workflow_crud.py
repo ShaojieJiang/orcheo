@@ -1,6 +1,7 @@
 """Tests for workflow CRUD endpoints in ``orcheo_backend.app``."""
 
 from __future__ import annotations
+import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
@@ -14,8 +15,10 @@ from orcheo_backend.app import (
     update_workflow,
 )
 from orcheo_backend.app.repository import (
+    CronTriggerNotFoundError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
@@ -43,13 +46,69 @@ async def test_list_workflows_returns_all() -> None:
 
     class Repository:
         async def list_workflows(self, *, include_archived: bool = False):
+            del include_archived
             return [workflow1, workflow2]
+
+        async def get_latest_version(self, workflow_id):
+            del workflow_id
+            raise WorkflowVersionNotFoundError("No versions")
+
+        async def get_cron_trigger_config(self, workflow_id):
+            del workflow_id
+            raise CronTriggerNotFoundError("No cron trigger configured")
 
     result = await list_workflows(Repository(), include_archived=False)
 
     assert len(result) == 2
     assert result[0].id == workflow1.id
     assert result[1].id == workflow2.id
+    assert result[0].latest_version is None
+    assert result[1].latest_version is None
+    assert result[0].is_scheduled is False
+    assert result[1].is_scheduled is False
+
+
+@pytest.mark.asyncio()
+async def test_list_workflows_fetches_metadata_concurrently() -> None:
+    """List workflow metadata lookups should run concurrently across workflows."""
+    workflow1 = Workflow(
+        id=uuid4(),
+        name="Workflow 1",
+        slug="workflow-1",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+    workflow2 = Workflow(
+        id=uuid4(),
+        name="Workflow 2",
+        slug="workflow-2",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+    all_latest_started = asyncio.Event()
+    latest_started = 0
+
+    class Repository:
+        async def list_workflows(self, *, include_archived: bool = False):
+            del include_archived
+            return [workflow1, workflow2]
+
+        async def get_latest_version(self, workflow_id):
+            del workflow_id
+            nonlocal latest_started
+            latest_started += 1
+            if latest_started == 2:
+                all_latest_started.set()
+            await asyncio.wait_for(all_latest_started.wait(), timeout=0.5)
+            raise WorkflowVersionNotFoundError("No versions")
+
+        async def get_cron_trigger_config(self, workflow_id):
+            del workflow_id
+            raise CronTriggerNotFoundError("No cron trigger configured")
+
+    result = await list_workflows(Repository(), include_archived=False)
+
+    assert len(result) == 2
 
 
 @pytest.mark.asyncio()
