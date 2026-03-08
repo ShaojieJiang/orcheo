@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import mermaid from "mermaid";
 import { Copy, ExternalLink } from "lucide-react";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -20,6 +19,11 @@ import type {
   WorkflowRunnableConfig,
   WorkflowVersionRecord,
 } from "@features/workflow/lib/workflow-storage.types";
+import {
+  buildMermaidCacheKey,
+  buildMermaidRenderId,
+  renderMermaidSvg,
+} from "@features/workflow/lib/mermaid-renderer";
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet";
 
 export interface WorkflowTabContentProps {
@@ -44,24 +48,6 @@ const MIN_SVG_WIDTH = 320;
 const MIN_SVG_HEIGHT = 220;
 const MAX_SVG_WIDTH = 2400;
 const MAX_SVG_HEIGHT = 1800;
-
-let mermaidInitialized = false;
-
-const ensureMermaidInitialized = () => {
-  if (mermaidInitialized) {
-    return;
-  }
-
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "neutral",
-  });
-  mermaidInitialized = true;
-};
-
-const sanitizeMermaidIdPart = (value: string): string =>
-  value.replace(/[^a-zA-Z0-9_-]/g, "-");
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -269,14 +255,36 @@ export function WorkflowTabContent({
   }, [workflowId]);
 
   const mermaidSource = useMemo(() => {
-    if (!latestVersion?.mermaid || latestVersion.mermaid.trim().length === 0) {
+    if (!latestVersion?.mermaid) {
       return null;
     }
-    return latestVersion.mermaid;
+    const trimmedSource = latestVersion.mermaid.trim();
+    return trimmedSource.length > 0 ? trimmedSource : null;
   }, [latestVersion?.mermaid]);
 
-  useEffect(() => {
+  const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {
+      return null;
+    }
+
+    return buildMermaidCacheKey({
+      scope: "workflow-tab",
+      workflowId: workflowId ?? "workflow",
+      versionId: latestVersion?.id ?? "latest",
+      source: mermaidSource,
+    });
+  }, [latestVersion?.id, mermaidSource, workflowId]);
+
+  const mermaidRenderId = useMemo(() => {
+    if (!mermaidCacheKey) {
+      return null;
+    }
+
+    return buildMermaidRenderId("workflow-mermaid-svg", mermaidCacheKey);
+  }, [mermaidCacheKey]);
+
+  useEffect(() => {
+    if (!mermaidSource || !mermaidCacheKey || !mermaidRenderId) {
       setDiagramSvg(null);
       setDiagramError(null);
       return;
@@ -286,19 +294,18 @@ export function WorkflowTabContent({
 
     const renderMermaid = async () => {
       try {
-        ensureMermaidInitialized();
-        const workflowIdPart = sanitizeMermaidIdPart(workflowId ?? "workflow");
-        const versionIdPart = sanitizeMermaidIdPart(
-          latestVersion?.id ?? "latest",
-        );
-        const renderId = `workflow-mermaid-svg-${workflowIdPart}-${versionIdPart}`;
-        const result = await mermaid.render(renderId, mermaidSource);
+        const svg = await renderMermaidSvg({
+          source: mermaidSource,
+          cacheKey: mermaidCacheKey,
+          renderId: mermaidRenderId,
+          transformSvg: makeMermaidSvgTransparent,
+        });
 
         if (!isMounted) {
           return;
         }
 
-        setDiagramSvg(makeMermaidSvgTransparent(result.svg));
+        setDiagramSvg(svg);
         setDiagramError(null);
       } catch (error) {
         if (!isMounted) {
@@ -317,7 +324,7 @@ export function WorkflowTabContent({
     return () => {
       isMounted = false;
     };
-  }, [latestVersion?.id, mermaidSource, workflowId]);
+  }, [mermaidCacheKey, mermaidRenderId, mermaidSource]);
 
   const diagramNodes = useMemo(() => {
     if (!diagramSvg) {

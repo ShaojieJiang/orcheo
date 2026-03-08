@@ -3,16 +3,16 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
-const mermaidMock = vi.hoisted(() => ({
-  initialize: vi.fn(),
-  render: vi.fn(),
+const mermaidRendererMock = vi.hoisted(() => ({
+  buildMermaidCacheKey: vi.fn(),
+  buildMermaidRenderId: vi.fn(),
+  renderMermaidSvg: vi.fn(),
 }));
 
-vi.mock("mermaid", () => ({
-  default: {
-    initialize: mermaidMock.initialize,
-    render: mermaidMock.render,
-  },
+vi.mock("@features/workflow/lib/mermaid-renderer", () => ({
+  buildMermaidCacheKey: mermaidRendererMock.buildMermaidCacheKey,
+  buildMermaidRenderId: mermaidRendererMock.buildMermaidRenderId,
+  renderMermaidSvg: mermaidRendererMock.renderMermaidSvg,
 }));
 
 const baseWorkflow = {
@@ -33,8 +33,9 @@ const baseWorkflow = {
 
 afterEach(() => {
   cleanup();
-  mermaidMock.initialize.mockClear();
-  mermaidMock.render.mockReset();
+  mermaidRendererMock.buildMermaidCacheKey.mockReset();
+  mermaidRendererMock.buildMermaidRenderId.mockReset();
+  mermaidRendererMock.renderMermaidSvg.mockReset();
 });
 
 describe("WorkflowThumbnail", () => {
@@ -45,13 +46,15 @@ describe("WorkflowThumbnail", () => {
       container.querySelector(".workflow-thumbnail-fallback"),
     ).not.toBeNull();
     expect(container.querySelector(".workflow-thumbnail-mermaid")).toBeNull();
-    expect(mermaidMock.render).not.toHaveBeenCalled();
+    expect(mermaidRendererMock.renderMermaidSvg).not.toHaveBeenCalled();
   });
 
   it("renders Mermaid thumbnail when latest version contains Mermaid source", async () => {
-    mermaidMock.render.mockResolvedValue({
-      svg: '<svg data-testid="mermaid-preview"></svg>',
-    });
+    mermaidRendererMock.buildMermaidCacheKey.mockReturnValue("cache-key");
+    mermaidRendererMock.buildMermaidRenderId.mockReturnValue("render-id");
+    mermaidRendererMock.renderMermaidSvg.mockResolvedValue(
+      '<svg data-testid="mermaid-preview"></svg>',
+    );
 
     const workflowWithMermaid = {
       ...baseWorkflow,
@@ -68,10 +71,11 @@ describe("WorkflowThumbnail", () => {
     );
 
     await waitFor(() => {
-      expect(mermaidMock.render).toHaveBeenCalledWith(
-        "workflow-gallery-mermaid-workflow-1-v1",
-        "flowchart TD\nA[Start] --> B[End]",
-      );
+      expect(mermaidRendererMock.renderMermaidSvg).toHaveBeenCalledWith({
+        source: "flowchart TD\nA[Start] --> B[End]",
+        cacheKey: "cache-key",
+        renderId: "render-id",
+      });
     });
 
     await waitFor(() => {
@@ -87,11 +91,12 @@ describe("WorkflowThumbnail", () => {
     expect(thumbnailRoot?.className).toContain("justify-center");
 
     expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
-    expect(mermaidMock.initialize).toHaveBeenCalledTimes(1);
   });
 
   it("shows loading placeholder instead of fallback while Mermaid is rendering", () => {
-    mermaidMock.render.mockImplementation(
+    mermaidRendererMock.buildMermaidCacheKey.mockReturnValue("cache-key");
+    mermaidRendererMock.buildMermaidRenderId.mockReturnValue("render-id");
+    mermaidRendererMock.renderMermaidSvg.mockImplementation(
       () =>
         new Promise(() => {
           // Keep promise pending to validate the loading state.
