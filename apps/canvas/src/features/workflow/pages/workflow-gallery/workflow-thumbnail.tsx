@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import mermaid from "mermaid";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import {
+  buildMermaidCacheKey,
+  buildMermaidRenderId,
+  forceMermaidLeftToRight,
+  renderMermaidSvg,
+} from "@features/workflow/lib/mermaid-renderer";
 
 const NODE_COLORS: Record<string, string> = {
   trigger: "#f59e0b",
@@ -15,27 +20,11 @@ interface WorkflowThumbnailProps {
   workflow: Workflow;
 }
 
-let mermaidInitialized = false;
-
-const ensureMermaidInitialized = () => {
-  if (mermaidInitialized) {
-    return;
-  }
-
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "neutral",
-  });
-  mermaidInitialized = true;
-};
-
-const sanitizeMermaidIdPart = (value: string): string =>
-  value.replace(/[^a-zA-Z0-9_-]/g, "-");
-
 export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
+  const [hasEnteredViewport, setHasEnteredViewport] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const latestVersion = workflow.versions?.at(-1);
 
@@ -46,32 +35,110 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
     }
 
     const trimmedSource = source.trim();
-    return trimmedSource.length > 0 ? trimmedSource : null;
+    return trimmedSource.length > 0
+      ? forceMermaidLeftToRight(trimmedSource)
+      : null;
   }, [latestVersion?.mermaid]);
 
+  const mermaidCacheKey = useMemo(() => {
+    if (!mermaidSource) {
+      return null;
+    }
+
+    return buildMermaidCacheKey({
+      scope: "gallery-thumbnail",
+      workflowId: workflow.id,
+      versionId: latestVersion?.id ?? "latest",
+      source: mermaidSource,
+    });
+  }, [latestVersion?.id, mermaidSource, workflow.id]);
+
   const renderId = useMemo(() => {
-    const workflowId = sanitizeMermaidIdPart(workflow.id);
-    const versionId = sanitizeMermaidIdPart(latestVersion?.id ?? "latest");
-    return `workflow-gallery-mermaid-${workflowId}-${versionId}`;
-  }, [latestVersion?.id, workflow.id]);
+    if (!mermaidCacheKey) {
+      return null;
+    }
+
+    return buildMermaidRenderId("workflow-gallery-mermaid", mermaidCacheKey);
+  }, [mermaidCacheKey]);
 
   useEffect(() => {
     if (!mermaidSource) {
-      setDiagramSvg(null);
-      setDiagramError(null);
+      setHasEnteredViewport(false);
       return;
     }
+
+    const element = containerRef.current;
+    if (
+      !element ||
+      typeof window === "undefined" ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      setHasEnteredViewport(true);
+      return;
+    }
+
+    const preloadMargin = 200;
+    const rect = element.getBoundingClientRect();
+    const isWithinPreloadRange =
+      rect.bottom >= -preloadMargin &&
+      rect.top <= window.innerHeight + preloadMargin;
+
+    if (isWithinPreloadRange) {
+      setHasEnteredViewport(true);
+      return;
+    }
+
+    setHasEnteredViewport(false);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const isIntersecting = entries.some(
+          (entry) => entry.isIntersecting || entry.intersectionRatio > 0,
+        );
+
+        if (isIntersecting) {
+          setHasEnteredViewport(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: `${preloadMargin}px 0px` },
+    );
+
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [mermaidCacheKey, mermaidSource]);
+
+  useEffect(() => {
+    if (
+      !mermaidSource ||
+      !renderId ||
+      !mermaidCacheKey ||
+      !hasEnteredViewport
+    ) {
+      if (!mermaidSource) {
+        setDiagramSvg(null);
+        setDiagramError(null);
+      }
+      return;
+    }
+
+    setDiagramSvg(null);
+    setDiagramError(null);
 
     let isMounted = true;
 
     const renderMermaidThumbnail = async () => {
       try {
-        ensureMermaidInitialized();
-        const result = await mermaid.render(renderId, mermaidSource);
+        const svg = await renderMermaidSvg({
+          source: mermaidSource,
+          cacheKey: mermaidCacheKey,
+          renderId,
+        });
         if (!isMounted) {
           return;
         }
-        setDiagramSvg(result.svg);
+        setDiagramSvg(svg);
         setDiagramError(null);
       } catch (error) {
         if (!isMounted) {
@@ -89,20 +156,38 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
     return () => {
       isMounted = false;
     };
-  }, [mermaidSource, renderId]);
+  }, [hasEnteredViewport, mermaidCacheKey, mermaidSource, renderId]);
 
   const showMermaidThumbnail = Boolean(
-    mermaidSource && diagramSvg && !diagramError,
+    mermaidSource && hasEnteredViewport && diagramSvg && !diagramError,
+  );
+  const showLoadingThumbnail = Boolean(
+    mermaidSource && hasEnteredViewport && !diagramSvg && !diagramError,
+  );
+  const showFallbackThumbnail = Boolean(
+    !mermaidSource || diagramError || !hasEnteredViewport,
   );
 
   return (
-    <div className="relative h-24 w-full overflow-hidden rounded-md bg-muted/30">
+    <div
+      ref={containerRef}
+      className="relative h-24 w-full overflow-hidden rounded-md bg-muted/30"
+    >
       {showMermaidThumbnail ? (
         <div
           className="workflow-thumbnail-mermaid absolute inset-0 flex items-center justify-center p-1 [&_svg]:block [&_svg]:max-h-full [&_svg]:max-w-full [&_svg]:!h-auto [&_svg]:!w-auto"
           dangerouslySetInnerHTML={{ __html: diagramSvg }}
         />
-      ) : (
+      ) : null}
+
+      {showLoadingThumbnail ? (
+        <div
+          className="workflow-thumbnail-loading absolute inset-0 animate-pulse bg-muted/40"
+          aria-hidden="true"
+        />
+      ) : null}
+
+      {showFallbackThumbnail ? (
         <svg
           width="100%"
           height="100%"
@@ -164,7 +249,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
             );
           })}
         </svg>
-      )}
+      ) : null}
     </div>
   );
 };

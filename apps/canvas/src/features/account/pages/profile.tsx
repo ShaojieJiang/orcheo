@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import {
   Tabs,
   TabsContent,
@@ -7,20 +7,41 @@ import {
 } from "@/design-system/ui/tabs";
 import TopNavigation from "@features/shared/components/top-navigation";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import type { ProfileUser } from "./profile/types";
 import { ProfileGeneralTab } from "./profile/components/profile-general-tab";
 import { ProfileSecurityTab } from "./profile/components/profile-security-tab";
 import { ProfileApiKeysTab } from "./profile/components/profile-api-keys-tab";
 
+const FALLBACK_PROFILE: ProfileUser = {
+  name: "Avery Chen",
+  email: "avery@orcheo.dev",
+  avatar: "https://avatar.vercel.sh/avery",
+  role: "Admin",
+  joinDate: "January 2023",
+  twoFactorEnabled: false,
+};
+
 export default function Profile() {
-  const [user] = useState<ProfileUser>({
-    name: "Avery Chen",
-    email: "avery@orcheo.dev",
-    avatar: "https://avatar.vercel.sh/avery",
-    role: "Admin",
-    joinDate: "January 2023",
-    twoFactorEnabled: false,
-  });
+  const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+  const user = useMemo<ProfileUser>(() => {
+    if (!authUser) {
+      return FALLBACK_PROFILE;
+    }
+
+    const avatarSeed = authUser.subject ?? authUser.email ?? authUser.name;
+    return {
+      ...FALLBACK_PROFILE,
+      name: authUser.name,
+      email: authUser.email ?? FALLBACK_PROFILE.email,
+      avatar:
+        authUser.avatar ??
+        `https://avatar.vercel.sh/${encodeURIComponent(avatarSeed)}`,
+      role: authUser.role ?? FALLBACK_PROFILE.role,
+    };
+  }, [authUser]);
+
+  const actorName = authUser?.subject ?? authUser?.email ?? user.name;
 
   const {
     credentials,
@@ -29,7 +50,7 @@ export default function Profile() {
     onUpdateCredential,
     onDeleteCredential,
     onRevealCredentialSecret,
-  } = useCredentialVault({ actorName: user.name });
+  } = useCredentialVault({ actorName });
 
   return (
     <div className="flex min-h-screen flex-col">

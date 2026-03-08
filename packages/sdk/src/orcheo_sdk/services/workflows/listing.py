@@ -19,20 +19,23 @@ def list_workflows_data(
     enriched = []
     for item in payload:
         enriched_item = enrich_workflow_publish_metadata(client, item)
-        # Check if workflow has cron trigger configured
-        workflow_id = enriched_item.get("id")
-        if workflow_id:
-            try:
-                cron_url = f"/api/workflows/{workflow_id}/triggers/cron/config"
-                client.get(cron_url)
-                enriched_item["is_scheduled"] = True
-            except APICallError as exc:
-                if exc.status_code == 404:
-                    enriched_item["is_scheduled"] = False
-                else:
-                    raise  # pragma: no cover - defensive
+        is_scheduled = enriched_item.get("is_scheduled")
+        if isinstance(is_scheduled, bool):
+            enriched_item["is_scheduled"] = is_scheduled
         else:
-            enriched_item["is_scheduled"] = False
+            workflow_id = enriched_item.get("id")
+            if workflow_id:
+                try:
+                    cron_url = f"/api/workflows/{workflow_id}/triggers/cron/config"
+                    client.get(cron_url)
+                    enriched_item["is_scheduled"] = True
+                except APICallError as exc:
+                    if exc.status_code == 404:
+                        enriched_item["is_scheduled"] = False
+                    else:
+                        raise  # pragma: no cover - defensive
+            else:
+                enriched_item["is_scheduled"] = False
         enriched.append(enriched_item)
     return enriched
 

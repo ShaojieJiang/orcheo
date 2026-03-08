@@ -60,6 +60,62 @@ def test_workflow_crud_operations(api_client: TestClient) -> None:
     assert delete_response.json()["is_archived"] is True
 
 
+def test_workflow_list_includes_latest_version_and_schedule_summary(
+    api_client: TestClient,
+) -> None:
+    """Workflow list should include latest version and schedule metadata."""
+    create_response = api_client.post(
+        "/api/workflows",
+        json={
+            "name": "Catalog Flow",
+            "description": "List enrichment test",
+            "actor": "tester",
+        },
+    )
+    assert create_response.status_code == 201
+    workflow_id = create_response.json()["id"]
+
+    initial_list = api_client.get("/api/workflows")
+    assert initial_list.status_code == 200
+    initial_item = next(
+        item for item in initial_list.json() if item["id"] == workflow_id
+    )
+    assert initial_item["latest_version"] is None
+    assert initial_item["is_scheduled"] is False
+
+    version_response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(node_name="catalog", response="v1"),
+            "entrypoint": "build_graph",
+            "metadata": {"source": "test"},
+            "created_by": "tester",
+        },
+    )
+    assert version_response.status_code == 201
+
+    cron_response = api_client.put(
+        f"/api/workflows/{workflow_id}/triggers/cron/config",
+        json={
+            "expression": "0 9 * * *",
+            "timezone": "UTC",
+            "allow_overlapping": False,
+        },
+    )
+    assert cron_response.status_code == 200
+
+    enriched_list = api_client.get("/api/workflows")
+    assert enriched_list.status_code == 200
+    enriched_item = next(
+        item for item in enriched_list.json() if item["id"] == workflow_id
+    )
+    assert enriched_item["is_scheduled"] is True
+    assert enriched_item["latest_version"] is not None
+    assert enriched_item["latest_version"]["version"] == 1
+    assert enriched_item["latest_version"]["workflow_id"] == workflow_id
+    assert "mermaid" in enriched_item["latest_version"]
+
+
 def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     """Ensure version creation, retrieval, and diffing all function."""
 

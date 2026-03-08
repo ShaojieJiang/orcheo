@@ -20,6 +20,8 @@ export interface ApiWorkflow {
   created_at: string;
   updated_at: string;
   share_url?: string | null;
+  latest_version?: ApiWorkflowVersion | null;
+  is_scheduled?: boolean;
 }
 
 export interface PublicWorkflowMetadata {

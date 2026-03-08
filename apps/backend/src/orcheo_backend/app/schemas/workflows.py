@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
-from orcheo.models.workflow import Workflow
+from orcheo.models.workflow import Workflow, WorkflowVersion
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
@@ -124,3 +124,10 @@ class PublicWorkflow(BaseModel):
     is_public: bool
     require_login: bool
     share_url: str | None = None
+
+
+class WorkflowListItem(Workflow):
+    """Workflow list item enriched with listing-friendly summary fields."""
+
+    latest_version: WorkflowVersion | None = None
+    is_scheduled: bool = False

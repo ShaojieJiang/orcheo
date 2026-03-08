@@ -72,6 +72,56 @@ describe("workflow-storage API integration - list workflows", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("uses backend latest_version summary without per-workflow fetches", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "workflow-catalog",
+          name: "Catalog flow",
+          slug: "workflow-catalog",
+          description: "Summarized by backend list API.",
+          tags: ["catalog"],
+          is_archived: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+          latest_version: {
+            id: "version-catalog-1",
+            workflow_id: "workflow-catalog",
+            version: 1,
+            graph: {},
+            mermaid: "graph TD; A-->B;",
+            metadata: {
+              canvas: {
+                snapshot: {
+                  name: "Catalog flow",
+                  description: "Summarized by backend list API.",
+                  nodes: [],
+                  edges: [],
+                },
+                summary: { added: 0, removed: 0, modified: 0 },
+                message: "Catalog draft",
+              },
+            },
+            notes: null,
+            created_by: "canvas-app",
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+          is_scheduled: true,
+        },
+      ]),
+    ]);
+
+    const workflows = await listWorkflows();
+
+    expect(workflows).toHaveLength(1);
+    expect(workflows[0]?.versions).toHaveLength(1);
+    expect(workflows[0]?.versions[0]?.id).toBe("version-catalog-1");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("returns cached workflows when called repeatedly", async () => {
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();

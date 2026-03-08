@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startOidcLogin } from "@features/auth/lib/oidc-client";
+import {
+  completeOidcLogin,
+  startOidcLogin,
+} from "@features/auth/lib/oidc-client";
+import {
+  clearAuthSession,
+  getAuthTokens,
+} from "@features/auth/lib/auth-session";
 
 const mutableEnv = import.meta.env as unknown as Record<string, unknown>;
 const originalEnv = { ...mutableEnv };
@@ -23,6 +30,26 @@ const restoreEnv = (): void => {
   });
 };
 
+const toBase64Url = (value: Record<string, unknown>): string => {
+  const encoded = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  encoded.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+};
+
+const createJwt = (payload: Record<string, unknown>): string =>
+  `${toBase64Url({ alg: "HS256", typ: "JWT" })}.${toBase64Url(payload)}.sig`;
+
+const oidcDiscoveryResponse = {
+  authorization_endpoint: "https://issuer.example.com/authorize",
+  token_endpoint: "https://issuer.example.com/token",
+};
+
 describe("startOidcLogin organization precedence", () => {
   beforeEach(() => {
     setEnv("VITE_ORCHEO_AUTH_ISSUER", "https://issuer.example.com");
@@ -32,21 +59,19 @@ describe("startOidcLogin organization precedence", () => {
       "https://canvas.example.com/auth/callback",
     );
     setEnv("VITE_ORCHEO_AUTH_SCOPES", "openid profile email");
-
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({
-          authorization_endpoint: "https://issuer.example.com/authorize",
-          token_endpoint: "https://issuer.example.com/token",
-        }),
+        json: async () => oidcDiscoveryResponse,
       }),
     );
   });
 
   afterEach(() => {
     restoreEnv();
+    clearAuthSession();
+    window.localStorage.clear();
     window.sessionStorage.clear();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -84,5 +109,95 @@ describe("startOidcLogin organization precedence", () => {
 
     expect(authUrl.searchParams.get("organization")).toBe("org_runtime");
     expect(authUrl.searchParams.get("organization_name")).toBe("runtime-name");
+  });
+});
+
+describe("completeOidcLogin expiry parsing", () => {
+  let assignMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    setEnv("VITE_ORCHEO_AUTH_ISSUER", "https://issuer.example.com");
+    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "canvas-client");
+    setEnv(
+      "VITE_ORCHEO_AUTH_REDIRECT_URI",
+      "https://canvas.example.com/auth/callback",
+    );
+    setEnv("VITE_ORCHEO_AUTH_SCOPES", "openid profile email");
+    assignMock = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign: assignMock });
+  });
+
+  afterEach(() => {
+    restoreEnv();
+    clearAuthSession();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("uses numeric exp claim when expires_in is missing", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => oidcDiscoveryResponse,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => oidcDiscoveryResponse,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            access_token: createJwt({ sub: "user|123", exp }),
+            token_type: "Bearer",
+          }),
+        }),
+    );
+
+    await startOidcLogin({});
+    const [redirectUrl] = assignMock.mock.calls[0] as [string];
+    const state = new URL(redirectUrl).searchParams.get("state");
+    expect(state).toBeTruthy();
+
+    await completeOidcLogin({ code: "auth-code", state: state ?? "" });
+
+    expect(getAuthTokens()?.expiresAt).toBe(exp * 1000);
+  });
+
+  it("ignores non-numeric exp claims", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => oidcDiscoveryResponse,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => oidcDiscoveryResponse,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            access_token: createJwt({ sub: "user|456", exp: "900" }),
+            token_type: "Bearer",
+          }),
+        }),
+    );
+
+    await startOidcLogin({});
+    const [redirectUrl] = assignMock.mock.calls[0] as [string];
+    const state = new URL(redirectUrl).searchParams.get("state");
+    expect(state).toBeTruthy();
+
+    await completeOidcLogin({ code: "auth-code", state: state ?? "" });
+
+    expect(getAuthTokens()?.expiresAt).toBeUndefined();
   });
 });

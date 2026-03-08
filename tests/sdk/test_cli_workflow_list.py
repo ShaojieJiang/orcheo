@@ -33,6 +33,30 @@ def test_workflow_list_renders_table(runner: CliRunner, env: dict[str, str]) -> 
     assert "http://api.test/chat/wf-1" in result.stdout
 
 
+def test_workflow_list_uses_backend_schedule_summary_when_available(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Workflow list should avoid per-workflow cron requests when already enriched."""
+    payload = [
+        {
+            "id": "wf-1",
+            "name": "Backend Summarized",
+            "is_archived": False,
+            "is_public": False,
+            "require_login": False,
+            "is_scheduled": True,
+        }
+    ]
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        result = runner.invoke(app, ["workflow", "list"], env=env)
+        assert len(router.calls) == 1
+        assert str(router.calls[0].request.url) == "http://api.test/api/workflows"
+    assert result.exit_code == 0
+
+
 def test_workflow_list_excludes_archived_by_default(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
