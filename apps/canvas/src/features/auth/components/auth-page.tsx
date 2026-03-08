@@ -21,6 +21,16 @@ interface OidcInviteContext {
   screenHint?: string;
 }
 
+interface RedirectLocationLike {
+  pathname?: string;
+  search?: string;
+  hash?: string;
+}
+
+interface AuthLocationState {
+  from?: string | RedirectLocationLike;
+}
+
 const parseInviteContext = (search: string): OidcInviteContext => {
   const params = new URLSearchParams(search);
   const normalize = (value: string | null): string | undefined => {
@@ -40,16 +50,63 @@ const parseInviteContext = (search: string): OidcInviteContext => {
   };
 };
 
+const mergeInviteContext = (
+  fallback: OidcInviteContext,
+  preferred: OidcInviteContext,
+): OidcInviteContext => ({
+  invitation: preferred.invitation ?? fallback.invitation,
+  organization: preferred.organization ?? fallback.organization,
+  organizationName: preferred.organizationName ?? fallback.organizationName,
+  loginHint: preferred.loginHint ?? fallback.loginHint,
+  screenHint: preferred.screenHint ?? fallback.screenHint,
+});
+
+const resolveRedirectTo = (state: unknown): string => {
+  const from = (state as AuthLocationState | null)?.from;
+  if (typeof from === "string") {
+    const trimmed = from.trim();
+    return trimmed || "/";
+  }
+
+  if (from && typeof from === "object") {
+    const pathname =
+      typeof from.pathname === "string" ? from.pathname.trim() : "";
+    const search = typeof from.search === "string" ? from.search.trim() : "";
+    const hash = typeof from.hash === "string" ? from.hash.trim() : "";
+    const redirectTo = `${pathname}${search}${hash}`;
+    return redirectTo || "/";
+  }
+
+  return "/";
+};
+
+const extractSearch = (pathWithSearchAndHash: string): string => {
+  const queryStart = pathWithSearchAndHash.indexOf("?");
+  if (queryStart < 0) {
+    return "";
+  }
+  const hashStart = pathWithSearchAndHash.indexOf("#", queryStart);
+  return pathWithSearchAndHash.slice(
+    queryStart,
+    hashStart < 0 ? undefined : hashStart,
+  );
+};
+
 export default function AuthPage() {
   const location = useLocation();
   const [providerLoading, setProviderLoading] = useState<
     "google" | "github" | null
   >(null);
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
-  const inviteContext = useMemo(
-    () => parseInviteContext(location.search),
-    [location.search],
+  const redirectTo = useMemo(
+    () => resolveRedirectTo(location.state),
+    [location.state],
   );
+  const inviteContext = useMemo(() => {
+    const fromRedirectState = parseInviteContext(extractSearch(redirectTo));
+    const fromLoginSearch = parseInviteContext(location.search);
+
+    return mergeInviteContext(fromRedirectState, fromLoginSearch);
+  }, [location.search, redirectTo]);
 
   const startProviderLogin = async (provider: "google" | "github") => {
     setProviderLoading(provider);
