@@ -878,6 +878,15 @@ def test_attempt_docker_autoinstall_paths(
     )
     assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
 
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: (_ for _ in ()).throw(
+            FileNotFoundError("systemctl")
+        ),
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
+
 
 def test_resolve_backend_url_install_yes_uses_default() -> None:
     from orcheo_sdk.cli import setup as setup_mod

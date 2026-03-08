@@ -157,7 +157,7 @@ def _attempt_docker_autoinstall(*, console: Console) -> bool:
             _run_privileged_command(
                 ["usermod", "-aG", "docker", username], console=console
             )
-    except typer.BadParameter as exc:
+    except (typer.BadParameter, FileNotFoundError) as exc:
         console.print(
             "[yellow]Automatic Docker installation failed: "
             f"{exc}. Continuing without starting the stack.[/yellow]"
