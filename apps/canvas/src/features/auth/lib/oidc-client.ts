@@ -2,6 +2,14 @@ import { setAuthTokens } from "@features/auth/lib/auth-session";
 
 type AuthProvider = "google" | "github";
 
+interface OidcInviteContext {
+  invitation?: string;
+  organization?: string;
+  organizationName?: string;
+  loginHint?: string;
+  screenHint?: string;
+}
+
 interface OidcDiscovery {
   authorization_endpoint: string;
   token_endpoint: string;
@@ -308,10 +316,27 @@ const clearOidcState = (): void => {
 export const startOidcLogin = async ({
   provider,
   redirectTo,
+  invitation,
+  organization,
+  organizationName,
+  loginHint,
+  screenHint,
 }: {
   provider?: AuthProvider;
   redirectTo?: string;
-}): Promise<void> => {
+} & OidcInviteContext): Promise<void> => {
+  const normalizedInvitation = invitation?.trim();
+  const normalizedOrganization = organization?.trim();
+  const normalizedOrganizationName = organizationName?.trim();
+  const normalizedLoginHint = loginHint?.trim();
+  const normalizedScreenHint = screenHint?.trim();
+
+  const effectiveInvitation = normalizedInvitation || undefined;
+  const effectiveOrganization = normalizedOrganization || undefined;
+  const effectiveOrganizationName = normalizedOrganizationName || undefined;
+  const effectiveLoginHint = normalizedLoginHint || undefined;
+  const effectiveScreenHint = normalizedScreenHint || undefined;
+
   const config = getAuthConfig();
   const discovery = await loadDiscovery(config.issuer);
   const state = createRandomString(STATE_BYTES);
@@ -328,11 +353,26 @@ export const startOidcLogin = async ({
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
+  if (effectiveOrganization || config.organization) {
+    url.searchParams.set(
+      "organization",
+      effectiveOrganization ?? config.organization ?? "",
+    );
+  }
+  if (effectiveOrganizationName) {
+    url.searchParams.set("organization_name", effectiveOrganizationName);
+  }
+  if (effectiveInvitation) {
+    url.searchParams.set("invitation", effectiveInvitation);
+  }
+  if (effectiveLoginHint) {
+    url.searchParams.set("login_hint", effectiveLoginHint);
+  }
+  if (effectiveScreenHint) {
+    url.searchParams.set("screen_hint", effectiveScreenHint);
+  }
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
-  }
-  if (config.organization) {
-    url.searchParams.set("organization", config.organization);
   }
   if (provider && config.providerParam) {
     const providerValue = config.providerValues[provider] ?? provider;

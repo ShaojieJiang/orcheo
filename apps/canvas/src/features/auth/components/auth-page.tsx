@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -13,17 +13,48 @@ import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
 import { toast } from "@/hooks/use-toast";
 import { startOidcLogin } from "@features/auth/lib/oidc-client";
 
+interface OidcInviteContext {
+  invitation?: string;
+  organization?: string;
+  organizationName?: string;
+  loginHint?: string;
+  screenHint?: string;
+}
+
+const parseInviteContext = (search: string): OidcInviteContext => {
+  const params = new URLSearchParams(search);
+  const normalize = (value: string | null): string | undefined => {
+    if (!value) {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  };
+
+  return {
+    invitation: normalize(params.get("invitation")),
+    organization: normalize(params.get("organization")),
+    organizationName: normalize(params.get("organization_name")),
+    loginHint: normalize(params.get("login_hint")),
+    screenHint: normalize(params.get("screen_hint")),
+  };
+};
+
 export default function AuthPage() {
   const location = useLocation();
   const [providerLoading, setProviderLoading] = useState<
     "google" | "github" | null
   >(null);
   const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
+  const inviteContext = useMemo(
+    () => parseInviteContext(location.search),
+    [location.search],
+  );
 
   const startProviderLogin = async (provider: "google" | "github") => {
     setProviderLoading(provider);
     try {
-      await startOidcLogin({ provider, redirectTo });
+      await startOidcLogin({ provider, redirectTo, ...inviteContext });
     } catch (error) {
       const message =
         error instanceof Error
