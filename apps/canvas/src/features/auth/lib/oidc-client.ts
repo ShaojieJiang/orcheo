@@ -332,12 +332,16 @@ export const startOidcLogin = async ({
   const normalizedScreenHint = screenHint?.trim();
 
   const effectiveInvitation = normalizedInvitation || undefined;
-  const effectiveOrganization = normalizedOrganization || undefined;
-  const effectiveOrganizationName = normalizedOrganizationName || undefined;
   const effectiveLoginHint = normalizedLoginHint || undefined;
   const effectiveScreenHint = normalizedScreenHint || undefined;
 
   const config = getAuthConfig();
+  // Configured tenant restriction must remain authoritative over URL params.
+  const effectiveOrganization =
+    (config.organization ?? normalizedOrganization) || undefined;
+  const effectiveOrganizationName = config.organization
+    ? undefined
+    : normalizedOrganizationName || undefined;
   const discovery = await loadDiscovery(config.issuer);
   const state = createRandomString(STATE_BYTES);
   const verifier = createRandomString(VERIFIER_BYTES);
@@ -353,11 +357,8 @@ export const startOidcLogin = async ({
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
-  if (effectiveOrganization || config.organization) {
-    url.searchParams.set(
-      "organization",
-      effectiveOrganization ?? config.organization ?? "",
-    );
+  if (effectiveOrganization) {
+    url.searchParams.set("organization", effectiveOrganization);
   }
   if (effectiveOrganizationName) {
     url.searchParams.set("organization_name", effectiveOrganizationName);
