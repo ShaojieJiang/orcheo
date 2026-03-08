@@ -24,6 +24,7 @@ from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.repository import (
+    CronTriggerNotFoundError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -33,6 +34,7 @@ from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
     PublicWorkflow,
     WorkflowCreateRequest,
+    WorkflowListItem,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
@@ -190,14 +192,38 @@ async def get_public_workflow(
     return _serialize_public_workflow(workflow, _resolve_chatkit_public_base_url())
 
 
-@router.get("/workflows", response_model=list[Workflow])
+@router.get("/workflows", response_model=list[WorkflowListItem])
 async def list_workflows(
     repository: RepositoryDep,
     include_archived: bool = False,
-) -> list[Workflow]:
-    """Return workflows, excluding archived ones by default."""
+) -> list[WorkflowListItem]:
+    """Return workflows with latest-version and schedule summaries."""
     workflows = await repository.list_workflows(include_archived=include_archived)
-    return _apply_share_urls(workflows, _resolve_chatkit_public_base_url())
+    public_base_url = _resolve_chatkit_public_base_url()
+    items: list[WorkflowListItem] = []
+    for workflow in _apply_share_urls(workflows, public_base_url):
+        try:
+            latest_version = _attach_mermaid(
+                await repository.get_latest_version(workflow.id)
+            )
+        except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
+            latest_version = None
+
+        is_scheduled = False
+        try:
+            await repository.get_cron_trigger_config(workflow.id)
+            is_scheduled = True
+        except (WorkflowNotFoundError, CronTriggerNotFoundError):
+            is_scheduled = False
+
+        items.append(
+            WorkflowListItem(
+                **workflow.model_dump(),
+                latest_version=latest_version,
+                is_scheduled=is_scheduled,
+            )
+        )
+    return items
 
 
 @router.post(

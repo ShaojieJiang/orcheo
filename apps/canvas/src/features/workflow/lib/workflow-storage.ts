@@ -86,6 +86,12 @@ export const listWorkflows = async (
     );
     const items = await Promise.all(
       activeWorkflows.map(async (workflow) => {
+        if (workflow.latest_version !== undefined) {
+          const versions = workflow.latest_version
+            ? [workflow.latest_version]
+            : [];
+          return toStoredWorkflow(workflow, versions);
+        }
         const versions = await fetchWorkflowVersions(workflow.id);
         return toStoredWorkflow(workflow, versions);
       }),
