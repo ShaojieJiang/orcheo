@@ -835,6 +835,53 @@ def test_supported_docker_autoinstall_detection(
     assert setup_mod._is_supported_docker_autoinstall_linux() is False
 
 
+def test_read_os_release_handles_read_errors_and_malformed_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.Path, "exists", lambda self: True)
+
+    def _raise_read_error(_self: Path, *, encoding: str = "utf-8") -> str:
+        del encoding
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(setup_mod.Path, "read_text", _raise_read_error)
+    assert setup_mod._read_os_release() == {}
+
+    monkeypatch.setattr(
+        setup_mod.Path,
+        "read_text",
+        lambda _self, *, encoding="utf-8": (
+            "ID=ubuntu\n"
+            "#comment\n"
+            "BROKEN\n"
+            'ID_LIKE="debian ubuntu"\n'
+            "bad-key=ignored\n"
+            "   =missing\n"
+        ),
+    )
+    assert setup_mod._read_os_release() == {
+        "ID": "ubuntu",
+        "ID_LIKE": "debian ubuntu",
+    }
+
+
+def test_current_username_handles_lookup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    monkeypatch.setattr(
+        setup_mod.getpass, "getuser", lambda: (_ for _ in ()).throw(OSError)
+    )
+    assert setup_mod._current_username() is None
+
+    monkeypatch.setenv("SUDO_USER", "root-user")
+    assert setup_mod._current_username() == "root-user"
+
+
 def test_attempt_docker_autoinstall_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -39,6 +39,7 @@ _STACK_ASSET_FILES = (
     "chatkit_widgets/Multi-choice Selector.widget",
 )
 _CHATKIT_DOMAIN_KEY_PLACEHOLDER = "domain_pk_replace_me"
+_OS_RELEASE_KEY_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
 
 @dataclass(slots=True)
@@ -76,13 +77,23 @@ def _read_os_release() -> dict[str, str]:
     if not os_release.exists():
         return {}
 
+    try:
+        lines = os_release.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return {}
+
     values: dict[str, str] = {}
-    for line in os_release.read_text(encoding="utf-8").splitlines():
+    for line in lines:
         stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
+        if not stripped or stripped.startswith("#"):
             continue
-        key, raw_value = stripped.split("=", maxsplit=1)
-        values[key] = _normalize_dotenv_value(raw_value) or ""
+        key, separator, raw_value = stripped.partition("=")
+        if separator != "=":
+            continue
+        normalized_key = key.strip()
+        if not _OS_RELEASE_KEY_PATTERN.fullmatch(normalized_key):
+            continue
+        values[normalized_key] = _normalize_dotenv_value(raw_value) or ""
     return values
 
 
@@ -113,7 +124,10 @@ def _current_username() -> str | None:
     username = _normalize_optional_value(os.getenv("SUDO_USER"))
     if username:
         return username
-    return _normalize_optional_value(getpass.getuser())
+    try:
+        return _normalize_optional_value(getpass.getuser())
+    except (KeyError, OSError, ImportError):
+        return None
 
 
 def _current_shell_has_docker_access() -> bool:
