@@ -88,4 +88,39 @@ describe("AuthPage", () => {
       );
     });
   });
+
+  it("ignores query-like content inside redirect hash fragments", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: "/login",
+            state: {
+              from: "/invite#fragment?invitation=invite_from_hash",
+            },
+          },
+        ]}
+      >
+        <AuthPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Google" }));
+
+    await waitFor(() => {
+      expect(startOidcLoginMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "google",
+          redirectTo: "/invite#fragment?invitation=invite_from_hash",
+        }),
+      );
+    });
+    expect(startOidcLoginMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        invitation: "invite_from_hash",
+      }),
+    );
+  });
 });

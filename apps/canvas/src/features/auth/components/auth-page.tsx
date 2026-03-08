@@ -64,32 +64,29 @@ const mergeInviteContext = (
 const resolveRedirectTo = (state: unknown): string => {
   const from = (state as AuthLocationState | null)?.from;
   if (typeof from === "string") {
-    const trimmed = from.trim();
-    return trimmed || "/";
+    return from.trim() || "/";
   }
 
   if (from && typeof from === "object") {
-    const pathname =
-      typeof from.pathname === "string" ? from.pathname.trim() : "";
-    const search = typeof from.search === "string" ? from.search.trim() : "";
-    const hash = typeof from.hash === "string" ? from.hash.trim() : "";
+    const { pathname = "", search = "", hash = "" } = from;
     const redirectTo = `${pathname}${search}${hash}`;
-    return redirectTo || "/";
+    return redirectTo.trim() || "/";
   }
 
   return "/";
 };
 
 const extractSearch = (pathWithSearchAndHash: string): string => {
-  const queryStart = pathWithSearchAndHash.indexOf("?");
-  if (queryStart < 0) {
+  const value = pathWithSearchAndHash.trim();
+  if (!value) {
     return "";
   }
-  const hashStart = pathWithSearchAndHash.indexOf("#", queryStart);
-  return pathWithSearchAndHash.slice(
-    queryStart,
-    hashStart < 0 ? undefined : hashStart,
-  );
+
+  try {
+    return new URL(value, "https://orcheo.local").search;
+  } catch {
+    return "";
+  }
 };
 
 export default function AuthPage() {

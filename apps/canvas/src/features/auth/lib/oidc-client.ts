@@ -313,6 +313,11 @@ const clearOidcState = (): void => {
   window.sessionStorage.removeItem(AUTH_STATE_ISSUED_AT_KEY);
 };
 
+const normalizeOptionalParam = (value?: string): string | undefined => {
+  const normalized = value?.trim();
+  return normalized || undefined;
+};
+
 export const startOidcLogin = async ({
   provider,
   redirectTo,
@@ -325,15 +330,11 @@ export const startOidcLogin = async ({
   provider?: AuthProvider;
   redirectTo?: string;
 } & OidcInviteContext): Promise<void> => {
-  const normalizedInvitation = invitation?.trim();
-  const normalizedOrganization = organization?.trim();
-  const normalizedOrganizationName = organizationName?.trim();
-  const normalizedLoginHint = loginHint?.trim();
-  const normalizedScreenHint = screenHint?.trim();
-
-  const effectiveInvitation = normalizedInvitation || undefined;
-  const effectiveLoginHint = normalizedLoginHint || undefined;
-  const effectiveScreenHint = normalizedScreenHint || undefined;
+  const normalizedInvitation = normalizeOptionalParam(invitation);
+  const normalizedOrganization = normalizeOptionalParam(organization);
+  const normalizedOrganizationName = normalizeOptionalParam(organizationName);
+  const normalizedLoginHint = normalizeOptionalParam(loginHint);
+  const normalizedScreenHint = normalizeOptionalParam(screenHint);
 
   const config = getAuthConfig();
   // Configured tenant restriction must remain authoritative over URL params.
@@ -363,14 +364,14 @@ export const startOidcLogin = async ({
   if (effectiveOrganizationName) {
     url.searchParams.set("organization_name", effectiveOrganizationName);
   }
-  if (effectiveInvitation) {
-    url.searchParams.set("invitation", effectiveInvitation);
+  if (normalizedInvitation) {
+    url.searchParams.set("invitation", normalizedInvitation);
   }
-  if (effectiveLoginHint) {
-    url.searchParams.set("login_hint", effectiveLoginHint);
+  if (normalizedLoginHint) {
+    url.searchParams.set("login_hint", normalizedLoginHint);
   }
-  if (effectiveScreenHint) {
-    url.searchParams.set("screen_hint", effectiveScreenHint);
+  if (normalizedScreenHint) {
+    url.searchParams.set("screen_hint", normalizedScreenHint);
   }
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
