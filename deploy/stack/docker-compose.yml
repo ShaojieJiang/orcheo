@@ -126,13 +126,10 @@ services:
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$CELERY_BEAT_SCHEDULE_FILE"'
 
   canvas:
-    image: node:20-alpine
-    working_dir: /app
+    image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/shaojiejiang/orcheo-canvas:latest}
     env_file: .env
     ports:
       - "5173:5173"
-    volumes:
-      - canvas_node_modules:/app/node_modules
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:8000}
       VITE_ORCHEO_AUTH_ISSUER: ${VITE_ORCHEO_AUTH_ISSUER:-}
@@ -145,26 +142,16 @@ services:
       VITE_ORCHEO_AUTH_PROVIDER_GOOGLE: ${VITE_ORCHEO_AUTH_PROVIDER_GOOGLE:-}
       VITE_ORCHEO_AUTH_PROVIDER_GITHUB: ${VITE_ORCHEO_AUTH_PROVIDER_GITHUB:-}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:?set VITE_ORCHEO_CHATKIT_DOMAIN_KEY}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost}
-      VITE_DISABLE_HMR: ${VITE_DISABLE_HMR:-true}
     depends_on:
       - backend
-    command: >
-      sh -c "npm config set update-notifier false
-      && npm config set fund false
-      && npm config set audit false
-      && npm init -y >/dev/null
-      && npm install --silent orcheo-canvas@latest
-      && npm --prefix node_modules/orcheo-canvas run dev -- --host 0.0.0.0"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5173/', r => { r.resume(); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1))\""]
-      interval: 15s
+      test: ["CMD-SHELL", "curl -f http://localhost:5173/ || exit 1"]
+      interval: 10s
       timeout: 5s
-      retries: 20
-      start_period: 180s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:
   redis_data:
   orcheo_data:
-  canvas_node_modules:

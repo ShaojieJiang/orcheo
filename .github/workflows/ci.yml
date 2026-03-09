@@ -196,19 +196,17 @@ jobs:
         with:
           packages-dir: ${{ steps.package.outputs.dist_dir }}
 
-  stack-release:
+  stack-image-metadata:
     needs: [lint, coverage]
     if: "startsWith(github.ref, 'refs/tags/stack-v')"
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      stack_repo: ${{ steps.meta.outputs.stack_repo }}
+      canvas_repo: ${{ steps.meta.outputs.canvas_repo }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Determine stack image metadata
-        id: stack
+      - name: Determine image metadata
+        id: meta
         run: |
           tag="${GITHUB_REF_NAME}"
           version="${tag#stack-v}"
@@ -216,9 +214,20 @@ jobs:
             echo "Invalid stack tag: $tag" >&2
             exit 1
           fi
-          image_repo=$(printf '%s' "ghcr.io/${GITHUB_REPOSITORY_OWNER}/orcheo-stack" | tr '[:upper:]' '[:lower:]')
+          owner_lc=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "image_repo=${image_repo}" >> "$GITHUB_OUTPUT"
+          echo "stack_repo=ghcr.io/${owner_lc}/orcheo-stack" >> "$GITHUB_OUTPUT"
+          echo "canvas_repo=ghcr.io/${owner_lc}/orcheo-canvas" >> "$GITHUB_OUTPUT"
+
+  stack-release:
+    needs: [stack-image-metadata]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -238,8 +247,39 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.stack.outputs.image_repo }}:${{ steps.stack.outputs.version }}
-            ${{ steps.stack.outputs.image_repo }}:latest
+            ${{ needs.stack-image-metadata.outputs.stack_repo }}:${{ needs.stack-image-metadata.outputs.version }}
+            ${{ needs.stack-image-metadata.outputs.stack_repo }}:latest
+
+  canvas-image-release:
+    needs: [stack-image-metadata]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push canvas image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/stack
+          file: deploy/stack/Dockerfile.canvas
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ needs.stack-image-metadata.outputs.canvas_repo }}:${{ needs.stack-image-metadata.outputs.version }}
+            ${{ needs.stack-image-metadata.outputs.canvas_repo }}:latest
 
   canvas:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
