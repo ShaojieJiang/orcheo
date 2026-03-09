@@ -220,7 +220,7 @@ jobs:
           echo "canvas_repo=ghcr.io/${owner_lc}/orcheo-canvas" >> "$GITHUB_OUTPUT"
 
   stack-release:
-    needs: [stack-image-metadata, build-and-release]
+    needs: [stack-image-metadata]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -251,7 +251,7 @@ jobs:
             ${{ needs.stack-image-metadata.outputs.stack_repo }}:latest
 
   canvas-image-release:
-    needs: [stack-image-metadata, canvas-build-and-release]
+    needs: [stack-image-metadata]
     runs-on: ubuntu-latest
     permissions:
       contents: read
