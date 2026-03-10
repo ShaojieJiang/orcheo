@@ -10,3 +10,8 @@ interface ImportMeta {
 }
 
 declare const __ORCHEO_CANVAS_VERSION__: string;
+
+declare module "*.py?raw" {
+  const content: string;
+  export default content;
+}

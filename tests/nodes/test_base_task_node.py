@@ -6,7 +6,10 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
+from orcheo.models import CredentialScope
 from orcheo.nodes.base import TaskNode
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from orcheo.vault import InMemoryCredentialVault
 
 
 class MockTaskNode(TaskNode):
@@ -52,6 +55,36 @@ def test_decode_variables_reads_config_state() -> None:
     node.decode_variables(state)
 
     assert node.input_var == 0.75
+
+
+def test_decode_variables_resolves_credential_placeholder_from_config_state() -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="telegram_chat_id",
+        provider="telegram",
+        scopes=["bot"],
+        secret="-1001234567890",
+        actor="tester",
+        scope=CredentialScope.unrestricted(),
+    )
+    resolver = CredentialResolver(vault)
+    state = State(
+        {
+            "results": {},
+            "messages": [],
+            "inputs": {},
+            "config": {"configurable": {"telegram_chat_id": "[[telegram_chat_id]]"}},
+        }
+    )
+    node = MockTaskNode(
+        name="test",
+        input_var="{{config.configurable.telegram_chat_id}}",
+    )
+
+    with credential_resolution(resolver):
+        node.decode_variables(state)
+
+    assert node.input_var == "-1001234567890"
 
 
 def test_decode_variables_does_not_inject_config_argument() -> None:

@@ -59,6 +59,34 @@ export interface ApiWorkflowVersion {
   updated_at: string;
 }
 
+export interface ApiWorkflowRun {
+  id: string;
+  workflow_id: string;
+  workflow_version_id: string;
+  status: string;
+  triggered_by: string;
+  input_payload: Record<string, unknown>;
+  output_payload?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface WorkflowCredentialReadinessItem {
+  name: string;
+  placeholders: string[];
+  available: boolean;
+  credential_id?: string | null;
+  provider?: string | null;
+}
+
+export interface WorkflowCredentialReadinessResponse {
+  workflow_id: string;
+  status: "ready" | "missing" | "not_required";
+  referenced_credentials: WorkflowCredentialReadinessItem[];
+  available_credentials: string[];
+  missing_credentials: string[];
+}
+
 export interface WorkflowPublishResponse {
   workflow: ApiWorkflow;
   message?: string | null;

@@ -156,3 +156,91 @@ def test_ingest_workflow_version_script_error(api_client: TestClient) -> None:
         },
     )
     assert response.status_code == 400
+
+
+def test_workflow_credential_readiness_endpoint(api_client: TestClient) -> None:
+    """Readiness reports available and missing workflow credentials."""
+    workflow_id = _create_workflow(api_client)
+
+    response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": """
+from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel, Field
+from orcheo.graph.state import State
+from orcheo.nodes.ai import AgentNode
+from orcheo.nodes.telegram import MessageTelegram
+
+class TelegramInput(BaseModel):
+    message: str = Field(description="Message to send")
+
+def build_tool_graph() -> StateGraph:
+    graph = StateGraph(State)
+    graph.add_node(
+        "send_telegram",
+        MessageTelegram(
+            name="send_telegram",
+            chat_id="{{config.configurable.telegram_chat_id}}",
+            message="{{inputs.message}}",
+        ),
+    )
+    graph.add_edge(START, "send_telegram")
+    graph.add_edge("send_telegram", END)
+    return graph
+
+def orcheo_workflow() -> StateGraph:
+    graph = StateGraph(State)
+    agent = AgentNode(
+        name="agent",
+        ai_model="openai:gpt-4o-mini",
+        model_kwargs={"api_key": "[[openai_api_key]]"},
+        workflow_tools=[
+            {
+                "name": "send_telegram_message",
+                "description": "Send a Telegram message.",
+                "graph": build_tool_graph(),
+                "args_schema": TelegramInput,
+            }
+        ],
+    )
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    graph.add_edge("agent", END)
+    return graph
+""",
+            "created_by": "tester",
+            "runnable_config": {
+                "configurable": {"telegram_chat_id": "[[telegram_chat_id]]"}
+            },
+        },
+    )
+    assert response.status_code == 201
+
+    for name, provider in [
+        ("openai_api_key", "openai"),
+        ("telegram_token", "telegram"),
+    ]:
+        create_response = api_client.post(
+            "/api/credentials",
+            json={
+                "name": name,
+                "provider": provider,
+                "secret": "secret",
+                "actor": "tester",
+                "access": "private",
+                "workflow_id": workflow_id,
+            },
+        )
+        assert create_response.status_code == 201
+
+    readiness = api_client.get(f"/api/workflows/{workflow_id}/credentials/readiness")
+    assert readiness.status_code == 200
+
+    payload = readiness.json()
+    assert payload["status"] == "missing"
+    assert payload["available_credentials"] == [
+        "openai_api_key",
+        "telegram_token",
+    ]
+    assert payload["missing_credentials"] == ["telegram_chat_id"]

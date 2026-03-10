@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { Toaster } from "@/design-system/ui/toaster";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
 import WorkflowExecutionDetails from "@features/workflow/pages/workflow-execution-details";
@@ -40,6 +41,7 @@ export default function OrcheoCanvasApp() {
           <Route path="/help-support" element={<HelpSupport />} />
         </Route>
       </Routes>
+      <Toaster />
     </Router>
   );
 }

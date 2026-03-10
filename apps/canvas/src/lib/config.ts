@@ -71,18 +71,22 @@ export const getCanvasVersion = (): string => __ORCHEO_CANVAS_VERSION__;
 export const buildWorkflowWebSocketUrl = (
   workflowId: string,
   baseUrl?: string,
+  authToken?: string | null,
 ): string => {
   const resolvedId = workflowId.trim();
   if (!resolvedId) {
     throw new Error("workflowId is required to create a WebSocket URL");
   }
   const resolved = normaliseBaseUrl(baseUrl ?? getBackendBaseUrl());
+  const search = authToken
+    ? `?${new URLSearchParams({ access_token: authToken }).toString()}`
+    : "";
   if (resolved.startsWith("ws://") || resolved.startsWith("wss://")) {
-    return `${trimTrailingSlash(resolved)}/ws/workflow/${resolvedId}`;
+    return `${trimTrailingSlash(resolved)}/ws/workflow/${resolvedId}${search}`;
   }
   const protocol = resolved.startsWith("https://") ? "wss://" : "ws://";
   const host = resolved.replace(/^https?:\/\//, "").replace(/^ws?:\/\//, "");
-  return `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}`;
+  return `${protocol}${trimTrailingSlash(host)}/ws/workflow/${resolvedId}${search}`;
 };
 
 const WEBSOCKET_AUTH_PROTOCOL = "orcheo-auth";

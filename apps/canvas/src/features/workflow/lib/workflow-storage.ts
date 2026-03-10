@@ -172,6 +172,7 @@ export const createWorkflowFromTemplate = async (
     body: JSON.stringify({
       script: templateDefinition.script,
       entrypoint: templateDefinition.entrypoint ?? null,
+      runnable_config: templateDefinition.runnableConfig ?? null,
       metadata: {
         source: "canvas-template",
         template_id: templateWorkflow.id,

@@ -130,12 +130,20 @@ def _extract_websocket_protocol_token(
 def _resolve_websocket_token(websocket: WebSocket) -> tuple[str | None, str | None]:
     protocol_header = websocket.headers.get("sec-websocket-protocol")
     protocol_token, subprotocol = _extract_websocket_protocol_token(protocol_header)
+    query_params = getattr(websocket, "query_params", None)
+    query_token = None
+    if query_params is not None:
+        raw_query_token = query_params.get("access_token")
+        if isinstance(raw_query_token, str) and raw_query_token.strip():
+            query_token = raw_query_token.strip()
 
     header_value = websocket.headers.get("authorization")
     if header_value:
         return _extract_bearer_token(header_value), subprotocol
     if protocol_token:
         return protocol_token, subprotocol
+    if query_token:
+        return query_token, subprotocol
 
     return None, subprotocol
 

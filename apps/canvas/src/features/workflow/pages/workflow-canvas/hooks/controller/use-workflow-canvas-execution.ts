@@ -1,7 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Connection } from "@xyflow/react";
 import { addEdge, MarkerType } from "@xyflow/react";
+import { toast } from "@/hooks/use-toast";
+import { getAccessToken } from "@features/auth/lib/auth-session";
+import {
+  buildWorkflowWebSocketProtocols,
+  buildWorkflowWebSocketUrl,
+  getBackendBaseUrl,
+} from "@/lib/config";
 import { convertPersistedEdgesToCanvas } from "@features/workflow/pages/workflow-canvas/helpers/transformers";
+import {
+  fetchWorkflowVersions,
+  selectLatestWorkflowVersion,
+} from "@features/workflow/lib/workflow-storage-api";
 import { useExecutionUpdates } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-updates";
 import { useRunWorkflow } from "@features/workflow/pages/workflow-canvas/hooks/use-run-workflow";
 import { usePauseWorkflow } from "@features/workflow/pages/workflow-canvas/hooks/use-pause-workflow";
@@ -10,7 +21,6 @@ import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas
 import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
 import { useExecutionHistoryHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-history-handlers";
 import { useExecutionTrace } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-trace";
-import { getBackendBaseUrl } from "@/lib/config";
 import {
   createHandleCreateSubworkflow,
   createHandleDeleteSubworkflow,
@@ -22,12 +32,20 @@ import {
   createRunPublishValidation,
 } from "@features/workflow/pages/workflow-canvas/handlers/validation";
 import type { CanvasEdge } from "@features/workflow/pages/workflow-canvas/helpers/types";
+import {
+  createExecutionRecord,
+  markNodesAsRunning,
+} from "@features/workflow/pages/workflow-canvas/hooks/execution-record";
+import { setupExecutionWebSocket } from "@features/workflow/pages/workflow-canvas/hooks/workflow-runner-websocket";
+import { generateRandomId } from "@features/workflow/pages/workflow-canvas/helpers/id";
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 export interface WorkflowCanvasExecution {
   executionUpdates: ReturnType<typeof useExecutionUpdates>;
   handleRunWorkflow: () => Promise<void>;
+  handleRunPersistedWorkflow: () => Promise<void>;
   handlePauseWorkflow: () => void;
+  isRunPending: boolean;
   nodeCreation: ReturnType<typeof useNodeCreation>;
   inspectorHandlers: ReturnType<typeof useNodeInspectorHandlers>;
   executionHistoryHandlers: ReturnType<typeof useExecutionHistoryHandlers>;
@@ -48,6 +66,7 @@ export function useWorkflowCanvasExecution(
   core: WorkflowCanvasCore,
   resources: WorkflowCanvasResources,
 ): WorkflowCanvasExecution {
+  const [isRunPending, setIsRunPending] = useState(false);
   const executionUpdates = useExecutionUpdates({
     resolveNodeLabel: core.nodeState.resolveNodeLabel,
     setExecutions: core.execution.setExecutions,
@@ -84,6 +103,114 @@ export function useWorkflowCanvasExecution(
     applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
     handleTraceUpdate: trace.handleTraceUpdate,
   });
+
+  const handleRunPersistedWorkflow = async () => {
+    const workflowId = core.metadata.currentWorkflowId;
+    if (!workflowId) {
+      toast({
+        title: "Save workflow first",
+        description:
+          "Running requires a saved workflow with an ingested Python version.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsRunPending(true);
+    try {
+      const persistedVersions = await fetchWorkflowVersions(workflowId);
+      const latestPersistedVersion =
+        selectLatestWorkflowVersion(persistedVersions);
+      if (!latestPersistedVersion) {
+        throw new Error(
+          "Running requires a saved workflow with an ingested Python version.",
+        );
+      }
+
+      const latestVersionRecord =
+        core.metadata.workflowVersions.find(
+          (version) => version.id === latestPersistedVersion.id,
+        ) ??
+        core.metadata.workflowVersions.reduce<
+          (typeof core.metadata.workflowVersions)[number] | undefined
+        >(
+          (latest, current) =>
+            !latest || current.versionNumber > latest.versionNumber
+              ? current
+              : latest,
+          undefined,
+        );
+
+      const graphToCanvas = latestVersionRecord?.graphToCanvas ?? {};
+      const executionId = generateRandomId("run");
+      const executionNodes = latestVersionRecord?.snapshot
+        ? core.convertPersistedNodesToCanvas(latestVersionRecord.snapshot.nodes)
+        : core.history.nodesRef.current;
+      const executionEdges = latestVersionRecord?.snapshot
+        ? convertPersistedEdgesToCanvas(latestVersionRecord.snapshot.edges)
+        : core.history.edgesRef.current;
+      const executionRecord = createExecutionRecord(
+        executionId,
+        executionNodes,
+        executionEdges,
+        graphToCanvas,
+      );
+
+      if (core.websocketRef.current) {
+        core.websocketRef.current.close();
+        core.websocketRef.current = null;
+      }
+
+      const token = getAccessToken();
+      const websocketUrl = buildWorkflowWebSocketUrl(
+        workflowId,
+        getBackendBaseUrl(),
+        token,
+      );
+      const websocketProtocols = buildWorkflowWebSocketProtocols(token);
+
+      core.execution.setExecutions((prev) => [
+        executionRecord,
+        ...prev.filter((entry) => entry.id !== executionId),
+      ]);
+      core.execution.setActiveExecutionId(executionId);
+      core.execution.setIsRunning(true);
+      core.history.setNodes((prev) => markNodesAsRunning(prev));
+
+      const ws = websocketProtocols
+        ? new WebSocket(websocketUrl, websocketProtocols)
+        : new WebSocket(websocketUrl);
+      core.websocketRef.current = ws;
+
+      setupExecutionWebSocket({
+        ws,
+        executionId,
+        config: latestPersistedVersion.graph,
+        graphToCanvas,
+        storedRunnableConfig: latestPersistedVersion.runnable_config,
+        nodes: executionNodes,
+        currentWorkflowId: workflowId,
+        isMountedRef: core.isMountedRef,
+        applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
+        setIsRunning: core.execution.setIsRunning,
+        setExecutions: core.execution.setExecutions,
+        websocketRef: core.websocketRef,
+        onTraceUpdate: trace.handleTraceUpdate,
+      });
+    } catch (error) {
+      core.execution.setIsRunning(false);
+      toast({
+        title: "Failed to run workflow",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to start workflow run.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRunPending(false);
+    }
+  };
 
   const handlePauseWorkflow = usePauseWorkflow({
     activeExecutionId: core.execution.activeExecutionId,
@@ -254,7 +381,9 @@ export function useWorkflowCanvasExecution(
   return {
     executionUpdates,
     handleRunWorkflow,
+    handleRunPersistedWorkflow,
     handlePauseWorkflow,
+    isRunPending,
     nodeCreation,
     inspectorHandlers,
     executionHistoryHandlers,

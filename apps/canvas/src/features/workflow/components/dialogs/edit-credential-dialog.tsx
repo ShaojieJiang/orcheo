@@ -20,9 +20,10 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import type {
   Credential,
   CredentialUpdateInput,
+  CredentialVaultAccessLevel,
 } from "@features/workflow/types/credential-vault";
 
-type CredentialAccess = "private" | "shared" | "public";
+type CredentialAccess = CredentialVaultAccessLevel;
 
 interface EditCredentialDialogProps {
   credential: Credential | null;
@@ -186,8 +187,12 @@ export function EditCredentialDialog({
                 <SelectValue placeholder="Select access level" />
               </SelectTrigger>
               <SelectContent>
+                {credential?.access === "shared" ? (
+                  <SelectItem value="shared" disabled>
+                    Shared (legacy)
+                  </SelectItem>
+                ) : null}
                 <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="shared">Shared</SelectItem>
                 <SelectItem value="public">Public</SelectItem>
               </SelectContent>
             </Select>
@@ -212,7 +217,7 @@ export function EditCredentialDialog({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-8 w-8 shrink-0"
                 onClick={() => setIsSecretVisible((previous) => !previous)}
                 disabled={!secret}
                 aria-label={`${isSecretVisible ? "Hide" : "Show"} secret value`}

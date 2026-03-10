@@ -4,9 +4,17 @@ import { useEffect, useRef } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
   SAMPLE_WORKFLOWS,
+  getWorkflowTemplateDefinition,
   type WorkflowNode as PersistedWorkflowNode,
   type WorkflowEdge as PersistedWorkflowEdge,
 } from "@features/workflow/data/workflow-data";
+import {
+  collectCredentialPlaceholderNames,
+  describeCredentialVaultReadiness,
+  describeRequiredCredentialPlaceholders,
+  showCredentialReminderToast,
+} from "@features/workflow/lib/credential-vault-reminder";
+import { fetchWorkflowCredentialReadiness } from "@features/workflow/lib/workflow-storage-api";
 import {
   getWorkflowById,
   type StoredWorkflow,
@@ -55,6 +63,7 @@ export function useWorkflowLoader<TNode, TEdge>({
 
   useEffect(() => {
     let isMounted = true;
+    let disposeReminderToast: (() => void) | undefined;
 
     const resetToBlankWorkflow = () => {
       setCurrentWorkflowId(null);
@@ -83,6 +92,9 @@ export function useWorkflowLoader<TNode, TEdge>({
         setWorkflowLoadError(null);
         const persisted = await getWorkflowById(workflowId);
         if (persisted && isMounted) {
+          const readiness = await fetchWorkflowCredentialReadiness(
+            persisted.id,
+          ).catch(() => undefined);
           currentWorkflowRef.current = persisted;
           loadedHistoryWorkflowIdRef.current = null;
           setCurrentWorkflowId(persisted.id);
@@ -102,6 +114,15 @@ export function useWorkflowLoader<TNode, TEdge>({
             { nodes: canvasNodes, edges: canvasEdges },
             { resetHistory: true },
           );
+          disposeReminderToast?.();
+          const reminder = describeCredentialVaultReadiness(readiness);
+          if (reminder) {
+            disposeReminderToast = showCredentialReminderToast({
+              title: "Workflow loaded",
+              description: reminder,
+              highlightedCredentialNames: readiness?.missing_credentials ?? [],
+            });
+          }
           if (isMounted) {
             setIsWorkflowLoading(false);
           }
@@ -132,6 +153,11 @@ export function useWorkflowLoader<TNode, TEdge>({
 
       const template = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
       if (template) {
+        const templateDefinition = getWorkflowTemplateDefinition(template.id);
+        const placeholderNames = collectCredentialPlaceholderNames({
+          script: templateDefinition?.script,
+          runnableConfig: templateDefinition?.runnableConfig ?? null,
+        });
         currentWorkflowRef.current = null;
         loadedHistoryWorkflowIdRef.current = null;
         setCurrentWorkflowId(null);
@@ -147,9 +173,13 @@ export function useWorkflowLoader<TNode, TEdge>({
           { nodes: canvasNodes, edges: canvasEdges },
           { resetHistory: true },
         );
-        toast({
+        disposeReminderToast?.();
+        disposeReminderToast = showCredentialReminderToast({
           title: "Template loaded",
-          description: "Save to add this workflow to your workspace.",
+          description: `Save to add this workflow to your workspace. ${describeRequiredCredentialPlaceholders(
+            placeholderNames,
+          )}`,
+          highlightedCredentialNames: placeholderNames,
         });
         setIsWorkflowLoading(false);
         return;
@@ -171,6 +201,7 @@ export function useWorkflowLoader<TNode, TEdge>({
 
     return () => {
       isMounted = false;
+      disposeReminderToast?.();
     };
   }, [
     applySnapshot,

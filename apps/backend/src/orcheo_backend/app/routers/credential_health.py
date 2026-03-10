@@ -1,23 +1,113 @@
 """Credential health routes."""
 
 from __future__ import annotations
+from typing import Literal
 from fastapi import APIRouter, HTTPException, status
 from orcheo.models import CredentialHealthStatus
+from orcheo_backend.app.credential_readiness import (
+    collect_workflow_credential_placeholders,
+)
 from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     RepositoryDep,
+    VaultDep,
+    credential_context_from_workflow,
     resolve_workflow_ref_id,
 )
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history_utils import health_report_to_response
-from orcheo_backend.app.repository import WorkflowNotFoundError
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
+)
 from orcheo_backend.app.schemas.credentials import (
     CredentialHealthResponse,
+    CredentialReadinessItem,
+    CredentialReadinessResponse,
     CredentialValidationRequest,
 )
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/workflows/{workflow_ref}/credentials/readiness",
+    response_model=CredentialReadinessResponse,
+)
+async def get_workflow_credential_readiness(
+    workflow_ref: str,
+    repository: RepositoryDep,
+    vault: VaultDep,
+) -> CredentialReadinessResponse:
+    """Return whether referenced workflow credentials are available in the vault."""
+    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    try:
+        await repository.get_workflow(workflow_uuid)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    try:
+        version = await repository.get_latest_version(workflow_uuid)
+    except WorkflowVersionNotFoundError:
+        return CredentialReadinessResponse(
+            workflow_id=str(workflow_uuid),
+            status="not_required",
+            referenced_credentials=[],
+            available_credentials=[],
+            missing_credentials=[],
+        )
+
+    graph_payload = version.graph if isinstance(version.graph, dict) else {}
+    runnable_config = (
+        version.runnable_config if isinstance(version.runnable_config, dict) else None
+    )
+    placeholders = collect_workflow_credential_placeholders(
+        graph_payload,
+        runnable_config,
+    )
+
+    context = credential_context_from_workflow(workflow_uuid)
+    credentials = vault.list_credentials(context=context)
+    credentials_by_name = {
+        metadata.name.strip().lower(): metadata for metadata in credentials
+    }
+
+    referenced_credentials: list[CredentialReadinessItem] = []
+    available_credentials: list[str] = []
+    missing_credentials: list[str] = []
+
+    for name in sorted(placeholders, key=str.lower):
+        metadata = credentials_by_name.get(name.strip().lower())
+        if metadata is None:
+            missing_credentials.append(name)
+        else:
+            available_credentials.append(name)
+        referenced_credentials.append(
+            CredentialReadinessItem(
+                name=name,
+                placeholders=sorted(placeholders[name]),
+                available=metadata is not None,
+                credential_id=str(metadata.id) if metadata is not None else None,
+                provider=metadata.provider if metadata is not None else None,
+            )
+        )
+
+    status_value: Literal["ready", "missing", "not_required"]
+    if not referenced_credentials:
+        status_value = "not_required"
+    elif missing_credentials:
+        status_value = "missing"
+    else:
+        status_value = "ready"
+
+    return CredentialReadinessResponse(
+        workflow_id=str(workflow_uuid),
+        status=status_value,
+        referenced_credentials=referenced_credentials,
+        available_credentials=available_credentials,
+        missing_credentials=missing_credentials,
+    )
 
 
 @router.get(
@@ -88,4 +178,9 @@ async def validate_workflow_credentials(
     return health_report_to_response(report)
 
 
-__all__ = ["router"]
+__all__ = [
+    "get_workflow_credential_readiness",
+    "get_workflow_credential_health",
+    "router",
+    "validate_workflow_credentials",
+]

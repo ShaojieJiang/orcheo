@@ -1,7 +1,9 @@
 """Management commands for workflows."""
 
 from __future__ import annotations
+from typing import Any
 import typer
+from rich.markup import escape
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.utils import load_with_cache
@@ -25,6 +27,11 @@ from orcheo_sdk.cli.workflow.inputs import (
     _resolve_runnable_config,
     _validate_local_path,
 )
+from orcheo_sdk.cli.workflow.reminders import (
+    attach_workflow_vault_reminder,
+    describe_workflow_vault_reminder,
+    fetch_workflow_vault_readiness,
+)
 from orcheo_sdk.services import (
     delete_workflow_data,
     download_workflow_data,
@@ -33,6 +40,16 @@ from orcheo_sdk.services import (
     update_workflow_data,
     upload_workflow_data,
 )
+
+
+def _print_workflow_vault_reminder(
+    console: Any,
+    readiness: dict[str, object] | None,
+) -> None:
+    reminder = describe_workflow_vault_reminder(readiness)
+    if reminder is None:
+        return
+    console.print(f"[dim]Vault reminder: {escape(reminder)}[/dim]")
 
 
 @workflow_app.command("delete")
@@ -101,11 +118,12 @@ def upload_workflow(
             cron_sync = sync_cron_schedule_if_changed(state.client, resolved_id)
         except Exception:  # noqa: BLE001
             cron_sync = None
+    readiness = fetch_workflow_vault_readiness(state.client, resolved_id)
 
     if not state.human:
         if cron_sync and cron_sync.get("status") == "updated":
             result["cron_schedule"] = cron_sync
-        print_json(result)
+        print_json(attach_workflow_vault_reminder(result, readiness))
         return
     identifier = resolved_id or "workflow"
     action = "updated" if workflow_id else "uploaded"
@@ -115,6 +133,7 @@ def upload_workflow(
     if cron_sync and cron_sync.get("status") == "updated":
         state.console.print(f"[green]{cron_sync['message']}[/green]")
         render_json(state.console, cron_sync.get("config", {}), title="Cron trigger")
+    _print_workflow_vault_reminder(state.console, readiness)
 
 
 @workflow_app.command("update")

@@ -85,10 +85,7 @@ async def create_credential(
             detail=str(exc),
         ) from exc
 
-    response = credential_to_response(metadata)
-    if request.access != response.access:
-        response = response.model_copy(update={"access": request.access})
-    return response
+    return credential_to_response(metadata)
 
 
 @router.get(
@@ -132,10 +129,10 @@ async def update_credential(
         repository, request.workflow_id
     )
     effective_workflow_id = query_workflow_id or body_workflow_id
-    if request.access in {"private", "shared"} and effective_workflow_id is None:
+    if request.access == "private" and effective_workflow_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=("workflow_id is required when access is set to private or shared"),
+            detail="workflow_id is required when access is set to private",
         )
     context = credential_context_from_workflow(effective_workflow_id)
     scope = (
@@ -168,10 +165,7 @@ async def update_credential(
             detail=str(exc),
         ) from exc
 
-    response = credential_to_response(metadata)
-    if request.access is not None and request.access != response.access:
-        response = response.model_copy(update={"access": request.access})
-    return response
+    return credential_to_response(metadata)
 
 
 @router.delete(

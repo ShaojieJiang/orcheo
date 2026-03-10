@@ -36,8 +36,10 @@ describe("CredentialsTable", () => {
 
     expect(container.firstChild).toHaveClass("min-w-0");
     expect(container.firstChild).toHaveClass("overflow-hidden");
-    expect(screen.getByRole("table")).toHaveClass("min-w-[900px]");
+    expect(screen.getByRole("table")).toHaveClass("min-w-[820px]");
     expect(screen.getByText("Provider")).toBeInTheDocument();
+    expect(screen.getByText("•••••••••••••••")).toHaveClass("w-[120px]");
+    expect(screen.getByText("•••••••••••••••")).not.toHaveClass("truncate");
   });
 
   it("renders the full secret value without truncation once revealed", async () => {
