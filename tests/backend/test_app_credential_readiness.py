@@ -74,6 +74,27 @@ def orcheo_workflow() -> StateGraph:
     assert placeholders["telegram_token"] == {"[[telegram_token]]"}
 
 
+def test_collect_workflow_credential_placeholders_falls_back_when_source_fails() -> (
+    None
+):
+    placeholders = collect_workflow_credential_placeholders(
+        {
+            "source": """
+def orcheo_workflow():
+    raise RuntimeError("boom")
+""",
+            "entrypoint": None,
+            "nodes": [{"token": "[[slack_bot_token]]"}],
+        },
+        {"configurable": {"fallback_token": "[[fallback_token]]"}},
+    )
+
+    assert placeholders == {
+        "fallback_token": {"[[fallback_token]]"},
+        "slack_bot_token": {"[[slack_bot_token]]"},
+    }
+
+
 def test_collect_workflow_credential_placeholders_raw_payloads_no_source() -> None:
     placeholders = collect_workflow_credential_placeholders(
         {"nodes": [{"token": "[[slack_bot_token]]"}]},

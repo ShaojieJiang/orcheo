@@ -25,8 +25,12 @@ def collect_workflow_credential_placeholders(
     entrypoint = entrypoint_raw if isinstance(entrypoint_raw, str) else None
 
     if isinstance(source, str) and source.strip():
-        graph = load_graph_from_script(source, entrypoint=entrypoint)
-        _collect_state_graph(graph, placeholders, seen=set())
+        try:
+            graph = load_graph_from_script(source, entrypoint=entrypoint)
+        except (OSError, RuntimeError, ValueError, ImportError):
+            _collect_value(graph_payload, placeholders, seen=set())
+        else:
+            _collect_state_graph(graph, placeholders, seen=set())
     else:
         _collect_value(graph_payload, placeholders, seen=set())
 
