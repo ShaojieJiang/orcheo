@@ -147,6 +147,14 @@ describe("WorkflowCanvas tabs", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a run button in the workflow header", async () => {
+    renderCanvas();
+
+    expect(
+      await screen.findByRole("button", { name: /^run$/i }),
+    ).toBeDisabled();
+  });
+
   it("disables schedule toggle when a cron trigger node is missing", async () => {
     renderCanvas();
 

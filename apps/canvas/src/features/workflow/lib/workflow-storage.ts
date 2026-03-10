@@ -54,6 +54,21 @@ const emitUpdate = () => {
   window.dispatchEvent(new CustomEvent(WORKFLOW_STORAGE_EVENT));
 };
 
+const buildTemplateCanvasMetadata = ({
+  name,
+  description,
+  nodes,
+  edges,
+}: Pick<SaveWorkflowInput, "name" | "description" | "nodes" | "edges">) => ({
+  snapshot: {
+    name,
+    description,
+    nodes,
+    edges,
+  },
+  summary: { added: 0, removed: 0, modified: 0 },
+});
+
 export const invalidateWorkflowListCache = () => {
   workflowListCache = undefined;
   workflowListInflight = undefined;
@@ -172,9 +187,16 @@ export const createWorkflowFromTemplate = async (
     body: JSON.stringify({
       script: templateDefinition.script,
       entrypoint: templateDefinition.entrypoint ?? null,
+      runnable_config: templateDefinition.runnableConfig ?? null,
       metadata: {
         source: "canvas-template",
         template_id: templateWorkflow.id,
+        canvas: buildTemplateCanvasMetadata({
+          name: workflowName,
+          description: workflowDescription,
+          nodes: templateWorkflow.nodes,
+          edges: templateWorkflow.edges,
+        }),
       },
       notes: templateDefinition.notes,
       created_by: actor,

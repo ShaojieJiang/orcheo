@@ -5,12 +5,20 @@ from typing import Any
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
+from orcheo.graph.mermaid import (
+    has_workflow_tool_subgraphs,
+    normalise_mermaid_sentinels,
+    render_summary_mermaid,
+)
 from orcheo.nodes.registry import registry
 
 
 def summarise_state_graph(graph: StateGraph) -> dict[str, Any]:
     """Return a JSON-serialisable summary of the ``StateGraph`` structure."""
-    nodes = [_serialise_node(name, spec.runnable) for name, spec in graph.nodes.items()]
+    nodes = [
+        _serialise_node(name, spec.runnable, nested_graph_depth=1)
+        for name, spec in graph.nodes.items()
+    ]
     edges = [_normalise_edge(edge) for edge in sorted(graph.edges)]
     branches = [
         _serialise_branch(source, branch_name, branch)
@@ -33,16 +41,29 @@ def summarise_graph_index(
     graph: StateGraph,
 ) -> dict[str, Any]:
     """Return compact graph metadata for downstream CLI/UI consumers."""
+    summary = summarise_state_graph(graph)
     index: dict[str, Any] = {
         "cron": _extract_cron_index(graph),
     }
-    mermaid = _render_mermaid(graph)
+    compact_mermaid = _render_compact_mermaid(graph)
+    mermaid = (
+        render_summary_mermaid(summary)
+        if has_workflow_tool_subgraphs(summary)
+        else compact_mermaid
+    )
     if mermaid:
         index["mermaid"] = mermaid
+    if compact_mermaid and mermaid and compact_mermaid != mermaid:
+        index["mermaid_compact"] = compact_mermaid
     return index
 
 
-def _serialise_node(name: str, runnable: Any) -> dict[str, Any]:
+def _serialise_node(
+    name: str,
+    runnable: Any,
+    *,
+    nested_graph_depth: int = 0,
+) -> dict[str, Any]:
     """Return a JSON representation for a LangGraph node."""
     runnable_obj = _unwrap_runnable(runnable)
     metadata = registry.get_metadata_by_callable(runnable_obj)
@@ -52,7 +73,10 @@ def _serialise_node(name: str, runnable: Any) -> dict[str, Any]:
     if isinstance(runnable_obj, BaseModel):
         node_config = runnable_obj.model_dump(
             mode="json",
-            fallback=_serialise_fallback,
+            fallback=lambda value: _serialise_fallback(
+                value,
+                nested_graph_depth=nested_graph_depth,
+            ),
         )
         node_config.pop("name", None)
         payload.update(node_config)
@@ -60,25 +84,75 @@ def _serialise_node(name: str, runnable: Any) -> dict[str, Any]:
     return payload
 
 
-def _serialise_fallback(value: Any) -> Any:
+def _serialise_fallback(
+    value: Any,
+    *,
+    nested_graph_depth: int = 0,
+) -> Any:
     """Return a JSON-safe representation for unsupported Pydantic values."""
     if isinstance(value, BaseModel):
-        return value.model_dump(mode="json", fallback=_serialise_fallback)
+        return value.model_dump(
+            mode="json",
+            fallback=lambda nested: _serialise_fallback(
+                nested,
+                nested_graph_depth=nested_graph_depth,
+            ),
+        )
     if isinstance(value, StateGraph):
-        return {"type": "StateGraph", "nodes": sorted(value.nodes.keys())}
+        payload: dict[str, Any] = {
+            "type": "StateGraph",
+            "nodes": sorted(value.nodes.keys()),
+        }
+        if nested_graph_depth > 0:
+            payload["summary"] = summarise_state_graph_with_depth(
+                value,
+                nested_graph_depth=nested_graph_depth - 1,
+            )
+        return payload
     if isinstance(value, CompiledStateGraph):
         return {"type": "CompiledStateGraph"}
     if isinstance(value, type):
         return f"{value.__module__}.{value.__name__}"
     if isinstance(value, set):
-        return [_serialise_fallback(item) for item in value]
+        return [
+            _serialise_fallback(item, nested_graph_depth=nested_graph_depth)
+            for item in value
+        ]
     return repr(value)
 
 
-def _render_mermaid(graph: StateGraph) -> str | None:
-    """Return Mermaid text for a graph when rendering succeeds."""
+def summarise_state_graph_with_depth(
+    graph: StateGraph,
+    *,
+    nested_graph_depth: int,
+) -> dict[str, Any]:
+    """Return a graph summary with a bounded nested graph depth."""
+    nodes = [
+        _serialise_node(name, spec.runnable, nested_graph_depth=nested_graph_depth)
+        for name, spec in graph.nodes.items()
+    ]
+    edges = [_normalise_edge(edge) for edge in sorted(graph.edges)]
+    branches = [
+        _serialise_branch(source, branch_name, branch)
+        for source, branch_map in graph.branches.items()
+        for branch_name, branch in branch_map.items()
+    ]
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "conditional_edges": [
+            branch
+            for branch in branches
+            if branch.get("mapping") or branch.get("default")
+        ],
+    }
+
+
+def _render_compact_mermaid(graph: StateGraph) -> str | None:
+    """Return Mermaid text for the top-level graph when rendering succeeds."""
     try:
-        return graph.compile().get_graph().draw_mermaid()
+        return normalise_mermaid_sentinels(graph.compile().get_graph().draw_mermaid())
     except Exception:
         return None
 

@@ -105,7 +105,7 @@ export function OutputPanel({
                 <div className="mb-2 flex items-center gap-2">
                   <Badge variant="secondary">Test Result</Badge>
                 </div>
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4">
+                <pre className="select-text font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4">
                   {JSON.stringify(testResult, null, 2)}
                 </pre>
               </div>
@@ -114,13 +114,13 @@ export function OutputPanel({
                 <div className="mb-2 flex items-center gap-2">
                   <Badge variant="destructive">Test Error</Badge>
                 </div>
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-destructive/10 p-4 text-destructive">
+                <pre className="select-text font-mono text-sm whitespace-pre overflow-auto rounded-md bg-destructive/10 p-4 text-destructive">
                   {testError}
                 </pre>
               </div>
             ) : useLiveData ? (
               hasLiveOutputs && outputDisplay !== undefined ? (
-                <pre className="font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
+                <pre className="select-text font-mono text-sm whitespace-pre overflow-auto rounded-md bg-muted p-4 h-full">
                   {JSON.stringify(outputDisplay, null, 2)}
                 </pre>
               ) : (

@@ -94,6 +94,15 @@ class BaseRunnable(BaseModel):
             for key, value in self.__dict__.items()
         }
 
+    def _resolve_nested_credential_string(self, value: Any) -> Any:
+        """Resolve a credential placeholder returned by template expansion."""
+        if not isinstance(value, str):
+            return value
+        reference = parse_credential_reference(value)
+        if reference is None:
+            return value
+        return self._resolve_credential_reference(reference)
+
     def _decode_string_value(
         self,
         value: str,
@@ -113,7 +122,9 @@ class BaseRunnable(BaseModel):
                 value,
                 state,
             )
-            return resolved if is_resolved else value
+            if not is_resolved:
+                return value
+            return self._resolve_nested_credential_string(resolved)
 
         def _replace(match: re.Match[str]) -> str:
             template = match.group(0)
@@ -122,6 +133,8 @@ class BaseRunnable(BaseModel):
                 template,
                 state,
             )
+            if is_resolved:
+                resolved = self._resolve_nested_credential_string(resolved)
             if not is_resolved or not isinstance(resolved, str | int | float | bool):
                 return template
             return str(resolved)

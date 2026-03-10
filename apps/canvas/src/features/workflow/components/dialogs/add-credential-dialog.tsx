@@ -18,9 +18,12 @@ import {
   SelectValue,
 } from "@/design-system/ui/select";
 import { Loader2, Plus } from "lucide-react";
-import type { CredentialInput } from "@features/workflow/types/credential-vault";
+import type {
+  CredentialInput,
+  CredentialVaultAccessLevel,
+} from "@features/workflow/types/credential-vault";
 
-type CredentialAccess = "private" | "shared" | "public";
+type CredentialAccess = Exclude<CredentialVaultAccessLevel, "shared">;
 
 interface AddCredentialDialogProps {
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
@@ -177,7 +180,6 @@ export function AddCredentialDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="shared">Shared</SelectItem>
                 <SelectItem value="public">Public</SelectItem>
               </SelectContent>
             </Select>

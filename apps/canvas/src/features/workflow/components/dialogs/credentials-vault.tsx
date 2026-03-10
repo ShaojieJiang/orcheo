@@ -35,7 +35,7 @@ export default function CredentialsVault({
 
   const containerClassName = useMemo(
     () =>
-      ["min-w-0 space-y-4", className]
+      ["flex min-h-0 min-w-0 max-h-[75vh] flex-col gap-4", className]
         .filter((value): value is string => Boolean(value && value.trim()))
         .join(" "),
     [className],
@@ -60,14 +60,19 @@ export default function CredentialsVault({
         </div>
       </div>
 
-      <CredentialsTable
-        credentials={credentials}
-        isLoading={isLoading}
-        searchQuery={searchQuery}
-        onUpdateCredential={onUpdateCredential}
-        onDeleteCredential={onDeleteCredential}
-        onRevealCredentialSecret={onRevealCredentialSecret}
-      />
+      <div
+        className="min-h-0 flex-1 overflow-y-auto pr-1"
+        data-testid="credentials-vault-list"
+      >
+        <CredentialsTable
+          credentials={credentials}
+          isLoading={isLoading}
+          searchQuery={searchQuery}
+          onUpdateCredential={onUpdateCredential}
+          onDeleteCredential={onDeleteCredential}
+          onRevealCredentialSecret={onRevealCredentialSecret}
+        />
+      </div>
     </div>
   );
 }

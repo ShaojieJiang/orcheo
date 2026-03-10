@@ -47,8 +47,9 @@ interface CredentialsTableProps {
   onRevealCredentialSecret?: (id: string) => Promise<string | null>;
 }
 
-const SECRET_PLACEHOLDER = "••••••••••••••••";
+const SECRET_PLACEHOLDER = "•••••••••••••••";
 const MASKED_SECRET_MARKER = "•";
+const SECRET_VALUE_WIDTH_CLASS = "w-[120px]";
 
 const isMaskedSecret = (value: string): boolean =>
   value.includes(MASKED_SECRET_MARKER);
@@ -195,16 +196,16 @@ export function CredentialsTable({
 
   return (
     <div className="min-w-0 overflow-hidden rounded-md border">
-      <Table className="min-w-[900px]">
+      <Table className="min-w-[820px]">
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
+            <TableHead className="w-[260px]">Name</TableHead>
             <TableHead>Provider</TableHead>
             <TableHead>Access</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Secret</TableHead>
+            <TableHead className="w-[180px]">Secret</TableHead>
             <TableHead className="whitespace-nowrap">Last Updated</TableHead>
-            <TableHead className="w-[80px]" />
+            <TableHead className="w-[48px]" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -273,8 +274,8 @@ export function CredentialsTable({
                       <div
                         className={
                           secretVisible && secret
-                            ? "w-[150px] overflow-x-auto overflow-y-hidden whitespace-nowrap rounded bg-muted px-2 py-1 font-mono text-xs"
-                            : "w-[150px] overflow-hidden truncate rounded bg-muted px-2 py-1 font-mono text-xs"
+                            ? `${SECRET_VALUE_WIDTH_CLASS} overflow-x-auto overflow-y-hidden whitespace-nowrap rounded bg-muted px-2 py-1 font-mono text-xs`
+                            : `${SECRET_VALUE_WIDTH_CLASS} overflow-hidden whitespace-nowrap rounded bg-muted px-2 py-1 font-mono text-xs`
                         }
                       >
                         {secret

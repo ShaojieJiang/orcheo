@@ -21,6 +21,8 @@ def test_workflow_mermaid_with_langgraph_summary() -> None:
     assert "store_secret" in mermaid
     assert "__start__ --> store_secret" in mermaid
     assert "store_secret --> __end__" in mermaid
+    assert "[<p>START</p>]" in mermaid
+    assert "[<p>END</p>]" in mermaid
 
 
 def test_workflow_mermaid_prefers_precomputed_index_mermaid() -> None:
@@ -77,6 +79,48 @@ def test_workflow_mermaid_with_langgraph_conditional_edges() -> None:
     assert "prepare_iteration --> __end__" in mermaid
     assert "increment_counter --> select_current_user" in mermaid
     assert "increment_counter --> __end__" in mermaid
+
+
+def test_workflow_mermaid_with_agent_workflow_tool_subgraph() -> None:
+    """Nested AgentNode workflow tools should render as Mermaid subgraphs."""
+    from orcheo_sdk.cli.workflow import _mermaid_from_graph
+
+    graph = {
+        "format": "langgraph-script",
+        "summary": {
+            "nodes": [
+                {
+                    "name": "agent",
+                    "type": "AgentNode",
+                    "workflow_tools": [
+                        {
+                            "name": "search",
+                            "graph": {
+                                "type": "StateGraph",
+                                "summary": {
+                                    "nodes": [{"name": "lookup", "type": "TaskNode"}],
+                                    "edges": [
+                                        ["START", "lookup"],
+                                        ["lookup", "END"],
+                                    ],
+                                    "conditional_edges": [],
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+            "edges": [["START", "agent"], ["agent", "END"]],
+            "conditional_edges": [],
+        },
+    }
+
+    mermaid = _mermaid_from_graph(graph)
+    assert 'subgraph root__agent__tool__search__subgraph["search"]' in mermaid
+    assert "root__node__agent -.-> root__agent__tool__search__start;" in mermaid
+    assert 'root__agent__tool__search__node__lookup["lookup"]:::tool' in mermaid
+    assert 'root__start(["START"]):::first' in mermaid
+    assert 'root__end(["END"]):::last' in mermaid
 
 
 def test_workflow_mermaid_node_identifier_none() -> None:

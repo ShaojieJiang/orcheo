@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, Play } from "lucide-react";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -33,6 +33,8 @@ export interface WorkflowTabContentProps {
   versions: WorkflowVersionRecord[];
   isLoading: boolean;
   loadError: string | null;
+  isRunPending: boolean;
+  onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
 }
@@ -193,6 +195,8 @@ export function WorkflowTabContent({
   versions,
   isLoading,
   loadError,
+  isRunPending,
+  onRunWorkflow,
   onSaveConfig,
   hasCronTriggerNode,
 }: WorkflowTabContentProps) {
@@ -371,6 +375,7 @@ export function WorkflowTabContent({
   }
 
   const canConfigure = Boolean(workflowId);
+  const canRun = Boolean(workflowId && latestVersion);
   const latestConfig = latestVersion?.runnableConfig ?? null;
   const canToggleSchedule = hasCronTriggerNode || isScheduled;
 
@@ -523,6 +528,13 @@ export function WorkflowTabContent({
               disabled={isSchedulePending || !canToggleSchedule}
             />
           </div>
+          <Button
+            onClick={() => void onRunWorkflow()}
+            disabled={!canRun || isRunPending}
+          >
+            <Play className="mr-1.5 h-4 w-4" />
+            {isRunPending ? "Running..." : "Run"}
+          </Button>
           <Button
             variant="outline"
             onClick={() => setIsConfigOpen(true)}

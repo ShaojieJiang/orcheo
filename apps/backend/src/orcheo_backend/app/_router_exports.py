@@ -66,6 +66,9 @@ issue_credential_from_template = (
 list_governance_alerts = _credential_alerts_routes.list_governance_alerts
 acknowledge_governance_alert = _credential_alerts_routes.acknowledge_governance_alert
 
+get_workflow_credential_readiness = (
+    _credential_health_routes.get_workflow_credential_readiness
+)
 get_workflow_credential_health = (
     _credential_health_routes.get_workflow_credential_health
 )
@@ -138,6 +141,7 @@ __all__ = [
     "get_execution_history",
     "get_webhook_trigger_config",
     "get_workflow",
+    "get_workflow_credential_readiness",
     "get_workflow_credential_health",
     "get_workflow_run",
     "get_workflow_version",

@@ -2,10 +2,12 @@ import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
+  ApiWorkflowRun,
   ApiWorkflowVersion,
   CronTriggerConfig,
   PublicWorkflowMetadata,
   RequestOptions,
+  WorkflowCredentialReadinessResponse,
   WorkflowPublishResponse,
 } from "./workflow-storage.types";
 
@@ -114,6 +116,62 @@ export const fetchWorkflowVersions = async (
     throw error;
   }
 };
+
+export const fetchWorkflowCredentialReadiness = async (
+  workflowId: string,
+): Promise<WorkflowCredentialReadinessResponse | undefined> => {
+  try {
+    return await request<WorkflowCredentialReadinessResponse>(
+      `${API_BASE}/${workflowId}/credentials/readiness`,
+    );
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+export const triggerWorkflowRun = async (
+  workflowId: string,
+  options: {
+    triggeredBy?: string;
+    inputs?: Record<string, unknown>;
+    runnableConfig?: Record<string, unknown>;
+  } = {},
+): Promise<ApiWorkflowRun> => {
+  const versions = await fetchWorkflowVersions(workflowId);
+  const latestVersion = selectLatestWorkflowVersion(versions);
+  if (!latestVersion) {
+    throw new Error(
+      "Canvas can only run workflows with an existing Python version. Ingest a Python script first.",
+    );
+  }
+
+  return request<ApiWorkflowRun>(`${API_BASE}/${workflowId}/runs`, {
+    method: "POST",
+    body: JSON.stringify({
+      workflow_version_id: latestVersion.id,
+      triggered_by: options.triggeredBy ?? "canvas",
+      input_payload: options.inputs ?? {},
+      ...(options.runnableConfig
+        ? { runnable_config: options.runnableConfig }
+        : {}),
+    }),
+  });
+};
+
+export const selectLatestWorkflowVersion = (
+  versions: ApiWorkflowVersion[],
+): ApiWorkflowVersion | undefined =>
+  versions.reduce<ApiWorkflowVersion | undefined>(
+    (latest, current) =>
+      !latest || current.version > latest.version ? current : latest,
+    undefined,
+  );
 
 const SCHEDULED_CONFIG_PATH = (workflowId: string) =>
   `${API_BASE}/${workflowId}/triggers/cron/config`;
@@ -238,6 +296,29 @@ export const extractCronConfigFromVersionGraph = (
   return extractCronConfigFromGraphNodes(graph);
 };
 
+const normalizeTemplateCronConfig = (
+  config: CronTriggerConfig,
+  metadata: unknown,
+): CronTriggerConfig => {
+  if (!isRecord(metadata)) {
+    return config;
+  }
+
+  const templateId = toOptionalString(metadata.template_id);
+  if (templateId !== "template-telegram-heartbeat") {
+    return config;
+  }
+
+  if (config.expression === "* * * * *" && config.allow_overlapping !== true) {
+    return {
+      ...config,
+      allow_overlapping: true,
+    };
+  }
+
+  return config;
+};
+
 export const publishWorkflow = async (
   workflowId: string,
   options: {
@@ -321,7 +402,10 @@ export const scheduleWorkflowFromLatestVersion = async (
     throw new Error("Latest workflow version is missing graph data.");
   }
 
-  const cronConfig = extractCronConfigFromVersionGraph(latest.graph);
+  const cronConfigRaw = extractCronConfigFromVersionGraph(latest.graph);
+  const cronConfig = cronConfigRaw
+    ? normalizeTemplateCronConfig(cronConfigRaw, latest.metadata)
+    : null;
   if (!cronConfig) {
     return {
       status: "noop",

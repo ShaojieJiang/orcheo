@@ -1,24 +1,7 @@
 import type { Workflow } from "../workflow-types";
 import type { WorkflowTemplateDefinition } from "./template-definition";
 import { TEMPLATE_OWNER } from "./template-owner";
-
-const AGENT_SCRIPT = `from langgraph.graph import StateGraph
-from orcheo.graph.state import State
-from orcheo.nodes.ai import AgentNode
-
-def orcheo_workflow() -> StateGraph:
-    graph = StateGraph(State)
-    agent = AgentNode(
-        name="ai_agent",
-        ai_model="openai:gpt-4o-mini",
-        system_prompt="You are a helpful assistant for workflow demos.",
-        model_kwargs={"api_key": "[[openai_api_key]]"},
-    )
-    graph.add_node("ai_agent", agent)
-    graph.set_entry_point("ai_agent")
-    graph.set_finish_point("ai_agent")
-    return graph
-`;
+import agentScript from "./assets/python-agent/workflow.py?raw";
 
 const AGENT_MERMAID = `---
 config:
@@ -26,9 +9,9 @@ config:
     curve: linear
 ---
 graph TD;
-	__start__([<p>__start__</p>]):::first
+	__start__([<p>START</p>]):::first
 	ai_agent(ai_agent)
-	__end__([<p>__end__</p>]):::last
+	__end__([<p>END</p>]):::last
 	__start__ --> ai_agent;
 	ai_agent --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
@@ -98,6 +81,6 @@ export const PYTHON_AGENT_WORKFLOW: Workflow = {
 
 export const PYTHON_AGENT_TEMPLATE: WorkflowTemplateDefinition = {
   workflow: PYTHON_AGENT_WORKFLOW,
-  script: AGENT_SCRIPT,
+  script: agentScript,
   notes: "Seeded from Simple Agent template (`agent.py`).",
 };

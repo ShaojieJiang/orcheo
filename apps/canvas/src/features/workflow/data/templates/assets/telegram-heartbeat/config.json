@@ -1,0 +1,5 @@
+{
+  "configurable": {
+    "heartbeat_message": "Heartbeat: workflow is alive."
+  }
+}

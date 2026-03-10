@@ -61,6 +61,26 @@ class CredentialHealthResponse(BaseModel):
     credentials: list[CredentialHealthItem] = Field(default_factory=list)
 
 
+class CredentialReadinessItem(BaseModel):
+    """Represents whether a referenced credential is available to a workflow."""
+
+    name: str
+    placeholders: list[str] = Field(default_factory=list)
+    available: bool
+    credential_id: str | None = None
+    provider: str | None = None
+
+
+class CredentialReadinessResponse(BaseModel):
+    """Response payload describing workflow credential availability."""
+
+    workflow_id: str
+    status: Literal["ready", "missing", "not_required"]
+    referenced_credentials: list[CredentialReadinessItem] = Field(default_factory=list)
+    available_credentials: list[str] = Field(default_factory=list)
+    missing_credentials: list[str] = Field(default_factory=list)
+
+
 class CredentialScopePayload(BaseModel):
     """Schema describing credential scoping configuration."""
 

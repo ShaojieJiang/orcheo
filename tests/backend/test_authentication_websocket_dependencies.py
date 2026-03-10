@@ -47,8 +47,22 @@ def test_resolve_websocket_token_uses_protocol_token_without_authorization() -> 
     """Fall back to the protocol bearer token on Authorization header absent."""
 
     headers = {"sec-websocket-protocol": "bearer.protocol-token"}
-    websocket = SimpleNamespace(headers=headers)
+    websocket = SimpleNamespace(headers=headers, query_params={})
 
     token, subprotocol = _resolve_websocket_token(websocket)
     assert token == "protocol-token"
+    assert subprotocol is None
+
+
+def test_resolve_websocket_token_uses_query_token_when_needed() -> None:
+    """Fall back to the websocket query string when no header token exists."""
+
+    websocket = SimpleNamespace(
+        headers={},
+        query_params={"access_token": "query-token"},
+    )
+
+    token, subprotocol = _resolve_websocket_token(websocket)
+
+    assert token == "query-token"
     assert subprotocol is None

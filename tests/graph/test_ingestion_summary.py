@@ -51,6 +51,13 @@ def test_summarise_state_graph_handles_workflow_tools_graph() -> None:
     agent_node = next(node for node in summary["nodes"] if node["name"] == "agent")
     workflow_tools = agent_node["workflow_tools"]
     assert workflow_tools[0]["graph"]["type"] == "StateGraph"
+    assert workflow_tools[0]["graph"]["summary"]["nodes"] == [
+        {"name": "noop", "type": "RunnableCallable"},
+    ]
+    assert workflow_tools[0]["graph"]["summary"]["edges"] == [
+        ["START", "noop"],
+        ["noop", "END"],
+    ]
 
 
 def test_serialise_fallback_nested_basemodel() -> None:
@@ -128,6 +135,39 @@ def test_summarise_graph_index_extracts_cron_nodes() -> None:
     assert cron[0]["expression"] == "*/5 * * * *"
     assert cron[0]["timezone"] == "UTC"
     assert cron[0]["allow_overlapping"] is False
+
+
+def test_summarise_graph_index_renders_workflow_tool_subgraph() -> None:
+    graph = StateGraph(State)
+    agent = AgentNode(
+        name="agent",
+        ai_model="gpt-4o-mini",
+        workflow_tools=[
+            WorkflowTool(
+                name="tool",
+                description="tool desc",
+                graph=_build_tool_graph(),
+                args_schema=ToolInput,
+            )
+        ],
+    )
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    graph.add_edge("agent", END)
+
+    index = summarise_graph_index(graph)
+
+    mermaid = index.get("mermaid")
+    compact_mermaid = index.get("mermaid_compact")
+    assert isinstance(mermaid, str)
+    assert isinstance(compact_mermaid, str)
+    assert 'subgraph root__agent__tool__tool__subgraph["tool"]' in mermaid
+    assert "root__node__agent -.-> root__agent__tool__tool__start;" in mermaid
+    assert 'root__start(["START"]):::first' in mermaid
+    assert 'root__end(["END"]):::last' in mermaid
+    assert "[<p>START</p>]" in compact_mermaid
+    assert "[<p>END</p>]" in compact_mermaid
+    assert "graph TD" in compact_mermaid
 
 
 def test_extract_cron_index_skips_missing_cron_keys(

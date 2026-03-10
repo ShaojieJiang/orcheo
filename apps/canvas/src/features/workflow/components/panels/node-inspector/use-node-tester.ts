@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
 import { executeNode } from "@/lib/api";
 import type { NodeInspectorProps, NodeRuntimeCacheEntry } from "./types";
 import { isRecord } from "./utils";
@@ -105,6 +105,13 @@ export function useNodeTester({
   const [testResult, setTestResult] = useState<unknown>(null);
   const [testError, setTestError] = useState<string | null>(null);
 
+  const showToast = useCallback((message: string, variant?: "destructive") => {
+    toast({
+      title: message,
+      ...(variant ? { variant } : {}),
+    });
+  }, []);
+
   useEffect(() => {
     setTestResult(null);
     setTestError(null);
@@ -112,7 +119,7 @@ export function useNodeTester({
 
   const handleTestNode = useCallback(async () => {
     if (!node) {
-      toast.error("Cannot test node: node not found");
+      showToast("Cannot test node: node not found", "destructive");
       return;
     }
 
@@ -122,8 +129,9 @@ export function useNodeTester({
         : backendType;
 
     if (!resolvedBackendType) {
-      toast.error(
+      showToast(
         "Cannot test node: missing backend type information. This node may not support testing yet.",
+        "destructive",
       );
       return;
     }
@@ -177,16 +185,16 @@ export function useNodeTester({
         }
 
         onCacheRuntime?.(node.id, runtimeUpdate);
-        toast.success("Node executed successfully");
+        showToast("Node executed successfully");
       } else {
         setTestError(response.error || "Unknown error");
-        toast.error("Node execution failed");
+        showToast("Node execution failed", "destructive");
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to execute node";
       setTestError(errorMessage);
-      toast.error(errorMessage);
+      showToast(errorMessage, "destructive");
     } finally {
       setIsTestingNode(false);
     }
@@ -196,6 +204,7 @@ export function useNodeTester({
     liveInputs,
     node,
     onCacheRuntime,
+    showToast,
     upstreamOutputs,
     useLiveData,
   ]);

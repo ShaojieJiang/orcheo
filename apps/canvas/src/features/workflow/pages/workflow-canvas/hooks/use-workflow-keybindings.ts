@@ -3,6 +3,21 @@ import type { MutableRefObject } from "react";
 
 import type { CanvasNode } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable ||
+    target.closest(
+      "[contenteditable=''], [contenteditable='true'], [contenteditable='plaintext-only']",
+    ) !== null
+  );
+};
+
 interface UseWorkflowKeybindingsParams {
   nodesRef: MutableRefObject<CanvasNode[]>;
   deleteNodes: (ids: string[]) => void;
@@ -16,18 +31,17 @@ interface UseWorkflowKeybindingsParams {
   setCurrentSearchIndex: (index: number) => void;
 }
 
-export function useWorkflowKeybindings({
-  nodesRef,
-  deleteNodes,
-  handleUndo,
-  handleRedo,
-  copySelectedNodes,
-  cutSelectedNodes,
-  pasteNodes,
-  setIsSearchOpen,
-  setSearchMatches,
-  setCurrentSearchIndex,
-}: UseWorkflowKeybindingsParams) {
+export function useWorkflowKeybindings(params: UseWorkflowKeybindingsParams) {
+  const {
+    nodesRef,
+    deleteNodes,
+    handleUndo,
+    handleRedo,
+    setIsSearchOpen,
+    setSearchMatches,
+    setCurrentSearchIndex,
+  } = params;
+
   useEffect(() => {
     const targetDocument =
       typeof document !== "undefined" ? document : undefined;
@@ -36,12 +50,7 @@ export function useWorkflowKeybindings({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isEditable =
-        !!target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable);
+      const isEditable = isEditableTarget(event.target);
 
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
@@ -67,21 +76,7 @@ export function useWorkflowKeybindings({
         return;
       }
 
-      if (key === "c") {
-        event.preventDefault();
-        void copySelectedNodes();
-        return;
-      }
-
-      if (key === "x") {
-        event.preventDefault();
-        void cutSelectedNodes();
-        return;
-      }
-
-      if (key === "v") {
-        event.preventDefault();
-        void pasteNodes();
+      if (key === "c" || key === "x" || key === "v") {
         return;
       }
 
@@ -116,9 +111,6 @@ export function useWorkflowKeybindings({
     deleteNodes,
     handleRedo,
     handleUndo,
-    copySelectedNodes,
-    cutSelectedNodes,
-    pasteNodes,
     setCurrentSearchIndex,
     setIsSearchOpen,
     setSearchMatches,

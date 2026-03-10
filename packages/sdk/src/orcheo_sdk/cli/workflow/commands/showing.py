@@ -2,14 +2,33 @@
 
 from __future__ import annotations
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, Any
 import typer
+from rich.markup import escape
 from orcheo_sdk.cli.output import format_datetime, print_json, render_json, render_table
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import WorkflowIdArgument, _state, workflow_app
 from orcheo_sdk.cli.workflow.inputs import _cache_notice
 from orcheo_sdk.cli.workflow.mermaid import _mermaid_from_graph
+from orcheo_sdk.cli.workflow.reminders import (
+    attach_workflow_vault_reminder,
+    describe_workflow_vault_reminder,
+    fetch_workflow_vault_readiness,
+)
 from orcheo_sdk.services import show_workflow_data
+
+
+def _print_workflow_vault_reminder(
+    console: Any,
+    readiness: dict[str, object] | None,
+    *,
+    leading_newline: bool = False,
+) -> None:
+    prefix = "\n" if leading_newline else ""
+    reminder = describe_workflow_vault_reminder(readiness)
+    if reminder is None:
+        return
+    console.print(f"{prefix}[dim]Vault reminder: {escape(reminder)}[/dim]")
 
 
 @workflow_app.command("show")
@@ -56,9 +75,10 @@ def show_workflow(
         runs=runs,
         target_version=version,
     )
+    readiness = fetch_workflow_vault_readiness(state.client, workflow_id)
 
     if not state.human:
-        print_json(data)
+        print_json(attach_workflow_vault_reminder(data, readiness))
         return
 
     workflow_details = data["workflow"]
@@ -109,6 +129,12 @@ def show_workflow(
             rows=rows,
             column_overflow={"ID": "fold"},
         )
+
+    _print_workflow_vault_reminder(
+        state.console,
+        readiness,
+        leading_newline=True,
+    )
 
 
 __all__ = ["show_workflow"]

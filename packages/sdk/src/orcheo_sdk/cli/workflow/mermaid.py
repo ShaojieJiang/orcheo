@@ -3,6 +3,11 @@
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
+from orcheo.graph.mermaid import (
+    has_workflow_tool_subgraphs,
+    normalise_mermaid_sentinels,
+    render_summary_mermaid,
+)
 
 
 def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
@@ -12,9 +17,11 @@ def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
         if isinstance(index, Mapping):
             mermaid = index.get("mermaid")
             if isinstance(mermaid, str) and mermaid.strip():
-                return mermaid
+                return normalise_mermaid_sentinels(mermaid)
         summary = graph.get("summary")
         if isinstance(summary, Mapping):
+            if has_workflow_tool_subgraphs(summary):
+                return render_summary_mermaid(summary)
             return _compiled_mermaid(summary)
     return _compiled_mermaid(graph)
 
@@ -59,7 +66,7 @@ def _compiled_mermaid(graph: Mapping[str, Any]) -> str:
 
     compiled = stub.compile()
     try:
-        return compiled.get_graph().draw_mermaid()
+        return normalise_mermaid_sentinels(compiled.get_graph().draw_mermaid())
     except InvalidUpdateError:
         # Parallel branches can fan out from START and trigger concurrent
         # root-state writes during LangGraph rendering.
@@ -246,7 +253,7 @@ def _render_mermaid_fallback(
     lines.append("\tclassDef default fill:#f2f0ff,line-height:1.2")
     lines.append("\tclassDef first fill-opacity:0")
     lines.append("\tclassDef last fill:#bfb6fc")
-    return "\n".join(lines)
+    return normalise_mermaid_sentinels("\n".join(lines))
 
 
 __all__ = [

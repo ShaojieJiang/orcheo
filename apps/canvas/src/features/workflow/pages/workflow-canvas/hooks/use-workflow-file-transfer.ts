@@ -1,7 +1,12 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
+import {
+  collectCredentialPlaceholderNames,
+  describeRequiredCredentialPlaceholders,
+  showCredentialReminderToast,
+} from "@features/workflow/lib/credential-vault-reminder";
 import {
   toPersistedEdge,
   toPersistedNode,
@@ -75,6 +80,13 @@ export function useWorkflowFileTransfer(
   } = options;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const reminderToastCleanupRef = useRef<(() => void) | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      reminderToastCleanupRef.current?.();
+    };
+  }, []);
 
   const handleExportWorkflow = useCallback(() => {
     try {
@@ -152,11 +164,16 @@ export function useWorkflowFileTransfer(
             throw error;
           }
 
-          toast({
+          const placeholderNames = collectCredentialPlaceholderNames(parsed);
+          reminderToastCleanupRef.current?.();
+          reminderToastCleanupRef.current = showCredentialReminderToast({
             title: "Workflow imported",
             description: `Loaded ${importedNodes.length} node${
               importedNodes.length === 1 ? "" : "s"
-            } from file.`,
+            } from file. ${describeRequiredCredentialPlaceholders(
+              placeholderNames,
+            )}`,
+            highlightedCredentialNames: placeholderNames,
           });
         } catch (error) {
           toast({

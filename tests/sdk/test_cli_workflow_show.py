@@ -279,5 +279,113 @@ def test_workflow_show_without_version_shows_latest(
         )
         result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
     assert result.exit_code == 0
+
+
+def test_workflow_show_prints_vault_reminder(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    workflow = {"id": "wf-1", "name": "Reminder"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "start"}], "edges": []},
+        }
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        router.get("http://api.test/api/workflows/wf-1/credentials/readiness").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "workflow_id": "wf-1",
+                    "status": "missing",
+                    "referenced_credentials": [
+                        {
+                            "name": "openai_api_key",
+                            "placeholders": ["[[openai_api_key]]"],
+                            "available": True,
+                            "credential_id": "cred-1",
+                            "provider": "openai",
+                        },
+                        {
+                            "name": "telegram_token",
+                            "placeholders": ["[[telegram_token]]"],
+                            "available": False,
+                            "credential_id": None,
+                            "provider": None,
+                        },
+                    ],
+                    "available_credentials": ["openai_api_key"],
+                    "missing_credentials": ["telegram_token"],
+                },
+            )
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+
+    assert result.exit_code == 0
+    assert "Vault reminder" in result.stdout
+    assert "telegram_token" in result.stdout
+    assert "openai_api_key" in result.stdout
+    assert "Missing:" not in result.stdout
+    assert "Available:" not in result.stdout
     assert "Latest version" in result.stdout
-    assert "latest" in result.stdout
+
+
+def test_workflow_show_skips_vault_reminder_when_credentials_ready(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    workflow = {"id": "wf-1", "name": "Ready"}
+    versions = [
+        {
+            "id": "ver-1",
+            "version": 1,
+            "graph": {"nodes": [{"id": "start"}], "edges": []},
+        }
+    ]
+    runs: list[dict] = []
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(200, json=workflow)
+        )
+        router.get("http://api.test/api/workflows/wf-1/versions").mock(
+            return_value=httpx.Response(200, json=versions)
+        )
+        router.get("http://api.test/api/workflows/wf-1/runs").mock(
+            return_value=httpx.Response(200, json=runs)
+        )
+        router.get("http://api.test/api/workflows/wf-1/credentials/readiness").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "workflow_id": "wf-1",
+                    "status": "ready",
+                    "referenced_credentials": [
+                        {
+                            "name": "openai_api_key",
+                            "placeholders": ["[[openai_api_key]]"],
+                            "available": True,
+                            "credential_id": "cred-1",
+                            "provider": "openai",
+                        }
+                    ],
+                    "available_credentials": ["openai_api_key"],
+                    "missing_credentials": [],
+                },
+            )
+        )
+        result = runner.invoke(app, ["workflow", "show", "wf-1"], env=env)
+
+    assert result.exit_code == 0
+    assert "Vault reminder" not in result.stdout

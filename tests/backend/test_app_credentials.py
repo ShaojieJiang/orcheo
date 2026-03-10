@@ -162,8 +162,8 @@ async def test_create_credential_validation_error() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_create_credential_access_override() -> None:
-    """Create credential overrides access when request differs from inferred."""
+async def test_create_credential_returns_inferred_access() -> None:
+    """Create credential response reflects the persisted scope."""
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import create_credential
     from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
@@ -200,7 +200,7 @@ async def test_create_credential_access_override() -> None:
 
     result = await create_credential(request, _Repository(), Vault())
 
-    assert result.access == "shared"
+    assert result.access == "private"
 
 
 @pytest.mark.asyncio()
@@ -326,7 +326,28 @@ async def test_update_credential_validation_error() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_update_credential_access_override() -> None:
+async def test_update_credential_shared_access_requires_workflow_id() -> None:
+    from orcheo_backend.app import update_credential
+    from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
+
+    cred_id = uuid4()
+    request = CredentialUpdateRequest(actor="tester", access="shared")
+
+    class Vault:
+        def update_credential(self, **kwargs):
+            raise AssertionError("update_credential should not be called")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_credential(cred_id, request, _Repository(), Vault())
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "workflow_id is required when access is set to private or shared"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_update_credential_returns_inferred_access() -> None:
     from orcheo.models import EncryptionEnvelope
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
@@ -359,4 +380,4 @@ async def test_update_credential_access_override() -> None:
         Vault(),
         workflow_id=str(workflow_id),
     )
-    assert result.access == "shared"
+    assert result.access == "private"

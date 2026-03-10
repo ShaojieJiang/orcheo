@@ -14,6 +14,7 @@ interface WebSocketParams {
   executionId: string;
   config: Record<string, unknown>;
   graphToCanvas: Record<string, string>;
+  storedRunnableConfig?: Record<string, unknown> | null;
   nodes: CanvasNode[];
   currentWorkflowId: string | null;
   isMountedRef: MutableRefObject<boolean>;
@@ -33,6 +34,7 @@ export function setupExecutionWebSocket({
   executionId,
   config,
   graphToCanvas,
+  storedRunnableConfig,
   nodes,
   currentWorkflowId,
   isMountedRef,
@@ -48,6 +50,9 @@ export function setupExecutionWebSocket({
     const payload = {
       type: "run_workflow",
       graph_config: config,
+      ...(storedRunnableConfig
+        ? { stored_runnable_config: storedRunnableConfig }
+        : {}),
       inputs: {
         canvas: {
           triggered_from: "canvas-app",

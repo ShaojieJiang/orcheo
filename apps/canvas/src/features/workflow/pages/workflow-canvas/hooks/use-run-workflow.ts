@@ -99,6 +99,7 @@ export function useRunWorkflow({
       websocketUrl = buildWorkflowWebSocketUrl(
         currentWorkflowId ?? "canvas-preview",
         getBackendBaseUrl(),
+        token,
       );
       websocketProtocols = buildWorkflowWebSocketProtocols(token);
     } catch (error) {
