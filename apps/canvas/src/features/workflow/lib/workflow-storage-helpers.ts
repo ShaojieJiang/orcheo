@@ -1,5 +1,6 @@
 import type { Edge as CanvasEdge, Node as CanvasNode } from "@xyflow/react";
 import {
+  getWorkflowTemplateDefinition,
   type Workflow,
   type WorkflowEdge,
   type WorkflowNode,
@@ -91,6 +92,32 @@ const parseCanvasMetadata = (
   fallbackName: string,
   fallbackDescription?: string,
 ): CanvasVersionMetadata => {
+  const resolveTemplateFallback = (): CanvasVersionMetadata | undefined => {
+    if (!metadata || typeof metadata !== "object") {
+      return undefined;
+    }
+
+    const templateId = (metadata as Record<string, unknown>).template_id;
+    if (typeof templateId !== "string" || templateId.length === 0) {
+      return undefined;
+    }
+
+    const templateDefinition = getWorkflowTemplateDefinition(templateId);
+    if (!templateDefinition) {
+      return undefined;
+    }
+
+    return {
+      snapshot: {
+        name: fallbackName,
+        description: fallbackDescription,
+        nodes: cloneNodes(templateDefinition.workflow.nodes),
+        edges: cloneEdges(templateDefinition.workflow.edges),
+      },
+      summary: { ...DEFAULT_SUMMARY },
+    };
+  };
+
   if (!metadata || typeof metadata !== "object") {
     return {
       snapshot: emptySnapshot(fallbackName, fallbackDescription),
@@ -100,10 +127,12 @@ const parseCanvasMetadata = (
 
   const canvas = (metadata as Record<string, unknown>).canvas;
   if (!canvas || typeof canvas !== "object") {
-    return {
-      snapshot: emptySnapshot(fallbackName, fallbackDescription),
-      summary: { ...DEFAULT_SUMMARY },
-    };
+    return (
+      resolveTemplateFallback() ?? {
+        snapshot: emptySnapshot(fallbackName, fallbackDescription),
+        summary: { ...DEFAULT_SUMMARY },
+      }
+    );
   }
 
   const canvasRecord = canvas as Record<string, unknown>;
@@ -132,7 +161,8 @@ const parseCanvasMetadata = (
         nodes: ensureArray(snapshotPayload.nodes),
         edges: ensureArray(snapshotPayload.edges),
       }
-    : emptySnapshot(fallbackName, fallbackDescription);
+    : (resolveTemplateFallback()?.snapshot ??
+      emptySnapshot(fallbackName, fallbackDescription));
 
   const summary = summaryPayload
     ? {

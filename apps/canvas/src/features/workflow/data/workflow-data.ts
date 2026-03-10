@@ -6,4 +6,5 @@ export {
   WORKFLOW_TEMPLATE_DEFINITIONS,
   getWorkflowTemplateDefinition,
   PYTHON_AGENT_WORKFLOW,
+  TELEGRAM_HEARTBEAT_WORKFLOW,
 } from "./templates";

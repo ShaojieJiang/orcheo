@@ -296,6 +296,29 @@ export const extractCronConfigFromVersionGraph = (
   return extractCronConfigFromGraphNodes(graph);
 };
 
+const normalizeTemplateCronConfig = (
+  config: CronTriggerConfig,
+  metadata: unknown,
+): CronTriggerConfig => {
+  if (!isRecord(metadata)) {
+    return config;
+  }
+
+  const templateId = toOptionalString(metadata.template_id);
+  if (templateId !== "template-telegram-heartbeat") {
+    return config;
+  }
+
+  if (config.expression === "* * * * *" && config.allow_overlapping !== true) {
+    return {
+      ...config,
+      allow_overlapping: true,
+    };
+  }
+
+  return config;
+};
+
 export const publishWorkflow = async (
   workflowId: string,
   options: {
@@ -379,7 +402,10 @@ export const scheduleWorkflowFromLatestVersion = async (
     throw new Error("Latest workflow version is missing graph data.");
   }
 
-  const cronConfig = extractCronConfigFromVersionGraph(latest.graph);
+  const cronConfigRaw = extractCronConfigFromVersionGraph(latest.graph);
+  const cronConfig = cronConfigRaw
+    ? normalizeTemplateCronConfig(cronConfigRaw, latest.metadata)
+    : null;
   if (!cronConfig) {
     return {
       status: "noop",

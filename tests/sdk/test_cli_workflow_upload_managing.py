@@ -46,6 +46,23 @@ def _context(state: CLIState) -> _FakeContext:
     return _FakeContext(state)
 
 
+def test_print_workflow_vault_reminder_skips_when_no_missing_credentials() -> None:
+    state = _make_state()
+    managing._print_workflow_vault_reminder(
+        state.console,
+        {"missing_credentials": [], "available_credentials": ["foo"]},
+    )
+    assert state.console.messages == []
+
+
+def test_print_workflow_vault_reminder_prints_default_message_when_readiness_missing() -> (  # noqa: E501
+    None
+):
+    state = _make_state()
+    managing._print_workflow_vault_reminder(state.console, None)
+    assert any("Vault reminder" in message for message in state.console.messages)
+
+
 def test_upload_workflow_no_resolved_id_skips_cron_sync(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

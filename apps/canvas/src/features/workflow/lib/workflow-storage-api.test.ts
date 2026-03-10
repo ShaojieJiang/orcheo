@@ -3,6 +3,7 @@ import {
   extractCronConfigFromVersionGraph,
   fetchWorkflowCredentialReadiness,
   resolveWorkflowShareUrl,
+  scheduleWorkflowFromLatestVersion,
   selectLatestWorkflowVersion,
   triggerWorkflowRun,
 } from "./workflow-storage-api";
@@ -103,6 +104,54 @@ describe("workflow-storage-api helpers", () => {
         ],
       }),
     ).toThrow("Workflow contains multiple cron triggers.");
+  });
+
+  it("normalizes the Telegram heartbeat template to allow overlapping when scheduling", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "v1",
+          workflow_id: "wf-heartbeat",
+          version: 1,
+          graph: {
+            index: {
+              cron: [
+                {
+                  expression: "* * * * *",
+                  timezone: "UTC",
+                  allow_overlapping: false,
+                },
+              ],
+            },
+          },
+          metadata: {
+            template_id: "template-telegram-heartbeat",
+          },
+          runnable_config: null,
+          notes: null,
+          created_by: "canvas",
+          created_at: "2026-03-10T10:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+      jsonResponse({
+        expression: "* * * * *",
+        timezone: "UTC",
+        allow_overlapping: true,
+      }),
+    ]);
+
+    const result = await scheduleWorkflowFromLatestVersion("wf-heartbeat");
+
+    expect(result.status).toBe("scheduled");
+    expect(result.config?.allow_overlapping).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const requestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as { allow_overlapping?: boolean };
+    expect(requestBody.allow_overlapping).toBe(true);
   });
 
   it("triggers a workflow run using the latest version", async () => {

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel
+from orcheo_backend.app import credential_readiness as readiness
 from orcheo_backend.app import get_workflow_credential_readiness
 from orcheo_backend.app.credential_readiness import (
     collect_workflow_credential_placeholders,
@@ -251,3 +253,130 @@ def orcheo_workflow() -> StateGraph:
     assert response.status == "missing"
     assert response.available_credentials == ["openai_api_key", "telegram_token"]
     assert response.missing_credentials == ["telegram_chat_id"]
+
+
+class _PlaceholderModel(BaseModel):
+    api_key: str = "[[placeholder]]"
+
+
+def test_collect_state_graph_returns_when_seen() -> None:
+    graph = SimpleNamespace(nodes={})
+    placeholders: dict[str, set[str]] = {}
+    readiness._collect_state_graph(graph, placeholders, seen={id(graph)})
+    assert placeholders == {}
+
+
+def test_collect_string_handles_invalid_placeholders() -> None:
+    placeholders: dict[str, set[str]] = {}
+    readiness._collect_string("[[   ]]", placeholders)
+    assert placeholders == {}
+    readiness._collect_string("[[valid_token]]", placeholders)
+    assert placeholders == {"valid_token": {"[[valid_token]]"}}
+
+
+def test_mark_seen_detects_duplicates() -> None:
+    seen: set[int] = set()
+    token = object()
+    assert not readiness._mark_seen(token, seen)
+    assert readiness._mark_seen(token, seen)
+
+
+def test_collect_helpers_respect_seen_guard() -> None:
+    placeholders: dict[str, set[str]] = {}
+    model = _PlaceholderModel()
+    readiness._collect_model(model, placeholders, seen={id(model)})
+    seq = ["[[placeholder]]"]
+    readiness._collect_sequence(seq, placeholders, seen={id(seq)})
+    mapping = {"token": "[[placeholder]]"}
+    readiness._collect_mapping(mapping, placeholders, seen={id(mapping)})
+    assert placeholders == {}
+
+
+def test_unwrap_runnable_looks_inside_langgraph_wrappers() -> None:
+    model = _PlaceholderModel()
+
+    class _Wrapper:
+        def __init__(self, *, afunc=None, func=None):
+            self.afunc = afunc
+            self.func = func
+
+    assert readiness._unwrap_runnable(_Wrapper(afunc=model)) is model
+    assert readiness._unwrap_runnable(_Wrapper(func=model)) is model
+    wrapper = _Wrapper()
+    assert readiness._unwrap_runnable(wrapper) is wrapper
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_credential_readiness_reports_ready_when_all_credentials_present() -> (  # noqa: E501
+    None
+):
+    workflow_id = uuid4()
+    version = SimpleNamespace(
+        graph={"nodes": [{"name": "node", "token": "[[vault_token]]"}]},
+        runnable_config={},
+    )
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow(self, workflow_id):
+            return object()
+
+        async def get_latest_version(self, workflow_id):
+            return version
+
+    class Vault:
+        def list_credentials(self, context):
+            del context
+            return [
+                SimpleNamespace(
+                    id=uuid4(),
+                    name="vault_token",
+                    provider="vault",
+                )
+            ]
+
+    response = await get_workflow_credential_readiness(
+        str(workflow_id),
+        repository=Repository(),
+        vault=Vault(),
+    )
+
+    assert response.status == "ready"
+    assert response.missing_credentials == []
+    assert response.available_credentials == ["vault_token"]
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_credential_readiness_reports_not_required_when_graph_empty() -> (  # noqa: E501
+    None
+):
+    workflow_id = uuid4()
+    version = SimpleNamespace(graph={}, runnable_config={})
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow(self, workflow_id):
+            return object()
+
+        async def get_latest_version(self, workflow_id):
+            return version
+
+    class Vault:
+        def list_credentials(self, context):
+            del context
+            return []
+
+    response = await get_workflow_credential_readiness(
+        str(workflow_id),
+        repository=Repository(),
+        vault=Vault(),
+    )
+
+    assert response.status == "not_required"
+    assert response.referenced_credentials == []

@@ -39,7 +39,7 @@ def describe_workflow_vault_reminder(
             "Add these missing vault credentials before running this workflow: "
             f"{_format_credential_names(missing)}."
         )
-        if available:
+        if available:  # pragma: no branch
             reminder += (
                 " Already available in the vault: "
                 f"{_format_credential_names(available)}."

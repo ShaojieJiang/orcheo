@@ -300,4 +300,140 @@ describe("workflow-storage API integration - template creation", () => {
       "Telegram message",
     );
   });
+
+  it("creates the Telegram heartbeat template with cron-triggered delivery", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-4",
+        name: "Telegram Heartbeat Copy",
+        slug: "workflow-template-4",
+        description: "Telegram heartbeat template.",
+        tags: ["python", "telegram", "trigger"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-4-version-1",
+        workflow_id: "workflow-template-4",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: {
+            cron: [
+              {
+                expression: "* * * * *",
+                timezone: "UTC",
+                allow_overlapping: true,
+              },
+            ],
+          },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-telegram-heartbeat",
+        },
+        runnable_config: {
+          configurable: {
+            heartbeat_message: "Heartbeat: workflow is alive.",
+          },
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-4",
+        name: "Telegram Heartbeat Copy",
+        slug: "workflow-template-4",
+        description: "Telegram heartbeat template.",
+        tags: ["python", "telegram", "trigger"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-4-version-1",
+          workflow_id: "workflow-template-4",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: {
+              cron: [
+                {
+                  expression: "* * * * *",
+                  timezone: "UTC",
+                  allow_overlapping: true,
+                },
+              ],
+            },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-telegram-heartbeat",
+          },
+          runnable_config: {
+            configurable: {
+              heartbeat_message: "Heartbeat: workflow is alive.",
+            },
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    const created = await createWorkflowFromTemplate(
+      "template-telegram-heartbeat",
+    );
+
+    expect(created?.id).toBe("workflow-template-4");
+    expect(created?.nodes.some((node) => node.id === "cron_trigger")).toBe(
+      true,
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      script?: string;
+      metadata?: {
+        canvas?: {
+          snapshot?: {
+            name?: string;
+            nodes?: Array<{ id?: string }>;
+          };
+        };
+      };
+      runnable_config?: {
+        configurable?: { heartbeat_message?: string };
+      };
+    };
+    expect(ingestBody.script).toContain("CronTriggerNode");
+    expect(ingestBody.script).toContain("MessageTelegram");
+    expect(ingestBody.script).toContain("* * * * *");
+    expect(ingestBody.script).toContain("allow_overlapping=True");
+    expect(ingestBody.metadata?.canvas?.snapshot?.name).toBe(
+      "Telegram Heartbeat Copy",
+    );
+    expect(
+      ingestBody.metadata?.canvas?.snapshot?.nodes?.some(
+        (node) => node.id === "cron_trigger",
+      ),
+    ).toBe(true);
+    expect(ingestBody.runnable_config?.configurable?.heartbeat_message).toBe(
+      "Heartbeat: workflow is alive.",
+    );
+  });
 });
