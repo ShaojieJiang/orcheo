@@ -191,6 +191,22 @@ def test_messages_from_inputs_handles_listener_payload_message() -> None:
     assert messages[0].content == "hello from Telegram"
 
 
+def test_input_message_text_uses_listener_payload() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "listener": {
+            "message": {"text": "  payload text  "},
+        },
+    }
+    assert node._input_message_text(inputs) == "payload text"
+
+
+def test_coerce_input_message_text_prefers_content_key() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    payload = {"text": 123, "content": "  inferred content  "}
+    assert node._coerce_input_message_text(payload) == "inferred content"
+
+
 def test_messages_from_inputs_skips_duplicate_latest_user_turn() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     inputs = {

@@ -316,7 +316,7 @@ The service token database location is controlled by:
 export ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH=/path/to/service_tokens.sqlite
 ```
 
-By default, service tokens use the Postgres backend when `ORCHEO_POSTGRES_DSN` is configured. `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` is only used with `ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=sqlite`; in that mode, tokens default to `~/.orcheo/service_tokens.sqlite` (or alongside your workflow repository database).
+If not specified, tokens are stored in `~/.orcheo/service_tokens.sqlite` (or alongside your workflow repository database).
 
 ## JWT Authentication
 

@@ -4,13 +4,13 @@ from pathlib import Path
 
 
 _DEFAULTS: dict[str, object] = {
-    "CHECKPOINT_BACKEND": "postgres",
+    "CHECKPOINT_BACKEND": "sqlite",
     "SQLITE_PATH": "~/.orcheo/checkpoints.sqlite",
-    "GRAPH_STORE_BACKEND": "postgres",
+    "GRAPH_STORE_BACKEND": "sqlite",
     "GRAPH_STORE_SQLITE_PATH": str(Path.home() / ".orcheo" / "graph_store.sqlite"),
-    "REPOSITORY_BACKEND": "postgres",
+    "REPOSITORY_BACKEND": "sqlite",
     "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
-    "CHATKIT_BACKEND": "postgres",
+    "CHATKIT_BACKEND": "sqlite",
     "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
     "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",
     "CHATKIT_PUBLIC_BASE_URL": None,

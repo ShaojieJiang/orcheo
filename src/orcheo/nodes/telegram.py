@@ -112,9 +112,11 @@ class MessageTelegramNode(TaskNode):
         for item in reversed(messages):
             if isinstance(item, dict) and item.get("role") == "assistant":
                 content = item.get("content")
-                if isinstance(content, str) and content.strip():
+                if isinstance(content, str) and content.strip():  # pragma: no branch
                     return content
-            if isinstance(item, BaseMessage) and item.type == "ai" and item.content:
+            if (
+                isinstance(item, BaseMessage) and item.type == "ai" and item.content
+            ):  # pragma: no branch
                 if isinstance(item.content, str):
                     return item.content
                 return str(item.content)

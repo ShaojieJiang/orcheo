@@ -8,14 +8,14 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_CHECKPOINT_BACKEND` | `postgres` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
+| `ORCHEO_CHECKPOINT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
 | `ORCHEO_SQLITE_PATH` | `~/.orcheo/checkpoints.sqlite` | Filesystem path (absolute or `~`-expanded) | Location of the SQLite checkpoints database when `sqlite` backend is active (see `config/defaults.py`). |
-| `ORCHEO_GRAPH_STORE_BACKEND` | `postgres` | `sqlite` or `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
+| `ORCHEO_GRAPH_STORE_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
 | `ORCHEO_GRAPH_STORE_SQLITE_PATH` | `~/.orcheo/graph_store.sqlite` | Absolute filesystem path (must not begin with `~`) | SQLite file path used when `ORCHEO_GRAPH_STORE_BACKEND=sqlite` (`config/app_settings.py`). |
 | `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, chatkit, or vault; see `config/loader.py`). |
-| `ORCHEO_REPOSITORY_BACKEND` | `postgres` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
+| `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
 | `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file (`config/loader.py`). |
-| `ORCHEO_CHATKIT_BACKEND` | `postgres` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
+| `ORCHEO_CHATKIT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
 | `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence (`config/loader.py` and `chatkit/server.py`). |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments (`config/loader.py`). |
 | `ORCHEO_CHATKIT_MAX_UPLOAD_SIZE_BYTES` | `5000000` | Positive integer | Maximum upload size (bytes) accepted by the ChatKit upload endpoint (`routers/chatkit.py`, `config/loader.py`). |

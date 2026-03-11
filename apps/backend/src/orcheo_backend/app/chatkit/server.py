@@ -101,10 +101,7 @@ def _coerce_config_set(value: object, default: set[str]) -> set[str]:
 
 def _refresh_widget_policy(settings: Any | None = None) -> None:
     """Update allowed widget and action types from configuration."""
-    try:
-        config = settings or get_settings()
-    except ValueError:
-        config = {}
+    config = settings or get_settings()
     widget_types_raw: Any | None
     action_types_raw: Any | None
 
@@ -782,7 +779,7 @@ def _resolve_chatkit_backend(settings: Any) -> str:
         if candidate is None:
             candidate = getattr(settings, "CHATKIT_BACKEND", None)
 
-    backend = str(candidate or "postgres").lower()
+    backend = str(candidate or "sqlite").lower()
     if backend not in {"sqlite", "postgres"}:
         msg = "CHATKIT_BACKEND must be either 'sqlite' or 'postgres'."
         raise ValueError(msg)

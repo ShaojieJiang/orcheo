@@ -194,7 +194,7 @@ def create_repository(
             settings,
             attr_path="repository_backend",
             env_key="REPOSITORY_BACKEND",
-            default="postgres",
+            default="sqlite",
         ),
     )
 

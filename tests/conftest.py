@@ -30,9 +30,6 @@ with warnings.catch_warnings():
     import chatkit.widgets  # noqa: F401
 
 
-os.environ.setdefault("ORCHEO_POSTGRES_DSN", "postgresql://example")
-
-
 pytest_plugins = [
     "tests.backend.chatkit_router_helpers_support",
 ]

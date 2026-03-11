@@ -70,3 +70,21 @@ def test_workflow_listener_control_requires_connectivity(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "network connectivity" in str(result.exception)
+
+
+def test_workflow_listener_pause_non_mapping_response_returns_empty_dict(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Covers line 57 of services/workflows/listeners.py: non-Mapping payload → {}."""
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows/wf-1/listeners/sub-1/pause").mock(
+            return_value=httpx.Response(200, json=["unexpected", "list"])
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "listeners", "pause", "wf-1", "sub-1", "--actor", "tester"],
+            env=machine_env,
+        )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {}

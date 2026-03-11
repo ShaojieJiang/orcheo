@@ -237,5 +237,19 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
             )
             return subscription.model_copy(deep=True)
 
+    async def sync_listener_subscriptions_for_version(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        graph: dict[str, object],
+        *,
+        actor: str,
+    ) -> None:
+        """Compile and replace subscriptions for a workflow version."""
+        async with self._lock:
+            self._sync_listener_subscriptions_locked(
+                workflow_id, workflow_version_id, graph, actor=actor
+            )
+
 
 __all__ = ["ListenerRepositoryMixin"]

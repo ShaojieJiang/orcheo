@@ -95,8 +95,8 @@ def test_coerce_mode_backend_with_valid_values() -> None:
     assert _coerce_mode_backend("postgres") == "postgres"
     assert _coerce_mode_backend("inmemory") == "inmemory"
     assert _coerce_mode_backend("POSTGRES") == "postgres"  # case insensitive
-    assert _coerce_mode_backend("invalid") == "postgres"  # default fallback
-    assert _coerce_mode_backend(123) == "postgres"  # non-string fallback
+    assert _coerce_mode_backend("invalid") == "sqlite"  # default fallback
+    assert _coerce_mode_backend(123) == "sqlite"  # non-string fallback
 
 
 def test_coerce_optional_str() -> None:

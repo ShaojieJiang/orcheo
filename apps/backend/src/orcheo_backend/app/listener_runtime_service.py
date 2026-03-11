@@ -118,6 +118,9 @@ class ListenerRuntimeService:
         self._stop_event.set()
         tasks = [task for task in (self._serve_task, self._health_task) if task]
         for task in tasks:
+            if not task.done():
+                task.cancel()
+        for task in tasks:
             try:
                 await task
             except asyncio.CancelledError:

@@ -85,12 +85,12 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     issuer = _coerce_optional_str(settings.get("AUTH_ISSUER"))
 
     service_token_backend = _coerce_mode_backend(
-        settings.get("AUTH_SERVICE_TOKEN_BACKEND", "postgres")
+        settings.get("AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
     )
     service_token_db_path = _coerce_optional_str(
         settings.get("AUTH_SERVICE_TOKEN_DB_PATH")
     )
-    if service_token_backend == "sqlite" and not service_token_db_path:
+    if not service_token_db_path:
         repo_path = settings.get("ORCHEO_REPOSITORY_SQLITE_PATH")
         if repo_path:
             db_path = Path(str(repo_path)).expanduser()
@@ -239,7 +239,7 @@ def _coerce_mode_backend(value: Any) -> str:
         lowered = value.strip().lower()
         if lowered in {"sqlite", "postgres", "inmemory"}:
             return lowered
-    return "postgres"
+    return "sqlite"
 
 
 def _parse_bool(value: Any, default: bool) -> bool:

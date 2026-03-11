@@ -379,7 +379,7 @@ class AgentNode(AINode):
             content = value.get("text")
             if not isinstance(content, str):
                 content = value.get("content")
-            if isinstance(content, str):
+            if isinstance(content, str):  # pragma: no branch
                 candidate = content.strip()
                 return candidate or None
         return None

@@ -54,6 +54,58 @@ async def test_listener_node_skips_mismatched_platform() -> None:
     assert result["skipped"] is True
 
 
+@pytest.mark.asyncio
+async def test_listener_node_processes_direct_platform_inputs() -> None:
+    node = TelegramBotListenerNode(name="telegram_listener")
+    state = State(
+        {
+            "inputs": {
+                "platform": "telegram",
+                "event_type": "message",
+                "chat_id": "555",
+                "message": {"chat_id": "555", "text": "hi"},
+            },
+            "results": {},
+        }
+    )
+
+    result = await node.run(state, RunnableConfig())
+    assert result["should_process"] is True
+    assert result["platform"] == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_listener_node_skips_when_inputs_do_not_contain_listener_payload() -> (
+    None
+):
+    node = TelegramBotListenerNode(name="telegram_listener")
+    state = State({"inputs": ["invalid-shape"], "results": {}})
+
+    result = await node.run(state, RunnableConfig())
+    assert result["platform"] == "telegram"
+    assert result["should_process"] is False
+    assert result["skipped"] is True
+
+
+@pytest.mark.asyncio
+async def test_listener_node_platform_mismatch_without_listener_dict() -> None:
+    node = TelegramBotListenerNode(name="telegram_listener")
+    state = State(
+        {
+            "inputs": {
+                "listener": "invalid-shape",
+                "platform": "discord",
+            },
+            "results": {},
+        }
+    )
+
+    result = await node.run(state, RunnableConfig())
+    assert result["platform"] == "telegram"
+    assert result["should_process"] is False
+    assert result["skipped"] is True
+
+
 def test_discord_listener_node_defaults_include_dm_intent() -> None:
     node = DiscordBotListenerNode(name="discord_listener")
     assert "direct_messages" in node.intents

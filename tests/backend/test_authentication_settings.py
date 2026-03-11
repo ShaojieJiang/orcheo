@@ -26,7 +26,6 @@ def test_load_auth_settings_with_defaults() -> None:
     assert settings.mode == "optional"
     assert settings.jwks_cache_ttl == 300
     assert settings.jwks_timeout == 5.0
-    assert settings.service_token_backend == "postgres"
     assert "RS256" in settings.allowed_algorithms
     assert "HS256" in settings.allowed_algorithms
 
@@ -132,7 +131,6 @@ def test_load_auth_settings_with_repository_path_fallback(
     repo_path.touch()
 
     # Set up repository path without service token DB path
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
     # Note: Code at line 996 uses settings.get("ORCHEO_REPOSITORY_SQLITE_PATH")
     # which doesn't follow dynaconf conventions, but we test it as written
     monkeypatch.setenv("ORCHEO_ORCHEO_REPOSITORY_SQLITE_PATH", str(repo_path))

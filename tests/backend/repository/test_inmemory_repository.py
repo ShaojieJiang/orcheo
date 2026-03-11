@@ -1,7 +1,14 @@
 from __future__ import annotations
-from datetime import UTC, datetime
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 import pytest
+from orcheo.listeners import (
+    ListenerDedupeRecord,
+    ListenerDispatchMessage,
+    ListenerDispatchPayload,
+    ListenerSubscriptionStatus,
+)
+from orcheo.models.base import _utcnow
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
@@ -10,6 +17,16 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
+from orcheo_backend.app.repository.in_memory.workflows import WorkflowCrudMixin
+
+
+def _listener_graph(*listeners: dict[str, object]) -> dict[str, object]:
+    return {
+        "nodes": [],
+        "edges": [],
+        "index": {"listeners": list(listeners)},
+    }
 
 
 @pytest.mark.asyncio()
@@ -157,3 +174,165 @@ async def test_inmemory_revoke_publish_requires_published_state() -> None:
 
     with pytest.raises(WorkflowPublishStateError):
         await repository.revoke_publish(workflow.id, actor="tester")
+
+
+@pytest.mark.asyncio()
+async def test_maybe_disable_no_listener_attribute() -> None:
+    """Line 36: returns early when _disable_listener_subscriptions_locked is absent."""
+
+    class MinimalRepo(WorkflowCrudMixin, InMemoryRepositoryState):
+        pass
+
+    repo = MinimalRepo()
+    # Should return without error even though should_disable=True
+    await repo._maybe_disable_listener_subscriptions(  # noqa: SLF001
+        uuid4(), should_disable=True, actor="test"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_maybe_disable_with_async_listener_method() -> None:
+    """Line 39: awaits the result when
+    _disable_listener_subscriptions_locked is async."""
+
+    class AsyncListenerRepo(WorkflowCrudMixin, InMemoryRepositoryState):
+        async def _disable_listener_subscriptions_locked(
+            self, workflow_id: UUID, *, actor: str
+        ) -> None:
+            pass
+
+    repo = AsyncListenerRepo()
+    await repo._maybe_disable_listener_subscriptions(  # noqa: SLF001
+        uuid4(), should_disable=True, actor="test"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_disable_listeners_skips_missing_and_disabled() -> None:
+    """Skip unknown and already-disabled subscriptions while disabling listeners."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Listener Disable",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+    stored = repository._listener_subscriptions[subscription.id]  # noqa: SLF001
+    stored.status = ListenerSubscriptionStatus.DISABLED
+    stored.assigned_runtime = "runtime-a"
+    stored.lease_expires_at = _utcnow() + timedelta(seconds=120)
+    existing_event_count = len(stored.audit_log)
+
+    repository._workflow_listener_subscriptions[workflow.id].insert(0, uuid4())  # noqa: SLF001
+
+    repository._disable_listener_subscriptions_locked(  # noqa: SLF001
+        workflow.id,
+        actor="tester",
+    )
+
+    disabled = repository._listener_subscriptions[subscription.id]  # noqa: SLF001
+    assert disabled.assigned_runtime == "runtime-a"
+    assert disabled.lease_expires_at is not None
+    assert len(disabled.audit_log) == existing_event_count
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_dispatch_listener_event_raises_when_version_missing() -> None:
+    """Dispatch raises when the listener references a missing workflow version."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Dispatch Missing Version",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+    repository._versions.pop(version.id, None)  # noqa: SLF001
+
+    with pytest.raises(WorkflowVersionNotFoundError):
+        await repository.dispatch_listener_event(
+            subscription.id,
+            ListenerDispatchPayload(
+                platform="telegram",
+                event_type="message",
+                dedupe_key="telegram:missing-version",
+                bot_identity=subscription.bot_identity_key,
+                message=ListenerDispatchMessage(chat_id="1", text="hello"),
+                reply_target={"chat_id": "1"},
+                raw_event={},
+            ),
+        )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_dispatch_listener_event_prunes_expired_dedupe() -> None:
+    """Dispatch drops expired dedupe records before inserting the new key."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Dispatch Prune Dedupe",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+    repository._listener_dedupe[subscription.id] = {  # noqa: SLF001
+        "expired": ListenerDedupeRecord(
+            subscription_id=subscription.id,
+            dedupe_key="expired",
+            expires_at=_utcnow() - timedelta(seconds=1),
+        )
+    }
+
+    run = await repository.dispatch_listener_event(
+        subscription.id,
+        ListenerDispatchPayload(
+            platform="telegram",
+            event_type="message",
+            dedupe_key="telegram:fresh",
+            bot_identity=subscription.bot_identity_key,
+            message=ListenerDispatchMessage(chat_id="1", text="hello"),
+            reply_target={"chat_id": "1"},
+            raw_event={},
+        ),
+    )
+
+    assert run is not None
+    assert "expired" not in repository._listener_dedupe[subscription.id]  # noqa: SLF001
+    assert "telegram:fresh" in repository._listener_dedupe[subscription.id]  # noqa: SLF001

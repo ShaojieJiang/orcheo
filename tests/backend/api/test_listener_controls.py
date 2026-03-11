@@ -3,9 +3,13 @@
 from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
-from orcheo.listeners import ListenerHealthSnapshot, ListenerPlatform
+from orcheo.listeners import (
+    ListenerHealthSnapshot,
+    ListenerPlatform,
+    ListenerSubscriptionStatus,
+)
 from orcheo_backend.app.dependencies import (
     get_listener_runtime_store,
     get_repository,
@@ -123,3 +127,214 @@ def test_listener_metrics_endpoint_surfaces_alerts(api_client: TestClient) -> No
     kinds = {alert["kind"] for alert in payload["alerts"]}
     assert "reconnect_loop" in kinds
     assert "dispatch_failure" in kinds
+
+
+def test_list_workflow_listeners_no_health_snapshot(
+    api_client: TestClient,
+) -> None:
+    """Covers line 44->50: snapshot is None → runtime_status defaults to 'unknown'.
+
+    Also covers 110->119 (backoff condition False) and 119->96 (no last_error).
+    """
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    runtime_store = get_listener_runtime_store()
+    runtime_store.clear()
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/listeners")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["runtime_status"] == "unknown"
+
+    # Also verify metrics with no alerts (110->119 and 119->96 False branches)
+    metrics_response = api_client.get(
+        f"/api/workflows/{workflow_id}/listeners/metrics?stall_threshold_seconds=300"
+    )
+    assert metrics_response.status_code == 200
+    metrics = metrics_response.json()
+    assert metrics["alerts"] == []
+
+
+def test_list_workflow_listeners_error_status_overrides_runtime_status(
+    api_client: TestClient,
+) -> None:
+    """Covers line 51: subscription.status==ERROR forces runtime_status to 'error'."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    subscription = asyncio.run(
+        repository.list_listener_subscriptions(workflow_id=UUID(workflow_id))
+    )[0]
+    asyncio.run(
+        repository.update_listener_subscription_status(
+            subscription.id,
+            status=ListenerSubscriptionStatus.ERROR,
+            actor="tester",
+        )
+    )
+    runtime_store = get_listener_runtime_store()
+    runtime_store.clear()
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/listeners")
+    assert response.status_code == 200
+    items = response.json()
+    assert items[0]["runtime_status"] == "error"
+
+
+def test_list_workflow_listeners_workflow_not_found(
+    api_client: TestClient,
+) -> None:
+    """Covers lines 144-145: get_workflow raises after handle resolves."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="Phantom Workflow",
+            handle="phantom-handle",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="tester",
+        )
+    )
+    # Remove from storage without rebuilding handle indexes so the handle still
+    # resolves in resolve_workflow_ref but get_workflow raises WorkflowNotFoundError.
+    del repository._workflows[workflow.id]  # type: ignore[attr-defined]
+
+    response = api_client.get("/api/workflows/phantom-handle/listeners")
+    assert response.status_code == 404
+
+
+def test_get_metrics_workflow_not_found(
+    api_client: TestClient,
+) -> None:
+    """Covers lines 173-174: get_workflow raises in get_workflow_listener_metrics."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="Phantom Metrics Workflow",
+            handle="phantom-metrics-handle",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="tester",
+        )
+    )
+    del repository._workflows[workflow.id]  # type: ignore[attr-defined]
+
+    response = api_client.get("/api/workflows/phantom-metrics-handle/listeners/metrics")
+    assert response.status_code == 404
+
+
+def test_pause_listener_subscription_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    """Covers lines 77-78: get_listener_subscription raises WorkflowNotFoundError."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    fake_sub_id = uuid4()
+
+    response = api_client.post(
+        f"/api/workflows/{workflow_id}/listeners/{fake_sub_id}/pause",
+        json={"actor": "tester"},
+    )
+    assert response.status_code == 404
+
+
+def test_pause_listener_subscription_wrong_workflow_returns_404(
+    api_client: TestClient,
+) -> None:
+    """Covers line 80: subscription belongs to a different workflow."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id_a, _ = asyncio.run(_create_listener_workflow(repository))
+    workflow_id_b, _ = asyncio.run(_create_listener_workflow(repository))
+    subscription_a = asyncio.run(
+        repository.list_listener_subscriptions(workflow_id=UUID(workflow_id_a))
+    )[0]
+
+    response = api_client.post(
+        f"/api/workflows/{workflow_id_b}/listeners/{subscription_a.id}/pause",
+        json={"actor": "tester"},
+    )
+    assert response.status_code == 404
+
+
+def test_metrics_stall_alert_triggered(
+    api_client: TestClient,
+) -> None:
+    """Covers line 102: a stalled listener alert is appended when poll is old."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    subscription = asyncio.run(
+        repository.list_listener_subscriptions(workflow_id=UUID(workflow_id))
+    )[0]
+    runtime_store = get_listener_runtime_store()
+    runtime_store.clear()
+    runtime_store.update(
+        ListenerHealthSnapshot(
+            subscription_id=subscription.id,
+            runtime_id="listener-runtime-1",
+            status="healthy",
+            platform=ListenerPlatform.TELEGRAM,
+            last_polled_at=datetime.now(tz=UTC) - timedelta(hours=1),
+            consecutive_failures=0,
+        )
+    )
+
+    response = api_client.get(
+        f"/api/workflows/{workflow_id}/listeners/metrics?stall_threshold_seconds=60"
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    kinds = {alert["kind"] for alert in payload["alerts"]}
+    assert "stalled_listener" in kinds
+    assert payload["stalled_listeners"] == 1
+
+
+def test_metrics_breakdown_paused_and_healthy(
+    api_client: TestClient,
+) -> None:
+    """Covers lines 198 (paused++), 200 (healthy++), and 201->190 (no error branch)."""
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    subscription = asyncio.run(
+        repository.list_listener_subscriptions(workflow_id=UUID(workflow_id))
+    )[0]
+    asyncio.run(
+        repository.update_listener_subscription_status(
+            subscription.id,
+            status=ListenerSubscriptionStatus.PAUSED,
+            actor="tester",
+        )
+    )
+    runtime_store = get_listener_runtime_store()
+    runtime_store.clear()
+    runtime_store.update(
+        ListenerHealthSnapshot(
+            subscription_id=subscription.id,
+            runtime_id="listener-runtime-1",
+            status="healthy",
+            platform=ListenerPlatform.TELEGRAM,
+            last_polled_at=datetime.now(tz=UTC),
+            consecutive_failures=0,
+        )
+    )
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/listeners/metrics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paused_subscriptions"] == 1
+    assert payload["healthy_runtimes"] == 1
+    by_platform = payload["by_platform"]
+    assert len(by_platform) == 1
+    breakdown = by_platform[0]
+    assert breakdown["paused"] == 1
+    assert breakdown["healthy"] == 1
+    assert breakdown["errors"] == 0

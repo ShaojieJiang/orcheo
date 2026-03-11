@@ -275,59 +275,6 @@ def test_create_repository_postgres_backend_sets_all_components(
     assert checkpoint_store.pool_max_idle == 500.0
 
 
-def test_create_repository_defaults_to_postgres_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """create_repository should default to Postgres when backend is omitted."""
-    settings = DummySettings(
-        {
-            "POSTGRES_DSN": "postgresql://test:test@localhost/defaultdb",
-        }
-    )
-    credential_service = object()
-    history_store_ref: dict[str, object] = {}
-    checkpoint_store_ref: dict[str, object] = {}
-
-    class FakeHistoryStore:
-        def __init__(self, dsn: str, **_: object) -> None:
-            self.dsn = dsn
-
-    class FakeCheckpointStore:
-        def __init__(self, dsn: str, **_: object) -> None:
-            self.dsn = dsn
-
-    class FakeRepository:
-        def __init__(
-            self, dsn: str, *, credential_service: object, **_: object
-        ) -> None:
-            self.dsn = dsn
-            self.credential_service = credential_service
-
-    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
-    monkeypatch.setattr(
-        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
-    )
-    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
-
-    repository = providers.create_repository(
-        settings,
-        credential_service=credential_service,
-        history_store_ref=history_store_ref,
-        checkpoint_store_ref=checkpoint_store_ref,
-    )
-
-    assert isinstance(repository, FakeRepository)
-    assert repository.dsn == "postgresql://test:test@localhost/defaultdb"
-    assert repository.credential_service is credential_service
-    assert (
-        history_store_ref["store"].dsn == "postgresql://test:test@localhost/defaultdb"
-    )
-    assert (
-        checkpoint_store_ref["store"].dsn
-        == "postgresql://test:test@localhost/defaultdb"
-    )
-
-
 def test_create_vault_postgres_backend_with_all_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -26,6 +26,17 @@ def _build_state() -> tuple[InMemoryRepositoryState, UUID, UUID]:
     return state, workflow.id, version.id
 
 
+def test_sync_listener_subscriptions_locked_noop() -> None:
+    """Calling the base listener sync helper should be a safe no-op."""
+    state = InMemoryRepositoryState()
+    state._sync_listener_subscriptions_locked(  # noqa: SLF001
+        uuid4(),
+        uuid4(),
+        {},
+        actor="tester",
+    )
+
+
 class _DummyTriggerLayer:
     """Simple stub used to observe cron release calls."""
 
