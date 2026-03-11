@@ -207,6 +207,31 @@ async def test_normalize_discord_event_ignores_self_authored_messages() -> None:
 
 
 @pytest.mark.asyncio
+async def test_normalize_discord_event_requires_matching_bot_mention() -> None:
+    repository = InMemoryWorkflowRepository()
+    subscription = await _create_discord_subscription(
+        repository=repository,
+        require_bot_mention=True,
+    )
+
+    payload = normalize_discord_event(
+        subscription,
+        "MESSAGE_CREATE",
+        {
+            "id": "message-1",
+            "channel_id": "channel-1",
+            "type": 0,
+            "content": "hello discord",
+            "author": {"id": "user-1", "username": "Alice"},
+            "mentions": [{"id": "other-bot", "bot": True}],
+        },
+        bot_user_id="bot-1",
+    )
+
+    assert payload is None
+
+
+@pytest.mark.asyncio
 async def test_discord_gateway_adapter_dispatches_and_saves_cursor() -> None:
     repository = InMemoryWorkflowRepository()
     subscription = await _create_discord_subscription(repository=repository)

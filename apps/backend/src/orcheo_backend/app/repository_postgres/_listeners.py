@@ -173,7 +173,12 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
         async with self._lock:
             async with self._connection() as conn:
                 cursor = await conn.execute(
-                    "SELECT payload FROM listener_subscriptions WHERE id = %s",
+                    """
+                    SELECT payload
+                      FROM listener_subscriptions
+                     WHERE id = %s
+                     FOR UPDATE
+                    """,
                     (str(subscription_id),),
                 )
                 row = await cursor.fetchone()
@@ -198,7 +203,12 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
         async with self._lock:
             async with self._connection() as conn:
                 cursor = await conn.execute(
-                    "SELECT payload FROM listener_subscriptions WHERE id = %s",
+                    """
+                    SELECT payload
+                      FROM listener_subscriptions
+                     WHERE id = %s
+                     FOR UPDATE
+                    """,
                     (str(subscription_id),),
                 )
                 row = await cursor.fetchone()
@@ -226,12 +236,20 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                     actor=runtime_id,
                     action="listener_subscription_claimed",
                 )
-                await conn.execute(
+                cursor = await conn.execute(
                     """
                     UPDATE listener_subscriptions
                        SET assigned_runtime = %s, lease_expires_at = %s, payload = %s,
                            updated_at = %s
                      WHERE id = %s
+                       AND status = %s
+                       AND (
+                           assigned_runtime IS NULL
+                           OR assigned_runtime = %s
+                           OR lease_expires_at IS NULL
+                           OR lease_expires_at <= %s
+                       )
+                    RETURNING id
                     """,
                     (
                         runtime_id,
@@ -239,8 +257,13 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                         self._dump_listener_subscription(subscription),
                         subscription.updated_at,
                         str(subscription_id),
+                        ListenerSubscriptionStatus.ACTIVE.value,
+                        runtime_id,
+                        now,
                     ),
                 )
+                if await cursor.fetchone() is None:
+                    return None
                 return subscription.model_copy(deep=True)
 
     async def release_listener_subscription(

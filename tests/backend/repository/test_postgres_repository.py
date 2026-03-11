@@ -221,6 +221,71 @@ def _run_payload(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_claim_listener_subscription_uses_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claiming a listener subscription locks and conditionally updates the row."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    subscription_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _listener_subscription_payload(
+                    subscription_id,
+                    workflow_id,
+                    version_id,
+                )
+            }
+        },
+        {"row": {"id": str(subscription_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    claimed = await repo.claim_listener_subscription(
+        subscription_id,
+        runtime_id="runtime-1",
+        lease_seconds=30,
+    )
+
+    assert claimed is not None
+    queries = [query.lower() for query, _ in repo._pool._connection.queries]
+    assert any("for update" in query for query in queries)
+    assert any("returning id" in query for query in queries)
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_claim_listener_subscription_returns_none_on_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claiming returns ``None`` when the conditional update loses the race."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    subscription_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _listener_subscription_payload(
+                    subscription_id,
+                    workflow_id,
+                    version_id,
+                )
+            }
+        },
+        {"row": None},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    claimed = await repo.claim_listener_subscription(
+        subscription_id,
+        runtime_id="runtime-1",
+        lease_seconds=30,
+    )
+
+    assert claimed is None
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_list_workflows_excludes_archived(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

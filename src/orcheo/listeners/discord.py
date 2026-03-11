@@ -683,15 +683,15 @@ def _has_message_content_intent(subscription: ListenerSubscription) -> bool:
 
 def _mentions_bot(mentions: object, *, bot_user_id: str | None) -> bool:
     """Return whether the Discord message mentions the configured bot."""
+    if bot_user_id is None:
+        return False
     if not isinstance(mentions, list):
         return False
     for mention in mentions:
         if not isinstance(mention, Mapping):
             continue
         mention_id = _string_or_none(mention.get("id"))
-        if bot_user_id is not None and mention_id == bot_user_id:
-            return True
-        if mention.get("bot") is True:
+        if mention_id == bot_user_id:
             return True
     return False
 
