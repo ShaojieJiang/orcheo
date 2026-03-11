@@ -809,3 +809,73 @@ async def test_sqlite_hydrate_cron_overlap_logs_warning(
             await fresh_repository.reset()
     finally:
         await repository.reset()
+
+
+def test_sqlite_sync_listener_subscriptions_locked_noop(
+    tmp_path: pathlib.Path,
+) -> None:
+    """_sync_listener_subscriptions_locked on the base class is a no-op
+    del statement."""
+    from uuid import uuid4
+    from orcheo_backend.app.repository_sqlite._base import SqliteRepositoryBase
+
+    repo = SqliteRepositoryBase(tmp_path / "noop.sqlite")
+    # Calling the base no-op should not raise and should execute the del statement.
+    repo._sync_listener_subscriptions_locked(  # noqa: SLF001
+        uuid4(), uuid4(), {}, actor="author"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_disable_listener_subscriptions_locked_without_conn(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """_disable_listener_subscriptions_locked creates its own connection when
+    conn=None."""
+    db_path = tmp_path_factory.mktemp("repo") / "disable.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Disable No Conn",
+            slug=None,
+            description=None,
+            tags=None,
+            actor="author",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={
+                "nodes": [],
+                "edges": [],
+                "index": {
+                    "listeners": [
+                        {
+                            "node_name": "tg",
+                            "platform": "telegram",
+                            "token": "[[tok]]",
+                        }
+                    ]
+                },
+            },
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+        subscriptions = await repository.list_listener_subscriptions(
+            workflow_id=workflow.id
+        )
+        assert len(subscriptions) == 1
+        assert subscriptions[0].status.value == "active"
+
+        # Call _disable_listener_subscriptions_locked directly without conn
+        await repository._disable_listener_subscriptions_locked(  # noqa: SLF001
+            workflow.id, actor="admin"
+        )
+
+        refreshed = await repository.list_listener_subscriptions(
+            workflow_id=workflow.id
+        )
+        assert all(s.status.value == "disabled" for s in refreshed)
+    finally:
+        await repository.reset()

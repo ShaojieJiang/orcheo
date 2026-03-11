@@ -25,13 +25,17 @@ from orcheo_backend.app.chatkit_runtime import (
 from orcheo_backend.app.dependencies import (
     get_credential_service,
     get_history_store,
+    get_listener_runtime_store,
     get_repository,
+    get_vault,
     set_credential_service,
     set_history_store,
+    set_listener_runtime_store,
     set_repository,
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
@@ -42,6 +46,7 @@ from orcheo_backend.app.routers import (
     credential_health,
     credential_templates,
     credentials,
+    listeners,
     nodes,
     runs,
     system,
@@ -82,6 +87,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(credential_templates.router)
     protected_router.include_router(credential_alerts.router)
     protected_router.include_router(credential_health.router)
+    protected_router.include_router(listeners.router)
     protected_router.include_router(runs.router)
     protected_router.include_router(triggers.router)
     protected_router.include_router(nodes.router)
@@ -141,13 +147,23 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> Any:
         """Manage application lifespan with startup and shutdown logic."""
+        listener_runtime = ListenerRuntimeService(
+            repository=get_repository(),
+            vault=get_vault(),
+            runtime_store=get_listener_runtime_store(),
+        )
+        app.state.listener_runtime = listener_runtime
         try:
             get_chatkit_server()
             await ensure_chatkit_cleanup_task()
         except Exception:
             pass
-        yield
-        await cancel_chatkit_cleanup_task()
+        await listener_runtime.start()
+        try:
+            yield
+        finally:
+            await listener_runtime.stop()
+            await cancel_chatkit_cleanup_task()
 
     application = FastAPI(lifespan=lifespan)
 
@@ -172,6 +188,8 @@ def create_app(
     if history_store is not None:
         set_history_store(history_store)
         application.dependency_overrides[get_history_store] = lambda: history_store
+    listener_runtime_store = get_listener_runtime_store()
+    set_listener_runtime_store(listener_runtime_store)
     if credential_service is not None:
         set_credential_service(credential_service)
         set_vault(getattr(credential_service, "_vault", None))
@@ -189,6 +207,7 @@ def create_app(
     application.include_router(api_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
+    application.state.listener_runtime_store = listener_runtime_store
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

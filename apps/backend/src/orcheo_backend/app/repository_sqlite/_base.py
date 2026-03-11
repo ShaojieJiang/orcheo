@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 import aiosqlite
+from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
 from orcheo.models.workflow import (
     Workflow,
     WorkflowRun,
@@ -75,6 +76,29 @@ class SqliteRepositoryBase:
         config: WebhookTriggerConfig | CronTriggerConfig | RetryPolicyConfig,
     ) -> str:
         return json.dumps(config.model_dump(mode="json"))
+
+    def _sync_listener_subscriptions_locked(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        graph: dict[str, object],
+        *,
+        actor: str,
+    ) -> None:
+        """Synchronize listener subscriptions for the workflow version."""
+        del workflow_id, workflow_version_id, graph, actor
+
+    @staticmethod
+    def _dump_listener_subscription(model: ListenerSubscription) -> str:
+        return json.dumps(model.model_dump(mode="json"))
+
+    @staticmethod
+    def _dump_listener_cursor(model: ListenerCursor) -> str:
+        return json.dumps(model.model_dump(mode="json"))
+
+    @staticmethod
+    def _dump_listener_dedupe(model: ListenerDedupeRecord) -> str:
+        return json.dumps(model.model_dump(mode="json"))
 
     @asynccontextmanager
     async def _connection(self) -> AsyncIterator[aiosqlite.Connection]:
@@ -147,6 +171,38 @@ class SqliteRepositoryBase:
                     CREATE TABLE IF NOT EXISTS retry_policies (
                         workflow_id TEXT PRIMARY KEY,
                         config TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS listener_subscriptions (
+                        id TEXT PRIMARY KEY,
+                        workflow_id TEXT NOT NULL,
+                        workflow_version_id TEXT NOT NULL,
+                        node_name TEXT NOT NULL,
+                        platform TEXT NOT NULL,
+                        bot_identity_key TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        assigned_runtime TEXT,
+                        lease_expires_at TEXT,
+                        last_event_at TEXT,
+                        last_error TEXT,
+                        payload TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_listener_subscriptions_workflow
+                        ON listener_subscriptions(workflow_id);
+                    CREATE INDEX IF NOT EXISTS idx_listener_subscriptions_version
+                        ON listener_subscriptions(workflow_version_id);
+                    CREATE TABLE IF NOT EXISTS listener_cursors (
+                        subscription_id TEXT PRIMARY KEY,
+                        payload TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS listener_dedupe (
+                        subscription_id TEXT NOT NULL,
+                        dedupe_key TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        PRIMARY KEY (subscription_id, dedupe_key)
                     );
                     """
                 )

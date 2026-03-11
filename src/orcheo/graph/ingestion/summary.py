@@ -44,6 +44,7 @@ def summarise_graph_index(
     summary = summarise_state_graph(graph)
     index: dict[str, Any] = {
         "cron": _extract_cron_index(graph),
+        "listeners": _extract_listener_index(graph),
     }
     compact_mermaid = _render_compact_mermaid(graph)
     mermaid = (
@@ -177,6 +178,32 @@ def _extract_cron_index(graph: StateGraph) -> list[dict[str, Any]]:
                 payload[key] = node.get(key)
         cron_nodes.append(payload)
     return cron_nodes
+
+
+def _extract_listener_index(graph: StateGraph) -> list[dict[str, Any]]:
+    """Extract listener node metadata from the graph."""
+    listener_nodes: list[dict[str, Any]] = []
+    listener_types = {
+        "TelegramBotListenerNode",
+        "DiscordBotListenerNode",
+        "QQBotListenerNode",
+    }
+    for name, spec in graph.nodes.items():
+        node = _serialise_node(name, spec.runnable)
+        if node.get("type") not in listener_types:
+            continue
+
+        payload: dict[str, Any] = {
+            "node_name": name,
+            "platform": node.get("platform"),
+            "type": node.get("type"),
+        }
+        for key, value in node.items():
+            if key in {"name", "type", "platform"}:
+                continue
+            payload[key] = value
+        listener_nodes.append(payload)
+    return listener_nodes
 
 
 def _unwrap_runnable(runnable: Any) -> Any:

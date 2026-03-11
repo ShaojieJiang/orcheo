@@ -125,6 +125,9 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 await conn.execute("DELETE FROM webhook_triggers")
                 await conn.execute("DELETE FROM cron_triggers")
                 await conn.execute("DELETE FROM retry_policies")
+                await conn.execute("DELETE FROM listener_dedupe")
+                await conn.execute("DELETE FROM listener_cursors")
+                await conn.execute("DELETE FROM listener_subscriptions")
             self._trigger_layer.reset()
 
     async def _update_run(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo_backend.app.repository.in_memory.listeners import ListenerRepositoryMixin
 from orcheo_backend.app.repository.in_memory.retry import RetryPolicyMixin
 from orcheo_backend.app.repository.in_memory.runs import WorkflowRunMixin
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
@@ -11,6 +12,7 @@ from orcheo_backend.app.repository.in_memory.workflows import WorkflowCrudMixin
 
 
 class InMemoryWorkflowRepository(
+    ListenerRepositoryMixin,
     RetryPolicyMixin,
     TriggerDispatchMixin,
     WorkflowRunMixin,

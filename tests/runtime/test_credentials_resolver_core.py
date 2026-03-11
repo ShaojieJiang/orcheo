@@ -21,7 +21,7 @@ from tests.runtime.credential_test_helpers import create_vault_with_secret
 def test_resolver_caches_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     vault = create_vault_with_secret()
     resolver = CredentialResolver(vault)
-    reference = CredentialReference(identifier="telegram_bot")
+    reference = CredentialReference(identifier="telegram_token")
 
     reveal_calls: list[int] = []
     original_reveal = vault.reveal_secret
@@ -44,11 +44,11 @@ def test_resolver_rejects_unknown_payload() -> None:
     resolver = CredentialResolver(vault)
     with credential_resolution(resolver):
         with pytest.raises(UnknownCredentialPayloadError):
-            resolver.resolve(credential_ref("telegram_bot", "oauth"))
+            resolver.resolve(credential_ref("telegram_token", "oauth"))
         with pytest.raises(UnknownCredentialPayloadError):
-            resolver.resolve(credential_ref("telegram_bot", "secret.value"))
+            resolver.resolve(credential_ref("telegram_token", "secret.value"))
         with pytest.raises(UnknownCredentialPayloadError):
-            resolver.resolve(credential_ref("telegram_bot", "api_key"))
+            resolver.resolve(credential_ref("telegram_token", "api_key"))
 
 
 def test_resolver_rejects_duplicate_name_references(
@@ -170,5 +170,5 @@ def test_resolver_accepts_explicit_empty_payload_path() -> None:
     vault = create_vault_with_secret(secret="token")
     resolver = CredentialResolver(vault)
     with credential_resolution(resolver):
-        value = resolver.resolve(CredentialReference("telegram_bot", ()))
+        value = resolver.resolve(CredentialReference("telegram_token", ()))
         assert value == "token"

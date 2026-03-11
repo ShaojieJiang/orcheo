@@ -3,13 +3,60 @@
 import asyncio
 from collections.abc import Mapping
 from typing import Any
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from telegram import Bot
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+def detect_telegram_update_type(payload: dict[str, Any]) -> str | None:
+    """Return the Telegram update type present in the payload."""
+    for candidate in (
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "callback_query",
+        "inline_query",
+        "my_chat_member",
+        "chat_member",
+        "chat_join_request",
+    ):
+        if candidate in payload:
+            return candidate
+    return None
+
+
+def extract_telegram_update_details(
+    payload: dict[str, Any],
+    update_type: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
+    """Extract message, chat, sender, and text for the update."""
+    msg = payload.get(update_type, {})
+    if not isinstance(msg, dict):
+        msg = {}
+
+    if update_type == "callback_query":
+        callback_msg = msg.get("message", {})
+        chat = callback_msg.get("chat", {}) if isinstance(callback_msg, dict) else {}
+        sender = msg.get("from", {})
+        text = msg.get("data", "")
+    else:
+        chat = msg.get("chat", {})
+        sender = msg.get("from", {})
+        text = msg.get("text", "")
+
+    if not isinstance(chat, dict):
+        chat = {}
+    if not isinstance(sender, dict):
+        sender = {}
+    if not isinstance(text, str):
+        text = str(text)
+
+    return msg, chat, sender, text
 
 
 def escape_markdown(text: str) -> str:
@@ -45,12 +92,12 @@ def escape_markdown(text: str) -> str:
 
 @registry.register(
     NodeMetadata(
-        name="MessageTelegram",
+        name="MessageTelegramNode",
         description="Send message to Telegram",
         category="messaging",
     )
 )
-class MessageTelegram(TaskNode):
+class MessageTelegramNode(TaskNode):
     """Node for sending Telegram messages."""
 
     token: str = "[[telegram_token]]"
@@ -58,11 +105,31 @@ class MessageTelegram(TaskNode):
     message: str | None = None
     parse_mode: str | None = None
 
+    @staticmethod
+    def _message_from_state(state: State) -> str | None:
+        """Return the last assistant message content from workflow state."""
+        messages = state.get("messages", []) if isinstance(state, Mapping) else []
+        for item in reversed(messages):
+            if isinstance(item, dict) and item.get("role") == "assistant":
+                content = item.get("content")
+                if isinstance(content, str) and content.strip():  # pragma: no branch
+                    return content
+            if (
+                isinstance(item, BaseMessage) and item.type == "ai" and item.content
+            ):  # pragma: no branch
+                if isinstance(item.content, str):
+                    return item.content
+                return str(item.content)
+        return None
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to Telegram and return status."""
         assert self.chat_id is not None
-        assert self.message is not None
-        return await self.tool_arun(self.chat_id, self.message, self.parse_mode)
+        message = self.message or self._message_from_state(state)
+        if message is None:
+            msg = "Telegram message content is required"
+            raise ValueError(msg)
+        return await self.tool_arun(self.chat_id, message, self.parse_mode)
 
     def tool_run(
         self, chat_id: str, message: str, parse_mode: str | None = None
@@ -160,20 +227,7 @@ class TelegramEventsParserNode(TaskNode):
 
     def _detect_update_type(self, payload: dict[str, Any]) -> str | None:
         """Return the update type present in the payload."""
-        for candidate in (
-            "message",
-            "edited_message",
-            "channel_post",
-            "edited_channel_post",
-            "callback_query",
-            "inline_query",
-            "my_chat_member",
-            "chat_member",
-            "chat_join_request",
-        ):
-            if candidate in payload:
-                return candidate
-        return None
+        return detect_telegram_update_type(payload)
 
     def _parse_body(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Return the webhook body payload as a dict."""
@@ -195,30 +249,7 @@ class TelegramEventsParserNode(TaskNode):
         update_type: str,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
         """Extract message, chat, sender, and text for the update."""
-        msg = payload.get(update_type, {})
-        if not isinstance(msg, dict):
-            msg = {}
-
-        if update_type == "callback_query":
-            callback_msg = msg.get("message", {})
-            chat = (
-                callback_msg.get("chat", {}) if isinstance(callback_msg, dict) else {}
-            )
-            sender = msg.get("from", {})
-            text = msg.get("data", "")
-        else:
-            chat = msg.get("chat", {})
-            sender = msg.get("from", {})
-            text = msg.get("text", "")
-
-        if not isinstance(chat, dict):
-            chat = {}
-        if not isinstance(sender, dict):
-            sender = {}
-        if not isinstance(text, str):
-            text = str(text)
-
-        return msg, chat, sender, text
+        return extract_telegram_update_details(payload, update_type)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse a Telegram webhook update and return structured event data."""
@@ -279,4 +310,14 @@ class TelegramEventsParserNode(TaskNode):
         return output
 
 
-__all__ = ["MessageTelegram", "TelegramEventsParserNode", "escape_markdown"]
+MessageTelegram = MessageTelegramNode
+
+
+__all__ = [
+    "MessageTelegram",
+    "MessageTelegramNode",
+    "TelegramEventsParserNode",
+    "detect_telegram_update_type",
+    "escape_markdown",
+    "extract_telegram_update_details",
+]

@@ -2,7 +2,14 @@
 
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
-from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
+from orcheo.nodes.communication import (
+    DiscordWebhookNode,
+    EmailNode,
+    MessageDiscord,
+    MessageDiscordNode,
+    MessageQQ,
+    MessageQQNode,
+)
 from orcheo.nodes.conversational_search import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
@@ -21,6 +28,11 @@ from orcheo.nodes.data import (
 )
 from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
+from orcheo.nodes.listeners import (
+    DiscordBotListenerNode,
+    QQBotListenerNode,
+    TelegramBotListenerNode,
+)
 from orcheo.nodes.logic import (
     DelayNode,
     ForLoopNode,
@@ -46,7 +58,11 @@ from orcheo.nodes.storage import (
     get_graph_store,
 )
 from orcheo.nodes.sub_workflow import SubWorkflowNode
-from orcheo.nodes.telegram import MessageTelegram, TelegramEventsParserNode
+from orcheo.nodes.telegram import (
+    MessageTelegram,
+    MessageTelegramNode,
+    TelegramEventsParserNode,
+)
 from orcheo.nodes.triggers import (
     CronTriggerNode,
     HttpPollingTriggerNode,
@@ -92,11 +108,19 @@ __all__ = [
     "SlackEventsParserNode",
     "EmailNode",
     "DiscordWebhookNode",
+    "MessageDiscord",
+    "MessageDiscordNode",
+    "MessageQQ",
+    "MessageQQNode",
     "MessageTelegram",
+    "MessageTelegramNode",
     "TelegramEventsParserNode",
     "JavaScriptSandboxNode",
     "DebugNode",
     "SubWorkflowNode",
+    "TelegramBotListenerNode",
+    "DiscordBotListenerNode",
+    "QQBotListenerNode",
     "WebhookTriggerNode",
     "CronTriggerNode",
     "ManualTriggerNode",

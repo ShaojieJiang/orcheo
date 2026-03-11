@@ -25,7 +25,7 @@ def build_graph() -> StateGraph:
             name="store_secret",
             variables={
                 # Credential placeholder - resolved at runtime from vault
-                "telegram_token": "[[telegram_bot]]",
+                "telegram_token": "[[telegram_token]]",
                 # Multiple credentials can be used
                 "api_key": "[[openai_api_key]]",
                 # You can also store static values alongside credentials
@@ -105,7 +105,7 @@ async def main() -> None:
     print("=" * 60)
 
     print("\n--- Example: With Credential Resolver ---")
-    print("When a credential resolver is active, placeholders like [[telegram_bot]]")
+    print("When a credential resolver is active, placeholders like [[telegram_token]]")
     print("are automatically resolved from the vault at runtime.\n")
 
     result = await run_example(with_resolver=True)
@@ -123,8 +123,8 @@ async def main() -> None:
     print("Credential placeholders use [[credential_name]] or")
     print("[[credential_name#payload.path]] syntax:")
     print()
-    print("  [[telegram_bot]]                    -> secret field (default)")
-    print("  [[telegram_bot#secret]]             -> secret field (explicit)")
+    print("  [[telegram_token]]                    -> secret field (default)")
+    print("  [[telegram_token#secret]]             -> secret field (explicit)")
     print("  [[my_oauth#oauth.access_token]]     -> OAuth access token")
     print("  [[my_oauth#oauth.refresh_token]]    -> OAuth refresh token")
     print("  [[my_oauth#oauth.expires_at]]       -> OAuth expiration time")

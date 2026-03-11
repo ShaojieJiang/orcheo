@@ -3,6 +3,10 @@
 from __future__ import annotations
 from orcheo_sdk.services.workflows.download import download_workflow_data
 from orcheo_sdk.services.workflows.execution import run_workflow_data
+from orcheo_sdk.services.workflows.listeners import (
+    pause_workflow_listener_data,
+    resume_workflow_listener_data,
+)
 from orcheo_sdk.services.workflows.listing import (
     list_workflows_data,
     show_workflow_data,
@@ -37,6 +41,8 @@ __all__ = [
     "list_workflows_data",
     "show_workflow_data",
     "run_workflow_data",
+    "pause_workflow_listener_data",
+    "resume_workflow_listener_data",
     "delete_workflow_data",
     "update_workflow_data",
     "upload_workflow_data",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Iterable
+from inspect import isawaitable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import Workflow
@@ -15,6 +16,27 @@ from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryStat
 
 class WorkflowCrudMixin(InMemoryRepositoryState):
     """Implements workflow management helpers."""
+
+    async def _maybe_disable_listener_subscriptions(
+        self,
+        workflow_id: UUID,
+        *,
+        should_disable: bool,
+        actor: str,
+    ) -> None:
+        """Disable workflow listeners when archiving transitions them inactive."""
+        if not should_disable:
+            return
+        disable_listener_subscriptions = getattr(
+            self,
+            "_disable_listener_subscriptions_locked",
+            None,
+        )
+        if disable_listener_subscriptions is None:
+            return
+        result = disable_listener_subscriptions(workflow_id, actor=actor)
+        if isawaitable(result):
+            await result
 
     async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
         """Return workflows stored within the repository."""
@@ -95,6 +117,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 raise WorkflowNotFoundError(str(workflow_id))
 
             metadata: dict[str, Any] = {}
+            should_disable_listeners = False
             next_is_archived = (
                 workflow.is_archived if is_archived is None else is_archived
             )
@@ -134,6 +157,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
             if is_archived is not None and is_archived != workflow.is_archived:
                 if is_archived and workflow.is_public:
                     workflow.revoke_publish(actor=actor)
+                should_disable_listeners = is_archived
                 metadata["is_archived"] = {
                     "from": workflow.is_archived,
                     "to": is_archived,
@@ -144,6 +168,11 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 actor=actor,
                 action="workflow_updated",
                 metadata=metadata,
+            )
+            await self._maybe_disable_listener_subscriptions(
+                workflow.id,
+                should_disable=should_disable_listeners,
+                actor=actor,
             )
             self._rebuild_handle_indexes_locked()
             return workflow.model_copy(deep=True)

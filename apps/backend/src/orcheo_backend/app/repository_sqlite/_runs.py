@@ -122,6 +122,9 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
                     DELETE FROM webhook_triggers;
                     DELETE FROM cron_triggers;
                     DELETE FROM retry_policies;
+                    DELETE FROM listener_dedupe;
+                    DELETE FROM listener_cursors;
+                    DELETE FROM listener_subscriptions;
                     """
                 )
             self._trigger_layer.reset()

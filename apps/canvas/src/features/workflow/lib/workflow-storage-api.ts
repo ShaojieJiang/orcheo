@@ -7,6 +7,8 @@ import type {
   CronTriggerConfig,
   PublicWorkflowMetadata,
   RequestOptions,
+  WorkflowListenerHealth,
+  WorkflowListenerMetricsResponse,
   WorkflowCredentialReadinessResponse,
   WorkflowPublishResponse,
 } from "./workflow-storage.types";
@@ -134,6 +136,71 @@ export const fetchWorkflowCredentialReadiness = async (
     throw error;
   }
 };
+
+export const fetchWorkflowListeners = async (
+  workflowId: string,
+): Promise<WorkflowListenerHealth[]> => {
+  try {
+    return await request<WorkflowListenerHealth[]>(
+      `${API_BASE}/${workflowId}/listeners`,
+    );
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return [];
+    }
+    throw error;
+  }
+};
+
+export const fetchWorkflowListenerMetrics = async (
+  workflowId: string,
+): Promise<WorkflowListenerMetricsResponse | undefined> => {
+  try {
+    return await request<WorkflowListenerMetricsResponse>(
+      `${API_BASE}/${workflowId}/listeners/metrics`,
+    );
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+const updateWorkflowListenerStatus = async (
+  workflowId: string,
+  subscriptionId: string,
+  action: "pause" | "resume",
+  actor = "canvas-app",
+): Promise<WorkflowListenerHealth> => {
+  return request<WorkflowListenerHealth>(
+    `${API_BASE}/${workflowId}/listeners/${subscriptionId}/${action}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    },
+  );
+};
+
+export const pauseWorkflowListener = async (
+  workflowId: string,
+  subscriptionId: string,
+  actor?: string,
+): Promise<WorkflowListenerHealth> =>
+  updateWorkflowListenerStatus(workflowId, subscriptionId, "pause", actor);
+
+export const resumeWorkflowListener = async (
+  workflowId: string,
+  subscriptionId: string,
+  actor?: string,
+): Promise<WorkflowListenerHealth> =>
+  updateWorkflowListenerStatus(workflowId, subscriptionId, "resume", actor);
 
 export const triggerWorkflowRun = async (
   workflowId: string,

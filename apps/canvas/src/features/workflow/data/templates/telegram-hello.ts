@@ -45,7 +45,7 @@ export const TELEGRAM_HELLO_WORKFLOW: Workflow = {
       type: "telegram",
       position: { x: 280, y: 0 },
       data: {
-        label: "MessageTelegram",
+        label: "MessageTelegramNode",
         type: "telegram",
         description:
           "Sends the fixed Hello message to the configured Telegram chat.",

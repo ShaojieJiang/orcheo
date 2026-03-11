@@ -13,6 +13,7 @@ from orcheo_backend.app.agentensor.checkpoint_store import (
 )
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
+from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
 from orcheo_backend.app.providers import (
     create_repository,
     create_vault,
@@ -25,6 +26,9 @@ _repository_ref: dict[str, WorkflowRepository] = {}
 _history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
 _checkpoint_store_ref: dict[str, object] = {
     "store": InMemoryAgentensorCheckpointStore()
+}
+_listener_runtime_store_ref: dict[str, ListenerRuntimeStore] = {
+    "store": ListenerRuntimeStore()
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
@@ -133,6 +137,23 @@ def set_checkpoint_store(store: AgentensorCheckpointStore | None) -> None:
     )
 
 
+def get_listener_runtime_store() -> ListenerRuntimeStore:
+    """Return the listener runtime health store singleton."""
+    return _listener_runtime_store_ref["store"]
+
+
+ListenerRuntimeStoreDep = Annotated[
+    ListenerRuntimeStore, Depends(get_listener_runtime_store)
+]
+
+
+def set_listener_runtime_store(store: ListenerRuntimeStore | None) -> None:
+    """Override the listener runtime store singleton."""
+    _listener_runtime_store_ref["store"] = (
+        store if store is not None else ListenerRuntimeStore()
+    )
+
+
 def get_credential_service() -> OAuthCredentialService | None:
     """Return the configured credential service if available."""
     return _credential_service_ref["service"]
@@ -209,6 +230,7 @@ __all__ = [
     "CredentialServiceDep",
     "IncludeAcknowledgedQuery",
     "HistoryStoreDep",
+    "ListenerRuntimeStoreDep",
     "RepositoryDep",
     "VaultDep",
     "CheckpointStoreDep",
@@ -216,6 +238,7 @@ __all__ = [
     "get_credential_service",
     "get_checkpoint_store",
     "get_history_store",
+    "get_listener_runtime_store",
     "get_repository",
     "get_vault",
     "resolve_optional_workflow_ref_id",
@@ -223,6 +246,7 @@ __all__ = [
     "set_credential_service",
     "set_checkpoint_store",
     "set_history_store",
+    "set_listener_runtime_store",
     "set_repository",
     "set_vault",
     "WorkflowIdQuery",

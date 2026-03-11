@@ -87,6 +87,58 @@ export interface WorkflowCredentialReadinessResponse {
   missing_credentials: string[];
 }
 
+export interface WorkflowListenerHealth {
+  subscription_id: string;
+  node_name: string;
+  platform: "telegram" | "discord" | "qq";
+  status: "active" | "paused" | "error" | "disabled";
+  bot_identity_key: string;
+  assigned_runtime?: string | null;
+  lease_expires_at?: string | null;
+  last_event_at?: string | null;
+  last_error?: string | null;
+  runtime_status:
+    | "starting"
+    | "healthy"
+    | "backoff"
+    | "stopped"
+    | "error"
+    | "unknown";
+  runtime_detail?: string | null;
+  last_polled_at?: string | null;
+  consecutive_failures: number;
+}
+
+export interface WorkflowListenerAlert {
+  subscription_id: string;
+  platform: "telegram" | "discord" | "qq";
+  kind: "stalled_listener" | "reconnect_loop" | "dispatch_failure";
+  detail: string;
+}
+
+export interface WorkflowListenerMetricsByPlatform {
+  platform: "telegram" | "discord" | "qq";
+  total: number;
+  healthy: number;
+  paused: number;
+  errors: number;
+}
+
+export interface WorkflowListenerMetricsResponse {
+  workflow_id: string;
+  total_subscriptions: number;
+  active_subscriptions: number;
+  paused_subscriptions: number;
+  disabled_subscriptions: number;
+  error_subscriptions: number;
+  healthy_runtimes: number;
+  reconnecting_runtimes: number;
+  stalled_listeners: number;
+  dispatch_failures: number;
+  by_platform: WorkflowListenerMetricsByPlatform[];
+  alerts: WorkflowListenerAlert[];
+}
+
 export interface WorkflowPublishResponse {
   workflow: ApiWorkflow;
   message?: string | null;

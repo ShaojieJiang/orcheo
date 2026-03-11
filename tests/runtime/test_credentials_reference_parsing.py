@@ -6,12 +6,14 @@ from orcheo.runtime.credentials import credential_ref, parse_credential_referenc
 
 
 def test_parse_credential_reference_round_trip() -> None:
-    reference = parse_credential_reference("[[telegram_bot]]")
+    reference = parse_credential_reference("[[telegram_token]]")
     assert reference is not None
-    assert reference.identifier == "telegram_bot"
+    assert reference.identifier == "telegram_token"
     assert reference.payload_path == ("secret",)
 
-    oauth_reference = parse_credential_reference("[[telegram_bot#oauth.access_token]]")
+    oauth_reference = parse_credential_reference(
+        "[[telegram_token#oauth.access_token]]"
+    )
     assert oauth_reference is not None
     assert oauth_reference.payload_path == ("oauth", "access_token")
 
@@ -21,7 +23,7 @@ def test_parse_credential_reference_round_trip() -> None:
 
 
 def test_credential_ref_helper_accepts_iterable_payload() -> None:
-    reference = credential_ref("telegram_bot", ["oauth", "refresh_token"])
+    reference = credential_ref("telegram_token", ["oauth", "refresh_token"])
     assert reference.payload_path == ("oauth", "refresh_token")
 
 
@@ -31,5 +33,5 @@ def test_credential_ref_rejects_blank_identifier() -> None:
 
 
 def test_credential_ref_defaults_to_secret_when_payload_blank() -> None:
-    reference = credential_ref("telegram_bot", " ")
+    reference = credential_ref("telegram_token", " ")
     assert reference.payload_path == ("secret",)

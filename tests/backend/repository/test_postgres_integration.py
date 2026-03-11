@@ -436,17 +436,20 @@ async def test_postgres_version_incrementing(
     _ = uuid4()
 
     responses: list[Any] = [
-        # First version: get workflow, get max (0), insert
+        # First version: get workflow, get max (0), insert, listener subs (no rows)
         {"row": {"payload": _workflow_payload(workflow_id)}},
         {"row": {"max_version": 0}},
         {},
-        # Second version: get workflow, get max (1), insert
+        {},
+        # Second version: get workflow, get max (1), insert, listener subs (no rows)
         {"row": {"payload": _workflow_payload(workflow_id)}},
         {"row": {"max_version": 1}},
         {},
-        # Third version: get workflow, get max (2), insert
+        {},
+        # Third version: get workflow, get max (2), insert, listener subs (no rows)
         {"row": {"payload": _workflow_payload(workflow_id)}},
         {"row": {"max_version": 2}},
+        {},
         {},
     ]
     repo = make_repository(monkeypatch, responses)
@@ -648,3 +651,15 @@ async def test_postgres_manual_dispatch_request_handling(
     assert runs[0].triggered_by == "manual"
     assert runs[0].input_payload == {"key": "value"}
     assert runs[0].status == WorkflowRunStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_postgres_base_sync_listener_subscriptions_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 193: _sync_listener_subscriptions_locked is a no-op on the base class."""
+    repo = make_repository(monkeypatch, [])
+    # Call the base-class stub directly; it should return None without error
+    repo._sync_listener_subscriptions_locked(  # noqa: SLF001
+        uuid4(), uuid4(), {}, actor="test"
+    )

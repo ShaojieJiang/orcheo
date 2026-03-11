@@ -12,7 +12,12 @@ from .app import (
     OutputPathOption,
     WorkflowIdArgument,
     _state,
+    listeners_app,
     workflow_app,
+)
+from .commands.listeners import (
+    pause_workflow_listener,
+    resume_workflow_listener,
 )
 from .commands.listing import list_workflows
 from .commands.managing import (
@@ -64,6 +69,7 @@ from .streaming import (
 
 __all__ = [
     "workflow_app",
+    "listeners_app",
     "WorkflowIdArgument",
     "ActorOption",
     "InputsOption",
@@ -102,6 +108,8 @@ __all__ = [
     "render_json",
     "render_table",
     "list_workflows",
+    "pause_workflow_listener",
+    "resume_workflow_listener",
     "show_workflow",
     "run_workflow",
     "evaluate_workflow",

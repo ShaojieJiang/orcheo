@@ -171,6 +171,42 @@ def test_messages_from_inputs_handles_query_value() -> None:
     assert messages[0].content == "q"
 
 
+def test_messages_from_inputs_handles_listener_payload_message() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "platform": "telegram",
+        "message": {
+            "chat_id": "12345",
+            "text": "  hello from Telegram  ",
+        },
+        "listener": {
+            "message": {
+                "chat_id": "12345",
+                "text": "hello from Telegram",
+            }
+        },
+    }
+    messages = node._messages_from_inputs(inputs)
+    assert len(messages) == 1
+    assert messages[0].content == "hello from Telegram"
+
+
+def test_input_message_text_uses_listener_payload() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    inputs = {
+        "listener": {
+            "message": {"text": "  payload text  "},
+        },
+    }
+    assert node._input_message_text(inputs) == "payload text"
+
+
+def test_coerce_input_message_text_prefers_content_key() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    payload = {"text": 123, "content": "  inferred content  "}
+    assert node._coerce_input_message_text(payload) == "inferred content"
+
+
 def test_messages_from_inputs_skips_duplicate_latest_user_turn() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     inputs = {
@@ -363,6 +399,24 @@ def test_resolve_history_key_supports_configurable_candidate() -> None:
 
 
 def test_resolve_history_key_supports_channel_templates() -> None:
+    listener_node = AgentNode(name="agent", ai_model="test-model")
+    listener_state = State(
+        messages=[],
+        inputs={
+            "platform": "telegram",
+            "message": {"chat_id": "12345", "text": "hello"},
+        },
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    assert (
+        listener_node._resolve_history_key(
+            listener_state, {"configurable": {"thread_id": "thread-1"}}
+        )
+        == "telegram:12345"
+    )
+
     telegram_node = AgentNode(name="agent", ai_model="test-model")
     telegram_state = State(
         messages=[],

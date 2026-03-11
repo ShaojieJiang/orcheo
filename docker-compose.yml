@@ -41,6 +41,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_GRAPH_STORE_BACKEND=postgres
       - ORCHEO_REPOSITORY_BACKEND=postgres
       - ORCHEO_CHECKPOINT_BACKEND=postgres
       - ORCHEO_CHATKIT_BACKEND=postgres
@@ -76,6 +77,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_GRAPH_STORE_BACKEND=postgres
       - ORCHEO_REPOSITORY_BACKEND=postgres
       - ORCHEO_CHECKPOINT_BACKEND=postgres
       - ORCHEO_CHATKIT_BACKEND=postgres
@@ -109,6 +111,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@postgres:5432/orcheo
+      - ORCHEO_GRAPH_STORE_BACKEND=postgres
       - ORCHEO_REPOSITORY_BACKEND=postgres
       - ORCHEO_CHECKPOINT_BACKEND=postgres
       - ORCHEO_CHATKIT_BACKEND=postgres

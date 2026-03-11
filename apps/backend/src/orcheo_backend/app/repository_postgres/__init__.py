@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo_backend.app.repository_postgres._listeners import ListenerRepositoryMixin
 from orcheo_backend.app.repository_postgres._retry import RetryPolicyMixin
 from orcheo_backend.app.repository_postgres._runs import WorkflowRunMixin
 from orcheo_backend.app.repository_postgres._triggers import TriggerRepositoryMixin
@@ -10,6 +11,7 @@ from orcheo_backend.app.repository_postgres._workflows import WorkflowRepository
 
 
 class PostgresWorkflowRepository(
+    ListenerRepositoryMixin,
     TriggerRepositoryMixin,
     RetryPolicyMixin,
     WorkflowRunMixin,

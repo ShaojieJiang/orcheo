@@ -165,7 +165,9 @@ async def test_web_search_node_resolves_api_key_from_credential_vault() -> None:
         results={},
         structured_response=None,
     )
-    node = WebSearchNode(name="web", api_key="[[telegram_bot]]", suppress_errors=False)
+    node = WebSearchNode(
+        name="web", api_key="[[telegram_token]]", suppress_errors=False
+    )
     resolver = CredentialResolver(create_vault_with_secret(secret="vault-key"))
 
     captured: dict[str, Any] = {}
@@ -186,7 +188,7 @@ def test_web_search_node_raises_for_placeholder_without_active_resolver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Credential placeholders require an active credential resolver."""
-    node = WebSearchNode(name="web", api_key="[[telegram_bot]]")
+    node = WebSearchNode(name="web", api_key="[[telegram_token]]")
     monkeypatch.setattr(retrieval_mod, "get_active_credential_resolver", lambda: None)
 
     with pytest.raises(ValueError, match="no active credential resolver is available"):
@@ -203,7 +205,7 @@ def test_web_search_node_raises_when_resolved_credential_is_not_string(
             del reference
             return 123
 
-    node = WebSearchNode(name="web", api_key="[[telegram_bot]]")
+    node = WebSearchNode(name="web", api_key="[[telegram_token]]")
     monkeypatch.setattr(
         retrieval_mod, "get_active_credential_resolver", lambda: _BadResolver()
     )

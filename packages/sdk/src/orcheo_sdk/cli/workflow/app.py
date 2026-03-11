@@ -7,6 +7,8 @@ from orcheo_sdk.cli.state import CLIState
 
 
 workflow_app = typer.Typer(help="Inspect and operate on workflows.")
+listeners_app = typer.Typer(help="Inspect and control workflow listeners.")
+workflow_app.add_typer(listeners_app, name="listeners")
 
 WorkflowIdArgument = Annotated[
     str,
@@ -96,6 +98,7 @@ def _state(ctx: typer.Context) -> CLIState:
 
 __all__ = [
     "workflow_app",
+    "listeners_app",
     "WorkflowIdArgument",
     "ActorOption",
     "InputsOption",
