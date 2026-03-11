@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-03-11
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -42,6 +42,8 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 - [ ] Task 1.6: Define the workflow/runtime contract that allows multiple listener nodes to feed the same downstream `AgentNode` and preserve correct reply routing metadata.
   - Dependencies: Task 1.5
 - [ ] Task 1.7: Audit reply-node availability for Telegram, Discord, and QQ, and mark missing outbound nodes as required deliverables for template completion instead of follow-up work.
+  - Dependencies: Task 1.6
+- [ ] Task 1.8: Define Canvas template acceptance criteria, owner metadata, and template versioning rules tied to Orcheo and provider API versions.
   - Dependencies: Task 1.6
 
 ---
@@ -83,7 +85,7 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
   - Dependencies: Task 3.2
 - [ ] Task 3.4: Add dispatch normalization and dedupe for Discord message events.
   - Dependencies: Task 3.3
-- [ ] Task 3.5: Add tests for heartbeat timing, resume flow, message content intent handling, and event dispatch.
+- [ ] Task 3.5: Add tests for heartbeat timing, resume flow, identify/session-start rate limits, message content intent handling, and event dispatch.
   - Dependencies: Task 3.4
 - [ ] Task 3.6: Deliver a supported Discord outbound reply node if an adequate one does not already exist for listener-triggered workflows.
   - Dependencies: Task 3.5, Task 1.7
@@ -110,6 +112,8 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
   - Dependencies: Milestone 2, Milestone 3, Milestone 5
 - [ ] Task 4.5: Document deployment topology for private hosts, worker separation, secret management, and template workflow usage.
   - Dependencies: Task 4.3
+- [ ] Task 4.6: Add template compatibility tracking so provider API changes or reply-node contract changes trigger template revalidation and a version bump.
+  - Dependencies: Task 4.4, Task 1.8
 
 ---
 
@@ -123,16 +127,16 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
   - Dependencies: Milestone 1
 - [ ] Task 5.2: Implement QQ access-token retrieval and per-AppID token caching.
   - Dependencies: Task 5.1
-- [ ] Task 5.3: Implement QQ `/gateway` discovery, WebSocket connection, heartbeat, reconnect, and resume handling.
+- [ ] Task 5.3: Implement QQ `/gateway` or `/gateway/bot` discovery, WebSocket connection, heartbeat, reconnect, resume handling, and provider-reported session-start limits.
   - Dependencies: Task 5.2
 - [ ] Task 5.4: Normalize QQ C2C, group, and channel message events into listener dispatch payloads.
   - Dependencies: Task 5.3
-- [ ] Task 5.5: Add tests for multi-account isolation, token refresh, session resume, and event dispatch.
+- [ ] Task 5.5: Add tests for multi-account isolation, token refresh overlap windows, session resume, rate limiting, whitelist failures, and event dispatch.
   - Dependencies: Task 5.4
 - [ ] Task 5.6: Deliver a supported QQ outbound reply node if an adequate one does not already exist for listener-triggered workflows.
   - Dependencies: Task 5.5, Task 1.7
 - [ ] Task 5.7: Add a Canvas template private QQ bot workflow with `QQBotListenerNode -> AgentNode -> MessageQQ` or the final equivalent node name.
-  - Dependencies: Task 5.6
+  - Dependencies: Task 5.6, Task 1.8
 - [ ] Task 5.8: Add operator documentation for the QQ listener template and deployment flow.
   - Dependencies: Task 5.7
 
