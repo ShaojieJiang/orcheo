@@ -5,6 +5,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID
+from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
@@ -33,6 +34,10 @@ class InMemoryRepositoryState:
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
+        self._listener_subscriptions: dict[UUID, ListenerSubscription] = {}
+        self._workflow_listener_subscriptions: dict[UUID, list[UUID]] = {}
+        self._listener_cursors: dict[UUID, ListenerCursor] = {}
+        self._listener_dedupe: dict[UUID, dict[str, ListenerDedupeRecord]] = {}
         self._credential_service = credential_service
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
@@ -46,7 +51,22 @@ class InMemoryRepositoryState:
             self._versions.clear()
             self._runs.clear()
             self._version_runs.clear()
+            self._listener_subscriptions.clear()
+            self._workflow_listener_subscriptions.clear()
+            self._listener_cursors.clear()
+            self._listener_dedupe.clear()
             self._trigger_layer.reset()
+
+    def _sync_listener_subscriptions_locked(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        graph: dict[str, Any],
+        *,
+        actor: str,
+    ) -> None:
+        """Synchronize listener subscriptions for the workflow version."""
+        del workflow_id, workflow_version_id, graph, actor
 
     def _create_run_locked(
         self,

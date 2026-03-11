@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
+from orcheo.listeners import (
+    ListenerCursor,
+    ListenerDispatchPayload,
+    ListenerSubscription,
+    ListenerSubscriptionStatus,
+)
 from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
@@ -227,6 +233,64 @@ class WorkflowRepository(Protocol):
         self, run_id: UUID, *, failed_at: datetime | None = None
     ) -> RetryDecision | None:
         """Return the next retry decision for the specified run if available."""
+
+    async def list_listener_subscriptions(
+        self,
+        *,
+        workflow_id: UUID | None = None,
+    ) -> list[ListenerSubscription]:
+        """Return listener subscriptions, optionally filtered by workflow."""
+
+    async def get_listener_subscription(
+        self,
+        subscription_id: UUID,
+    ) -> ListenerSubscription:
+        """Return a single listener subscription by identifier."""
+
+    async def claim_listener_subscription(
+        self,
+        subscription_id: UUID,
+        *,
+        runtime_id: str,
+        lease_seconds: int,
+    ) -> ListenerSubscription | None:
+        """Lease the subscription for a runtime if it is currently available."""
+
+    async def release_listener_subscription(
+        self,
+        subscription_id: UUID,
+        *,
+        runtime_id: str,
+    ) -> ListenerSubscription | None:
+        """Release runtime ownership for a leased subscription."""
+
+    async def get_listener_cursor(
+        self,
+        subscription_id: UUID,
+    ) -> ListenerCursor | None:
+        """Return the persisted cursor for a subscription if one exists."""
+
+    async def save_listener_cursor(
+        self,
+        cursor: ListenerCursor,
+    ) -> ListenerCursor:
+        """Persist cursor progress for the subscription."""
+
+    async def dispatch_listener_event(
+        self,
+        subscription_id: UUID,
+        payload: ListenerDispatchPayload,
+    ) -> WorkflowRun | None:
+        """Dispatch a normalized listener event into the run queue."""
+
+    async def update_listener_subscription_status(
+        self,
+        subscription_id: UUID,
+        *,
+        status: ListenerSubscriptionStatus,
+        actor: str,
+    ) -> ListenerSubscription:
+        """Update the operational status for a listener subscription."""
 
 
 __all__ = ["WorkflowRepository", "VersionDiff"]

@@ -62,7 +62,7 @@ def test_node_execution_resolves_credentials(api_client: TestClient) -> None:
     workflow_id = UUID(_create_workflow(api_client))
     vault: InMemoryCredentialVault = api_client.app.state.vault  # type: ignore[attr-defined]
     vault.create_credential(
-        name="telegram_bot",
+        name="telegram_token",
         provider="telegram",
         scopes=["bot"],
         secret="resolved-token",
@@ -76,7 +76,7 @@ def test_node_execution_resolves_credentials(api_client: TestClient) -> None:
             "node_config": {
                 "type": "SetVariableNode",
                 "name": "store_secret",
-                "variables": {"token": "[[telegram_bot]]"},
+                "variables": {"token": "[[telegram_token]]"},
             },
             "inputs": {},
             "workflow_id": str(workflow_id),

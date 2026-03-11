@@ -11,6 +11,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 import pytest
+from orcheo.listeners import (
+    ListenerPlatform,
+    ListenerSubscription,
+    ListenerSubscriptionStatus,
+)
 from orcheo.models.workflow import WorkflowRunStatus
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
@@ -161,6 +166,27 @@ def _version_payload(
     return base
 
 
+def _listener_subscription_payload(
+    subscription_id: UUID,
+    workflow_id: UUID,
+    workflow_version_id: UUID,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """Generate a fake listener subscription payload dictionary."""
+    subscription = ListenerSubscription(
+        id=subscription_id,
+        workflow_id=workflow_id,
+        workflow_version_id=workflow_version_id,
+        node_name="telegram_listener",
+        platform=ListenerPlatform.TELEGRAM,
+        bot_identity_key="telegram:[[telegram_one]]",
+        status=ListenerSubscriptionStatus.ACTIVE,
+        config={"token": "[[telegram_one]]"},
+        **overrides,
+    )
+    return subscription.model_dump(mode="json")
+
+
 def _run_payload(
     run_id: UUID,
     version_id: UUID,
@@ -192,6 +218,71 @@ def _run_payload(
     }
     base.update(overrides)
     return base
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_claim_listener_subscription_uses_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claiming a listener subscription locks and conditionally updates the row."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    subscription_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _listener_subscription_payload(
+                    subscription_id,
+                    workflow_id,
+                    version_id,
+                )
+            }
+        },
+        {"row": {"id": str(subscription_id)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    claimed = await repo.claim_listener_subscription(
+        subscription_id,
+        runtime_id="runtime-1",
+        lease_seconds=30,
+    )
+
+    assert claimed is not None
+    queries = [query.lower() for query, _ in repo._pool._connection.queries]
+    assert any("for update" in query for query in queries)
+    assert any("returning id" in query for query in queries)
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_claim_listener_subscription_returns_none_on_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claiming returns ``None`` when the conditional update loses the race."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    subscription_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _listener_subscription_payload(
+                    subscription_id,
+                    workflow_id,
+                    version_id,
+                )
+            }
+        },
+        {"row": None},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    claimed = await repo.claim_listener_subscription(
+        subscription_id,
+        runtime_id="runtime-1",
+        lease_seconds=30,
+    )
+
+    assert claimed is None
 
 
 @pytest.mark.asyncio
@@ -358,6 +449,45 @@ async def test_postgres_repository_archive_workflow(
 
     workflow = await repo.archive_workflow(workflow_id, actor="archiver")
     assert workflow.is_archived is True
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_archive_workflow_disables_listeners(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archiving a workflow disables active listener subscriptions."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    subscription_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {
+            "rows": [
+                {
+                    "id": str(subscription_id),
+                    "payload": _listener_subscription_payload(
+                        subscription_id,
+                        workflow_id,
+                        version_id,
+                    ),
+                }
+            ]
+        },
+        {},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.archive_workflow(workflow_id, actor="archiver")
+
+    assert workflow.is_archived is True
+    listener_updates = [
+        query
+        for query, _ in repo._pool._connection.queries
+        if "listener_subscriptions" in query
+    ]
+    assert any("SELECT id, payload" in query for query in listener_updates)
+    assert any("UPDATE listener_subscriptions" in query for query in listener_updates)
 
 
 @pytest.mark.asyncio

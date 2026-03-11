@@ -69,6 +69,39 @@ export const nodeUiSchemas: Record<string, Record<string, unknown>> = {
       "ui:widget": "password",
     },
   },
+  MessageTelegramNode: {
+    message: {
+      "ui:widget": "textarea",
+      "ui:options": {
+        rows: 5,
+      },
+    },
+    token: {
+      "ui:widget": "password",
+    },
+  },
+  MessageDiscordNode: {
+    message: {
+      "ui:widget": "textarea",
+      "ui:options": {
+        rows: 5,
+      },
+    },
+    token: {
+      "ui:widget": "password",
+    },
+  },
+  MessageQQNode: {
+    message: {
+      "ui:widget": "textarea",
+      "ui:options": {
+        rows: 5,
+      },
+    },
+    client_secret: {
+      "ui:widget": "password",
+    },
+  },
   SlackNode: {
     kwargs: {
       "ui:widget": "textarea",

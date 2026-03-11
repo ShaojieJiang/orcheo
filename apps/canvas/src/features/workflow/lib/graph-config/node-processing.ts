@@ -1,10 +1,12 @@
 import { DEFAULT_PYTHON_CODE } from "@features/workflow/lib/python-node";
 import {
+  applyDiscordConfig,
   applyCronTriggerConfig,
   applyDelayConfig,
   applyHttpPollingTriggerConfig,
   applyManualTriggerConfig,
   applyMongoConfig,
+  applyQQConfig,
   applySetVariableConfig,
   applySlackConfig,
   applySwitchConfig,
@@ -126,8 +128,19 @@ export const processNodes = async (
       applySlackConfig(data, nodeConfig);
     }
 
-    if (backendType === "MessageTelegram") {
+    if (
+      backendType === "MessageTelegram" ||
+      backendType === "MessageTelegramNode"
+    ) {
       applyTelegramConfig(data, nodeConfig);
+    }
+
+    if (backendType === "MessageDiscordNode") {
+      applyDiscordConfig(data, nodeConfig);
+    }
+
+    if (backendType === "MessageQQNode") {
+      applyQQConfig(data, nodeConfig);
     }
 
     if (backendType === "CronTriggerNode") {

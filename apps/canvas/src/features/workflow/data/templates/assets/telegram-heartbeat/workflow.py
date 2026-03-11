@@ -1,6 +1,6 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.telegram import MessageTelegramNode
 from orcheo.nodes.triggers import CronTriggerNode
 
 
@@ -18,7 +18,7 @@ def orcheo_workflow() -> StateGraph:
     )
     graph.add_node(
         "send_heartbeat",
-        MessageTelegram(
+        MessageTelegramNode(
             name="send_heartbeat",
             token="[[telegram_token]]",
             chat_id="[[telegram_chat_id]]",

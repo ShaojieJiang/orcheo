@@ -11,6 +11,7 @@ __all__ = [
     "credential_templates",
     "credentials",
     "agentensor",
+    "listeners",
     "nodes",
     "runs",
     "triggers",

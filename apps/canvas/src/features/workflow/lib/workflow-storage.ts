@@ -1,4 +1,7 @@
-import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
+import {
+  assertWorkflowTemplateCompatibility,
+  getWorkflowTemplateDefinition,
+} from "@features/workflow/data/workflow-data";
 import {
   DEFAULT_ACTOR,
   WORKFLOW_STORAGE_EVENT,
@@ -162,6 +165,7 @@ export const createWorkflowFromTemplate = async (
   if (!templateDefinition) {
     return undefined;
   }
+  assertWorkflowTemplateCompatibility(templateDefinition);
 
   const actor = resolveActor();
   const templateWorkflow = templateDefinition.workflow;
@@ -191,6 +195,7 @@ export const createWorkflowFromTemplate = async (
       metadata: {
         source: "canvas-template",
         template_id: templateWorkflow.id,
+        template: templateDefinition.metadata ?? null,
         canvas: buildTemplateCanvasMetadata({
           name: workflowName,
           description: workflowDescription,

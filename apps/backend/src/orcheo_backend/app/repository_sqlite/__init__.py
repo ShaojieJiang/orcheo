@@ -3,6 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo_backend.app.repository_sqlite._listeners import ListenerRepositoryMixin
 from orcheo_backend.app.repository_sqlite._retry import RetryPolicyMixin
 from orcheo_backend.app.repository_sqlite._runs import WorkflowRunMixin
 from orcheo_backend.app.repository_sqlite._triggers import TriggerRepositoryMixin
@@ -11,6 +12,7 @@ from orcheo_backend.app.repository_sqlite._workflows import WorkflowRepositoryMi
 
 
 class SqliteWorkflowRepository(
+    ListenerRepositoryMixin,
     TriggerRepositoryMixin,
     RetryPolicyMixin,
     WorkflowRunMixin,

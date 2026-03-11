@@ -1904,3 +1904,94 @@ async def test_hydrate_trigger_state_cron_overlap_logs_warning(
     # First run should be registered; second skipped due to overlap
     assert run_id_1 in repo._trigger_layer._cron_run_index  # noqa: SLF001
     assert run_id_2 not in repo._trigger_layer._cron_run_index  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_versions_create_version_without_listener_mixin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_version skips listener sync when not combined with
+    ListenerRepositoryMixin."""
+    from orcheo_backend.app.repository_postgres._versions import (
+        WorkflowVersionMixin as PgWorkflowVersionMixin,
+    )
+
+    class _VersionOnlyRepo(PgWorkflowVersionMixin):
+        pass
+
+    monkeypatch.setattr(pg_base, "AsyncConnectionPool", object())
+    monkeypatch.setattr(pg_base, "DictRowFactory", object())
+
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {"row": {"max_version": 0}},  # SELECT COALESCE(MAX(version), 0)
+        {},  # INSERT workflow_versions
+    ]
+    repo = _VersionOnlyRepo("postgresql://test")
+    repo._pool = FakePool(FakeConnection(responses))
+    repo._initialized = True
+
+    version = await repo.create_version(
+        workflow_id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    assert version.version == 1
+
+
+@pytest.mark.asyncio
+async def test_workflows_maybe_disable_listeners_method_not_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_maybe_disable_listener_subscriptions returns early when the disable
+    method is absent."""
+    from orcheo_backend.app.repository_postgres._workflows import (
+        WorkflowRepositoryMixin as PgWorkflowRepositoryMixin,
+    )
+
+    class _WorkflowRepoNoDisable(PgWorkflowRepositoryMixin):
+        pass
+
+    monkeypatch.setattr(pg_base, "AsyncConnectionPool", object())
+    monkeypatch.setattr(pg_base, "DictRowFactory", object())
+
+    repo = _WorkflowRepoNoDisable("postgresql://test")
+    repo._initialized = True
+
+    # Should complete without error; returns early because method is absent.
+    await repo._maybe_disable_listener_subscriptions(  # noqa: SLF001
+        uuid4(), should_disable=True, actor="admin", conn=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflows_maybe_disable_listeners_sync_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_maybe_disable_listener_subscriptions handles a synchronous disable method."""
+    from orcheo_backend.app.repository_postgres._workflows import (
+        WorkflowRepositoryMixin as PgWorkflowRepositoryMixin,
+    )
+
+    calls: list[str] = []
+
+    class _WorkflowRepoSyncDisable(PgWorkflowRepositoryMixin):
+        def _disable_listener_subscriptions_locked(
+            self, workflow_id: UUID, *, actor: str, conn: Any
+        ) -> None:
+            del workflow_id, actor, conn
+            calls.append("called")
+
+    monkeypatch.setattr(pg_base, "AsyncConnectionPool", object())
+    monkeypatch.setattr(pg_base, "DictRowFactory", object())
+
+    repo = _WorkflowRepoSyncDisable("postgresql://test")
+    repo._initialized = True
+
+    await repo._maybe_disable_listener_subscriptions(  # noqa: SLF001
+        uuid4(), should_disable=True, actor="admin", conn=None
+    )
+    assert calls == ["called"]

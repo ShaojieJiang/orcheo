@@ -2,7 +2,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.telegram import MessageTelegramNode
 
 
 class TelegramMessageInput(BaseModel):
@@ -16,7 +16,7 @@ def build_telegram_tool_graph() -> StateGraph:
     graph = StateGraph(State)
     graph.add_node(
         "send_telegram_message",
-        MessageTelegram(
+        MessageTelegramNode(
             name="send_telegram_message",
             token="[[telegram_token]]",
             chat_id="{{config.configurable.telegram_chat_id}}",

@@ -150,4 +150,122 @@ export const integrationNodeSchemas: Record<string, RJSFSchema> = {
     },
     required: ["token", "chat_id", "message"],
   },
+
+  MessageTelegramNode: {
+    type: "object",
+    properties: {
+      ...baseNodeSchema.properties,
+      token: {
+        type: "string",
+        title: "Bot Token",
+        description: "Bot token used to authenticate with Telegram",
+      },
+      chat_id: {
+        type: "string",
+        title: "Chat ID",
+        description: "Telegram chat ID",
+      },
+      message: {
+        type: "string",
+        title: "Message",
+        description: "Message text to send",
+      },
+      parse_mode: {
+        type: "string",
+        title: "Parse Mode",
+        description: "Message parsing mode",
+        enum: ["Markdown", "HTML", "MarkdownV2"],
+      },
+    },
+    required: ["token", "chat_id", "message"],
+  },
+
+  MessageDiscordNode: {
+    type: "object",
+    properties: {
+      ...baseNodeSchema.properties,
+      token: {
+        type: "string",
+        title: "Bot Token",
+        description: "Bot token used to authenticate with Discord",
+      },
+      channel_id: {
+        type: "string",
+        title: "Channel ID",
+        description: "Discord channel ID",
+      },
+      message: {
+        type: "string",
+        title: "Message",
+        description: "Message text to send",
+      },
+      reply_to_message_id: {
+        type: "string",
+        title: "Reply To Message ID",
+        description: "Optional Discord message ID to reply to",
+      },
+    },
+    required: ["token", "channel_id", "message"],
+  },
+
+  MessageQQNode: {
+    type: "object",
+    properties: {
+      ...baseNodeSchema.properties,
+      app_id: {
+        type: "string",
+        title: "App ID",
+        description: "QQ bot App ID",
+      },
+      client_secret: {
+        type: "string",
+        title: "Client Secret",
+        description: "QQ bot client secret",
+      },
+      openid: {
+        type: "string",
+        title: "User OpenID",
+        description: "QQ user openid for C2C replies",
+      },
+      group_openid: {
+        type: "string",
+        title: "Group OpenID",
+        description: "QQ group openid for group replies",
+      },
+      channel_id: {
+        type: "string",
+        title: "Channel ID",
+        description: "QQ channel ID for channel replies",
+      },
+      guild_id: {
+        type: "string",
+        title: "Guild ID",
+        description: "Optional guild ID for channel-context replies",
+      },
+      message: {
+        type: "string",
+        title: "Message",
+        description: "Message text to send",
+      },
+      msg_id: {
+        type: "string",
+        title: "Reply Message ID",
+        description: "Optional QQ source message ID for passive replies",
+      },
+      msg_seq: {
+        type: "integer",
+        title: "Reply Sequence",
+        description: "Sequence number paired with msg_id",
+        minimum: 1,
+        default: 1,
+      },
+      sandbox: {
+        type: "boolean",
+        title: "Sandbox",
+        description: "Use the QQ sandbox OpenAPI base URL",
+        default: false,
+      },
+    },
+    required: ["app_id", "client_secret", "message"],
+  },
 };
