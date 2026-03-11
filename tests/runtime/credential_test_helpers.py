@@ -9,7 +9,7 @@ def create_vault_with_secret(secret: str = "s3cret") -> InMemoryCredentialVault:
     """Create a vault seeded with a single unrestricted credential."""
     vault = InMemoryCredentialVault()
     vault.create_credential(
-        name="telegram_bot",
+        name="telegram_token",
         provider="telegram",
         scopes=["bot"],
         secret=secret,

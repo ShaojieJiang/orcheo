@@ -23,6 +23,9 @@ from orcheo_backend.app.routers import (
     credentials as _credentials_routes,
 )
 from orcheo_backend.app.routers import (
+    listeners as _listeners_routes,
+)
+from orcheo_backend.app.routers import (
     nodes as _nodes_routes,
 )
 from orcheo_backend.app.routers import (
@@ -73,6 +76,10 @@ get_workflow_credential_health = (
     _credential_health_routes.get_workflow_credential_health
 )
 validate_workflow_credentials = _credential_health_routes.validate_workflow_credentials
+list_workflow_listeners = _listeners_routes.list_workflow_listeners
+get_workflow_listener_metrics = _listeners_routes.get_workflow_listener_metrics
+pause_workflow_listener = _listeners_routes.pause_workflow_listener
+resume_workflow_listener = _listeners_routes.resume_workflow_listener
 
 list_workflows = _workflows_routes.list_workflows
 create_workflow = _workflows_routes.create_workflow
@@ -143,6 +150,7 @@ __all__ = [
     "get_workflow",
     "get_workflow_credential_readiness",
     "get_workflow_credential_health",
+    "get_workflow_listener_metrics",
     "get_workflow_run",
     "get_workflow_version",
     "ingest_workflow_version",
@@ -151,6 +159,7 @@ __all__ = [
     "list_credential_templates",
     "list_credentials",
     "list_governance_alerts",
+    "list_workflow_listeners",
     "list_workflow_execution_histories",
     "list_workflow_runs",
     "list_workflow_versions",
@@ -162,6 +171,8 @@ __all__ = [
     "mark_run_succeeded",
     "replay_execution",
     "reveal_credential_secret",
+    "pause_workflow_listener",
+    "resume_workflow_listener",
     "trigger_chatkit_workflow",
     "update_credential_template",
     "update_credential",

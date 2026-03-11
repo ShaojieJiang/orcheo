@@ -9,6 +9,7 @@ from orcheo.graph.ingestion import summary as summary_module
 from orcheo.graph.ingestion.summary import summarise_graph_index, summarise_state_graph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, WorkflowTool
+from orcheo.nodes.listeners import QQBotListenerNode, TelegramBotListenerNode
 from orcheo.nodes.triggers import CronTriggerNode
 
 
@@ -135,6 +136,54 @@ def test_summarise_graph_index_extracts_cron_nodes() -> None:
     assert cron[0]["expression"] == "*/5 * * * *"
     assert cron[0]["timezone"] == "UTC"
     assert cron[0]["allow_overlapping"] is False
+
+
+def test_summarise_graph_index_extracts_listener_nodes() -> None:
+    graph = StateGraph(State)
+    graph.add_node(
+        "telegram_listener",
+        TelegramBotListenerNode(
+            name="telegram_listener",
+            token="[[telegram_token]]",
+            allowed_updates=["message", "callback_query"],
+            allowed_chat_types=["private"],
+            poll_timeout_seconds=45,
+        ),
+    )
+    graph.add_edge(START, "telegram_listener")
+    graph.add_edge("telegram_listener", END)
+
+    index = summarise_graph_index(graph)
+    listeners = index.get("listeners")
+    assert isinstance(listeners, list)
+    assert len(listeners) == 1
+    assert listeners[0]["node_name"] == "telegram_listener"
+    assert listeners[0]["platform"] == "telegram"
+    assert listeners[0]["allowed_updates"] == ["message", "callback_query"]
+    assert listeners[0]["poll_timeout_seconds"] == 45
+
+
+def test_summarise_graph_index_extracts_qq_listener_nodes() -> None:
+    graph = StateGraph(State)
+    graph.add_node(
+        "qq_listener",
+        QQBotListenerNode(
+            name="qq_listener",
+            app_id="[[qq_app_id]]",
+            client_secret="[[qq_client_secret]]",
+            allowed_scene_types=["c2c", "group"],
+        ),
+    )
+    graph.add_edge(START, "qq_listener")
+    graph.add_edge("qq_listener", END)
+
+    index = summarise_graph_index(graph)
+    listeners = index.get("listeners")
+    assert isinstance(listeners, list)
+    assert len(listeners) == 1
+    assert listeners[0]["node_name"] == "qq_listener"
+    assert listeners[0]["platform"] == "qq"
+    assert listeners[0]["allowed_scene_types"] == ["c2c", "group"]
 
 
 def test_summarise_graph_index_renders_workflow_tool_subgraph() -> None:

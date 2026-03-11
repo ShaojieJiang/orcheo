@@ -105,6 +105,7 @@ export function buildWorkflowLayoutProps(
   };
 
   const settingsProps: SettingsTabContentProps = {
+    workflowId: core.metadata.currentWorkflowId,
     workflowName: core.metadata.workflowName,
     workflowDescription: core.metadata.workflowDescription,
     workflowTags: core.metadata.workflowTags,
@@ -113,6 +114,14 @@ export function buildWorkflowLayoutProps(
     onTagsChange: resources.saver.handleTagsChange,
     workflowVersions: core.metadata.workflowVersions ?? [],
     onRestoreVersion: resources.saver.handleRestoreVersion,
+    listeners: resources.listeners.listeners,
+    listenerMetrics: resources.listeners.metrics,
+    isListenersLoading: resources.listeners.isLoading,
+    isListenersRefreshing: resources.listeners.isRefreshing,
+    activeListenerSubscriptionId: resources.listeners.activeSubscriptionId,
+    onRefreshListeners: resources.listeners.refreshListeners,
+    onPauseListener: resources.listeners.pauseListener,
+    onResumeListener: resources.listeners.resumeListener,
   };
 
   return {

@@ -91,6 +91,35 @@ async def test_telegram_node_send_message_with_parse_mode():
 
 
 @pytest.mark.asyncio
+async def test_telegram_node_uses_latest_ai_message_when_message_missing() -> None:
+    telegram_node = MessageTelegram(
+        name="telegram_node",
+        token="test_token",
+        chat_id="123456",
+    )
+    mock_message = AsyncMock(spec=Message)
+    mock_message.message_id = 99
+
+    mock_bot = AsyncMock()
+    mock_bot.send_message = AsyncMock(return_value=mock_message)
+    state = State(
+        {
+            "messages": [{"role": "assistant", "content": "From agent"}],
+            "results": {},
+            "inputs": {},
+        }
+    )
+
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
+        result = await telegram_node.run(state, None)
+
+    assert result == {"message_id": 99, "status": "sent"}
+    mock_bot.send_message.assert_called_once_with(
+        chat_id="123456", text="From agent", parse_mode=None
+    )
+
+
+@pytest.mark.asyncio
 async def test_telegram_node_tool_run(telegram_node):
     mock_message = AsyncMock(spec=Message)
     mock_message.message_id = 42

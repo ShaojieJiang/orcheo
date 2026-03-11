@@ -18,7 +18,7 @@ def test_node_decode_variables_injects_secret() -> None:
     resolver = CredentialResolver(vault)
     node = SetVariableNode(
         name="store_secret",
-        variables={"token": "[[telegram_bot]]"},
+        variables={"token": "[[telegram_token]]"},
     )
     state = State({"results": {}, "messages": [], "inputs": {}})
     with credential_resolution(resolver):
@@ -29,7 +29,7 @@ def test_node_decode_variables_injects_secret() -> None:
 def test_node_decode_variables_without_resolver_errors() -> None:
     node = SetVariableNode(
         name="store_secret",
-        variables={"token": "[[telegram_bot]]"},
+        variables={"token": "[[telegram_token]]"},
     )
     state = State({"results": {}, "messages": [], "inputs": {}})
     with pytest.raises(CredentialResolverUnavailableError):
@@ -41,7 +41,7 @@ def test_node_accepts_explicit_credential_reference() -> None:
     resolver = CredentialResolver(vault)
     node = SetVariableNode(
         name="store_secret",
-        variables={"token": credential_ref("telegram_bot")},
+        variables={"token": credential_ref("telegram_token")},
     )
     state = State({"results": {}, "messages": [], "inputs": {}})
     with credential_resolution(resolver):

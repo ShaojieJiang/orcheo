@@ -1,12 +1,12 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.telegram import MessageTelegramNode
 
 
 def orcheo_workflow() -> StateGraph:
     """Build a Telegram hello workflow."""
     graph = StateGraph(State)
-    telegram = MessageTelegram(
+    telegram = MessageTelegramNode(
         name="send_telegram_hello",
         token="[[telegram_token]]",
         chat_id="[[telegram_chat_id]]",

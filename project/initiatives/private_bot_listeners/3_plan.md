@@ -29,21 +29,21 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 
 #### Task Checklist
 
-- [ ] Task 1.1: Define listener node schemas for Telegram and Discord.
+- [x] Task 1.1: Define listener node schemas for Telegram and Discord.
   - Dependencies: None
-- [ ] Task 1.2: Extend workflow activation logic to extract listener subscriptions from workflow graphs.
+- [x] Task 1.2: Extend workflow activation logic to extract listener subscriptions from workflow graphs.
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Add persistence for `listener_subscription`, `listener_cursor`, and short-lived dedupe records.
+- [x] Task 1.3: Add persistence for `listener_subscription`, `listener_cursor`, and short-lived dedupe records.
   - Dependencies: Task 1.2
-- [ ] Task 1.4: Implement a listener supervisor process with leasing, health reporting, and graceful shutdown.
+- [x] Task 1.4: Implement a listener supervisor process with leasing, health reporting, and graceful shutdown.
   - Dependencies: Task 1.3
-- [ ] Task 1.5: Add `triggered_by="listener"` dispatch plumbing into the existing run queue.
+- [x] Task 1.5: Add `triggered_by="listener"` dispatch plumbing into the existing run queue.
   - Dependencies: Task 1.4
-- [ ] Task 1.6: Define the workflow/runtime contract that allows multiple listener nodes to feed the same downstream `AgentNode` and preserve correct reply routing metadata.
+- [x] Task 1.6: Define the workflow/runtime contract that allows multiple listener nodes to feed the same downstream `AgentNode` and preserve correct reply routing metadata.
   - Dependencies: Task 1.5
-- [ ] Task 1.7: Audit reply-node availability for Telegram, Discord, and QQ, and mark missing outbound nodes as required deliverables for template completion instead of follow-up work.
+- [x] Task 1.7: Audit reply-node availability for Telegram, Discord, and QQ, and mark missing outbound nodes as required deliverables for template completion instead of follow-up work.
   - Dependencies: Task 1.6
-- [ ] Task 1.8: Define Canvas template acceptance criteria, owner metadata, and template versioning rules tied to Orcheo and provider API versions.
+- [x] Task 1.8: Define Canvas template acceptance criteria, owner metadata, and template versioning rules tied to Orcheo and provider API versions.
   - Dependencies: Task 1.6
 
 ---
@@ -54,19 +54,19 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 
 #### Task Checklist
 
-- [ ] Task 2.1: Implement `TelegramBotListenerNode` validation and Canvas/SDK registration.
+- [x] Task 2.1: Implement `TelegramBotListenerNode` validation and Canvas/SDK registration.
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Implement Telegram `getUpdates` adapter with offset persistence and backoff.
+- [x] Task 2.2: Implement Telegram `getUpdates` adapter with offset persistence and backoff.
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Normalize Telegram updates into listener dispatch payloads compatible with downstream workflows.
+- [x] Task 2.3: Normalize Telegram updates into listener dispatch payloads compatible with downstream workflows.
   - Dependencies: Task 2.2
-- [ ] Task 2.4: Reuse or align with existing `TelegramEventsParserNode` and `MessageTelegram` behavior where sensible.
+- [x] Task 2.4: Reuse or align with existing `TelegramEventsParserNode` and `MessageTelegramNode` behavior where sensible.
   - Dependencies: Task 2.3
-- [ ] Task 2.5: Add tests for polling, restart recovery, dedupe, and two independent Telegram bot configurations.
+- [x] Task 2.5: Add tests for polling, restart recovery, dedupe, and two independent Telegram bot configurations.
   - Dependencies: Task 2.4
-- [ ] Task 2.6: Add a Canvas template private Telegram bot workflow with `TelegramBotListenerNode -> AgentNode -> MessageTelegram`.
+- [x] Task 2.6: Add a Canvas template private Telegram bot workflow with `TelegramBotListenerNode -> AgentNode -> MessageTelegramNode`.
   - Dependencies: Task 2.5
-- [ ] Task 2.7: Add operator documentation for the Telegram listener template and deployment flow.
+- [x] Task 2.7: Add operator documentation for the Telegram listener template and deployment flow.
   - Dependencies: Task 2.5
 
 ---
@@ -77,21 +77,21 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 
 #### Task Checklist
 
-- [ ] Task 3.1: Implement `DiscordBotListenerNode` validation, intent configuration, and workflow compilation.
+- [x] Task 3.1: Implement `DiscordBotListenerNode` validation, intent configuration, and workflow compilation.
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Implement the Gateway adapter with `GET /gateway/bot`, heartbeat, identify, reconnect, and resume handling.
+- [x] Task 3.2: Implement the Gateway adapter with `GET /gateway/bot`, heartbeat, identify, reconnect, and resume handling.
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Add event filtering for guilds, channels, DMs, and message types.
+- [x] Task 3.3: Add event filtering for guilds, channels, DMs, and message types.
   - Dependencies: Task 3.2
-- [ ] Task 3.4: Add dispatch normalization and dedupe for Discord message events.
+- [x] Task 3.4: Add dispatch normalization and dedupe for Discord message events.
   - Dependencies: Task 3.3
-- [ ] Task 3.5: Add tests for heartbeat timing, resume flow, identify/session-start rate limits, message content intent handling, and event dispatch.
+- [x] Task 3.5: Add tests for heartbeat timing, resume flow, identify/session-start rate limits, message content intent handling, and event dispatch.
   - Dependencies: Task 3.4
-- [ ] Task 3.6: Deliver a supported Discord outbound reply node if an adequate one does not already exist for listener-triggered workflows.
+- [x] Task 3.6: Deliver a supported Discord outbound reply node if an adequate one does not already exist for listener-triggered workflows.
   - Dependencies: Task 3.5, Task 1.7
-- [ ] Task 3.7: Add a Canvas template private Discord bot workflow with `DiscordBotListenerNode -> AgentNode -> MessageDiscord` or the final equivalent node name.
+- [x] Task 3.7: Add a Canvas template private Discord bot workflow with `DiscordBotListenerNode -> AgentNode -> MessageDiscordNode` or the final equivalent node name.
   - Dependencies: Task 3.6
-- [ ] Task 3.8: Add operator documentation for the Discord listener template and deployment flow.
+- [x] Task 3.8: Add operator documentation for the Discord listener template and deployment flow.
   - Dependencies: Task 3.7
 
 ---
@@ -102,17 +102,17 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 
 #### Task Checklist
 
-- [ ] Task 4.1: Add listener health surfaces to API/UI/CLI as appropriate.
+- [x] Task 4.1: Add listener health surfaces to API/UI/CLI as appropriate.
   - Dependencies: Milestone 2, Milestone 3
-- [ ] Task 4.2: Add pause/resume or disable controls for listener subscriptions.
+- [x] Task 4.2: Add pause/resume or disable controls for listener subscriptions.
   - Dependencies: Task 4.1
-- [ ] Task 4.3: Add metrics and alerts for stalled listeners, reconnect loops, and dispatch failures.
+- [x] Task 4.3: Add metrics and alerts for stalled listeners, reconnect loops, and dispatch failures.
   - Dependencies: Task 4.1
-- [ ] Task 4.4: Add a Canvas template with Telegram, Discord, and QQ listeners in parallel sharing one `AgentNode`, and validate that each listener replies with the matching bot identity through supported workflow nodes only.
+- [x] Task 4.4: Add a Canvas template with Telegram, Discord, and QQ listeners in parallel sharing one `AgentNode`, and validate that each listener replies with the matching bot identity through supported workflow nodes only.
   - Dependencies: Milestone 2, Milestone 3, Milestone 5
-- [ ] Task 4.5: Document deployment topology for private hosts, worker separation, secret management, and template workflow usage.
+- [x] Task 4.5: Document deployment topology for private hosts, worker separation, secret management, and template workflow usage.
   - Dependencies: Task 4.3
-- [ ] Task 4.6: Add template compatibility tracking so provider API changes or reply-node contract changes trigger template revalidation and a version bump.
+- [x] Task 4.6: Add template compatibility tracking so provider API changes or reply-node contract changes trigger template revalidation and a version bump.
   - Dependencies: Task 4.4, Task 1.8
 
 ---
@@ -123,21 +123,21 @@ The deliverable also includes Canvas templates that prove the listener nodes wor
 
 #### Task Checklist
 
-- [ ] Task 5.1: Implement `QQBotListenerNode` validation and workflow compilation.
+- [x] Task 5.1: Implement `QQBotListenerNode` validation and workflow compilation.
   - Dependencies: Milestone 1
-- [ ] Task 5.2: Implement QQ access-token retrieval and per-AppID token caching.
+- [x] Task 5.2: Implement QQ access-token retrieval and per-AppID token caching.
   - Dependencies: Task 5.1
-- [ ] Task 5.3: Implement QQ `/gateway` or `/gateway/bot` discovery, WebSocket connection, heartbeat, reconnect, resume handling, and provider-reported session-start limits.
+- [x] Task 5.3: Implement QQ `/gateway` or `/gateway/bot` discovery, WebSocket connection, heartbeat, reconnect, resume handling, and provider-reported session-start limits.
   - Dependencies: Task 5.2
-- [ ] Task 5.4: Normalize QQ C2C, group, and channel message events into listener dispatch payloads.
+- [x] Task 5.4: Normalize QQ C2C, group, and channel message events into listener dispatch payloads.
   - Dependencies: Task 5.3
-- [ ] Task 5.5: Add tests for multi-account isolation, token refresh overlap windows, session resume, rate limiting, whitelist failures, and event dispatch.
+- [x] Task 5.5: Add tests for multi-account isolation, token refresh overlap windows, session resume, rate limiting, whitelist failures, and event dispatch.
   - Dependencies: Task 5.4
-- [ ] Task 5.6: Deliver a supported QQ outbound reply node if an adequate one does not already exist for listener-triggered workflows.
+- [x] Task 5.6: Deliver a supported QQ outbound reply node if an adequate one does not already exist for listener-triggered workflows.
   - Dependencies: Task 5.5, Task 1.7
-- [ ] Task 5.7: Add a Canvas template private QQ bot workflow with `QQBotListenerNode -> AgentNode -> MessageQQ` or the final equivalent node name.
+- [x] Task 5.7: Add a Canvas template private QQ bot workflow with `QQBotListenerNode -> AgentNode -> MessageQQNode` or the final equivalent node name.
   - Dependencies: Task 5.6, Task 1.8
-- [ ] Task 5.8: Add operator documentation for the QQ listener template and deployment flow.
+- [x] Task 5.8: Add operator documentation for the QQ listener template and deployment flow.
   - Dependencies: Task 5.7
 
 ---

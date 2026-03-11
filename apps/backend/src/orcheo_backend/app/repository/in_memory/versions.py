@@ -48,6 +48,12 @@ class WorkflowVersionMixin(InMemoryRepositoryState):
             self._versions[version.id] = version
             version_ids.append(version.id)
             self._version_runs.setdefault(version.id, [])
+            self._sync_listener_subscriptions_locked(
+                workflow_id,
+                version.id,
+                version.graph,
+                actor=created_by,
+            )
             return version.model_copy(deep=True)
 
     async def list_versions(self, workflow_id: UUID) -> list[WorkflowVersion]:

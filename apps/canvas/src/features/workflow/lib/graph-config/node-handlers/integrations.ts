@@ -58,6 +58,67 @@ export const applyTelegramConfig = (
   }
 };
 
+export const applyDiscordConfig = (
+  data: Record<string, unknown>,
+  nodeConfig: Record<string, unknown>,
+): void => {
+  if (typeof data?.token === "string" && data.token.length > 0) {
+    nodeConfig.token = data.token;
+  }
+  if (typeof data?.channel_id === "string" && data.channel_id.length > 0) {
+    nodeConfig.channel_id = data.channel_id;
+  }
+  if (typeof data?.message === "string" && data.message.length > 0) {
+    nodeConfig.message = data.message;
+  }
+  if (
+    typeof data?.reply_to_message_id === "string" &&
+    data.reply_to_message_id.length > 0
+  ) {
+    nodeConfig.reply_to_message_id = data.reply_to_message_id;
+  }
+};
+
+export const applyQQConfig = (
+  data: Record<string, unknown>,
+  nodeConfig: Record<string, unknown>,
+): void => {
+  if (typeof data?.app_id === "string" && data.app_id.length > 0) {
+    nodeConfig.app_id = data.app_id;
+  }
+  if (
+    typeof data?.client_secret === "string" &&
+    data.client_secret.length > 0
+  ) {
+    nodeConfig.client_secret = data.client_secret;
+  }
+  if (typeof data?.openid === "string" && data.openid.length > 0) {
+    nodeConfig.openid = data.openid;
+  }
+  if (typeof data?.group_openid === "string" && data.group_openid.length > 0) {
+    nodeConfig.group_openid = data.group_openid;
+  }
+  if (typeof data?.channel_id === "string" && data.channel_id.length > 0) {
+    nodeConfig.channel_id = data.channel_id;
+  }
+  if (typeof data?.guild_id === "string" && data.guild_id.length > 0) {
+    nodeConfig.guild_id = data.guild_id;
+  }
+  if (typeof data?.message === "string" && data.message.length > 0) {
+    nodeConfig.message = data.message;
+  }
+  if (typeof data?.msg_id === "string" && data.msg_id.length > 0) {
+    nodeConfig.msg_id = data.msg_id;
+  }
+  const msgSeqValue = data?.msg_seq;
+  const parsedMsgSeq =
+    typeof msgSeqValue === "number" ? msgSeqValue : Number(msgSeqValue ?? NaN);
+  if (Number.isFinite(parsedMsgSeq) && parsedMsgSeq >= 1) {
+    nodeConfig.msg_seq = Math.trunc(parsedMsgSeq);
+  }
+  nodeConfig.sandbox = Boolean(data?.sandbox);
+};
+
 export const applyCronTriggerConfig = (
   data: Record<string, unknown>,
   nodeConfig: Record<string, unknown>,

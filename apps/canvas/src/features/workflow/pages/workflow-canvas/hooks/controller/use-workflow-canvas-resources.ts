@@ -5,12 +5,14 @@ import { useWorkflowCredentials } from "@features/workflow/pages/workflow-canvas
 import { useWorkflowDuplicateNodes } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-duplicate-nodes";
 import { useWorkflowClipboard } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-clipboard";
 import { useWorkflowFileTransfer } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-file-transfer";
+import { useWorkflowListeners } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-listeners";
 import { useWorkflowSaver } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-saver";
 
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 
 export interface WorkflowCanvasResources {
   credentials: ReturnType<typeof useWorkflowCredentials>;
+  listeners: ReturnType<typeof useWorkflowListeners>;
   duplicateNodes: ReturnType<typeof useWorkflowDuplicateNodes>;
   clipboard: ReturnType<typeof useWorkflowClipboard>;
   fileTransfer: ReturnType<typeof useWorkflowFileTransfer>;
@@ -28,6 +30,13 @@ export function useWorkflowCanvasResources(
     currentWorkflowId: core.metadata.currentWorkflowId,
     backendBaseUrl: getBackendBaseUrl(),
     userName: core.user.name,
+  });
+
+  const listeners = useWorkflowListeners({
+    routeWorkflowId: workflowId,
+    currentWorkflowId: core.metadata.currentWorkflowId,
+    workflowVersionCount: core.metadata.workflowVersions.length,
+    actor: core.user.name,
   });
 
   const duplicateNodes = useWorkflowDuplicateNodes({
@@ -88,5 +97,12 @@ export function useWorkflowCanvasResources(
     applySnapshot: core.history.applySnapshot,
   });
 
-  return { credentials, duplicateNodes, clipboard, fileTransfer, saver };
+  return {
+    listeners,
+    credentials,
+    duplicateNodes,
+    clipboard,
+    fileTransfer,
+    saver,
+  };
 }

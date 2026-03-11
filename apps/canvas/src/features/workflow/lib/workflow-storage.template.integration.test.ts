@@ -292,7 +292,7 @@ describe("workflow-storage API integration - template creation", () => {
       };
     };
     expect(ingestBody.script).toContain("workflow_tools");
-    expect(ingestBody.script).toContain("MessageTelegram");
+    expect(ingestBody.script).toContain("MessageTelegramNode");
     expect(ingestBody.runnable_config?.configurable?.ai_model).toBe(
       "openai:gpt-4o-mini",
     );
@@ -421,7 +421,7 @@ describe("workflow-storage API integration - template creation", () => {
       };
     };
     expect(ingestBody.script).toContain("CronTriggerNode");
-    expect(ingestBody.script).toContain("MessageTelegram");
+    expect(ingestBody.script).toContain("MessageTelegramNode");
     expect(ingestBody.script).toContain("* * * * *");
     expect(ingestBody.script).toContain("allow_overlapping=True");
     expect(ingestBody.metadata?.canvas?.snapshot?.name).toBe(
@@ -435,5 +435,370 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.runnable_config?.configurable?.heartbeat_message).toBe(
       "Heartbeat: workflow is alive.",
     );
+  });
+
+  it("includes validation metadata for the private Telegram listener template", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-5",
+        name: "Telegram Private Listener Copy",
+        slug: "workflow-template-5",
+        description: "Telegram private listener template.",
+        tags: ["telegram", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-5-version-1",
+        workflow_id: "workflow-template-5",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: { cron: [], listeners: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-telegram-private-listener",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-5",
+        name: "Telegram Private Listener Copy",
+        slug: "workflow-template-5",
+        description: "Telegram private listener template.",
+        tags: ["telegram", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-5-version-1",
+          workflow_id: "workflow-template-5",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: { cron: [], listeners: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-telegram-private-listener",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-telegram-private-listener");
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      metadata?: {
+        template?: {
+          templateVersion?: string;
+          validatedProviderApi?: string;
+        };
+      };
+      script?: string;
+    };
+
+    expect(ingestBody.script).toContain("TelegramBotListenerNode");
+    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
+    expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
+      "telegram-bot-api",
+    );
+  });
+
+  it("includes validation metadata for the private Discord listener template", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-6",
+        name: "Discord Private Listener Copy",
+        slug: "workflow-template-6",
+        description: "Discord private listener template.",
+        tags: ["discord", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-6-version-1",
+        workflow_id: "workflow-template-6",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: { cron: [], listeners: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-discord-private-listener",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-6",
+        name: "Discord Private Listener Copy",
+        slug: "workflow-template-6",
+        description: "Discord private listener template.",
+        tags: ["discord", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-6-version-1",
+          workflow_id: "workflow-template-6",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: { cron: [], listeners: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-discord-private-listener",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-discord-private-listener");
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      metadata?: {
+        template?: {
+          templateVersion?: string;
+          validatedProviderApi?: string;
+        };
+      };
+      script?: string;
+    };
+
+    expect(ingestBody.script).toContain("DiscordBotListenerNode");
+    expect(ingestBody.script).toContain("MessageDiscordNode");
+    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
+    expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
+      "discord-gateway-v10",
+    );
+  });
+
+  it("includes validation metadata for the private QQ listener template", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-7",
+        name: "QQ Private Listener Copy",
+        slug: "workflow-template-7",
+        description: "QQ private listener template.",
+        tags: ["qq", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-7-version-1",
+        workflow_id: "workflow-template-7",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: { cron: [], listeners: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-qq-private-listener",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-7",
+        name: "QQ Private Listener Copy",
+        slug: "workflow-template-7",
+        description: "QQ private listener template.",
+        tags: ["qq", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-7-version-1",
+          workflow_id: "workflow-template-7",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: { cron: [], listeners: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-qq-private-listener",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-qq-private-listener");
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      metadata?: {
+        template?: {
+          templateVersion?: string;
+          validatedProviderApi?: string;
+          replyNodeContracts?: string[];
+        };
+      };
+      script?: string;
+    };
+
+    expect(ingestBody.script).toContain("QQBotListenerNode");
+    expect(ingestBody.script).toContain("MessageQQNode");
+    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
+    expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
+      "qq-bot-api-v2",
+    );
+    expect(ingestBody.metadata?.template?.replyNodeContracts).toEqual([
+      "MessageQQNode@1",
+    ]);
+  });
+
+  it("includes routing metadata for the shared private listener template", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-8",
+        name: "Private Bot Shared Listener Copy",
+        slug: "workflow-template-8",
+        description: "Shared private listener template.",
+        tags: ["telegram", "discord", "qq", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-8-version-1",
+        workflow_id: "workflow-template-8",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: { cron: [], listeners: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-private-bot-shared-listener",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-8",
+        name: "Private Bot Shared Listener Copy",
+        slug: "workflow-template-8",
+        description: "Shared private listener template.",
+        tags: ["telegram", "discord", "qq", "listener", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-8-version-1",
+          workflow_id: "workflow-template-8",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: { cron: [], listeners: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-private-bot-shared-listener",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-private-bot-shared-listener");
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      metadata?: {
+        template?: {
+          replyNodeContracts?: string[];
+          validatedProviderApi?: string;
+        };
+      };
+      script?: string;
+    };
+
+    expect(ingestBody.script).toContain("TelegramBotListenerNode");
+    expect(ingestBody.script).toContain("DiscordBotListenerNode");
+    expect(ingestBody.script).toContain("QQBotListenerNode");
+    expect(ingestBody.script).toContain("Switch(");
+    expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
+      "private-bot-listener-suite-2026-03-11",
+    );
+    expect(ingestBody.metadata?.template?.replyNodeContracts).toEqual([
+      "MessageTelegramNode@1",
+      "MessageDiscordNode@1",
+      "MessageQQNode@1",
+    ]);
   });
 });

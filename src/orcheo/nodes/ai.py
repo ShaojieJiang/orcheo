@@ -194,6 +194,8 @@ class AgentNode(AINode):
     """Template used to derive the final graph-store key."""
     history_key_candidates: list[str] = Field(
         default_factory=lambda: [
+            "{{inputs.platform}}:{{inputs.message.chat_id}}",
+            "{{inputs.listener.platform}}:{{inputs.listener.message.chat_id}}",
             "telegram:{{results.telegram_events_parser.chat_id}}",
             "wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}",
             "wecom_aibot:{{results.wecom_ai_bot_events_parser.chat_type}}:{{results.wecom_ai_bot_events_parser.user}}",
@@ -347,21 +349,40 @@ class AgentNode(AINode):
                 elif role == "user":  # pragma: no branch
                     messages.append(HumanMessage(content=content))
 
-        message_value = (
-            inputs.get("message")
-            or inputs.get("user_message")
-            or inputs.get("query")
-            or inputs.get("prompt")
-        )
-        if isinstance(message_value, str):
-            normalized_message_value = message_value.strip()
-            if normalized_message_value:  # pragma: no branch
-                if not self._is_duplicate_latest_user_turn(
-                    messages, normalized_message_value
-                ):
-                    messages.append(HumanMessage(content=normalized_message_value))
+        message_value = self._input_message_text(inputs)
+        if message_value is not None and not self._is_duplicate_latest_user_turn(
+            messages, message_value
+        ):
+            messages.append(HumanMessage(content=message_value))
 
         return messages
+
+    def _input_message_text(self, inputs: Mapping[str, Any]) -> str | None:
+        """Extract the current user turn from chat or listener-style inputs."""
+        for key in ("message", "user_message", "query", "prompt"):
+            text = self._coerce_input_message_text(inputs.get(key))
+            if text is not None:
+                return text
+
+        listener = inputs.get("listener")
+        if isinstance(listener, Mapping):
+            return self._coerce_input_message_text(listener.get("message"))
+        return None
+
+    @staticmethod
+    def _coerce_input_message_text(value: Any) -> str | None:
+        """Normalize string or structured input payloads into message text."""
+        if isinstance(value, str):
+            candidate = value.strip()
+            return candidate or None
+        if isinstance(value, Mapping):
+            content = value.get("text")
+            if not isinstance(content, str):
+                content = value.get("content")
+            if isinstance(content, str):
+                candidate = content.strip()
+                return candidate or None
+        return None
 
     @staticmethod
     def _is_duplicate_latest_user_turn(

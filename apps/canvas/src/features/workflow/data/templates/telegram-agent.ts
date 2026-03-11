@@ -34,7 +34,7 @@ export const TELEGRAM_AGENT_WORKFLOW: Workflow = {
   id: "template-telegram-agent",
   name: "Telegram Agent Sender",
   description:
-    "Uses an agent with a MessageTelegram tool subworkflow, so the agent can decide whether to send to Telegram and what to send.",
+    "Uses an agent with a MessageTelegramNode tool subworkflow, so the agent can decide whether to send to Telegram and what to send.",
   createdAt: "2026-03-10T12:00:00Z",
   updatedAt: "2026-03-10T12:00:00Z",
   sourceExample: "examples/agent_example.py",
@@ -59,7 +59,7 @@ export const TELEGRAM_AGENT_WORKFLOW: Workflow = {
         label: "AgentNode",
         type: "agent",
         description:
-          "Decides whether Telegram should be used and, when needed, calls the embedded MessageTelegram tool workflow.",
+          "Decides whether Telegram should be used and, when needed, calls the embedded MessageTelegramNode tool workflow.",
       },
     },
     {

@@ -61,7 +61,7 @@ export const TELEGRAM_HEARTBEAT_WORKFLOW: Workflow = {
       type: "telegram",
       position: { x: 520, y: 0 },
       data: {
-        label: "MessageTelegram",
+        label: "MessageTelegramNode",
         type: "telegram",
         description: "Sends the configured heartbeat message to Telegram.",
       },

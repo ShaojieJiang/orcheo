@@ -57,7 +57,7 @@ def test_trainable_prompt_decodes_model_kwargs_credentials() -> None:
         prompts={
             "welcome": TrainablePrompt(
                 text="Hello there",
-                model_kwargs={"api_key": "[[telegram_bot]]"},
+                model_kwargs={"api_key": "[[telegram_token]]"},
             )
         },
     )

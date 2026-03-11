@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
   fetchWorkflowCredentialReadiness,
+  fetchWorkflowListenerMetrics,
+  fetchWorkflowListeners,
+  pauseWorkflowListener,
   resolveWorkflowShareUrl,
+  resumeWorkflowListener,
   scheduleWorkflowFromLatestVersion,
   selectLatestWorkflowVersion,
   triggerWorkflowRun,
@@ -281,6 +285,90 @@ describe("workflow-storage-api helpers", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
       "/api/workflows/wf-1/credentials/readiness",
+    );
+  });
+
+  it("fetches workflow listener health and metrics", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse([
+        {
+          subscription_id: "sub-1",
+          node_name: "telegram_listener",
+          platform: "telegram",
+          status: "active",
+          bot_identity_key: "telegram:primary",
+          runtime_status: "healthy",
+          consecutive_failures: 0,
+        },
+      ]),
+      jsonResponse({
+        workflow_id: "wf-1",
+        total_subscriptions: 1,
+        active_subscriptions: 1,
+        paused_subscriptions: 0,
+        disabled_subscriptions: 0,
+        error_subscriptions: 0,
+        healthy_runtimes: 1,
+        reconnecting_runtimes: 0,
+        stalled_listeners: 0,
+        dispatch_failures: 0,
+        by_platform: [
+          {
+            platform: "telegram",
+            total: 1,
+            healthy: 1,
+            paused: 0,
+            errors: 0,
+          },
+        ],
+        alerts: [],
+      }),
+    ]);
+
+    const listeners = await fetchWorkflowListeners("wf-1");
+    const metrics = await fetchWorkflowListenerMetrics("wf-1");
+
+    expect(listeners).toHaveLength(1);
+    expect(listeners[0]?.runtime_status).toBe("healthy");
+    expect(metrics?.healthy_runtimes).toBe(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("pauses and resumes workflow listeners", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse({
+        subscription_id: "sub-1",
+        node_name: "telegram_listener",
+        platform: "telegram",
+        status: "paused",
+        bot_identity_key: "telegram:primary",
+        runtime_status: "healthy",
+        consecutive_failures: 0,
+      }),
+      jsonResponse({
+        subscription_id: "sub-1",
+        node_name: "telegram_listener",
+        platform: "telegram",
+        status: "active",
+        bot_identity_key: "telegram:primary",
+        runtime_status: "healthy",
+        consecutive_failures: 0,
+      }),
+    ]);
+
+    const paused = await pauseWorkflowListener("wf-1", "sub-1");
+    const resumed = await resumeWorkflowListener("wf-1", "sub-1", "tester");
+
+    expect(paused.status).toBe("paused");
+    expect(resumed.status).toBe("active");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
+      "/api/workflows/wf-1/listeners/sub-1/pause",
+    );
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+      "/api/workflows/wf-1/listeners/sub-1/resume",
     );
   });
 });

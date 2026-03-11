@@ -19,7 +19,7 @@ def build_graph() -> StateGraph:
             name="store_secret",
             variables={
                 # Credential placeholder - resolved at runtime from vault
-                "telegram_token": "[[telegram_bot]]",
+                "telegram_token": "[[telegram_token]]",
                 # Multiple credentials can be used
                 "api_key": "[[openai_api_key]]",
                 # You can also store static values alongside credentials

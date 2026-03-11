@@ -63,7 +63,7 @@ External validation snapshot taken on 2026-03-11:
 
 - **Existing Workflow Runtime**
   - Executes the dispatched workflow run.
-  - Reuses existing platform send nodes where possible, such as `MessageTelegram`.
+  - Reuses existing platform send nodes where possible, such as `MessageTelegramNode`.
   - If a platform template needs a reply node that does not yet exist, the initiative must add a minimal first-class outbound node for that platform rather than rely on placeholder manual API calls.
 
 - **Canvas Templates**
@@ -104,7 +104,7 @@ External validation snapshot taken on 2026-03-11:
    }
    ```
 4. The dispatcher creates a workflow run with `triggered_by="listener"`.
-5. The normal worker executes downstream nodes, which may include `MessageTelegram` or AI nodes.
+5. The normal worker executes downstream nodes, which may include `MessageTelegramNode` or AI nodes.
 
 ### Flow 3: Activate a workflow with a Discord listener
 
@@ -172,7 +172,7 @@ No new public ingress endpoint is required for Telegram, Discord, or QQ listener
   "node_name": "telegram_listener",
   "platform": "telegram",
   "status": "active",
-  "credential_ref": "[[telegram_bot_a]]",
+  "credential_ref": "[[telegram_token_a]]",
   "config": {
     "allowed_updates": ["message"],
     "allowed_chat_types": ["private"],
@@ -205,10 +205,10 @@ The normalized payload is the contract that allows multiple listener nodes to sh
 
 ### Missing Send Node Policy
 
-- Telegram should reuse `MessageTelegram` unless a concrete incompatibility is found.
+- Telegram should reuse `MessageTelegramNode` unless a concrete incompatibility is found.
 - Discord and QQ should reuse existing outbound nodes if they already satisfy listener-reply needs.
 - If Discord or QQ does not have a suitable outbound node, the implementation must add a minimal supported reply node for that platform as part of this initiative.
-- Acceptable temporary node names in design and plan documents are `MessageDiscord` and `MessageQQ`, but the exact class name can follow repository conventions during implementation.
+- The canonical reply-node names for this initiative are `MessageTelegramNode`, `MessageDiscordNode`, and `MessageQQNode`.
 - Templates are not allowed to close this gap by requiring raw HTTP nodes, ad hoc code nodes, or manual post-processing outside the workflow graph.
 
 ### Template Acceptance Contract
@@ -279,7 +279,7 @@ Behavior:
 {
   "type": "TelegramBotListenerNode",
   "name": "telegram_listener",
-  "token": "[[telegram_bot_a]]",
+  "token": "[[telegram_token_a]]",
   "allowed_updates": ["message", "callback_query"],
   "allowed_chat_types": ["private"],
   "poll_timeout_seconds": 30
@@ -291,16 +291,16 @@ Behavior:
 Single-listener templates should follow a pattern equivalent to:
 
 ```
-TelegramBotListenerNode -> AgentNode -> MessageTelegram
-DiscordBotListenerNode -> AgentNode -> MessageDiscord
-QQBotListenerNode -> AgentNode -> MessageQQ
+TelegramBotListenerNode -> AgentNode -> MessageTelegramNode
+DiscordBotListenerNode -> AgentNode -> MessageDiscordNode
+QQBotListenerNode -> AgentNode -> MessageQQNode
 ```
 
 The shared template should follow a pattern equivalent to:
 
 ```
 TelegramBotListenerNode --\
-DiscordBotListenerNode ----> AgentNode -> platform-aware reply routing -> MessageTelegram | MessageDiscord | MessageQQ
+DiscordBotListenerNode ----> AgentNode -> platform-aware reply routing -> MessageTelegramNode | MessageDiscordNode | MessageQQNode
 QQBotListenerNode -------/
 ```
 

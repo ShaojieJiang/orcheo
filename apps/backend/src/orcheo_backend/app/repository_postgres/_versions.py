@@ -5,11 +5,13 @@ import json
 from difflib import unified_diff
 from typing import Any
 from uuid import UUID
+from orcheo.listeners import compile_listener_subscriptions
 from orcheo.models.workflow import WorkflowVersion
 from orcheo_backend.app.repository import (
     VersionDiff,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.repository_postgres._listeners import ListenerRepositoryMixin
 from orcheo_backend.app.repository_postgres._persistence import PostgresPersistenceMixin
 
 
@@ -75,6 +77,17 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
                         version.created_at,
                         version.updated_at,
                     ),
+                )
+            if isinstance(self, ListenerRepositoryMixin):
+                compiled = compile_listener_subscriptions(
+                    workflow_id,
+                    version.id,
+                    version.graph,
+                )
+                await self._replace_listener_subscriptions_locked(
+                    workflow_id,
+                    compiled,
+                    actor=created_by,
                 )
             return version.model_copy(deep=True)
 

@@ -6,9 +6,15 @@ from typing import Any
 import httpx
 import pytest
 import respx
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.communication import DiscordWebhookNode, EmailNode
+from orcheo.nodes.communication import (
+    DiscordWebhookNode,
+    EmailNode,
+    MessageDiscordNode,
+    MessageQQNode,
+)
 
 
 class DummySMTP:
@@ -210,3 +216,148 @@ async def test_discord_webhook_node_omits_optional_fields_when_none() -> None:
     assert "avatar_url" not in captured
     assert "embeds" not in captured
     assert captured["tts"] is False
+
+
+@pytest.mark.asyncio
+async def test_message_discord_posts_bot_message() -> None:
+    """MessageDiscord should send a bot-authenticated channel message."""
+
+    state = State({"results": {}})
+    node = MessageDiscordNode(
+        name="discord_message",
+        token="discord_bot_token",
+        channel_id="123",
+        message="Hello from Orcheo",
+        reply_to_message_id="456",
+    )
+
+    with respx.mock(base_url="https://discord.com") as router:
+        captured_headers: dict[str, str] = {}
+        captured_body: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured_headers.update(request.headers)
+            captured_body.update(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={"id": "789", "channel_id": "123"},
+            )
+
+        route = router.post("/api/v10/channels/123/messages").mock(side_effect=handler)
+        payload = (await node(state, RunnableConfig()))["results"]["discord_message"]
+
+    assert route.called
+    assert captured_headers["authorization"] == "Bot discord_bot_token"
+    assert captured_body["content"] == "Hello from Orcheo"
+    assert captured_body["message_reference"] == {"message_id": "456"}
+    assert payload["message_id"] == "789"
+    assert payload["channel_id"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_message_discord_uses_last_ai_message_when_message_missing() -> None:
+    """MessageDiscord should default to the latest assistant message content."""
+
+    state = State({"messages": [AIMessage(content="Synthesized reply")]})
+    node = MessageDiscordNode(
+        name="discord_message",
+        token="discord_bot_token",
+        channel_id="123",
+    )
+
+    with respx.mock(base_url="https://discord.com") as router:
+        captured_body: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured_body.update(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={"id": "789", "channel_id": "123"},
+            )
+
+        router.post("/api/v10/channels/123/messages").mock(side_effect=handler)
+        await node(state, RunnableConfig())
+
+    assert captured_body["content"] == "Synthesized reply"
+
+
+@pytest.mark.asyncio
+async def test_message_qq_posts_c2c_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MessageQQNode should send a C2C QQ message using bot auth."""
+
+    async def fake_token(self, *, app_id: str, client_secret: str) -> str:  # noqa: ARG001
+        assert app_id == "qq-app-id"
+        assert client_secret == "qq-client-secret"
+        return "qq-access-token"
+
+    monkeypatch.setattr(
+        "orcheo.nodes.communication.DefaultQQAccessTokenProvider.get_access_token",
+        fake_token,
+    )
+
+    state = State({"results": {}})
+    node = MessageQQNode(
+        name="qq_message",
+        app_id="qq-app-id",
+        client_secret="qq-client-secret",
+        openid="user-openid",
+        message="Hello QQ",
+        msg_id="source-message",
+    )
+
+    with respx.mock(base_url="https://api.sgroup.qq.com") as router:
+        captured_headers: dict[str, str] = {}
+        captured_body: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured_headers.update(request.headers)
+            captured_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "reply-1"})
+
+        route = router.post("/v2/users/user-openid/messages").mock(side_effect=handler)
+        payload = (await node(state, RunnableConfig()))["results"]["qq_message"]
+
+    assert route.called
+    assert captured_headers["authorization"] == "QQBot qq-access-token"
+    assert captured_body["content"] == "Hello QQ"
+    assert captured_body["msg_id"] == "source-message"
+    assert captured_body["msg_seq"] == 1
+    assert payload["message_id"] == "reply-1"
+    assert payload["scene_type"] == "c2c"
+
+
+@pytest.mark.asyncio
+async def test_message_qq_uses_last_ai_message_for_group_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MessageQQNode should reuse the latest assistant message when needed."""
+
+    async def fake_token(self, *, app_id: str, client_secret: str) -> str:  # noqa: ARG001
+        del app_id, client_secret
+        return "qq-access-token"
+
+    monkeypatch.setattr(
+        "orcheo.nodes.communication.DefaultQQAccessTokenProvider.get_access_token",
+        fake_token,
+    )
+
+    state = State({"messages": [AIMessage(content="Synthesized QQ reply")]})
+    node = MessageQQNode(
+        name="qq_message",
+        app_id="qq-app-id",
+        client_secret="qq-client-secret",
+        group_openid="group-openid",
+    )
+
+    with respx.mock(base_url="https://api.sgroup.qq.com") as router:
+        captured_body: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "reply-2"})
+
+        router.post("/v2/groups/group-openid/messages").mock(side_effect=handler)
+        await node(state, RunnableConfig())
+
+    assert captured_body["content"] == "Synthesized QQ reply"
+    assert captured_body["msg_type"] == 0
