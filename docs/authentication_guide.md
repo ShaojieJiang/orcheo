@@ -483,6 +483,7 @@ Scopes define fine-grained permissions for authenticated identities:
 | `vault:write` | Manage credentials in vault |
 | `admin:tokens:read` | View service tokens |
 | `admin:tokens:write` | Create, rotate, and revoke service tokens |
+| `chatkit:session` | Issue short-lived ChatKit session JWTs via `POST /api/chatkit/session` |
 
 ### Checking Scopes in Code
 
