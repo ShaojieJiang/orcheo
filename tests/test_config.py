@@ -54,6 +54,10 @@ def test_settings_defaults(
     assert settings.graph_store_sqlite_path == str(_DEFAULTS["GRAPH_STORE_SQLITE_PATH"])
     assert settings.chatkit_backend == "sqlite"
     assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
+    assert settings.postgres_pool_min_size == 1
+    assert settings.postgres_pool_max_size == 10
+    assert settings.postgres_pool_timeout == 30.0
+    assert settings.postgres_pool_max_idle == 300.0
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
     assert settings.vault_backend == "file"
@@ -163,6 +167,22 @@ def test_postgres_graph_store_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> N
     settings = config.get_settings(refresh=True)
     assert settings.graph_store_backend == "postgres"
     assert settings.postgres_dsn == "postgresql://example"
+
+
+def test_postgres_pool_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Postgres pool settings should be available on normalized settings."""
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MIN_SIZE", "2")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_SIZE", "9")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "12")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_IDLE", "60")
+
+    settings = config.get_settings(refresh=True)
+
+    assert settings.postgres_pool_min_size == 2
+    assert settings.postgres_pool_max_size == 9
+    assert settings.postgres_pool_timeout == 12.0
+    assert settings.postgres_pool_max_idle == 60.0
 
 
 def test_graph_store_sqlite_path_must_be_absolute(
