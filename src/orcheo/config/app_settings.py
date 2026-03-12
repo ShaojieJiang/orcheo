@@ -235,11 +235,10 @@ class AppSettings(BaseModel):
     def _coerce_widget_action_types(cls, value: object) -> set[str]:
         return cls._coerce_widget_set(value, "CHATKIT_WIDGET_ACTION_TYPES")
 
-    @field_validator("postgres_pool_min_size", "postgres_pool_max_size", mode="before")
-    @classmethod
-    def _coerce_postgres_pool_int(cls, value: object) -> int:
+    @staticmethod
+    def _coerce_postgres_pool_int(value: object, default_key: str) -> int:
         if value is None:
-            return 1
+            return cast(int, _DEFAULTS[default_key])
         if isinstance(value, int):
             return value
         try:
@@ -248,11 +247,10 @@ class AppSettings(BaseModel):
             msg = "PostgreSQL pool size must be a positive integer."
             raise ValueError(msg) from exc
 
-    @field_validator("postgres_pool_timeout", "postgres_pool_max_idle", mode="before")
-    @classmethod
-    def _coerce_postgres_pool_float(cls, value: object) -> float:
+    @staticmethod
+    def _coerce_postgres_pool_float(value: object, default_key: str) -> float:
         if value is None:
-            return 30.0
+            return cast(float, _DEFAULTS[default_key])
         if isinstance(value, int | float):
             return float(value)
         try:
@@ -260,6 +258,26 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             msg = "PostgreSQL pool timeout must be a positive number."
             raise ValueError(msg) from exc
+
+    @field_validator("postgres_pool_min_size", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_min_size(cls, value: object) -> int:
+        return cls._coerce_postgres_pool_int(value, "POSTGRES_POOL_MIN_SIZE")
+
+    @field_validator("postgres_pool_max_size", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_max_size(cls, value: object) -> int:
+        return cls._coerce_postgres_pool_int(value, "POSTGRES_POOL_MAX_SIZE")
+
+    @field_validator("postgres_pool_timeout", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_timeout(cls, value: object) -> float:
+        return cls._coerce_postgres_pool_float(value, "POSTGRES_POOL_TIMEOUT")
+
+    @field_validator("postgres_pool_max_idle", mode="before")
+    @classmethod
+    def _coerce_postgres_pool_max_idle(cls, value: object) -> float:
+        return cls._coerce_postgres_pool_float(value, "POSTGRES_POOL_MAX_IDLE")
 
     @field_validator("port", mode="before")
     @classmethod

@@ -58,6 +58,18 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 "CHATKIT_RETENTION_DAYS", _DEFAULTS["CHATKIT_RETENTION_DAYS"]
             ),
             postgres_dsn=source.get("POSTGRES_DSN"),
+            postgres_pool_min_size=source.get(
+                "POSTGRES_POOL_MIN_SIZE", _DEFAULTS["POSTGRES_POOL_MIN_SIZE"]
+            ),
+            postgres_pool_max_size=source.get(
+                "POSTGRES_POOL_MAX_SIZE", _DEFAULTS["POSTGRES_POOL_MAX_SIZE"]
+            ),
+            postgres_pool_timeout=source.get(
+                "POSTGRES_POOL_TIMEOUT", _DEFAULTS["POSTGRES_POOL_TIMEOUT"]
+            ),
+            postgres_pool_max_idle=source.get(
+                "POSTGRES_POOL_MAX_IDLE", _DEFAULTS["POSTGRES_POOL_MAX_IDLE"]
+            ),
             host=source.get("HOST", _DEFAULTS["HOST"]),
             port=source.get("PORT", _DEFAULTS["PORT"]),
             vault=VaultSettings(
@@ -133,6 +145,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "CHATKIT_WIDGET_ACTION_TYPES", sorted(settings.chatkit_widget_action_types)
     )
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
+    normalized.set("POSTGRES_POOL_MIN_SIZE", settings.postgres_pool_min_size)
+    normalized.set("POSTGRES_POOL_MAX_SIZE", settings.postgres_pool_max_size)
+    normalized.set("POSTGRES_POOL_TIMEOUT", settings.postgres_pool_timeout)
+    normalized.set("POSTGRES_POOL_MAX_IDLE", settings.postgres_pool_max_idle)
     normalized.set("HOST", settings.host)
     normalized.set("PORT", settings.port)
     normalized.set("VAULT_BACKEND", settings.vault.backend)

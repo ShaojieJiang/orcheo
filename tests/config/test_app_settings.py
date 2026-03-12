@@ -42,24 +42,28 @@ def test_coerce_widget_set_reverts_to_defaults_for_empty_collections() -> None:
 
 def test_coerce_postgres_pool_int_defaults_and_valid_values() -> None:
     """Test _coerce_postgres_pool_int handles various input types."""
-    # None defaults to 1
-    assert AppSettings._coerce_postgres_pool_int(None) == 1
-    # Integer values pass through
-    assert AppSettings._coerce_postgres_pool_int(5) == 5
-    # String integers are converted
-    assert AppSettings._coerce_postgres_pool_int("10") == 10
+    assert AppSettings._coerce_postgres_pool_int(None, "POSTGRES_POOL_MIN_SIZE") == 1
+    assert AppSettings._coerce_postgres_pool_int(None, "POSTGRES_POOL_MAX_SIZE") == 10
+    assert AppSettings._coerce_postgres_pool_int(5, "POSTGRES_POOL_MIN_SIZE") == 5
+    assert AppSettings._coerce_postgres_pool_int("10", "POSTGRES_POOL_MAX_SIZE") == 10
 
 
 def test_coerce_postgres_pool_float_defaults_and_valid_values() -> None:
     """Test _coerce_postgres_pool_float handles various input types."""
-    # None defaults to 30.0
-    assert AppSettings._coerce_postgres_pool_float(None) == 30.0
-    # Integer values are converted to float
-    assert AppSettings._coerce_postgres_pool_float(60) == 60.0
-    # Float values pass through
-    assert AppSettings._coerce_postgres_pool_float(45.5) == 45.5
-    # String numbers are converted
-    assert AppSettings._coerce_postgres_pool_float("120.5") == 120.5
+    assert (
+        AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_TIMEOUT") == 30.0
+    )
+    assert (
+        AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_MAX_IDLE") == 300.0
+    )
+    assert AppSettings._coerce_postgres_pool_float(60, "POSTGRES_POOL_TIMEOUT") == 60.0
+    assert (
+        AppSettings._coerce_postgres_pool_float(45.5, "POSTGRES_POOL_MAX_IDLE") == 45.5
+    )
+    assert (
+        AppSettings._coerce_postgres_pool_float("120.5", "POSTGRES_POOL_TIMEOUT")
+        == 120.5
+    )
 
 
 def test_coerce_graph_store_backend_defaults_and_valid_values() -> None:
