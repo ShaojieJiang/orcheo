@@ -81,11 +81,10 @@ export function WorkflowCanvasLayout({
         >
           <TabsContent
             value="workflow"
+            forceMount
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
-            {tabsProps.activeTab === "workflow" ? (
-              <WorkflowTabContent {...workflowProps} />
-            ) : null}
+            <WorkflowTabContent {...workflowProps} />
           </TabsContent>
 
           <TabsContent
