@@ -2,7 +2,6 @@ import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
-  ApiWorkflowCanvasData,
   ApiWorkflowCanvasPayload,
   ApiWorkflowRun,
   ApiWorkflowVersion,
