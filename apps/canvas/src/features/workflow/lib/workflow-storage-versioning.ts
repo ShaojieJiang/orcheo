@@ -1,7 +1,7 @@
 import { toStoredWorkflow } from "./workflow-storage-helpers";
 import {
   API_BASE,
-  fetchWorkflow,
+  fetchWorkflowCanvasData,
   fetchWorkflowVersions,
   request,
 } from "./workflow-storage-api";
@@ -11,17 +11,64 @@ import type {
   WorkflowRunnableConfig,
 } from "./workflow-storage.types";
 
+interface WorkflowCacheEntry {
+  workflow: StoredWorkflow;
+  cachedAt: number;
+}
+
+const WORKFLOW_CACHE_TTL_MS = 10_000;
+const workflowCache = new Map<string, WorkflowCacheEntry>();
+const workflowInflight = new Map<string, Promise<StoredWorkflow | undefined>>();
+
+export const primeWorkflowCache = (workflow: StoredWorkflow): void => {
+  workflowCache.set(workflow.id, {
+    workflow,
+    cachedAt: Date.now(),
+  });
+};
+
+export const invalidateWorkflowCache = (workflowId?: string): void => {
+  if (workflowId) {
+    workflowCache.delete(workflowId);
+    workflowInflight.delete(workflowId);
+    return;
+  }
+  workflowCache.clear();
+  workflowInflight.clear();
+};
+
 export const ensureWorkflow = async (
   workflowId: string,
 ): Promise<StoredWorkflow | undefined> => {
-  const [workflow, versions] = await Promise.all([
-    fetchWorkflow(workflowId),
-    fetchWorkflowVersions(workflowId),
-  ]);
-  if (!workflow) {
-    return undefined;
+  const cached = workflowCache.get(workflowId);
+  if (cached && Date.now() - cached.cachedAt < WORKFLOW_CACHE_TTL_MS) {
+    return cached.workflow;
   }
-  return toStoredWorkflow(workflow, versions);
+
+  const inflight = workflowInflight.get(workflowId);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async () => {
+    const payload = await fetchWorkflowCanvasData(workflowId);
+    if (!payload) {
+      workflowCache.delete(workflowId);
+      return undefined;
+    }
+    const workflow = toStoredWorkflow(payload.workflow, payload.versions);
+    primeWorkflowCache(workflow);
+    return workflow;
+  })();
+  workflowInflight.set(workflowId, request);
+
+  try {
+    return await request;
+  } finally {
+    if (workflowInflight.get(workflowId) === request) {
+      workflowInflight.delete(workflowId);
+    }
+  }
 };
 
 const resolveTargetVersion = (

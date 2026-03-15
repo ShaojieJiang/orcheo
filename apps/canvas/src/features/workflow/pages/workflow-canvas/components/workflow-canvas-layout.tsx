@@ -83,25 +83,33 @@ export function WorkflowCanvasLayout({
             value="workflow"
             className="flex-1 m-0 p-0 overflow-hidden min-h-0"
           >
-            <WorkflowTabContent {...workflowProps} />
+            {tabsProps.activeTab === "workflow" ? (
+              <WorkflowTabContent {...workflowProps} />
+            ) : null}
           </TabsContent>
 
           <TabsContent
             value="trace"
             className="flex-1 m-0 p-4 overflow-hidden min-h-0"
           >
-            <TraceTabContent
-              key={`trace-tab-${tabsProps.activeTab}`}
-              {...traceProps}
-            />
+            {tabsProps.activeTab === "trace" ? (
+              <TraceTabContent
+                key={`trace-tab-${tabsProps.activeTab}`}
+                {...traceProps}
+              />
+            ) : null}
           </TabsContent>
 
           <TabsContent value="readiness" className="m-0 p-4 overflow-auto">
-            <ReadinessTabContent {...readinessProps} />
+            {tabsProps.activeTab === "readiness" ? (
+              <ReadinessTabContent {...readinessProps} />
+            ) : null}
           </TabsContent>
 
           <TabsContent value="settings" className="m-0 p-4 overflow-auto">
-            <SettingsTabContent {...settingsProps} />
+            {tabsProps.activeTab === "settings" ? (
+              <SettingsTabContent {...settingsProps} />
+            ) : null}
           </TabsContent>
         </Tabs>
       </div>

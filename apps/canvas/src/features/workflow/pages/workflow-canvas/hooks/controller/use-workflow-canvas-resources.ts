@@ -37,6 +37,7 @@ export function useWorkflowCanvasResources(
     currentWorkflowId: core.metadata.currentWorkflowId,
     workflowVersionCount: core.metadata.workflowVersions.length,
     actor: core.user.name,
+    enabled: core.ui.activeTab === "settings",
   });
 
   const duplicateNodes = useWorkflowDuplicateNodes({

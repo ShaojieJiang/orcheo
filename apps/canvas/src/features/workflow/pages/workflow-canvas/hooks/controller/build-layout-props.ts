@@ -79,6 +79,8 @@ export function buildWorkflowLayoutProps(
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
     hasCronTriggerNode: hasCronTriggerNode(core.history.nodes),
+    initialIsPublished: core.metadata.isWorkflowPublic,
+    initialShareUrl: core.metadata.workflowShareUrl,
   };
 
   const traceProps: TraceTabContentProps = {

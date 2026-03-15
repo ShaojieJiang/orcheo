@@ -19,6 +19,8 @@ export function useWorkflowCanvasLifecycle(
     setWorkflowDescription: core.metadata.setWorkflowDescription,
     setWorkflowTags: core.metadata.setWorkflowTags,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
+    setIsWorkflowPublic: core.metadata.setIsWorkflowPublic,
+    setWorkflowShareUrl: core.metadata.setWorkflowShareUrl,
     setIsWorkflowLoading: core.metadata.setIsWorkflowLoading,
     setWorkflowLoadError: core.metadata.setWorkflowLoadError,
     setExecutions: core.execution.setExecutions,

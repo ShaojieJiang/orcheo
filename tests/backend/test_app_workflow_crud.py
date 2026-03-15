@@ -11,6 +11,7 @@ from orcheo_backend.app import (
     archive_workflow,
     create_workflow,
     get_workflow,
+    get_workflow_canvas,
     list_workflows,
     update_workflow,
 )
@@ -21,6 +22,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.workflows import (
+    WorkflowCanvasPayload,
     WorkflowCreateRequest,
     WorkflowUpdateRequest,
 )
@@ -211,6 +213,51 @@ async def test_get_workflow_not_found() -> None:
         await get_workflow(str(workflow_id), Repository())
 
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_canvas_returns_compact_versions() -> None:
+    """Canvas-open endpoint should avoid returning full version graphs."""
+    workflow_id = uuid4()
+
+    class Version:
+        def __init__(self, version_number: int) -> None:
+            now = datetime.now(tz=UTC)
+            self.id = uuid4()
+            self.workflow_id = workflow_id
+            self.version = version_number
+            self.graph = {"index": {"mermaid": f"graph TD; A-->B{version_number}"}}
+            self.metadata = {"canvas": {"snapshot": {"nodes": [], "edges": []}}}
+            self.runnable_config = {"run_name": f"v{version_number}"}
+            self.notes = f"Version {version_number}"
+            self.created_by = "tester"
+            self.created_at = now
+            self.updated_at = now
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow(self, wf_id):
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+        async def list_versions(self, wf_id):
+            assert wf_id == workflow_id
+            return [Version(1), Version(2)]
+
+    result = await get_workflow_canvas(str(workflow_id), Repository())
+
+    assert isinstance(result, WorkflowCanvasPayload)
+    assert result.workflow.id == workflow_id
+    assert [version.version for version in result.versions] == [1, 2]
+    assert result.versions[0].mermaid == "graph TD; A-->B1"
 
 
 @pytest.mark.asyncio()

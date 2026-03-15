@@ -1,6 +1,7 @@
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
+  ApiWorkflowCanvasData,
   ApiWorkflow,
   ApiWorkflowRun,
   ApiWorkflowVersion,
@@ -72,6 +73,24 @@ export const fetchWorkflow = async (
 ): Promise<ApiWorkflow | undefined> => {
   try {
     return await request<ApiWorkflow>(`${API_BASE}/${workflowId}`);
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+export const fetchWorkflowCanvasData = async (
+  workflowId: string,
+): Promise<ApiWorkflowCanvasData | undefined> => {
+  try {
+    return await request<ApiWorkflowCanvasData>(
+      `${API_BASE}/${workflowId}/canvas`,
+    );
   } catch (error) {
     if (
       error instanceof ApiRequestError &&

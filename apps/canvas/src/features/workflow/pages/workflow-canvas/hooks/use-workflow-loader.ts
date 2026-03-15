@@ -30,6 +30,8 @@ interface UseWorkflowLoaderParams<TNode, TEdge> {
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
+  setIsWorkflowPublic: Dispatch<SetStateAction<boolean>>;
+  setWorkflowShareUrl: Dispatch<SetStateAction<string | null>>;
   setIsWorkflowLoading: Dispatch<SetStateAction<boolean>>;
   setWorkflowLoadError: Dispatch<SetStateAction<string | null>>;
   setExecutions: Dispatch<SetStateAction<WorkflowExecution[]>>;
@@ -50,6 +52,8 @@ export function useWorkflowLoader<TNode, TEdge>({
   setWorkflowDescription,
   setWorkflowTags,
   setWorkflowVersions,
+  setIsWorkflowPublic,
+  setWorkflowShareUrl,
   setIsWorkflowLoading,
   setWorkflowLoadError,
   setExecutions,
@@ -71,6 +75,8 @@ export function useWorkflowLoader<TNode, TEdge>({
       setWorkflowDescription("");
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
+      setIsWorkflowPublic(false);
+      setWorkflowShareUrl(null);
       setExecutions([]);
       setActiveExecutionId(null);
       applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
@@ -92,9 +98,6 @@ export function useWorkflowLoader<TNode, TEdge>({
         setWorkflowLoadError(null);
         const persisted = await getWorkflowById(workflowId);
         if (persisted && isMounted) {
-          const readiness = await fetchWorkflowCredentialReadiness(
-            persisted.id,
-          ).catch(() => undefined);
           currentWorkflowRef.current = persisted;
           loadedHistoryWorkflowIdRef.current = null;
           setCurrentWorkflowId(persisted.id);
@@ -102,6 +105,8 @@ export function useWorkflowLoader<TNode, TEdge>({
           setWorkflowDescription(persisted.description ?? "");
           setWorkflowTags(persisted.tags ?? ["draft"]);
           setWorkflowVersions(persisted.versions ?? []);
+          setIsWorkflowPublic(persisted.isPublic ?? false);
+          setWorkflowShareUrl(persisted.shareUrl ?? null);
           setExecutions([]);
           setActiveExecutionId(null);
           const canvasNodes = convertPersistedNodesToCanvas(
@@ -115,17 +120,27 @@ export function useWorkflowLoader<TNode, TEdge>({
             { resetHistory: true },
           );
           disposeReminderToast?.();
-          const reminder = describeCredentialVaultReadiness(readiness);
-          if (reminder) {
+          if (isMounted) {
+            setIsWorkflowLoading(false);
+          }
+          void (async () => {
+            const readiness = await fetchWorkflowCredentialReadiness(
+              persisted.id,
+            ).catch(() => undefined);
+            if (!isMounted || currentWorkflowRef.current?.id !== persisted.id) {
+              return;
+            }
+            const reminder = describeCredentialVaultReadiness(readiness);
+            if (!reminder) {
+              return;
+            }
+            disposeReminderToast?.();
             disposeReminderToast = showCredentialReminderToast({
               title: "Workflow loaded",
               description: reminder,
               highlightedCredentialNames: readiness?.missing_credentials ?? [],
             });
-          }
-          if (isMounted) {
-            setIsWorkflowLoading(false);
-          }
+          })();
           return;
         }
       } catch (error) {
@@ -141,6 +156,8 @@ export function useWorkflowLoader<TNode, TEdge>({
           setWorkflowLoadError(
             error instanceof Error ? error.message : "Unknown error occurred",
           );
+          setIsWorkflowPublic(false);
+          setWorkflowShareUrl(null);
           setExecutions([]);
           setActiveExecutionId(null);
           setIsWorkflowLoading(false);
@@ -165,6 +182,8 @@ export function useWorkflowLoader<TNode, TEdge>({
         setWorkflowDescription(template.description ?? "");
         setWorkflowTags(template.tags.filter((tag) => tag !== "template"));
         setWorkflowVersions([]);
+        setIsWorkflowPublic(false);
+        setWorkflowShareUrl(null);
         setExecutions([]);
         setActiveExecutionId(null);
         const canvasNodes = convertPersistedNodesToCanvas(template.nodes);
@@ -211,9 +230,11 @@ export function useWorkflowLoader<TNode, TEdge>({
     setExecutions,
     setActiveExecutionId,
     setWorkflowDescription,
+    setIsWorkflowPublic,
     setWorkflowName,
     setIsWorkflowLoading,
     setWorkflowLoadError,
+    setWorkflowShareUrl,
     setWorkflowTags,
     setWorkflowVersions,
     workflowId,

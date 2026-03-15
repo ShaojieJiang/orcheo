@@ -166,6 +166,44 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     assert any("end" in line for line in diff_lines)
 
 
+def test_workflow_canvas_payload_uses_compact_versions(
+    api_client: TestClient,
+) -> None:
+    """Canvas-open payload should return version summaries without full graphs."""
+    workflow_response = api_client.post(
+        "/api/workflows",
+        json={"name": "Canvas Flow", "actor": "author"},
+    )
+    workflow_id = workflow_response.json()["id"]
+
+    version_response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": _langgraph_script(node_name="canvas", response="v1"),
+            "entrypoint": "build_graph",
+            "metadata": {
+                "canvas": {
+                    "snapshot": {
+                        "name": "Canvas Flow",
+                        "nodes": [],
+                        "edges": [],
+                    }
+                }
+            },
+            "created_by": "author",
+        },
+    )
+    assert version_response.status_code == 201
+
+    canvas_response = api_client.get(f"/api/workflows/{workflow_id}/canvas")
+    assert canvas_response.status_code == 200
+    payload = canvas_response.json()
+    assert payload["workflow"]["id"] == workflow_id
+    assert len(payload["versions"]) == 1
+    assert payload["versions"][0]["version"] == 1
+    assert "graph" not in payload["versions"][0]
+
+
 def test_workflow_handle_lookup_and_update(api_client: TestClient) -> None:
     """Workflow handle should work as a routable ref and support updates."""
     create_response = api_client.post(
@@ -238,6 +276,7 @@ def test_openapi_uses_workflow_ref_for_handle_aware_paths(
 
     paths = response.json()["paths"]
     expected_paths = [
+        "/api/workflows/{workflow_ref}/canvas",
         "/api/workflows/{workflow_ref}/runs",
         "/api/workflows/{workflow_ref}/executions",
         "/api/workflows/{workflow_ref}/triggers/webhook/config",

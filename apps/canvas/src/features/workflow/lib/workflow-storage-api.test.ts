@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
+  fetchWorkflowCanvasData,
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
   fetchWorkflowListeners,
@@ -256,6 +257,54 @@ describe("workflow-storage-api helpers", () => {
     ]);
 
     expect(latest?.id).toBe("v3");
+  });
+
+  it("fetches compact workflow canvas data", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse({
+        workflow: {
+          id: "wf-1",
+          handle: "wf-1",
+          name: "Canvas Flow",
+          slug: "canvas-flow",
+          description: "Test",
+          tags: ["draft"],
+          is_archived: false,
+          is_public: false,
+          require_login: false,
+          published_at: null,
+          published_by: null,
+          created_at: "2026-03-10T09:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+          share_url: null,
+        },
+        versions: [
+          {
+            id: "v1",
+            workflow_id: "wf-1",
+            version: 1,
+            mermaid: "graph TD; A-->B",
+            metadata: {},
+            runnable_config: null,
+            notes: "First version",
+            created_by: "canvas",
+            created_at: "2026-03-10T09:00:00Z",
+            updated_at: "2026-03-10T09:00:00Z",
+          },
+        ],
+      }),
+    ]);
+
+    const payload = await fetchWorkflowCanvasData("wf-1");
+
+    expect(payload?.workflow.id).toBe("wf-1");
+    expect(payload?.versions).toHaveLength(1);
+    expect(payload?.versions[0]?.mermaid).toBe("graph TD; A-->B");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
+      "/api/workflows/wf-1/canvas",
+    );
   });
 
   it("fetches workflow credential readiness", async () => {

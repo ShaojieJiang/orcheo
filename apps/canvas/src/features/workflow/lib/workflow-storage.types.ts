@@ -24,6 +24,24 @@ export interface ApiWorkflow {
   is_scheduled?: boolean;
 }
 
+export interface ApiWorkflowVersionSummary {
+  id: string;
+  workflow_id: string;
+  version: number;
+  mermaid?: string | null;
+  metadata: unknown;
+  runnable_config?: WorkflowRunnableConfig | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiWorkflowCanvasData {
+  workflow: ApiWorkflow;
+  versions: ApiWorkflowVersionSummary[];
+}
+
 export interface PublicWorkflowMetadata {
   id: string;
   handle?: string | null;
@@ -45,18 +63,8 @@ export interface WorkflowRunnableConfig {
   prompts?: Record<string, unknown>;
 }
 
-export interface ApiWorkflowVersion {
-  id: string;
-  workflow_id: string;
-  version: number;
+export interface ApiWorkflowVersion extends ApiWorkflowVersionSummary {
   graph: Record<string, unknown>;
-  mermaid?: string | null;
-  metadata: unknown;
-  runnable_config?: WorkflowRunnableConfig | null;
-  notes: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ApiWorkflowRun {
@@ -183,6 +191,8 @@ export interface WorkflowVersionRecord {
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];
   isArchived?: boolean;
+  isPublic?: boolean;
+  shareUrl?: string | null;
 }
 
 export interface SaveWorkflowInput {
