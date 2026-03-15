@@ -42,6 +42,8 @@ const listenerStatusBadge = (status: WorkflowListenerHealth["status"]) => {
   switch (status) {
     case "active":
       return { label: "Active", variant: "default" as const };
+    case "blocked":
+      return { label: "Blocked", variant: "outline" as const };
     case "paused":
       return { label: "Paused", variant: "secondary" as const };
     case "error":
@@ -112,13 +114,17 @@ function ListenerSummary({
       value: metrics?.paused_subscriptions ?? 0,
     },
     {
+      label: "Blocked",
+      value: metrics?.blocked_subscriptions ?? 0,
+    },
+    {
       label: "Alerts",
       value: metrics?.alerts.length ?? 0,
     },
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {items.map((item) => (
         <div
           key={item.label}
@@ -271,7 +277,8 @@ export function SettingsTabContent({
                 const isActionPending =
                   activeListenerSubscriptionId === listener.subscription_id;
                 const canPause = listener.status === "active";
-                const canResume = listener.status === "paused";
+                const canResume =
+                  listener.status === "paused" || listener.status === "blocked";
 
                 return (
                   <Card key={listener.subscription_id}>

@@ -91,7 +91,7 @@ export interface WorkflowListenerHealth {
   subscription_id: string;
   node_name: string;
   platform: "telegram" | "discord" | "qq";
-  status: "active" | "paused" | "error" | "disabled";
+  status: "active" | "blocked" | "paused" | "error" | "disabled";
   bot_identity_key: string;
   assigned_runtime?: string | null;
   lease_expires_at?: string | null;
@@ -128,6 +128,7 @@ export interface WorkflowListenerMetricsResponse {
   workflow_id: string;
   total_subscriptions: number;
   active_subscriptions: number;
+  blocked_subscriptions: number;
   paused_subscriptions: number;
   disabled_subscriptions: number;
   error_subscriptions: number;

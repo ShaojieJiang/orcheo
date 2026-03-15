@@ -306,6 +306,7 @@ describe("workflow-storage-api helpers", () => {
         workflow_id: "wf-1",
         total_subscriptions: 1,
         active_subscriptions: 1,
+        blocked_subscriptions: 0,
         paused_subscriptions: 0,
         disabled_subscriptions: 0,
         error_subscriptions: 0,
