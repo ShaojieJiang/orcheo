@@ -15,6 +15,7 @@ from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     authenticate_request,
+    load_auth_settings,
 )
 from orcheo_backend.app.chatkit_runtime import (
     cancel_chatkit_cleanup_task,
@@ -147,6 +148,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> Any:
         """Manage application lifespan with startup and shutdown logic."""
+        load_auth_settings(refresh=True)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),

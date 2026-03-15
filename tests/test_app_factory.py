@@ -6,6 +6,7 @@ import sys
 from types import ModuleType
 import pytest
 from fastapi import Request
+from fastapi.testclient import TestClient
 from orcheo_backend.app import _create_repository, create_app, get_repository
 from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
 from orcheo_backend.app.authentication import AuthenticationError
@@ -71,6 +72,28 @@ def test_create_app_allows_dependency_override() -> None:
 
     override = app.dependency_overrides[get_repository]
     assert override() is repository
+
+
+def test_create_app_rejects_public_deployment_without_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """App startup should fail fast for public deployments without auth."""
+
+    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "")
+    monkeypatch.setenv("ORCHEO_AUTH_JWKS_URL", "")
+    monkeypatch.setenv("ORCHEO_AUTH_JWKS_STATIC", "")
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", "")
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", "")
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
+
+    with pytest.raises(
+        RuntimeError,
+        match="Public deployment detected via CHATKIT_PUBLIC_BASE_URL",
+    ):
+        with TestClient(create_app(InMemoryWorkflowRepository())):
+            pass
 
 
 def test_create_repository_inmemory_backend(monkeypatch: pytest.MonkeyPatch) -> None:

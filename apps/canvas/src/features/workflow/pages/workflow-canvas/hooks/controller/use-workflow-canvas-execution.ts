@@ -238,9 +238,6 @@ export function useWorkflowCanvasExecution(
     copySelectedNodes: resources.clipboard.copySelectedNodes,
     cutSelectedNodes: resources.clipboard.cutSelectedNodes,
     pasteNodes: resources.clipboard.pasteNodes,
-    setIsSearchOpen: core.search.setIsSearchOpen,
-    setSearchMatches: core.search.setSearchMatches,
-    setCurrentSearchIndex: core.search.setCurrentSearchIndex,
   });
 
   const inspectorHandlers = useNodeInspectorHandlers({

@@ -41,6 +41,12 @@ def reset_auth_state(
         "ORCHEO_AUTH_RATE_LIMIT_INTERVAL",
         "ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH",
         "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN",
+        "ORCHEO_AUTH_DEV_LOGIN_ENABLED",
+        "ORCHEO_AUTH_DEV_COOKIE_NAME",
+        "ORCHEO_AUTH_DEV_SCOPES",
+        "ORCHEO_AUTH_DEV_WORKSPACE_IDS",
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
+        "ORCHEO_CORS_ALLOW_ORIGINS",
     ):
         monkeypatch.setenv(key, "")
     reset_authentication_state()

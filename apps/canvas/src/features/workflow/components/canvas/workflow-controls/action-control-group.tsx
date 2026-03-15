@@ -133,7 +133,7 @@ export function ActionControlGroup({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Search Nodes (Ctrl+F)</p>
+            <p>Search Nodes</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
