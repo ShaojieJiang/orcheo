@@ -1,8 +1,9 @@
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
-  ApiWorkflowCanvasData,
   ApiWorkflow,
+  ApiWorkflowCanvasData,
+  ApiWorkflowCanvasPayload,
   ApiWorkflowRun,
   ApiWorkflowVersion,
   CronTriggerConfig,
@@ -86,9 +87,9 @@ export const fetchWorkflow = async (
 
 export const fetchWorkflowCanvasData = async (
   workflowId: string,
-): Promise<ApiWorkflowCanvasData | undefined> => {
+): Promise<ApiWorkflowCanvasPayload | undefined> => {
   try {
-    return await request<ApiWorkflowCanvasData>(
+    return await request<ApiWorkflowCanvasPayload>(
       `${API_BASE}/${workflowId}/canvas`,
     );
   } catch (error) {

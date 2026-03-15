@@ -39,8 +39,10 @@ export interface ApiWorkflowVersionSummary {
 
 export interface ApiWorkflowCanvasData {
   workflow: ApiWorkflow;
-  versions: ApiWorkflowVersionSummary[];
+  versions?: ApiWorkflowVersionSummary[];
 }
+
+export type ApiWorkflowCanvasPayload = ApiWorkflow | ApiWorkflowCanvasData;
 
 export interface PublicWorkflowMetadata {
   id: string;

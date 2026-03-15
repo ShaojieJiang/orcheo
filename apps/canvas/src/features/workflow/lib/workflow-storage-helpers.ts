@@ -215,9 +215,9 @@ const toVersionRecord = (
 
 export const toStoredWorkflow = (
   workflow: ApiWorkflow,
-  versions: ApiWorkflowVersionSummary[],
+  versions?: ApiWorkflowVersionSummary[],
 ): StoredWorkflow => {
-  const versionRecords = versions
+  const versionRecords = ensureArray(versions)
     .map((entry) =>
       toVersionRecord(entry, workflow.name, workflow.description ?? undefined),
     )

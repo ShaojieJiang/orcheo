@@ -6,6 +6,8 @@ import {
   request,
 } from "./workflow-storage-api";
 import type {
+  ApiWorkflowCanvasData,
+  ApiWorkflowCanvasPayload,
   ApiWorkflowVersion,
   StoredWorkflow,
   WorkflowRunnableConfig,
@@ -19,6 +21,14 @@ interface WorkflowCacheEntry {
 const WORKFLOW_CACHE_TTL_MS = 10_000;
 const workflowCache = new Map<string, WorkflowCacheEntry>();
 const workflowInflight = new Map<string, Promise<StoredWorkflow | undefined>>();
+
+const isApiWorkflowCanvasData = (
+  payload: ApiWorkflowCanvasPayload,
+): payload is ApiWorkflowCanvasData =>
+  typeof payload === "object" &&
+  payload !== null &&
+  "workflow" in payload &&
+  typeof (payload as ApiWorkflowCanvasData).workflow?.id === "string";
 
 export const primeWorkflowCache = (workflow: StoredWorkflow): void => {
   workflowCache.set(workflow.id, {
@@ -56,7 +66,13 @@ export const ensureWorkflow = async (
       workflowCache.delete(workflowId);
       return undefined;
     }
-    const workflow = toStoredWorkflow(payload.workflow, payload.versions);
+    const canvasHasWorkflow = isApiWorkflowCanvasData(payload);
+    const workflowPayload = canvasHasWorkflow ? payload.workflow : payload;
+    let versions = canvasHasWorkflow ? payload.versions : undefined;
+    if (versions === undefined) {
+      versions = await fetchWorkflowVersions(workflowId);
+    }
+    const workflow = toStoredWorkflow(workflowPayload, versions);
     primeWorkflowCache(workflow);
     return workflow;
   })();
