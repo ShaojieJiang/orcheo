@@ -21,7 +21,8 @@ page or custom ChatKit embeds.
    See `docs/environment_variables.md` for syntax.
 4. **Domain key** – set `ORCHEO_CHATKIT_DOMAIN_KEY` anywhere the ChatKit JS
    bundle executes (Canvas, embeds, or stand-alone demo pages). Local builds may
-   default to `domain_pk_localhost_dev`.
+   default to `domain_pk_localhost_dev`. If you need to generate one, follow
+   [Create a ChatKit domain key](webpage_embedding_guide.md#create-a-chatkit-domain-key).
 5. **Optional OAuth requirements** – if the workflow should only be available to
    signed-in users, confirm OAuth is configured or the dev-login shim
    (`ORCHEO_AUTH_DEV_LOGIN_ENABLED=true`) is enabled.

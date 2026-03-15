@@ -116,7 +116,7 @@ def _build_listener_alerts(
                     detail="Listener runtime is repeatedly reconnecting.",
                 )
             )
-        if item.last_error:
+        if item.last_error and item.status != ListenerSubscriptionStatus.BLOCKED:
             alerts.append(
                 ListenerAlertResponse(
                     subscription_id=item.subscription_id,
@@ -194,11 +194,13 @@ async def get_workflow_listener_metrics(
             ListenerMetricsPlatformBreakdown(platform=item.platform),
         )
         breakdown.total += 1
+        if item.status == ListenerSubscriptionStatus.BLOCKED:
+            breakdown.blocked += 1
         if item.status == ListenerSubscriptionStatus.PAUSED:
             breakdown.paused += 1
         if item.runtime_status == "healthy":
             breakdown.healthy += 1
-        if item.status == ListenerSubscriptionStatus.ERROR or item.last_error:
+        if item.status == ListenerSubscriptionStatus.ERROR:
             breakdown.errors += 1
 
     return ListenerMetricsResponse(
@@ -206,6 +208,9 @@ async def get_workflow_listener_metrics(
         total_subscriptions=len(items),
         active_subscriptions=sum(
             1 for item in items if item.status == ListenerSubscriptionStatus.ACTIVE
+        ),
+        blocked_subscriptions=sum(
+            1 for item in items if item.status == ListenerSubscriptionStatus.BLOCKED
         ),
         paused_subscriptions=sum(
             1 for item in items if item.status == ListenerSubscriptionStatus.PAUSED
@@ -264,7 +269,7 @@ async def resume_workflow_listener(
     repository: RepositoryDep,
     runtime_store: ListenerRuntimeStoreDep,
 ) -> ListenerHealthResponse:
-    """Resume a paused listener subscription."""
+    """Resume a paused or blocked listener subscription."""
     workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     await _get_workflow_listener(repository, workflow_uuid, subscription_id)
     updated = await repository.update_listener_subscription_status(

@@ -220,6 +220,7 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
         *,
         status: ListenerSubscriptionStatus,
         actor: str,
+        last_error: str | None = None,
     ) -> ListenerSubscription:
         """Update the operational status for a listener subscription."""
         async with self._lock:
@@ -231,6 +232,8 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
             subscription.lease_expires_at = None
             if status == ListenerSubscriptionStatus.ACTIVE:
                 subscription.last_error = None
+            elif last_error is not None:
+                subscription.last_error = last_error
             subscription.record_event(
                 actor=actor,
                 action=f"listener_subscription_status_{status.value}",

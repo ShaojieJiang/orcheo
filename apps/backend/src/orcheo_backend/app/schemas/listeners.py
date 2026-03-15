@@ -54,6 +54,7 @@ class ListenerMetricsPlatformBreakdown(BaseModel):
     platform: ListenerPlatform
     total: int = 0
     healthy: int = 0
+    blocked: int = 0
     paused: int = 0
     errors: int = 0
 
@@ -64,6 +65,7 @@ class ListenerMetricsResponse(BaseModel):
     workflow_id: UUID
     total_subscriptions: int
     active_subscriptions: int
+    blocked_subscriptions: int
     paused_subscriptions: int
     disabled_subscriptions: int
     error_subscriptions: int

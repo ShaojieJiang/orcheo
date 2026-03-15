@@ -533,6 +533,37 @@ async def test_update_listener_subscription_status_to_disabled(
 
 
 @pytest.mark.asyncio()
+async def test_update_listener_subscription_status_to_blocked_sets_error(
+    repository: WorkflowRepository,
+) -> None:
+    """Setting status to BLOCKED stores the blocking reason."""
+    workflow = await repository.create_workflow(
+        name="Status Blocked", slug=None, description=None, tags=None, actor="author"
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+
+    result = await repository.update_listener_subscription_status(
+        subscription.id,
+        status=ListenerSubscriptionStatus.BLOCKED,
+        actor="admin",
+        last_error="Credential 'tok' was not found in the configured vault",
+    )
+    assert result.status == ListenerSubscriptionStatus.BLOCKED
+    assert "tok" in (result.last_error or "")
+
+
+@pytest.mark.asyncio()
 async def test_sync_listener_subscriptions_for_version(
     repository: WorkflowRepository,
 ) -> None:

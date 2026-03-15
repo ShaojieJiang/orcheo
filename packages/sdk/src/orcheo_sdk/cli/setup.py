@@ -790,6 +790,8 @@ def execute_setup(
     config.stack_project_dir = str(stack_dir)
     config.stack_env_file = str(env_file)
     _warn_chatkit_domain_key_missing(env_file=env_file, console=console)
+    docker_installed_this_run = False
+    use_privileged_docker = False
 
     if config.start_stack and not _has_binary("docker"):
         if config.install_docker_if_missing:
@@ -801,6 +803,8 @@ def execute_setup(
                     "rerun with --start-stack.[/yellow]"
                 )
                 config.start_stack = False
+            else:
+                docker_installed_this_run = True
         else:
             raise typer.BadParameter(
                 "Docker is required to start the stack, and you chose "
@@ -808,12 +812,20 @@ def execute_setup(
             )
 
     if config.start_stack and not _current_shell_has_docker_access():
-        console.print(
-            "[yellow]Docker is installed, but this shell cannot access the daemon "
-            "yet. Run `newgrp docker` or re-login, then rerun with "
-            "--start-stack.[/yellow]"
-        )
-        config.start_stack = False
+        if docker_installed_this_run:
+            console.print(
+                "[yellow]Docker was installed during setup, but this shell has not "
+                "picked up docker group access yet. Continuing with privileged "
+                "docker commands for this run.[/yellow]"
+            )
+            use_privileged_docker = True
+        else:
+            console.print(
+                "[yellow]Docker is installed, but this shell cannot access the "
+                "daemon yet. Run `newgrp docker` or re-login, then rerun with "
+                "--start-stack.[/yellow]"
+            )
+            config.start_stack = False
 
     if config.start_stack and _has_binary("docker"):
         compose_args = [
@@ -824,9 +836,12 @@ def execute_setup(
             "--project-directory",
             str(stack_dir),
         ]
+        command_runner = (
+            _run_privileged_command if use_privileged_docker else _run_command
+        )
 
-        _run_command([*compose_args, "pull"], console=console)
-        _run_command([*compose_args, "up", "-d"], console=console)
+        command_runner([*compose_args, "pull"], console=console)
+        command_runner([*compose_args, "up", "-d"], console=console)
 
         if not _poll_backend_health(config.backend_url, console=console):
             compose_file = stack_dir / "docker-compose.yml"

@@ -11,6 +11,7 @@ from orcheo.listeners import (
     ListenerSubscription,
     ListenerSubscriptionStatus,
 )
+from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,16 @@ class ListenerRepository(Protocol):
         runtime_id: str,
     ) -> ListenerSubscription | None:
         """Release a previously claimed listener subscription."""
+
+    async def update_listener_subscription_status(
+        self,
+        subscription_id: UUID,
+        *,
+        status: ListenerSubscriptionStatus,
+        actor: str,
+        last_error: str | None = None,
+    ) -> ListenerSubscription:
+        """Update the operational status for a listener subscription."""
 
 
 class ListenerSupervisor:
@@ -101,6 +112,21 @@ class ListenerSupervisor:
             stop_event = asyncio.Event()
             try:
                 adapter = self._adapter_factory(claimed)
+            except CredentialReferenceNotFoundError as exc:
+                logger.warning(
+                    "Blocking listener subscription %s until credentials are "
+                    "configured: %s",
+                    claimed.id,
+                    exc,
+                )
+                await self._repository.update_listener_subscription_status(
+                    claimed.id,
+                    status=ListenerSubscriptionStatus.BLOCKED,
+                    actor=self._runtime_id,
+                    last_error=str(exc),
+                )
+                self._build_failures.pop(claimed.id, None)
+                continue
             except Exception as exc:
                 logger.exception(
                     "Failed to build listener adapter for subscription %s",

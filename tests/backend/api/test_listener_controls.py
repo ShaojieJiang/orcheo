@@ -338,3 +338,34 @@ def test_metrics_breakdown_paused_and_healthy(
     assert breakdown["paused"] == 1
     assert breakdown["healthy"] == 1
     assert breakdown["errors"] == 0
+
+
+def test_metrics_breakdown_blocked_does_not_count_as_dispatch_failure(
+    api_client: TestClient,
+) -> None:
+    repository = get_repository()
+    assert isinstance(repository, InMemoryWorkflowRepository)
+    workflow_id, _version_id = asyncio.run(_create_listener_workflow(repository))
+    subscription = asyncio.run(
+        repository.list_listener_subscriptions(workflow_id=UUID(workflow_id))
+    )[0]
+    asyncio.run(
+        repository.update_listener_subscription_status(
+            subscription.id,
+            status=ListenerSubscriptionStatus.BLOCKED,
+            actor="tester",
+            last_error=(
+                "Credential 'telegram_token' was not found in the configured vault"
+            ),
+        )
+    )
+
+    response = api_client.get(f"/api/workflows/{workflow_id}/listeners/metrics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["blocked_subscriptions"] == 1
+    assert payload["dispatch_failures"] == 0
+    assert payload["alerts"] == []
+    breakdown = payload["by_platform"][0]
+    assert breakdown["blocked"] == 1
+    assert breakdown["errors"] == 0

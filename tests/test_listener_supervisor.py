@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 import pytest
 from orcheo.listeners import ListenerHealthSnapshot, ListenerSupervisor
-from orcheo.listeners.models import ListenerPlatform
+from orcheo.listeners.models import ListenerPlatform, ListenerSubscriptionStatus
+from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -74,7 +75,9 @@ async def test_listener_supervisor_claims_and_releases_subscriptions() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_listener_supervisor_surfaces_build_failures_and_retries() -> None:
+async def test_listener_supervisor_blocks_missing_credentials_without_retrying() -> (
+    None
+):
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
         name="Supervisor Failure Flow",
@@ -104,7 +107,7 @@ async def test_listener_supervisor_surfaces_build_failures_and_retries() -> None
         attempts += 1
         if attempts == 1:
             msg = "Credential 'telegram_one' was not found in the configured vault"
-            raise RuntimeError(msg)
+            raise CredentialReferenceNotFoundError(msg)
         return StubAdapter(subscription)
 
     supervisor = ListenerSupervisor(
@@ -115,22 +118,19 @@ async def test_listener_supervisor_surfaces_build_failures_and_retries() -> None
     )
 
     await supervisor.run_once()
-    failed_health = supervisor.health()
-    assert len(failed_health) == 1
-    assert failed_health[0].status == "error"
-    assert "telegram_one" in (failed_health[0].detail or "")
+    assert supervisor.health() == []
 
     subscription = (
         await repository.list_listener_subscriptions(workflow_id=workflow.id)
     )[0]
+    assert subscription.status == ListenerSubscriptionStatus.BLOCKED
+    assert "telegram_one" in (subscription.last_error or "")
     assert subscription.assigned_runtime is None
 
     await supervisor.run_once()
-    recovered_health = supervisor.health()
-    assert len(recovered_health) == 1
-    assert recovered_health[0].status == "healthy"
-
     claimed = await repository.get_listener_subscription(subscription.id)
-    assert claimed.assigned_runtime == "runtime-1"
+    assert claimed.status == ListenerSubscriptionStatus.BLOCKED
+    assert claimed.assigned_runtime is None
+    assert attempts == 1
 
     await supervisor.shutdown()

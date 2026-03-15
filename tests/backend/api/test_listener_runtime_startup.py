@@ -139,10 +139,10 @@ def test_listener_runtime_starts_and_resolves_telegram_credentials(
         assert response_payload[0]["assigned_runtime"] is not None
 
 
-def test_listener_runtime_reports_missing_telegram_credentials_without_crashing(
+def test_listener_runtime_blocks_missing_telegram_credentials_without_crashing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Missing listener credentials should surface as runtime errors."""
+    """Missing listener credentials should block the listener without retries."""
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
     monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKENS", raising=False)
 
@@ -218,14 +218,12 @@ def test_listener_runtime_reports_missing_telegram_credentials_without_crashing(
             response = client.get(f"/api/workflows/{workflow.id}/listeners")
             if response.status_code == 200:
                 response_payload = response.json()
-                if (
-                    response_payload
-                    and response_payload[0]["runtime_status"] == "error"
-                ):
+                if response_payload and response_payload[0]["status"] == "blocked":
                     break
             time.sleep(0.02)
 
         assert response_payload
-        assert response_payload[0]["runtime_status"] == "error"
-        assert "telegram_token" in str(response_payload[0]["runtime_detail"])
+        assert response_payload[0]["status"] == "blocked"
+        assert response_payload[0]["runtime_status"] == "unknown"
+        assert "telegram_token" in str(response_payload[0]["last_error"])
         assert response_payload[0]["assigned_runtime"] is None
