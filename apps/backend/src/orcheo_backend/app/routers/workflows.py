@@ -34,6 +34,8 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
     PublicWorkflow,
+    WorkflowCanvasPayload,
+    WorkflowCanvasVersionSummary,
     WorkflowCreateRequest,
     WorkflowListItem,
     WorkflowPublishRequest,
@@ -137,6 +139,37 @@ def _attach_mermaid(version: WorkflowVersion) -> WorkflowVersion:
 def _attach_mermaid_many(versions: list[WorkflowVersion]) -> list[WorkflowVersion]:
     """Attach Mermaid output to a list of workflow versions."""
     return [_attach_mermaid(version) for version in versions]
+
+
+def _extract_index_mermaid(graph: Any) -> str | None:
+    """Return precomputed Mermaid output without regenerating it."""
+    if not isinstance(graph, dict):
+        return None
+    index = graph.get("index")
+    if not isinstance(index, dict):
+        return None
+    mermaid = index.get("mermaid")
+    if not isinstance(mermaid, str) or not mermaid.strip():
+        return None
+    return mermaid
+
+
+def _to_canvas_version_summary(
+    version: WorkflowVersion,
+) -> WorkflowCanvasVersionSummary:
+    """Serialize a compact version record for Canvas open."""
+    return WorkflowCanvasVersionSummary(
+        id=version.id,
+        workflow_id=version.workflow_id,
+        version=version.version,
+        mermaid=_extract_index_mermaid(version.graph),
+        metadata=version.metadata,
+        runnable_config=version.runnable_config,
+        notes=version.notes,
+        created_by=version.created_by,
+        created_at=version.created_at,
+        updated_at=version.updated_at,
+    )
 
 
 async def _resolve_workflow_id(
@@ -294,6 +327,26 @@ async def get_workflow(
     try:
         workflow = await repository.get_workflow(workflow_id)
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+
+@router.get("/workflows/{workflow_ref}/canvas", response_model=WorkflowCanvasPayload)
+async def get_workflow_canvas(
+    workflow_ref: str,
+    repository: RepositoryDep,
+) -> WorkflowCanvasPayload:
+    """Fetch workflow metadata and compact version summaries for Canvas open."""
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    try:
+        workflow, versions = await asyncio.gather(
+            repository.get_workflow(workflow_id),
+            repository.list_versions(workflow_id),
+        )
+        return WorkflowCanvasPayload(
+            workflow=_apply_share_url(workflow, _resolve_chatkit_public_base_url()),
+            versions=[_to_canvas_version_summary(version) for version in versions],
+        )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 

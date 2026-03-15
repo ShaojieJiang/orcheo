@@ -1,3 +1,5 @@
+import type { RJSFSchema } from "@rjsf/utils";
+
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -9,6 +11,76 @@ const toPositiveInteger = (value: unknown): number | undefined => {
   }
   const integer = Math.floor(value);
   return integer > 0 ? integer : undefined;
+};
+
+const inferArrayItemsSchema = (value: unknown[]): RJSFSchema => {
+  if (value.length === 0) {
+    return { type: "string" };
+  }
+
+  const itemSchemas = value.map((item) => inferSchemaFromValue(item));
+  const firstSchema = JSON.stringify(itemSchemas[0]);
+  const hasSingleItemShape = itemSchemas.every(
+    (itemSchema) => JSON.stringify(itemSchema) === firstSchema,
+  );
+
+  return hasSingleItemShape ? itemSchemas[0] : {};
+};
+
+export const inferSchemaFromValue = (value: unknown): RJSFSchema => {
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      items: inferArrayItemsSchema(value),
+    };
+  }
+
+  if (isRecord(value)) {
+    return {
+      type: "object",
+      properties: Object.fromEntries(
+        Object.entries(value).map(([key, itemValue]) => [
+          key,
+          inferSchemaFromValue(itemValue),
+        ]),
+      ),
+      additionalProperties: true,
+      default: {},
+    };
+  }
+
+  if (typeof value === "string") {
+    return { type: "string" };
+  }
+
+  if (typeof value === "number") {
+    return { type: Number.isInteger(value) ? "integer" : "number" };
+  }
+
+  if (typeof value === "boolean") {
+    return { type: "boolean" };
+  }
+
+  if (value === null) {
+    return { type: "null" };
+  }
+
+  return {};
+};
+
+export const buildConfigurableSchema = (
+  configurable: unknown,
+): RJSFSchema["properties"] => {
+  if (!isRecord(configurable)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(configurable).map(([key, value]) => [
+      key,
+      inferSchemaFromValue(value),
+    ]),
+  );
 };
 
 export const toWorkflowConfig = (

@@ -44,6 +44,23 @@ class StubRepository:
         self.release_calls.append(subscription_id)
         return None
 
+    async def update_listener_subscription_status(
+        self,
+        subscription_id: UUID,
+        *,
+        status: ListenerSubscriptionStatus,
+        actor: str,
+        last_error: str | None = None,
+    ) -> ListenerSubscription:
+        for subscription in self.subscriptions:
+            if subscription.id == subscription_id:
+                subscription.status = status
+                subscription.last_error = last_error
+                subscription.assigned_runtime = None
+                subscription.lease_expires_at = None
+                return subscription
+        raise AssertionError(f"Unknown subscription {subscription_id}")
+
 
 def create_subscription(status: ListenerSubscriptionStatus) -> ListenerSubscription:
     return ListenerSubscription(

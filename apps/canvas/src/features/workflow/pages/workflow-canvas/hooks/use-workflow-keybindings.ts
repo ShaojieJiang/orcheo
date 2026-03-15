@@ -26,21 +26,10 @@ interface UseWorkflowKeybindingsParams {
   copySelectedNodes: () => Promise<void>;
   cutSelectedNodes: () => Promise<void>;
   pasteNodes: () => Promise<void>;
-  setIsSearchOpen: (value: boolean) => void;
-  setSearchMatches: (value: string[]) => void;
-  setCurrentSearchIndex: (index: number) => void;
 }
 
 export function useWorkflowKeybindings(params: UseWorkflowKeybindingsParams) {
-  const {
-    nodesRef,
-    deleteNodes,
-    handleUndo,
-    handleRedo,
-    setIsSearchOpen,
-    setSearchMatches,
-    setCurrentSearchIndex,
-  } = params;
+  const { nodesRef, deleteNodes, handleUndo, handleRedo } = params;
 
   useEffect(() => {
     const targetDocument =
@@ -80,14 +69,6 @@ export function useWorkflowKeybindings(params: UseWorkflowKeybindingsParams) {
         return;
       }
 
-      if (key === "f") {
-        event.preventDefault();
-        setIsSearchOpen(true);
-        setSearchMatches([]);
-        setCurrentSearchIndex(0);
-        return;
-      }
-
       if (key === "z") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -106,13 +87,5 @@ export function useWorkflowKeybindings(params: UseWorkflowKeybindingsParams) {
 
     targetDocument.addEventListener("keydown", handleKeyDown);
     return () => targetDocument.removeEventListener("keydown", handleKeyDown);
-  }, [
-    nodesRef,
-    deleteNodes,
-    handleRedo,
-    handleUndo,
-    setCurrentSearchIndex,
-    setIsSearchOpen,
-    setSearchMatches,
-  ]);
+  }, [nodesRef, deleteNodes, handleRedo, handleUndo]);
 }

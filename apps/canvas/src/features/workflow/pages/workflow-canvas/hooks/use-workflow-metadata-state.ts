@@ -16,6 +16,8 @@ export function useWorkflowMetadataState() {
   const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(
     null,
   );
+  const [isWorkflowPublic, setIsWorkflowPublic] = useState(false);
+  const [workflowShareUrl, setWorkflowShareUrl] = useState<string | null>(null);
 
   return {
     workflowName,
@@ -32,5 +34,9 @@ export function useWorkflowMetadataState() {
     setIsWorkflowLoading,
     workflowLoadError,
     setWorkflowLoadError,
+    isWorkflowPublic,
+    setIsWorkflowPublic,
+    workflowShareUrl,
+    setWorkflowShareUrl,
   };
 }

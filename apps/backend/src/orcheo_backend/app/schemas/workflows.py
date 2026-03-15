@@ -1,6 +1,7 @@
 """Workflow-related request/response schemas."""
 
 from __future__ import annotations
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
@@ -131,3 +132,25 @@ class WorkflowListItem(Workflow):
 
     latest_version: WorkflowVersion | None = None
     is_scheduled: bool = False
+
+
+class WorkflowCanvasVersionSummary(BaseModel):
+    """Compact workflow-version payload used when opening Canvas."""
+
+    id: UUID
+    workflow_id: UUID
+    version: int
+    mermaid: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    runnable_config: dict[str, Any] | None = None
+    notes: str | None = None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowCanvasPayload(BaseModel):
+    """Workflow payload optimized for opening Canvas."""
+
+    workflow: Workflow
+    versions: list[WorkflowCanvasVersionSummary] = Field(default_factory=list)

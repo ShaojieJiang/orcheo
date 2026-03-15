@@ -62,6 +62,79 @@ def test_required_mode_without_credentials_warns(
     )
 
 
+def test_public_chatkit_url_forces_required_mode(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Public backend-owned URLs force authentication to required."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
+    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "https://canvas.example.com")
+    caplog.set_level(logging.WARNING)
+
+    settings = load_auth_settings(refresh=True)
+
+    assert settings.mode == "required"
+    assert settings.configured_mode == "disabled"
+    assert settings.public_exposure_detected is True
+    assert settings.public_exposure_sources == ("CHATKIT_PUBLIC_BASE_URL",)
+    assert any(
+        "overriding AUTH_MODE=disabled to required" in record.message
+        for record in caplog.records
+    )
+
+
+def test_local_urls_do_not_force_required_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Localhost-only configuration should not trigger public exposure."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
+    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "http://localhost:5173")
+    monkeypatch.setenv(
+        "ORCHEO_CORS_ALLOW_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    )
+
+    settings = load_auth_settings(refresh=True)
+
+    assert settings.mode == "optional"
+    assert settings.configured_mode == "optional"
+    assert settings.public_exposure_detected is False
+    assert settings.public_exposure_sources == ()
+
+
+def test_public_cors_origin_without_credentials_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public exposure without auth credentials should fail immediately."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
+    monkeypatch.setenv("ORCHEO_CORS_ALLOW_ORIGINS", "https://canvas.example.com")
+
+    with pytest.raises(
+        RuntimeError,
+        match="Public deployment detected via CORS_ALLOW_ORIGINS",
+    ):
+        load_auth_settings(refresh=True)
+
+
+def test_public_deployment_rejects_dev_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public exposure should reject the unsigned developer login flow."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
+    monkeypatch.setenv("ORCHEO_AUTH_DEV_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "https://canvas.example.com")
+
+    with pytest.raises(
+        RuntimeError,
+        match="Developer login cannot be enabled when public deployment is detected",
+    ):
+        load_auth_settings(refresh=True)
+
+
 def test_auth_settings_enforce_disabled_mode() -> None:
     """AuthSettings.enforce returns False when mode is disabled."""
 

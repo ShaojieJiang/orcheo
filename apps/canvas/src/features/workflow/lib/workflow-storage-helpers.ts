@@ -13,7 +13,7 @@ import {
 } from "./workflow-storage.constants";
 import type {
   ApiWorkflow,
-  ApiWorkflowVersion,
+  ApiWorkflowVersionSummary,
   CanvasVersionMetadata,
   StoredWorkflow,
   WorkflowVersionRecord,
@@ -182,7 +182,7 @@ const parseCanvasMetadata = (
 };
 
 const toVersionRecord = (
-  version: ApiWorkflowVersion,
+  version: ApiWorkflowVersionSummary,
   workflowName: string,
   workflowDescription?: string,
 ): WorkflowVersionRecord => {
@@ -215,9 +215,9 @@ const toVersionRecord = (
 
 export const toStoredWorkflow = (
   workflow: ApiWorkflow,
-  versions: ApiWorkflowVersion[],
+  versions?: ApiWorkflowVersionSummary[],
 ): StoredWorkflow => {
-  const versionRecords = versions
+  const versionRecords = ensureArray(versions)
     .map((entry) =>
       toVersionRecord(entry, workflow.name, workflow.description ?? undefined),
     )
@@ -242,5 +242,7 @@ export const toStoredWorkflow = (
     sourceExample: undefined,
     lastRun: undefined,
     isArchived: workflow.is_archived,
+    isPublic: workflow.is_public,
+    shareUrl: workflow.share_url ?? null,
   };
 };

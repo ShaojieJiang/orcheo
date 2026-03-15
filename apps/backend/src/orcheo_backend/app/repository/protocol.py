@@ -289,6 +289,7 @@ class WorkflowRepository(Protocol):
         *,
         status: ListenerSubscriptionStatus,
         actor: str,
+        last_error: str | None = None,
     ) -> ListenerSubscription:
         """Update the operational status for a listener subscription."""
 

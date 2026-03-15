@@ -23,22 +23,44 @@ copy/paste or customize.
   cannot initialize from a `file://` origin.
 3. **Domain key** – set `window.ORCHEO_CHATKIT_DOMAIN_KEY` or configure
    `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` if you are bundling assets. Local builds can
-   default to `domain_pk_localhost_dev`.
+   default to `domain_pk_localhost_dev`. If you do not have a key yet, follow
+   [Create a ChatKit domain key](#create-a-chatkit-domain-key).
 4. **Optional cookies** – when `--require-login` is enabled, the page must be
    served from the same origin (or a domain that already carries the OAuth
    session cookies) so ChatKit can forward them via `credentials: "include"`.
+
+## Create a ChatKit domain key
+
+If you do not already have a ChatKit domain key for the site that will load the
+widget, create one in the OpenAI Platform:
+
+1. Sign in to [OpenAI Platform](https://platform.openai.com/).
+2. Click the **cog button** (⚙️) in the top-right corner.
+3. In the left sidebar, open **Security**.
+4. Click **+ Add domain**, then enter the domain names that will host ChatKit
+   (for example, `orcheo-canvas.example.com`). Separate multiple domains with
+   commas.
+5. Click **Generate key**.
+6. Copy the generated public key and set it as
+   `window.ORCHEO_CHATKIT_DOMAIN_KEY`, `ORCHEO_CHATKIT_DOMAIN_KEY`, or
+   `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`, depending on where you configure ChatKit.
+
+Use the production site domains for production keys and separate dev/staging
+domains where practical.
 
 ## Embedding steps
 1. **Load the ChatKit bundle**
    ```html
    <script
      async
-     src="https://orcheo.ai-colleagues.com/api/chatkit/assets/chatkit.js"
+     src="https://your-orcheo-backend.example.com/api/chatkit/assets/chatkit.js"
      crossorigin="anonymous"
    ></script>
    ```
-   Orcheo proxies ChatKit assets to the upstream CDN. The server must be able
-   to reach `https://cdn.platform.openai.com`; override with
+   Replace `your-orcheo-backend.example.com` with the hostname of your hosted
+   Orcheo backend (e.g. `localhost:8000` for local dev). Orcheo proxies ChatKit
+   assets to the upstream CDN. The server must be able to reach
+   `https://cdn.platform.openai.com`; override with
    `ORCHEO_CHATKIT_CDN_BASE_URL` if needed.
 2. **Add a launcher + container** – place a floating button and a hidden panel
    that contains `<openai-chatkit>`. See `examples/chatkit-orcheo.html` for a

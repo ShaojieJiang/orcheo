@@ -646,6 +646,65 @@ def test_execute_setup_autoinstalls_docker_then_starts_stack(
     assert commands[1][-2:] == ["up", "-d"]
 
 
+def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    commands: list[list[str]] = []
+    _patch_common(monkeypatch, stack_dir=stack_dir, commands=commands, has_docker=False)
+
+    from orcheo_sdk.cli import setup as setup_mod
+
+    docker_state = {"installed": False}
+    monkeypatch.setattr(
+        setup_mod,
+        "_has_binary",
+        lambda name: (docker_state["installed"] and name == "docker") or name == "sudo",
+    )
+
+    def _autoinstall(*, console: Console) -> bool:
+        del console
+        docker_state["installed"] = True
+        return True
+
+    monkeypatch.setattr(setup_mod, "_attempt_docker_autoinstall", _autoinstall)
+    monkeypatch.setattr(setup_mod, "_current_shell_has_docker_access", lambda: False)
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: commands.append(["sudo", *command]),
+    )
+
+    config = _setup_config()
+    console = Console(record=True)
+    execute_setup(config, console=console)
+
+    assert config.start_stack is True
+    assert commands[0] == [
+        "sudo",
+        "docker",
+        "compose",
+        "-f",
+        str(stack_dir / "docker-compose.yml"),
+        "--project-directory",
+        str(stack_dir),
+        "pull",
+    ]
+    assert commands[1] == [
+        "sudo",
+        "docker",
+        "compose",
+        "-f",
+        str(stack_dir / "docker-compose.yml"),
+        "--project-directory",
+        str(stack_dir),
+        "up",
+        "-d",
+    ]
+    assert "Continuing with privileged docker commands" in console.export_text()
+
+
 def test_execute_setup_skips_stack_when_docker_daemon_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

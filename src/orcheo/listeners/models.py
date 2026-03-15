@@ -21,6 +21,7 @@ class ListenerSubscriptionStatus(str, Enum):
     """Operational state for a listener subscription."""
 
     ACTIVE = "active"
+    BLOCKED = "blocked"
     PAUSED = "paused"
     ERROR = "error"
     DISABLED = "disabled"

@@ -8,9 +8,7 @@ import { Switch } from "@/design-system/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import {
   fetchCronTriggerConfig,
-  fetchWorkflow,
   publishWorkflow,
-  resolveWorkflowShareUrl,
   scheduleWorkflowFromLatestVersion,
   unpublishWorkflow,
   unscheduleWorkflow,
@@ -37,6 +35,8 @@ export interface WorkflowTabContentProps {
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
+  initialIsPublished: boolean;
+  initialShareUrl: string | null;
 }
 
 interface MermaidSvgNodeData {
@@ -199,12 +199,14 @@ export function WorkflowTabContent({
   onRunWorkflow,
   onSaveConfig,
   hasCronTriggerNode,
+  initialIsPublished,
+  initialShareUrl,
 }: WorkflowTabContentProps) {
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [isPublished, setIsPublished] = useState(false);
+  const [isPublished, setIsPublished] = useState(initialIsPublished);
   const [isScheduled, setIsScheduled] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(initialShareUrl);
   const [isPublishPending, setIsPublishPending] = useState(false);
   const [isSchedulePending, setIsSchedulePending] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
@@ -217,25 +219,28 @@ export function WorkflowTabContent({
       setShareUrl(null);
       return;
     }
+    setIsPublished(initialIsPublished);
+    setShareUrl(initialShareUrl);
+  }, [initialIsPublished, initialShareUrl, workflowId]);
+
+  useEffect(() => {
+    if (!workflowId) {
+      setIsScheduled(false);
+      return;
+    }
+
+    if (!hasCronTriggerNode) {
+      setIsScheduled(false);
+      return;
+    }
 
     let isMounted = true;
 
-    const loadWorkflowToggles = async () => {
+    const loadWorkflowSchedule = async () => {
       try {
-        const [workflow, cronConfig] = await Promise.all([
-          fetchWorkflow(workflowId),
-          fetchCronTriggerConfig(workflowId),
-        ]);
+        const cronConfig = await fetchCronTriggerConfig(workflowId);
         if (!isMounted) {
           return;
-        }
-
-        if (!workflow) {
-          setIsPublished(false);
-          setShareUrl(null);
-        } else {
-          setIsPublished(workflow.is_public);
-          setShareUrl(resolveWorkflowShareUrl(workflow));
         }
         setIsScheduled(Boolean(cronConfig));
       } catch (error) {
@@ -253,11 +258,11 @@ export function WorkflowTabContent({
       }
     };
 
-    void loadWorkflowToggles();
+    void loadWorkflowSchedule();
     return () => {
       isMounted = false;
     };
-  }, [workflowId]);
+  }, [hasCronTriggerNode, workflowId]);
 
   const mermaidSource = useMemo(() => {
     if (!latestVersion?.mermaid) {

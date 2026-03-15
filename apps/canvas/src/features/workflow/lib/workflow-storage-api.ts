@@ -2,6 +2,7 @@ import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
+  ApiWorkflowCanvasPayload,
   ApiWorkflowRun,
   ApiWorkflowVersion,
   CronTriggerConfig,
@@ -72,6 +73,24 @@ export const fetchWorkflow = async (
 ): Promise<ApiWorkflow | undefined> => {
   try {
     return await request<ApiWorkflow>(`${API_BASE}/${workflowId}`);
+  } catch (error) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+export const fetchWorkflowCanvasData = async (
+  workflowId: string,
+): Promise<ApiWorkflowCanvasPayload | undefined> => {
+  try {
+    return await request<ApiWorkflowCanvasPayload>(
+      `${API_BASE}/${workflowId}/canvas`,
+    );
   } catch (error) {
     if (
       error instanceof ApiRequestError &&

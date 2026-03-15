@@ -24,6 +24,26 @@ export interface ApiWorkflow {
   is_scheduled?: boolean;
 }
 
+export interface ApiWorkflowVersionSummary {
+  id: string;
+  workflow_id: string;
+  version: number;
+  mermaid?: string | null;
+  metadata: unknown;
+  runnable_config?: WorkflowRunnableConfig | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiWorkflowCanvasData {
+  workflow: ApiWorkflow;
+  versions?: ApiWorkflowVersionSummary[];
+}
+
+export type ApiWorkflowCanvasPayload = ApiWorkflow | ApiWorkflowCanvasData;
+
 export interface PublicWorkflowMetadata {
   id: string;
   handle?: string | null;
@@ -45,18 +65,8 @@ export interface WorkflowRunnableConfig {
   prompts?: Record<string, unknown>;
 }
 
-export interface ApiWorkflowVersion {
-  id: string;
-  workflow_id: string;
-  version: number;
+export interface ApiWorkflowVersion extends ApiWorkflowVersionSummary {
   graph: Record<string, unknown>;
-  mermaid?: string | null;
-  metadata: unknown;
-  runnable_config?: WorkflowRunnableConfig | null;
-  notes: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ApiWorkflowRun {
@@ -91,7 +101,7 @@ export interface WorkflowListenerHealth {
   subscription_id: string;
   node_name: string;
   platform: "telegram" | "discord" | "qq";
-  status: "active" | "paused" | "error" | "disabled";
+  status: "active" | "blocked" | "paused" | "error" | "disabled";
   bot_identity_key: string;
   assigned_runtime?: string | null;
   lease_expires_at?: string | null;
@@ -128,6 +138,7 @@ export interface WorkflowListenerMetricsResponse {
   workflow_id: string;
   total_subscriptions: number;
   active_subscriptions: number;
+  blocked_subscriptions: number;
   paused_subscriptions: number;
   disabled_subscriptions: number;
   error_subscriptions: number;
@@ -182,6 +193,8 @@ export interface WorkflowVersionRecord {
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];
   isArchived?: boolean;
+  isPublic?: boolean;
+  shareUrl?: string | null;
 }
 
 export interface SaveWorkflowInput {

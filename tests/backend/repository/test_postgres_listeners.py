@@ -679,6 +679,34 @@ async def test_update_subscription_status_error(
     assert result.status == ListenerSubscriptionStatus.ERROR
 
 
+@pytest.mark.asyncio
+async def test_update_subscription_status_blocked_sets_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting status to BLOCKED records the blocking reason."""
+    sub_id = uuid4()
+    wf_id = uuid4()
+    ver_id = uuid4()
+    payload = _subscription_payload(sub_id, wf_id, ver_id)
+    repo = make_repo(
+        monkeypatch,
+        [
+            {"row": {"payload": payload}},  # SELECT
+            {},  # UPDATE
+        ],
+    )
+
+    result = await repo.update_listener_subscription_status(
+        sub_id,
+        status=ListenerSubscriptionStatus.BLOCKED,
+        actor="supervisor",
+        last_error="Credential 'tg_token' was not found in the configured vault",
+    )
+
+    assert result.status == ListenerSubscriptionStatus.BLOCKED
+    assert "tg_token" in (result.last_error or "")
+
+
 # ---------------------------------------------------------------------------
 # sync_listener_subscriptions_for_version (lines 510-527)
 # ---------------------------------------------------------------------------

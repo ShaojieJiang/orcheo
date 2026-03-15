@@ -18,7 +18,9 @@ import {
 } from "./workflow-storage-api";
 import {
   ensureWorkflow,
+  invalidateWorkflowCache,
   persistRunnableConfig,
+  primeWorkflowCache,
 } from "./workflow-storage-versioning";
 import type {
   ApiWorkflow,
@@ -75,6 +77,7 @@ const buildTemplateCanvasMetadata = ({
 export const invalidateWorkflowListCache = () => {
   workflowListCache = undefined;
   workflowListInflight = undefined;
+  invalidateWorkflowCache();
 };
 
 export const listWorkflows = async (
@@ -153,6 +156,7 @@ export const saveWorkflow = async (
   }
 
   invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
   emitUpdate();
   return stored;
 };
@@ -214,6 +218,7 @@ export const createWorkflowFromTemplate = async (
   }
 
   invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
   emitUpdate();
   return stored;
 };
@@ -235,6 +240,7 @@ export const deleteWorkflow = async (
     `${API_BASE}/${workflowId}?actor=${encodeURIComponent(resolvedActor)}`,
     { method: "DELETE", expectJson: false },
   );
+  invalidateWorkflowCache(workflowId);
   invalidateWorkflowListCache();
   emitUpdate();
 };

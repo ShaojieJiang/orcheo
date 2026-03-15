@@ -17,6 +17,7 @@ type UseWorkflowListenersArgs = {
   currentWorkflowId: string | null;
   workflowVersionCount: number;
   actor: string;
+  enabled?: boolean;
 };
 
 type ListenerAction = "pause" | "resume";
@@ -26,6 +27,7 @@ export function useWorkflowListeners({
   currentWorkflowId,
   workflowVersionCount,
   actor,
+  enabled = true,
 }: UseWorkflowListenersArgs) {
   const workflowId = currentWorkflowId ?? routeWorkflowId ?? null;
   const [listeners, setListeners] = useState<WorkflowListenerHealth[]>([]);
@@ -40,7 +42,7 @@ export function useWorkflowListeners({
   useEffect(() => {
     let isActive = true;
 
-    if (!workflowId) {
+    if (!enabled || !workflowId) {
       setListeners([]);
       setMetrics(null);
       setIsLoading(false);
@@ -92,10 +94,10 @@ export function useWorkflowListeners({
     return () => {
       isActive = false;
     };
-  }, [workflowId, workflowVersionCount]);
+  }, [enabled, workflowId, workflowVersionCount]);
 
   const refreshListeners = async () => {
-    if (!workflowId) {
+    if (!enabled || !workflowId) {
       return;
     }
 
