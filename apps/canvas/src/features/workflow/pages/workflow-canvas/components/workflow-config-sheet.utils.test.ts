@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConfigurableSchema,
   toFormData,
   toWorkflowConfig,
 } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet.utils";
@@ -74,6 +75,23 @@ describe("workflow-config-sheet utils", () => {
           input_variables: ["text"],
           optional_variables: ["style"],
         },
+      },
+    });
+  });
+
+  it("infers array item schemas for configurable fields", () => {
+    expect(
+      buildConfigurableSchema({
+        database: "my_database",
+        dimensions: 512,
+        text_paths: ["title", "body"],
+      }),
+    ).toEqual({
+      database: { type: "string" },
+      dimensions: { type: "integer" },
+      text_paths: {
+        type: "array",
+        items: { type: "string" },
       },
     });
   });

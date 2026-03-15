@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 
 import { Button } from "@/design-system/ui/button";
@@ -14,11 +14,12 @@ import {
 import { SchemaConfigForm } from "@features/workflow/components/forms/schema-config-form";
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
 import {
+  buildConfigurableSchema,
   toFormData,
   toWorkflowConfig,
 } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet.utils";
 
-const workflowConfigSchema: RJSFSchema = {
+const baseWorkflowConfigSchema: RJSFSchema = {
   type: "object",
   properties: {
     configurable: {
@@ -126,6 +127,22 @@ export function WorkflowConfigSheet({
     toFormData(initialConfig),
   );
   const [isSaving, setIsSaving] = useState(false);
+
+  const workflowConfigSchema = useMemo<RJSFSchema>(() => {
+    const configurableSchema =
+      baseWorkflowConfigSchema.properties?.configurable;
+
+    return {
+      ...baseWorkflowConfigSchema,
+      properties: {
+        ...baseWorkflowConfigSchema.properties,
+        configurable: {
+          ...configurableSchema,
+          properties: buildConfigurableSchema(formData.configurable),
+        },
+      },
+    };
+  }, [formData.configurable]);
 
   useEffect(() => {
     if (open) {
