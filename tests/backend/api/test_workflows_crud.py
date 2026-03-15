@@ -204,6 +204,14 @@ def test_workflow_canvas_payload_uses_compact_versions(
     assert "graph" not in payload["versions"][0]
 
 
+def test_workflow_canvas_handles_missing_workflows(api_client: TestClient) -> None:
+    """Requesting a canvas payload for an unknown workflow returns 404."""
+    missing_response = api_client.get("/api/workflows/phantom-workflow/canvas")
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"] == "Workflow not found"
+
+
 def test_workflow_handle_lookup_and_update(api_client: TestClient) -> None:
     """Workflow handle should work as a routable ref and support updates."""
     create_response = api_client.post(

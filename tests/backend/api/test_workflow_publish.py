@@ -3,6 +3,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.config import get_settings
+from orcheo_backend.app.authentication import reset_authentication_state
 
 
 def _create_workflow(client: TestClient) -> UUID:
@@ -46,7 +47,11 @@ def test_publish_workflow_includes_share_url(
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
         "https://orcheo-canvas.ai-colleagues.com",
     )
+    bootstrap_token = "publish-share-token"
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
     get_settings(refresh=True)
+    reset_authentication_state()
+    api_client.headers.update({"Authorization": f"Bearer {bootstrap_token}"})
 
     workflow_id = _create_workflow(api_client)
     response = api_client.post(

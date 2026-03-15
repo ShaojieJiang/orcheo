@@ -134,3 +134,68 @@ async def test_listener_supervisor_blocks_missing_credentials_without_retrying()
     assert attempts == 1
 
     await supervisor.shutdown()
+
+
+@pytest.mark.asyncio()
+async def test_listener_supervisor_tracks_consecutive_adapter_failures() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Supervisor Failure Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        actor="author",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {
+                "node_name": "telegram_listener",
+                "platform": "telegram",
+                "token": "[[telegram_one]]",
+            }
+        ),
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+
+    class FailingAdapterFactory:
+        """Adapter factory that always raises to trigger the error path."""
+
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        def __call__(self, subscription) -> None:
+            self.attempts += 1
+            raise RuntimeError("Adapter build failure")
+
+    factory = FailingAdapterFactory()
+
+    supervisor = ListenerSupervisor(
+        repository=repository,
+        runtime_id="runtime-1",
+        adapter_factory=factory,
+        reconcile_interval_seconds=0.01,
+    )
+
+    await supervisor.run_once()
+    first_health = supervisor.health()
+    assert len(first_health) == 1
+    assert first_health[0].status == "error"
+    assert first_health[0].consecutive_failures == 1
+    assert "Adapter build failure" in (first_health[0].detail or "")
+    assert factory.attempts == 1
+
+    await supervisor.run_once()
+    second_health = supervisor.health()
+    assert len(second_health) == 1
+    assert second_health[0].consecutive_failures == 2
+    assert factory.attempts == 2
+
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+    assert subscription.assigned_runtime is None
+
+    await supervisor.shutdown()
