@@ -145,10 +145,10 @@ When `orcheo plugin update --all` encounters plugins with different impact level
 
 1. The operator installs or updates a plugin that only adds or safely replaces nodes, edges, or agent tools.
 2. The impact analyzer confirms that no trigger or listener surfaces are affected.
-3. The runtime increments a monotonic plugin generation counter (persisted in `~/.orcheo/plugins/plugins.toml` as `generation`) and loads the new plugin version as the active generation for all new workflow runs.
+3. The runtime increments a monotonic in-memory plugin generation counter for that process and loads the new plugin version as the active generation for all new workflow runs in that process.
 4. In-flight runs carry the generation number at which they were dispatched and continue to use their generation's registered components until they finish.
 5. The runtime tracks the oldest active run generation. Once all runs referencing the previous generation complete, that generation's registered components are released.
-6. Generation state is in-process only in v1; it resets on restart. Full cross-process generation tracking is deferred to a future release.
+6. Generation state is in-process only in v1; it is not written to `plugins.toml` or `plugin-lock.toml`, and it resets from the current loaded plugin set on restart. Full cross-process generation tracking is deferred to a future release.
 
 **Note:** Hot-reload is not supported for trigger or listener plugins in v1. Any plugin change affecting those surfaces requires a restart or explicit reconcile step.
 
@@ -266,6 +266,8 @@ source = "orcheo-plugin-wecom-listener==0.1.0"
 enabled = true
 install_source = "cli"  # enum: cli | api | bootstrap
 ```
+
+`plugins.toml` does not store any runtime generation counter. It persists desired plugin lifecycle state only, so CLI-managed install state survives restart while per-process hot-reload generations do not.
 
 `plugin-lock.toml` stores resolved state:
 
@@ -393,6 +395,7 @@ When the plugin API version increments, all existing plugins must release a new 
 ### Restart and reload contract
 
 - Nodes, edges, and agent tools are hot-reloadable only in a generation-aware mode where new runs use the new plugin generation and existing runs continue on the old generation.
+- Generation counters are process-local in v1. They are derived from runtime load events, not persisted in plugin state files, and may diverge across backend and worker processes until each process restarts or reloads independently.
 - Silent apply is allowed only for additive or otherwise policy-approved changes to hot-reloadable surfaces.
 - Replacing or removing existing exported nodes, edges, or agent tools must show a maintainer-facing impact summary before applying.
 - Triggers and listeners are not hot-reloadable in v1 and must recommend restart or reconcile semantics.

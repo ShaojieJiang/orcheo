@@ -126,6 +126,7 @@ Non-goals:
   - changes that replace existing exported nodes, edges, or agent tools must warn and require maintainer confirmation
   - changes affecting triggers or listeners must warn and recommend restart or reconcile
 - Support targeted, generation-aware activation for hot-reloadable node, edge, and agent-tool plugins so additive or otherwise policy-approved changes can apply to new runs without forcing older runs onto the new generation.
+- Keep v1 generation tracking process-local and non-persistent: plugin desired state and lock state survive restart, but hot-reload generation counters do not.
 - Present maintainers with an impact summary that names the affected exported component identifiers before applying non-trivial plugin changes.
 - Rename core edges to `IfElseEdge`, `SwitchEdge`, `WhileEdge`, and similar `Edge`-suffixed names, while retaining compatibility aliases for existing graph definitions.
 - Include edge plugins in plugin documentation, component discovery flows, and validation coverage in the first release.
@@ -176,6 +177,7 @@ Orcheo should load plugins through a managed plugin subsystem rather than throug
 - Integrate plugin reconciliation with the existing Orcheo CLI installation model.
 - Track whether a plugin change is additive, replacing, or removing existing exported component identifiers.
 - Support generation-aware activation for hot-reloadable surfaces so new runs can use updated node, edge, and agent-tool implementations while older runs finish on the previous generation.
+- Define the operator contract for multi-process deployments clearly: generation-aware hot-reload is per process in v1 and does not imply cross-process continuity after restart.
 - Ensure the runtime can isolate plugin load failures and continue booting core functionality where safe.
 - Guarantee that plugin installation and upgrade paths are deterministic and scriptable.
 - Document behavior for multi-process deployments where the API backend and Celery workers run as separate processes, including guidance on propagating plugin changes across processes and hosts.

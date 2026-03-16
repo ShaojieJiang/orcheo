@@ -72,7 +72,7 @@ Deliver a managed plugin mechanism for nodes, edges, agent tools, triggers, and 
   - Dependencies: Task 2.4b
 - [ ] Task 2.4d: Update API response shapes and serialization to use string platform identifiers consistently.
   - Dependencies: Task 2.4a
-- [ ] Task 2.5: Implement generation-aware activation for hot-reloadable node, edge, and agent-tool plugins so new runs can use the updated generation while older runs drain.
+- [ ] Task 2.5: Implement process-local, generation-aware activation for hot-reloadable node, edge, and agent-tool plugins so new runs can use the updated generation while older runs drain, without persisting generation counters across restart in v1.
   - Dependencies: Task 2.2, Milestone 1
 - [ ] Task 2.6: Expose plugin-provided components through existing discovery flows such as `orcheo node list` and `orcheo edge list`.
   - Dependencies: Task 2.2, Task 2.3
