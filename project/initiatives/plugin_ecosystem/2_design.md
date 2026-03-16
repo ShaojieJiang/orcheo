@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-03-16
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
@@ -169,7 +169,7 @@ wecom_listener = "orcheo_plugin_wecom:plugin"
 - A manifest file `orcheo_plugin.toml` in the package's data directory declaring the plugin-specific fields:
 
 ```toml
-plugin_api_version = "1"
+plugin_api_version = 1
 orcheo_version = ">=0.8,<0.9"
 exports = ["listeners"]
 ```
@@ -275,7 +275,7 @@ install_source = "cli"  # enum: cli | api | bootstrap
 [[plugin]]
 name = "orcheo-plugin-wecom-listener"
 version = "0.1.0"
-plugin_api_version = "1"
+plugin_api_version = 1
 orcheo_version = "0.8.0"
 location = "/Users/example/.orcheo/plugins/venv"
 wheel_sha256 = "abc123..."  # SHA-256 of the downloaded wheel or sdist archive
@@ -373,7 +373,7 @@ The `PluginAPI` exposes `register_trigger(metadata, factory)` for this purpose. 
 
 ### Plugin API version policy
 
-The plugin API version is a single positive integer (e.g., `"1"`). It increments when the `PluginAPI` contract changes in a way that is not backward-compatible with existing plugins.
+The plugin API version is a single positive integer (for example, `1` in TOML and the runtime manifest). It increments when the `PluginAPI` contract changes in a way that is not backward-compatible with existing plugins.
 
 **Breaking changes that increment the version:**
 
@@ -388,7 +388,7 @@ The plugin API version is a single positive integer (e.g., `"1"`). It increments
 - Adding new `PluginAPI` methods.
 - Adding optional `PluginManifest` fields.
 
-Plugins declare a single integer: `plugin_api_version = "1"`. A plugin is compatible if its declared version equals the current runtime API version. Orcheo does not support loading plugins built for a different major API version. This keeps the compatibility check simple and avoids a plugin needing to support multiple API generations simultaneously.
+Plugins declare a single integer: `plugin_api_version = 1`. A plugin is compatible if its declared version equals the current runtime API version. Orcheo does not support loading plugins built for a different API version. This keeps the compatibility check simple and avoids a plugin needing to support multiple API generations simultaneously.
 
 When the plugin API version increments, all existing plugins must release a new version declaring the new API version before they can be loaded by the updated Orcheo runtime.
 
@@ -413,7 +413,7 @@ The runtime `PluginManifest` object is assembled from two sources: package metad
 | version | string | package metadata | Plugin version |
 | description | string | package metadata | Human-readable summary |
 | author | string | package metadata | Plugin author |
-| plugin_api_version | string | `orcheo_plugin.toml` | Supported Orcheo plugin API version |
+| plugin_api_version | integer | `orcheo_plugin.toml` | Supported Orcheo plugin API version |
 | orcheo_version | string | `orcheo_plugin.toml` | Compatible Orcheo version range |
 | exports | list[string] | `orcheo_plugin.toml` | Exported component kinds |
 
@@ -502,11 +502,14 @@ The template should prove that both plugin-provided listeners can:
 ## Security Considerations
 
 - Plugins are arbitrary code and must be treated as trusted-by-operator extensions, not sandboxed content.
-- The CLI should show source, version, and compatibility data before finalizing install.
+- Operators should install plugins only from vetted sources they control or explicitly trust, such as an internal package index, a pinned wheel artifact, or a VCS reference fixed to an immutable commit.
+- The install flow should present enough information for an explicit operator review before enablement: source URL or index, package name, exact version, hashes, declared exports, entry point, and resolved dependency set.
+- Operator vetting guidance should require checking plugin ownership/maintainer identity, release provenance, declared dependencies, exported component kinds, and any credentials, network access, or external services the plugin will use.
+- Operational guidance should recommend staging new or updated plugins in a non-production environment first, validating `orcheo plugin doctor`, and only then enabling the plugin in production.
 - The loader should never execute disabled plugins.
 - Secrets used by plugin listeners or triggers must continue to flow through Orcheo's credential system rather than ad hoc env vars.
-- Install/update operations should use deterministic resolution and record hashes when possible.
-- `orcheo plugin doctor` should surface suspicious state such as missing files, incompatible API versions, or partial installs.
+- Install/update operations should use deterministic resolution, exact version pins, and recorded hashes so later audits can confirm the installed artifact matches what the operator approved.
+- `orcheo plugin doctor` should surface suspicious state such as missing files, incompatible API versions, partial installs, manifest hash drift, or packages whose resolved dependencies no longer match the lockfile.
 
 ## Performance Considerations
 
