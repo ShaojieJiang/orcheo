@@ -82,7 +82,7 @@ Non-goals:
 - Sandboxing untrusted plugin code beyond process-level and dependency-level controls already used by Orcheo deployments.
 - Supporting remote SaaS-style plugin installation into a backend the operator does not control.
 - Defining a TypeScript or Canvas runtime plugin API in the first release.
-- Hot-reloading plugin code without restart in v1.
+- Full hot-reload across every plugin surface in v1. Only targeted, generation-aware activation for hot-reloadable node, edge, and agent-tool changes is in scope; trigger and listener changes still require restart or reconcile semantics.
 
 ## PRODUCT DEFINITION
 
@@ -125,6 +125,7 @@ Non-goals:
   - additive changes to hot-reloadable surfaces may apply silently
   - changes that replace existing exported nodes, edges, or agent tools must warn and require maintainer confirmation
   - changes affecting triggers or listeners must warn and recommend restart or reconcile
+- Support targeted, generation-aware activation for hot-reloadable node, edge, and agent-tool plugins so additive or otherwise policy-approved changes can apply to new runs without forcing older runs onto the new generation.
 - Present maintainers with an impact summary that names the affected exported component identifiers before applying non-trivial plugin changes.
 - Rename core edges to `IfElseEdge`, `SwitchEdge`, `WhileEdge`, and similar `Edge`-suffixed names, while retaining compatibility aliases for existing graph definitions.
 - Include edge plugins in plugin documentation, component discovery flows, and validation coverage in the first release.
@@ -138,7 +139,6 @@ Non-goals:
 
 - `orcheo plugin init` scaffolding for plugin authors.
 - `orcheo plugin search <query>` against a curated registry or index.
-- Targeted hot-reload for nodes, edges, and agent tools where Orcheo can safely apply changes for new runs while older runs drain on the previous plugin generation.
 - Signed-plugin metadata and trust-policy configuration.
 - Built-in component migration so core listeners/triggers also load through the same plugin abstraction.
 - Per-plugin metrics and health views in API/UI.
