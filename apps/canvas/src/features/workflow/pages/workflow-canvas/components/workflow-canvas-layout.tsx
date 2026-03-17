@@ -82,14 +82,14 @@ export function WorkflowCanvasLayout({
           <TabsContent
             value="workflow"
             forceMount
-            className="flex-1 m-0 p-0 overflow-hidden min-h-0"
+            className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden p-0 data-[state=inactive]:hidden"
           >
             <WorkflowTabContent {...workflowProps} />
           </TabsContent>
 
           <TabsContent
             value="trace"
-            className="flex-1 m-0 p-4 overflow-hidden min-h-0"
+            className="m-0 flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-4 data-[state=inactive]:hidden"
           >
             {tabsProps.activeTab === "trace" ? (
               <TraceTabContent

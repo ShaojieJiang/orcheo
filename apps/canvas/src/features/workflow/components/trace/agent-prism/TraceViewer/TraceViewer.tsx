@@ -170,11 +170,11 @@ export const TraceViewer = ({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="hidden min-h-0 flex-1 lg:block">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+      <div className="hidden min-h-0 w-full min-w-0 flex-1 lg:block">
         <TraceViewerDesktopLayout {...props} />
       </div>
-      <div className="min-h-0 flex-1 lg:hidden">
+      <div className="min-h-0 w-full min-w-0 flex-1 lg:hidden">
         <TraceViewerMobileLayout {...props} />
       </div>
     </div>

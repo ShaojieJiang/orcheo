@@ -144,6 +144,33 @@ def test_create_credential(api_client: TestClient) -> None:
     assert any(entry["id"] == payload["id"] for entry in entries)
 
 
+def test_list_credentials_without_workflow_includes_private_entries(
+    api_client: TestClient,
+) -> None:
+    workflow_id = _create_workflow(api_client)
+    create_response = api_client.post(
+        "/api/credentials",
+        json={
+            "name": "Scoped API",
+            "provider": "api",
+            "secret": "sk_test_scoped",
+            "actor": "tester",
+            "access": "private",
+            "workflow_id": workflow_id,
+        },
+    )
+    assert create_response.status_code == 201
+    credential_id = create_response.json()["id"]
+
+    list_response = api_client.get("/api/credentials")
+
+    assert list_response.status_code == 200
+    entries = list_response.json()
+    credential = next(item for item in entries if item["id"] == credential_id)
+    assert credential["access"] == "private"
+    assert credential["workflow_id"] == workflow_id
+
+
 def test_reveal_credential_secret(api_client: TestClient) -> None:
     workflow_id = _create_workflow(api_client)
     create_response = api_client.post(

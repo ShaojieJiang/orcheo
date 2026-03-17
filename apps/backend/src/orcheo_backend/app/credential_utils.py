@@ -70,6 +70,9 @@ def credential_to_response(
         last_rotated_at=metadata.last_rotated_at,
         owner=owner,
         access=infer_credential_access(metadata.scope),
+        workflow_id=(
+            str(metadata.scope.workflow_ids[0]) if metadata.scope.workflow_ids else None
+        ),
         status=metadata.health.status,
         secret_preview=secret_preview,
     )

@@ -8,6 +8,7 @@ export interface Credential {
   provider?: string;
   /** @deprecated Use provider. */
   type?: string;
+  workflowId?: string | null;
   createdAt: string;
   updatedAt: string;
   owner?: string | null;
@@ -41,6 +42,7 @@ export interface CredentialVaultEntryResponse {
   name: string;
   provider: string;
   kind: "secret" | "oauth";
+  workflow_id?: string | null;
   created_at: string;
   updated_at: string;
   last_rotated_at: string | null;

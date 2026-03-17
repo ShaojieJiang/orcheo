@@ -114,6 +114,6 @@ The `examples/` directory contains usage examples and notebooks:
 
 ## Further Reading
 
-- [Custom Nodes and Tools](custom_nodes_and_tools.md) – extend Orcheo with your own integrations
+- [Plugin Author Guide](custom_nodes_and_tools.md) – extend Orcheo with managed plugins
 - [Deployment Guide](deployment.md) – Docker Compose and PostgreSQL deployment recipes
 - [Environment Variables](environment_variables.md) – complete configuration reference

@@ -1,12 +1,12 @@
 import pytest
 from langchain_core.runnables import RunnableConfig
-from orcheo.edges import While
+from orcheo.edges import WhileEdge
 from orcheo.graph.state import State
 
 
 @pytest.mark.asyncio
 async def test_while_node_iterations_and_limit() -> None:
-    node = While(
+    node = WhileEdge(
         name="loop",
         conditions=[{"operator": "less_than", "right": 2}],
         max_iterations=2,
@@ -29,7 +29,7 @@ async def test_while_node_iterations_and_limit() -> None:
 
 
 def test_while_node_current_iteration_reads_state() -> None:
-    node = While(name="loop")
+    node = WhileEdge(name="loop")
     state = {"results": {"loop": {"iteration": 5}}}
     assert node._current_iteration(state) == 5
 
@@ -43,7 +43,7 @@ def test_while_node_current_iteration_reads_state() -> None:
 @pytest.mark.asyncio
 async def test_while_node_with_or_logic() -> None:
     state = State({"results": {}})
-    node = While(
+    node = WhileEdge(
         name="loop",
         conditions=[
             {"operator": "equals", "right": 5},
@@ -59,7 +59,7 @@ async def test_while_node_with_or_logic() -> None:
 @pytest.mark.asyncio
 async def test_while_node_without_max_iterations() -> None:
     state = State({"results": {}})
-    node = While(
+    node = WhileEdge(
         name="loop",
         conditions=[{"operator": "less_than", "right": 5}],
     )
@@ -72,7 +72,7 @@ async def test_while_node_without_max_iterations() -> None:
 async def test_while_node_missing_results_handled_gracefully() -> None:
     """Test that While edge handles missing results dict gracefully."""
     state = State({"inputs": {}})  # No results dict
-    node = While(
+    node = WhileEdge(
         name="loop",
         conditions=[{"operator": "less_than", "right": 5}],
     )

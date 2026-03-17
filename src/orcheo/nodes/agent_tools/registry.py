@@ -77,6 +77,11 @@ class ToolRegistry:
                 return self._metadata.get(name)
         return None
 
+    def unregister(self, name: str) -> None:
+        """Remove one registered tool and its metadata if present."""
+        self._tools.pop(name, None)
+        self._metadata.pop(name, None)
+
 
 # Global registry instance
 tool_registry = ToolRegistry()

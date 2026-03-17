@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from orcheo.plugins import load_enabled_plugins
 from orcheo.tracing import configure_tracing
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
@@ -149,6 +150,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> Any:
         """Manage application lifespan with startup and shutdown logic."""
         load_auth_settings(refresh=True)
+        load_enabled_plugins(force=True)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),

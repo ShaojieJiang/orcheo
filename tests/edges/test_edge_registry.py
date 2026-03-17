@@ -1,6 +1,7 @@
 """Tests for the edge registry module."""
 
 from typing import Any
+import pytest
 from orcheo.edges.registry import EdgeMetadata, EdgeRegistry
 
 
@@ -105,6 +106,37 @@ def test_list_metadata_returns_sorted_entries() -> None:
 
     names = [item.name for item in registry.list_metadata()]
     assert names == ["alpha", "Beta"]
+
+
+def test_alias_lookup_resolves_to_canonical_metadata() -> None:
+    """Aliases resolve edge implementations and do not appear in discovery."""
+    registry = EdgeRegistry()
+    metadata = EdgeMetadata(name="IfElseEdge", description="Decision edge")
+
+    class IfElseEdge:
+        pass
+
+    registry.register(metadata)(IfElseEdge)
+    registry.register_alias("IfElse", "IfElseEdge")
+
+    assert registry.get_edge("IfElse") is IfElseEdge
+    assert registry.get_metadata("IfElse") is metadata
+    assert [item.name for item in registry.list_metadata()] == ["IfElseEdge"]
+    assert registry.get_aliases("IfElseEdge") == ["IfElse"]
+
+
+def test_register_rejects_name_colliding_with_alias() -> None:
+    """Canonical registrations cannot reuse reserved legacy aliases."""
+    registry = EdgeRegistry()
+    registry.register(EdgeMetadata(name="IfElseEdge", description="Decision"))(
+        lambda state: state
+    )
+    registry.register_alias("IfElse", "IfElseEdge")
+
+    with pytest.raises(ValueError, match="IfElse"):
+        registry.register(EdgeMetadata(name="IfElse", description="Legacy"))(
+            lambda state: state
+        )
 
 
 def test_edge_metadata_default_category() -> None:

@@ -11,10 +11,12 @@ def test_edge_list_shows_registered_edges(
     """Test edge list command displays registered edges."""
     result = runner.invoke(app, ["edge", "list"], env=env)
     assert result.exit_code == 0
-    # Should show at least one edge
     assert "Name" in result.stdout
     assert "Category" in result.stdout
     assert "Description" in result.stdout
+    assert "IfElseEdge" in result.stdout
+    assert "SwitchEdge" in result.stdout
+    assert "WhileEdge" in result.stdout
 
 
 def test_edge_list_with_category_filter(runner: CliRunner, env: dict[str, str]) -> None:
@@ -27,9 +29,20 @@ def test_edge_list_with_category_filter(runner: CliRunner, env: dict[str, str]) 
 
 def test_edge_show_displays_schema(runner: CliRunner, env: dict[str, str]) -> None:
     """Test edge show command displays edge metadata and schema."""
+    result = runner.invoke(app, ["edge", "show", "IfElseEdge"], env=env)
+    assert result.exit_code == 0
+    assert "IfElseEdge" in result.stdout
+    assert "Aliases: IfElse" in result.stdout
+
+
+def test_edge_show_legacy_alias_resolves_to_canonical_name(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Legacy edge names remain supported for direct lookup."""
     result = runner.invoke(app, ["edge", "show", "IfElse"], env=env)
     assert result.exit_code == 0
-    assert "IfElse" in result.stdout
+    assert "IfElseEdge" in result.stdout
+    assert "Aliases: IfElse" in result.stdout
 
 
 def test_edge_show_nonexistent_error(runner: CliRunner, env: dict[str, str]) -> None:
@@ -109,7 +122,8 @@ def test_edge_show_machine_mode(runner: CliRunner, machine_env: dict[str, str]) 
     result = runner.invoke(app, ["edge", "show", "IfElse"], env=machine_env)
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["name"] == "IfElse"
+    assert data["name"] == "IfElseEdge"
+    assert data["aliases"] == ["IfElse"]
 
 
 def test_edge_show_with_schema(runner: CliRunner, env: dict[str, str]) -> None:

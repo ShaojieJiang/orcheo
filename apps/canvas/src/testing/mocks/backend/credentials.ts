@@ -51,6 +51,7 @@ export const handleCredentialRequest = async (
       name: payload?.name ?? `Credential ${credentialCounter}`,
       provider: payload?.provider ?? "custom",
       kind: "secret",
+      workflow_id: null,
       created_at: now,
       updated_at: now,
       last_rotated_at: null,

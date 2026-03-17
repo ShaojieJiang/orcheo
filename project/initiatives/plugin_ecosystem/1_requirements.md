@@ -22,6 +22,8 @@
 | Listener compiler | `src/orcheo/listeners/compiler.py` | Shaojie Jiang | Listener Subscription Compiler |
 | WeCom OpenClaw docs | https://work.weixin.qq.com/nl/index/openclaw | Tencent WeCom | OpenClaw Long Connection Documentation |
 | Lark OpenClaw plugin | https://github.com/larksuite/openclaw-lark | Lark | Reference Plugin Implementation |
+| Lark OpenClaw guide | https://www.feishu.cn/content/article/7613711414611463386 | Lark | OpenClaw Feishu Plugin Features, Installation & FAQ |
+| Lark Open Platform API docs | https://open.larksuite.com/document/ukTMukTMukTM/uETO1YjLxkTN24SM5UjN#1c227849 | Lark | Lark Open Platform API Documentation |
 | Requirements | [1_requirements.md](1_requirements.md) | Shaojie Jiang | Plugin Ecosystem Requirements |
 | Design | [2_design.md](2_design.md) | Shaojie Jiang | Plugin Ecosystem Design |
 | Plan | [3_plan.md](3_plan.md) | Shaojie Jiang | Plugin Ecosystem Plan |

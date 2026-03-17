@@ -340,6 +340,41 @@ async def test_claim_and_release_listener_subscription(
 
 
 @pytest.mark.asyncio()
+async def test_claim_listener_subscription_renewal_skips_duplicate_audit_entries(
+    repository: WorkflowRepository,
+) -> None:
+    """Renewing a lease for the same runtime should not grow the audit log."""
+    workflow = await repository.create_workflow(
+        name="Claim Renewal", slug=None, description=None, tags=None, actor="author"
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+
+    claimed = await repository.claim_listener_subscription(
+        subscription.id, runtime_id="rt-1", lease_seconds=60
+    )
+    assert claimed is not None
+    initial_audit_length = len(claimed.audit_log)
+
+    renewed = await repository.claim_listener_subscription(
+        subscription.id, runtime_id="rt-1", lease_seconds=60
+    )
+    assert renewed is not None
+    assert renewed.assigned_runtime == "rt-1"
+    assert len(renewed.audit_log) == initial_audit_length
+
+
+@pytest.mark.asyncio()
 async def test_release_listener_subscription_not_found(
     repository: WorkflowRepository,
 ) -> None:

@@ -115,14 +115,14 @@ class ForLoopNode(TaskNode):
     exposes the item at that index as ``current_item``, and stores the
     *next* index so subsequent invocations advance automatically.
 
-    Pair with an :class:`~orcheo.edges.branching.IfElse` edge that
+    Pair with an :class:`~orcheo.edges.branching.IfElseEdge` edge that
     routes on ``done`` to build a complete for-loop::
 
         graph.add_node("for_each", ForLoopNode(
             name="for_each",
             items="{{find_subscribers.data}}",
         ))
-        router = IfElse(
+        router = IfElseEdge(
             name="for_each_router",
             conditions=[Condition(
                 left="{{for_each.done}}", operator="is_falsy",

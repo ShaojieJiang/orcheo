@@ -1,0 +1,19 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+description = "Fixture edge plugin"
+name = "orcheo-plugin-fixture-edge"
+requires-python = ">=3.12"
+version = "0.1.0"
+
+[project.entry-points."orcheo.plugins"]
+fixture_edge = "orcheo_plugin_fixture_edge:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_fixture_edge = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from pydantic import Field
-from orcheo.edges import Switch, SwitchCase
+from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.conversation import (
@@ -295,7 +295,7 @@ def assemble_demo_workflow(nodes: dict[str, TaskNode]) -> StateGraph:
     for src, dst in initial_edges:
         workflow.add_edge(nodes[src].name, nodes[dst].name)
 
-    cache_switch = Switch(
+    cache_switch = SwitchEdge(
         name="cache_routing",
         value=f"{{{{{nodes['answer_cache_check'].name}.cached}}}}",
         case_sensitive=False,

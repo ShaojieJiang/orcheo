@@ -22,7 +22,7 @@ Orcheo vault secrets required:
 from collections.abc import Mapping
 from typing import Any
 from langgraph.graph import END, StateGraph
-from orcheo.edges import Condition, IfElse
+from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.wecom import (
@@ -159,7 +159,7 @@ async def build_graph() -> StateGraph:
 
     # First router: check if we should stop or continue processing
     # Stop if: immediate_response exists OR should_process is false
-    immediate_response_router = IfElse(
+    immediate_response_router = IfElseEdge(
         name="immediate_response_router",
         conditions=[
             Condition(
@@ -175,7 +175,7 @@ async def build_graph() -> StateGraph:
     )
 
     # Second router: route to internal or CS path based on is_customer_service
-    message_type_router = IfElse(
+    message_type_router = IfElseEdge(
         name="message_type_router",
         conditions=[
             Condition(
@@ -216,7 +216,7 @@ async def build_graph() -> StateGraph:
     graph.add_edge("get_cs_access_token", "wecom_cs_sync")
 
     # After syncing, check if we have a message to respond to
-    cs_sync_router = IfElse(
+    cs_sync_router = IfElseEdge(
         name="cs_sync_router",
         conditions=[
             Condition(

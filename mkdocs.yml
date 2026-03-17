@@ -34,6 +34,7 @@ nav:
       - Auth0 IdP Setup: auth0_idp_setup.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
+      - Lark App Setup: integrations/lark_app_setup.md
   - Examples:
       - Conversational Search: examples/conversational_search.md
       - Evaluation: examples/evaluation.md

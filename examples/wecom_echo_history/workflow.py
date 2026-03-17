@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
-from orcheo.edges import Condition, IfElse
+from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.wecom import (
@@ -125,7 +125,7 @@ async def build_graph() -> StateGraph:
 
     graph.set_entry_point("wecom_events_parser")
 
-    immediate_response_router = IfElse(
+    immediate_response_router = IfElseEdge(
         name="immediate_response_router",
         conditions=[
             Condition(
@@ -140,7 +140,7 @@ async def build_graph() -> StateGraph:
         condition_logic="or",
     )
 
-    message_type_router = IfElse(
+    message_type_router = IfElseEdge(
         name="message_type_router",
         conditions=[
             Condition(
@@ -171,7 +171,7 @@ async def build_graph() -> StateGraph:
 
     graph.add_edge("get_cs_access_token", "wecom_cs_sync")
 
-    cs_sync_router = IfElse(
+    cs_sync_router = IfElseEdge(
         name="cs_sync_router",
         conditions=[
             Condition(

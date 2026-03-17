@@ -1,0 +1,19 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+description = "Fixture listener plugin"
+name = "orcheo-plugin-fixture-listener"
+requires-python = ">=3.12"
+version = "0.1.0"
+
+[project.entry-points."orcheo.plugins"]
+fixture_listener = "orcheo_plugin_fixture_listener:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_fixture_listener = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

@@ -1,0 +1,20 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+dependencies = ["wecom-aibot-sdk>=1.0.3"]
+description = "WeCom listener plugin for Orcheo"
+name = "orcheo-plugin-wecom-listener"
+requires-python = ">=3.12"
+version = "0.3.0"
+
+[project.entry-points."orcheo.plugins"]
+wecom_listener = "orcheo_plugin_wecom_listener:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_wecom_listener = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

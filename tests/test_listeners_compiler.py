@@ -31,7 +31,7 @@ def test_compile_listener_subscriptions_filters_invalid_entries() -> None:
 
     assert len(subscriptions) == 1
     subscription = subscriptions[0]
-    assert subscription.platform is ListenerPlatform.DISCORD
+    assert subscription.platform == ListenerPlatform.DISCORD
     assert subscription.bot_identity_key == "explicit-key"
     assert subscription.node_name == "explicit"
     assert subscription.config == {

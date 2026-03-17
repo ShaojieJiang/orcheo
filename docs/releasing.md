@@ -42,6 +42,12 @@ cut a release.
    uv run make test
    uv build --package <package-name>
    ```
+   When the plugin ecosystem changes, also verify:
+   - `orcheo plugin install ./packages/plugins/wecom_listener`
+   - `orcheo plugin install ./packages/plugins/lark_listener`
+   - successful validation of the shared Canvas template
+     `template-wecom-lark-shared-listener`
+   - plugin edge compatibility and legacy alias coverage remain green
 5. **Commit** the changes and open a pull request. Merge once CI is green.
 6. **Tag the release** from the merged commit using the naming convention in the table
    below, then push the tag.

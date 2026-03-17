@@ -26,6 +26,7 @@ const CURRENT_PROVIDER_APIS = new Set([
   "discord-gateway-v10",
   "qq-bot-api-v2",
   "private-bot-listener-suite-2026-03-11",
+  "wecom-lark-listener-plugin-suite-2026-03-16",
 ]);
 
 const CURRENT_REPLY_NODE_CONTRACTS = new Set([

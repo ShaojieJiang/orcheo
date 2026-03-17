@@ -114,7 +114,7 @@ def test_discord_listener_node_defaults_include_dm_intent() -> None:
 
 def test_qq_listener_node_defaults_cover_message_scenes() -> None:
     node = QQBotListenerNode(name="qq_listener")
-    assert node.platform.value == "qq"
+    assert node.platform == "qq"
     assert node.allowed_events == [
         "C2C_MESSAGE_CREATE",
         "GROUP_AT_MESSAGE_CREATE",

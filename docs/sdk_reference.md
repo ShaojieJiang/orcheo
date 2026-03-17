@@ -196,6 +196,6 @@ async def batch_process(queries: list[str]):
 ## See Also
 
 - [CLI Reference](cli_reference.md) - Command-line interface documentation
-- [Custom Nodes and Tools](custom_nodes_and_tools.md) - Extending Orcheo with custom components
+- [Plugin Author Guide](custom_nodes_and_tools.md) - Extending Orcheo with managed plugins
 - [Deployment Guide](deployment.md) - Production deployment recipes
 - [Environment Variables](environment_variables.md) - Complete configuration reference

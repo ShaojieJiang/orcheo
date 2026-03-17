@@ -18,7 +18,9 @@ def list_edges_data(category: str | None = None) -> list[dict[str, Any]]:
         List of edge metadata objects
     """
     from orcheo.edges.registry import edge_registry
+    from orcheo.plugins import ensure_plugins_loaded
 
+    ensure_plugins_loaded()
     entries = edge_registry.list_metadata()
 
     if category:
@@ -52,7 +54,9 @@ def show_edge_data(name: str) -> dict[str, Any]:
         CLIError: If edge is not registered
     """
     from orcheo.edges.registry import edge_registry
+    from orcheo.plugins import ensure_plugins_loaded
 
+    ensure_plugins_loaded()
     metadata = edge_registry.get_metadata(name)
     edge_cls = edge_registry.get_edge(name)
 
@@ -63,6 +67,7 @@ def show_edge_data(name: str) -> dict[str, Any]:
         "name": metadata.name,
         "category": metadata.category,
         "description": metadata.description,
+        "aliases": edge_registry.get_aliases(name),
     }
 
     if hasattr(edge_cls, "model_json_schema"):

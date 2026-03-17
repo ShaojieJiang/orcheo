@@ -801,4 +801,105 @@ describe("workflow-storage API integration - template creation", () => {
       "MessageQQNode@1",
     ]);
   });
+
+  it("includes shared agent routing for the WeCom and Lark listener plugin template", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse({
+        id: "workflow-template-9",
+        name: "WeCom + Lark Shared Listener Copy",
+        slug: "workflow-template-9",
+        description: "Shared WeCom and Lark listener template.",
+        tags: ["wecom", "lark", "listener", "agent", "plugin"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-9-version-1",
+        workflow_id: "workflow-template-9",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source: "from langgraph.graph import StateGraph\n",
+          entrypoint: null,
+          index: { cron: [], listeners: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-wecom-lark-shared-listener",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-9",
+        name: "WeCom + Lark Shared Listener Copy",
+        slug: "workflow-template-9",
+        description: "Shared WeCom and Lark listener template.",
+        tags: ["wecom", "lark", "listener", "agent", "plugin"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-9-version-1",
+          workflow_id: "workflow-template-9",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source: "from langgraph.graph import StateGraph\n",
+            entrypoint: null,
+            index: { cron: [], listeners: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-wecom-lark-shared-listener",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-wecom-lark-shared-listener");
+
+    const ingestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as {
+      metadata?: {
+        template?: {
+          templateVersion?: string;
+          validatedProviderApi?: string;
+        };
+      };
+      runnable_config?: {
+        configurable?: { ai_model?: string; operator_note?: string };
+      };
+      script?: string;
+    };
+
+    expect(ingestBody.script).toContain("AgentNode");
+    expect(ingestBody.script).toContain("AgentReplyExtractorNode");
+    expect(ingestBody.script).toContain("WeComSendMessageNode");
+    expect(ingestBody.script).toContain("HttpRequestNode");
+    expect(ingestBody.script).toContain("tenant_access_token/internal");
+    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
+    expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
+      "wecom-lark-listener-plugin-suite-2026-03-16",
+    );
+    expect(ingestBody.runnable_config?.configurable?.ai_model).toBe(
+      "openai:gpt-4.1-mini",
+    );
+    expect(ingestBody.runnable_config?.configurable?.operator_note).toContain(
+      "listener plugins",
+    );
+  });
 });
