@@ -29,6 +29,12 @@ def update_plugin_data(name: str) -> dict[str, Any]:
     return result
 
 
+def preview_update_plugin_data(name: str) -> dict[str, Any]:
+    """Return update impact for a single plugin without mutating state."""
+    impact = PluginManager().preview_update(name)
+    return {"name": name, "impact": impact}
+
+
 def update_all_plugins_data() -> list[dict[str, Any]]:
     """Update all configured plugins."""
     result = PluginManager().update_all()
@@ -36,10 +42,21 @@ def update_all_plugins_data() -> list[dict[str, Any]]:
     return result
 
 
+def preview_update_all_plugins_data() -> list[dict[str, Any]]:
+    """Return update impact for all plugins without mutating state."""
+    return PluginManager().preview_update_all()
+
+
 def uninstall_plugin_data(name: str) -> dict[str, Any]:
     """Uninstall ``name`` and return the computed impact."""
     impact = PluginManager().uninstall(name)
     invalidate_plugin_loader()
+    return {"name": name, "impact": impact}
+
+
+def preview_uninstall_plugin_data(name: str) -> dict[str, Any]:
+    """Return uninstall impact for ``name`` without mutating state."""
+    impact = PluginManager().preview_uninstall(name)
     return {"name": name, "impact": impact}
 
 
@@ -50,10 +67,22 @@ def enable_plugin_data(name: str) -> dict[str, Any]:
     return {"name": name, "impact": impact}
 
 
+def preview_enable_plugin_data(name: str) -> dict[str, Any]:
+    """Return enable impact for ``name`` without mutating state."""
+    impact = PluginManager().preview_set_enabled(name, enabled=True)
+    return {"name": name, "impact": impact}
+
+
 def disable_plugin_data(name: str) -> dict[str, Any]:
     """Disable ``name`` and return the computed impact."""
     impact = PluginManager().set_enabled(name, enabled=False)
     invalidate_plugin_loader()
+    return {"name": name, "impact": impact}
+
+
+def preview_disable_plugin_data(name: str) -> dict[str, Any]:
+    """Return disable impact for ``name`` without mutating state."""
+    impact = PluginManager().preview_set_enabled(name, enabled=False)
     return {"name": name, "impact": impact}
 
 
@@ -80,6 +109,11 @@ __all__ = [
     "enable_plugin_data",
     "install_plugin_data",
     "list_plugins_data",
+    "preview_disable_plugin_data",
+    "preview_enable_plugin_data",
+    "preview_uninstall_plugin_data",
+    "preview_update_all_plugins_data",
+    "preview_update_plugin_data",
     "show_plugin_data",
     "uninstall_plugin_data",
     "update_all_plugins_data",

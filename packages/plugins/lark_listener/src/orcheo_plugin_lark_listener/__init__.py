@@ -341,8 +341,7 @@ def _run_lark_subscription_preflight(
                     online_version_id = _event_value(app_data, "online_version_id")
                     if not online_version_id:
                         reason = (
-                            "Lark app has no published version; publish "
-                            "the app first."
+                            "Lark app has no published version; publish the app first."
                         )
                     else:
                         app_version_data, reason = _fetch_lark_app_version_data(

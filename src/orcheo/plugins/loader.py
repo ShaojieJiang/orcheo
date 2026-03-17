@@ -80,6 +80,21 @@ def _clear_registered_components() -> None:
     _REGISTERED = PluginRegistrations()
 
 
+def _rollback_plugin_registrations(registrations: PluginRegistrations) -> None:
+    """Roll back a plugin's partial registrations after a load failure."""
+    for name in reversed(registrations.nodes):
+        registry.unregister(name)
+    for name in reversed(registrations.edges):
+        edge_registry.unregister(name)
+    for name in reversed(registrations.agent_tools):
+        tool_registry.unregister(name)
+    for name in reversed(registrations.listeners):
+        listener_registry.unregister(name)
+    for name in reversed(registrations.triggers):
+        trigger_registry.unregister(name)
+    _purge_module_roots(registrations.module_roots)
+
+
 def _plugin_site_packages() -> Path:
     paths = build_storage_paths()
     return _site_packages(Path(paths.install_dir))
@@ -211,6 +226,7 @@ def load_enabled_plugins(  # noqa: C901, PLR0915
                 if module_root and module_root not in api.registrations.module_roots:
                     api.registrations.module_roots.append(module_root)
         except Exception as exc:  # pragma: no cover - covered in loader tests
+            _rollback_plugin_registrations(api.registrations)
             logger.exception("Failed to load plugin %s", manifest.name)
             results.append(
                 PluginLoadResult(

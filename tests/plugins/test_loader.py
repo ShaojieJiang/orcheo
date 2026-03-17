@@ -127,6 +127,25 @@ def test_loader_registers_trigger_plugins(
     }
 
 
+def test_loader_rolls_back_partial_registrations_on_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Loader should remove partial registrations when register(api) crashes."""
+    _set_plugin_env(monkeypatch, tmp_path)
+    manager = PluginManager()
+    manager.install(str(_copy_fixture(tmp_path, "partial_register_plugin")))
+
+    reset_plugin_loader_for_tests()
+    report = load_enabled_plugins(force=True)
+    results = {item.name: item for item in report.results}
+
+    assert results["orcheo-plugin-fixture-partial-register"].loaded is False
+    assert "partial registration failure" in (
+        results["orcheo-plugin-fixture-partial-register"].error or ""
+    )
+    assert registry.get_node("PartialFixtureNode") is None
+
+
 @pytest.mark.asyncio()
 async def test_loader_hot_reload_reimports_updated_plugin_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

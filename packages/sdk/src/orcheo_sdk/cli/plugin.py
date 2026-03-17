@@ -18,6 +18,11 @@ from orcheo_sdk.services import (
     enable_plugin_data,
     install_plugin_data,
     list_plugins_data,
+    preview_disable_plugin_data,
+    preview_enable_plugin_data,
+    preview_uninstall_plugin_data,
+    preview_update_all_plugins_data,
+    preview_update_plugin_data,
     show_plugin_data,
     uninstall_plugin_data,
     update_all_plugins_data,
@@ -156,6 +161,20 @@ def update_plugin(
     state = _state(ctx)
     if all_plugins:
         try:
+            preview_all = preview_update_all_plugins_data()
+        except PluginError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        for item in preview_all:
+            _maybe_confirm(
+                impact=item["impact"],
+                prompt_text=(
+                    f"Apply update for {item['name']} with activation mode "
+                    f"{item['impact'].activation_mode}?"
+                ),
+                state=state,
+                force=force,
+            )
+        try:
             payload_all = update_all_plugins_data()
         except PluginError as exc:
             raise typer.BadParameter(str(exc)) from exc
@@ -170,16 +189,6 @@ def update_plugin(
                 ]
             )
             return
-        for item in payload_all:
-            _maybe_confirm(
-                impact=item["impact"],
-                prompt_text=(
-                    f"Apply update for {item['plugin']['name']} with "
-                    f"activation mode {item['impact'].activation_mode}?"
-                ),
-                state=state,
-                force=force,
-            )
         render_json(
             state.console,
             [
@@ -196,19 +205,23 @@ def update_plugin(
     if not name:
         raise typer.BadParameter("Provide a plugin name or pass --all.")
     try:
-        payload_single = update_plugin_data(name)
+        preview_single = preview_update_plugin_data(name)
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     _maybe_confirm(
-        impact=payload_single["impact"],
+        impact=preview_single["impact"],
         prompt_text=(
             "Update "
             f"{name} with activation mode "
-            f"{payload_single['impact'].activation_mode}?"
+            f"{preview_single['impact'].activation_mode}?"
         ),
         state=state,
         force=force,
     )
+    try:
+        payload_single = update_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if not state.human:
         print_json(
             {
@@ -233,7 +246,7 @@ def uninstall_plugin(
     """Uninstall a plugin and rebuild the shared plugin environment."""
     state = _state(ctx)
     try:
-        payload = uninstall_plugin_data(name)
+        payload = preview_uninstall_plugin_data(name)
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     impact = payload["impact"]
@@ -243,6 +256,11 @@ def uninstall_plugin(
         state=state,
         force=force,
     )
+    try:
+        payload = uninstall_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    impact = payload["impact"]
     if not state.human:
         print_json({"name": name, "impact": _impact_to_dict(impact)})
         return
@@ -262,7 +280,7 @@ def enable_plugin(
     """Enable a previously installed plugin."""
     state = _state(ctx)
     try:
-        payload = enable_plugin_data(name)
+        payload = preview_enable_plugin_data(name)
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     impact = payload["impact"]
@@ -272,6 +290,11 @@ def enable_plugin(
         state=state,
         force=force,
     )
+    try:
+        payload = enable_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    impact = payload["impact"]
     if not state.human:
         print_json({"name": name, "impact": _impact_to_dict(impact)})
         return
@@ -291,7 +314,7 @@ def disable_plugin(
     """Disable a plugin without removing its desired source reference."""
     state = _state(ctx)
     try:
-        payload = disable_plugin_data(name)
+        payload = preview_disable_plugin_data(name)
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     impact = payload["impact"]
@@ -301,6 +324,11 @@ def disable_plugin(
         state=state,
         force=force,
     )
+    try:
+        payload = disable_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    impact = payload["impact"]
     if not state.human:
         print_json({"name": name, "impact": _impact_to_dict(impact)})
         return

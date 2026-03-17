@@ -251,6 +251,67 @@ def test_plugin_uninstall_rebuilds_environment(
     assert list_result.stdout.strip() == "(empty)"
 
 
+def test_plugin_uninstall_prompt_happens_before_mutation(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Declining uninstall confirmation should leave plugin state unchanged."""
+    fixture_path = _copy_fixture(tmp_path, "node_plugin")
+    install_result = runner.invoke(
+        app, ["plugin", "install", str(fixture_path)], env=env
+    )
+    assert install_result.exit_code == 0
+
+    uninstall_result = runner.invoke(
+        app,
+        ["plugin", "uninstall", "orcheo-plugin-fixture-node"],
+        env=env,
+        input="n\n",
+    )
+    assert uninstall_result.exit_code == 1
+
+    show_result = runner.invoke(
+        app,
+        ["plugin", "show", "orcheo-plugin-fixture-node"],
+        env=env,
+    )
+    assert show_result.exit_code == 0
+
+
+def test_plugin_update_prompt_happens_before_mutation(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Declining update confirmation should not rebuild to newer plugin version."""
+    fixture_path = _copy_fixture(tmp_path, "node_plugin")
+    install_result = runner.invoke(
+        app, ["plugin", "install", str(fixture_path)], env=env
+    )
+    assert install_result.exit_code == 0
+
+    pyproject_path = fixture_path / "pyproject.toml"
+    pyproject_path.write_text(
+        pyproject_path.read_text(encoding="utf-8").replace(
+            'version = "0.1.0"', 'version = "0.2.0"'
+        ),
+        encoding="utf-8",
+    )
+
+    update_result = runner.invoke(
+        app,
+        ["plugin", "update", "orcheo-plugin-fixture-node"],
+        env=env,
+        input="n\n",
+    )
+    assert update_result.exit_code == 1
+
+    show_result = runner.invoke(
+        app,
+        ["plugin", "show", "orcheo-plugin-fixture-node"],
+        env=env,
+    )
+    assert show_result.exit_code == 0
+    assert "0.1.0" in show_result.stdout
+
+
 def test_plugin_doctor_reports_broken_plugin(
     runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
 ) -> None:

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -395,6 +395,8 @@ class PluginManager:
         self,
         *,
         desired_records: list[DesiredPluginRecord],
+        validate: Callable[[list[PluginManifest]], None] | None = None,
+        activate: bool = True,
     ) -> tuple[list[PluginManifest], list[LockedPluginRecord]]:
         desired_refs = [record.source for record in desired_records]
         self.plugin_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -416,6 +418,10 @@ class PluginManager:
                 manifests = []
                 locked_records = []
                 _ensure_venv(temp_venv)
+            if validate is not None:
+                validate(manifests)
+            if not activate:
+                return manifests, locked_records
             self.plugin_dir.mkdir(parents=True, exist_ok=True)
             if self.wheels_dir.exists():
                 shutil.rmtree(self.wheels_dir)
@@ -435,19 +441,28 @@ class PluginManager:
         desired_records = load_desired_state(self.state_file)
         existing_names = {record.name for record in desired_records}
         candidate_records = list(desired_records)
+
+        def _validate_single_new_plugin(manifests: list[PluginManifest]) -> None:
+            new_plugins = [
+                manifest
+                for manifest in manifests
+                if manifest.name not in existing_names
+            ]
+            if len(new_plugins) != 1:
+                raise PluginError(
+                    "Install reference must resolve to exactly one new plugin package."
+                )
+
         manifests, locked_records = self._activate_build(
             desired_records=[
                 *candidate_records,
                 DesiredPluginRecord(name=f"pending:{ref}", source=ref, enabled=True),
-            ]
+            ],
+            validate=_validate_single_new_plugin,
         )
         new_plugins = [
             manifest for manifest in manifests if manifest.name not in existing_names
         ]
-        if len(new_plugins) != 1:
-            raise PluginError(
-                "Install reference must resolve to exactly one new plugin package."
-            )
         new_manifest = new_plugins[0]
         candidate_records = [
             record
@@ -475,23 +490,11 @@ class PluginManager:
 
     def update(self, name: str) -> dict[str, Any]:
         """Rebuild the plugin environment using the stored source for ``name``."""
+        impact = self.preview_update(name)
         desired = self._desired_by_name()
-        previous_lock = self._lock_by_name()
-        if name not in desired:
-            raise PluginError(f"Plugin '{name}' is not installed.")
         desired_records = list(desired.values())
-        manifests, locked_records = self._activate_build(
+        _manifests, locked_records = self._activate_build(
             desired_records=desired_records
-        )
-        manifests_by_name = {manifest.name: manifest for manifest in manifests}
-        if name not in manifests_by_name:
-            raise PluginError(
-                f"Updated environment no longer provides plugin '{name}'."
-            )
-        impact = classify_plugin_change(
-            previous=previous_lock.get(name),
-            current=manifests_by_name[name],
-            operation="update",
         )
         self._reconcile_desired_and_lock(desired_records, locked_records)
         return {
@@ -499,16 +502,39 @@ class PluginManager:
             "impact": impact,
         }
 
-    def update_all(self) -> list[dict[str, Any]]:
-        """Rebuild all desired plugins and return per-plugin impact summaries."""
+    def preview_update(self, name: str) -> PluginImpactSummary:
+        """Compute update impact for ``name`` without mutating plugin state."""
         desired = self._desired_by_name()
         previous_lock = self._lock_by_name()
+        if name not in desired:
+            raise PluginError(f"Plugin '{name}' is not installed.")
+        desired_records = list(desired.values())
+        manifests, _locked_records = self._activate_build(
+            desired_records=desired_records,
+            activate=False,
+        )
+        manifests_by_name = {manifest.name: manifest for manifest in manifests}
+        if name not in manifests_by_name:
+            raise PluginError(
+                f"Updated environment no longer provides plugin '{name}'."
+            )
+        return classify_plugin_change(
+            previous=previous_lock.get(name),
+            current=manifests_by_name[name],
+            operation="update",
+        )
+
+    def update_all(self) -> list[dict[str, Any]]:
+        """Rebuild all desired plugins and return per-plugin impact summaries."""
+        preview = self.preview_update_all()
+        desired = self._desired_by_name()
         desired_records = list(desired.values())
         manifests, locked_records = self._activate_build(
             desired_records=desired_records
         )
         manifests_by_name = {manifest.name: manifest for manifest in manifests}
         self._reconcile_desired_and_lock(desired_records, locked_records)
+        preview_by_name = {item["name"]: item["impact"] for item in preview}
         results: list[dict[str, Any]] = []
         for name in sorted(desired, key=str.lower):
             manifest = manifests_by_name.get(name)
@@ -517,17 +543,47 @@ class PluginManager:
             results.append(
                 {
                     "plugin": self.show_plugin(name),
-                    "impact": classify_plugin_change(
-                        previous=previous_lock.get(name),
-                        current=manifest,
-                        operation="update",
-                    ),
+                    "impact": preview_by_name[name],
                 }
             )
         return results
 
+    def preview_update_all(self) -> list[dict[str, Any]]:
+        """Compute update impacts for all plugins without mutating plugin state."""
+        desired = self._desired_by_name()
+        previous_lock = self._lock_by_name()
+        desired_records = list(desired.values())
+        manifests, _locked_records = self._activate_build(
+            desired_records=desired_records,
+            activate=False,
+        )
+        manifests_by_name = {manifest.name: manifest for manifest in manifests}
+        return [
+            {
+                "name": name,
+                "impact": classify_plugin_change(
+                    previous=previous_lock.get(name),
+                    current=manifest,
+                    operation="update",
+                ),
+            }
+            for name in sorted(desired, key=str.lower)
+            if (manifest := manifests_by_name.get(name)) is not None
+        ]
+
     def uninstall(self, name: str) -> PluginImpactSummary:
         """Remove ``name`` from desired state and rebuild the plugin environment."""
+        impact = self.preview_uninstall(name)
+        desired = self._desired_by_name()
+        desired_records = [record for record in desired.values() if record.name != name]
+        _manifests, locked_records = self._activate_build(
+            desired_records=desired_records
+        )
+        self._reconcile_desired_and_lock(desired_records, locked_records)
+        return impact
+
+    def preview_uninstall(self, name: str) -> PluginImpactSummary:
+        """Compute uninstall impact for ``name`` without mutating plugin state."""
         desired = self._desired_by_name()
         locked = self._lock_by_name()
         if name not in desired:
@@ -549,22 +605,28 @@ class PluginManager:
             current=manifest,
             operation="uninstall",
         )
-        desired_records = [record for record in desired.values() if record.name != name]
+        return impact
+
+    def set_enabled(self, name: str, *, enabled: bool) -> PluginImpactSummary:
+        """Enable or disable a plugin."""
+        impact = self.preview_set_enabled(name, enabled=enabled)
+        desired = self._desired_by_name()
+        desired[name].enabled = enabled
+        desired_records = list(desired.values())
         _manifests, locked_records = self._activate_build(
             desired_records=desired_records
         )
         self._reconcile_desired_and_lock(desired_records, locked_records)
         return impact
 
-    def set_enabled(self, name: str, *, enabled: bool) -> PluginImpactSummary:
-        """Enable or disable a plugin."""
+    def preview_set_enabled(self, name: str, *, enabled: bool) -> PluginImpactSummary:
+        """Compute enable or disable impact without mutating plugin state."""
         desired = self._desired_by_name()
         locked = self._lock_by_name()
         if name not in desired:
             raise PluginError(f"Plugin '{name}' is not installed.")
         if name not in locked:
             raise PluginError(f"Plugin '{name}' is not locked.")
-        desired[name].enabled = enabled
         manifest = PluginManifest(
             name=name,
             version=locked[name].version,
@@ -575,17 +637,11 @@ class PluginManager:
             exports=locked[name].exports,
             entry_points=locked[name].entry_points,
         )
-        impact = classify_plugin_change(
+        return classify_plugin_change(
             previous=locked[name],
             current=manifest,
             operation="disable" if not enabled else "install",
         )
-        desired_records = list(desired.values())
-        _manifests, locked_records = self._activate_build(
-            desired_records=desired_records
-        )
-        self._reconcile_desired_and_lock(desired_records, locked_records)
-        return impact
 
     def doctor(self) -> DoctorReport:
         """Inspect plugin state without making changes."""
