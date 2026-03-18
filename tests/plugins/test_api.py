@@ -19,16 +19,14 @@ from orcheo.triggers.registry import TriggerMetadata, TriggerRegistry
 # ---------------------------------------------------------------------------
 
 
-def _make_api_with_fresh_registries() -> (
-    tuple[
-        PluginAPI,
-        NodeRegistry,
-        EdgeRegistry,
-        ToolRegistry,
-        TriggerRegistry,
-        ListenerRegistry,
-    ]
-):
+def _make_api_with_fresh_registries() -> tuple[
+    PluginAPI,
+    NodeRegistry,
+    EdgeRegistry,
+    ToolRegistry,
+    TriggerRegistry,
+    ListenerRegistry,
+]:
     """Return a PluginAPI wired to fresh, isolated registries."""
     node_reg = NodeRegistry()
     edge_reg = EdgeRegistry()
