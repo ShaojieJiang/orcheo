@@ -607,6 +607,51 @@ class LarkListenerAdapter:
         await stop_event.wait()
         self._status = "stopped"
 
+    def _build_lark_dispatcher(
+        self, handle_message: Any, event_dispatcher_cls: Any
+    ) -> Any:
+        builder = event_dispatcher_cls.builder("", "")
+        if hasattr(builder, "register_p2_im_message_receive_v1"):
+            builder = builder.register_p2_im_message_receive_v1(handle_message)
+        elif hasattr(builder, "register_p2_customized_event"):
+            builder = builder.register_p2_customized_event(
+                "im.message.receive_v1",
+                handle_message,
+            )
+        else:  # pragma: no cover - defensive
+            raise RuntimeError(
+                "Lark EventDispatcherHandler does not expose a compatible "
+                "message registration hook."
+            )
+        if hasattr(builder, "register_p1_customized_event"):
+            builder = builder.register_p1_customized_event("message", handle_message)
+        return builder.build()
+
+    async def _run_official_monitor_loop(self, stop_event: asyncio.Event) -> None:
+        _disconnect_seen_at: float | None = None
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=60.0)
+            except TimeoutError:
+                pass
+            else:
+                break
+            is_sdk_connected = (
+                self._sdk_client is not None
+                and getattr(self._sdk_client, "_conn", None) is not None
+            )
+            if not is_sdk_connected:
+                now = asyncio.get_running_loop().time()
+                if _disconnect_seen_at is None:
+                    _disconnect_seen_at = now
+                elif now - _disconnect_seen_at > 300.0:
+                    raise RuntimeError(
+                        "Lark SDK connection has been down for over 5 minutes; "
+                        "restarting adapter"
+                    )
+            else:
+                _disconnect_seen_at = None
+
     async def _run_official_long_connection(
         self,
         stop_event: asyncio.Event,
@@ -639,27 +684,7 @@ class LarkListenerAdapter:
         def handle_message(event: Any) -> None:
             self._handle_official_event(event)
 
-        dispatcher_builder = EventDispatcherHandler.builder("", "")
-        if hasattr(dispatcher_builder, "register_p2_im_message_receive_v1"):
-            dispatcher_builder = dispatcher_builder.register_p2_im_message_receive_v1(
-                handle_message
-            )
-        elif hasattr(dispatcher_builder, "register_p2_customized_event"):
-            dispatcher_builder = dispatcher_builder.register_p2_customized_event(
-                "im.message.receive_v1",
-                handle_message,
-            )
-        else:  # pragma: no cover - defensive
-            raise RuntimeError(
-                "Lark EventDispatcherHandler does not expose a compatible "
-                "message registration hook."
-            )
-        if hasattr(dispatcher_builder, "register_p1_customized_event"):
-            dispatcher_builder = dispatcher_builder.register_p1_customized_event(
-                "message",
-                handle_message,
-            )
-        dispatcher = dispatcher_builder.build()
+        dispatcher = self._build_lark_dispatcher(handle_message, EventDispatcherHandler)
         self._sdk_client = LarkWSClient(
             app_id=str(self.subscription.config.get("app_id", "")),
             app_secret=str(self.subscription.config.get("app_secret", "")),
@@ -682,7 +707,7 @@ class LarkListenerAdapter:
                 self._sdk_client._ping_loop(),
                 self._sdk_loop,
             )
-            await stop_event.wait()
+            await self._run_official_monitor_loop(stop_event)
         except BaseException as exc:
             self._status = "error"
             self._detail = str(exc)

@@ -460,6 +460,30 @@ class WeComListenerAdapter:
         await stop_event.wait()
         self._status = "stopped"
 
+    async def _run_websocket_monitor_loop(self, stop_event: asyncio.Event) -> None:
+        _disconnect_seen_at: float | None = None
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=60.0)
+            except TimeoutError:
+                pass
+            else:
+                break
+            is_sdk_connected = (
+                self._sdk_client is not None and self._sdk_client.is_connected
+            )
+            if not is_sdk_connected:
+                now = asyncio.get_running_loop().time()
+                if _disconnect_seen_at is None:
+                    _disconnect_seen_at = now
+                elif now - _disconnect_seen_at > 300.0:
+                    raise RuntimeError(
+                        "WeCom connection has been down for over 5 minutes; "
+                        "restarting adapter"
+                    )
+            else:
+                _disconnect_seen_at = None
+
     async def _run_websocket_connection(
         self,
         stop_event: asyncio.Event,
@@ -489,6 +513,7 @@ class WeComListenerAdapter:
         self._sdk_client = WSClient(
             bot_id=str(self.subscription.config.get("bot_id", "")),
             secret=str(self.subscription.config.get("bot_secret", "")),
+            max_reconnect_attempts=-1,
         )
 
         def handle_message(frame: Any) -> None:
@@ -519,7 +544,7 @@ class WeComListenerAdapter:
             )
             self._status = "healthy"
             self._detail = "connected to WeCom long-connection"
-            await stop_event.wait()
+            await self._run_websocket_monitor_loop(stop_event)
         except BaseException as exc:
             self._status = "error"
             self._detail = str(exc)

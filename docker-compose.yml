@@ -65,6 +65,7 @@ services:
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
+      PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
@@ -103,6 +104,7 @@ services:
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
+      PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
