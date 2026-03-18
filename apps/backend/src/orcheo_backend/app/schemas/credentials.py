@@ -181,6 +181,7 @@ class CredentialVaultEntryResponse(BaseModel):
     last_rotated_at: datetime | None
     owner: str | None
     access: Literal["private", "shared", "public"]
+    workflow_id: str | None = None
     status: CredentialHealthStatus
     secret_preview: str | None = None
 

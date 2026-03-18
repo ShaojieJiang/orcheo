@@ -180,4 +180,13 @@ describe("TraceViewer", () => {
       expect.objectContaining({ id: "trace-2" }),
     );
   });
+
+  it("renders the desktop viewer inside a full-width wrapper", () => {
+    render(<TraceViewer data={[createViewerData("trace-1", 1)]} />);
+
+    expect(screen.getByTestId("desktop-layout").parentElement).toHaveClass(
+      "w-full",
+      "min-w-0",
+    );
+  });
 });

@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
-from orcheo.edges import Condition, IfElse
+from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
@@ -1134,7 +1134,7 @@ def register_send_nodes(graph: StateGraph) -> None:
 def setup_initial_routing(graph: StateGraph) -> None:
     """Configure the entry-point and handling for incoming messages."""
     graph.set_entry_point("wecom_events_parser")
-    immediate_response_router = IfElse(
+    immediate_response_router = IfElseEdge(
         name="immediate_response_router",
         conditions=[
             Condition(
@@ -1148,7 +1148,7 @@ def setup_initial_routing(graph: StateGraph) -> None:
         ],
         condition_logic="or",
     )
-    message_type_router = IfElse(
+    message_type_router = IfElseEdge(
         name="message_type_router",
         conditions=[
             Condition(
@@ -1177,7 +1177,7 @@ def setup_initial_routing(graph: StateGraph) -> None:
     graph.add_edge("get_cs_access_token", "wecom_cs_sync")
     graph.add_edge("get_access_token", "agent")
 
-    cs_sync_router = IfElse(
+    cs_sync_router = IfElseEdge(
         name="cs_sync_router",
         conditions=[
             Condition(
@@ -1201,7 +1201,7 @@ def setup_action_routing(graph: StateGraph) -> None:
     graph.add_edge("agent", "extract_agent_reply")
     graph.add_edge("extract_agent_reply", "parse_command")
 
-    action_event_router = IfElse(
+    action_event_router = IfElseEdge(
         name="action_event_router",
         conditions=[
             Condition(
@@ -1226,7 +1226,7 @@ def setup_action_routing(graph: StateGraph) -> None:
         },
     )
 
-    action_rsvp_router = IfElse(
+    action_rsvp_router = IfElseEdge(
         name="action_rsvp_router",
         conditions=[
             Condition(
@@ -1245,7 +1245,7 @@ def setup_action_routing(graph: StateGraph) -> None:
         },
     )
 
-    action_get_router = IfElse(
+    action_get_router = IfElseEdge(
         name="action_get_router",
         conditions=[
             Condition(
@@ -1264,7 +1264,7 @@ def setup_action_routing(graph: StateGraph) -> None:
         },
     )
 
-    action_get_event_router = IfElse(
+    action_get_event_router = IfElseEdge(
         name="action_get_event_router",
         conditions=[
             Condition(
@@ -1283,7 +1283,7 @@ def setup_action_routing(graph: StateGraph) -> None:
         },
     )
 
-    action_list_router = IfElse(
+    action_list_router = IfElseEdge(
         name="action_list_router",
         conditions=[
             Condition(
@@ -1305,7 +1305,7 @@ def setup_action_routing(graph: StateGraph) -> None:
 
 def setup_event_flow(graph: StateGraph) -> None:
     """Wire the validation and persistence flow for event updates."""
-    event_valid_router = IfElse(
+    event_valid_router = IfElseEdge(
         name="event_valid_router",
         conditions=[
             Condition(
@@ -1324,7 +1324,7 @@ def setup_event_flow(graph: StateGraph) -> None:
     )
     graph.add_edge("find_event_for_update", "validate_event_owner")
 
-    event_owner_router = IfElse(
+    event_owner_router = IfElseEdge(
         name="event_owner_router",
         conditions=[
             Condition(
@@ -1348,7 +1348,7 @@ def setup_event_flow(graph: StateGraph) -> None:
 
 def setup_rsvp_flow(graph: StateGraph) -> None:
     """Wire the RSVP validation and persistence flow."""
-    rsvp_valid_router = IfElse(
+    rsvp_valid_router = IfElseEdge(
         name="rsvp_valid_router",
         conditions=[
             Condition(
@@ -1371,7 +1371,7 @@ def setup_rsvp_flow(graph: StateGraph) -> None:
 
 def setup_get_and_list_flow(graph: StateGraph) -> None:
     """Arrange the flows for fetching RSVP lists, event details, and upcoming events."""
-    get_valid_router = IfElse(
+    get_valid_router = IfElseEdge(
         name="get_valid_router",
         conditions=[
             Condition(
@@ -1391,7 +1391,7 @@ def setup_get_and_list_flow(graph: StateGraph) -> None:
     graph.add_edge("find_rsvps", "format_rsvp_list_reply")
     graph.add_edge("format_rsvp_list_reply", "route_rsvp_list_reply")
 
-    get_event_valid_router = IfElse(
+    get_event_valid_router = IfElseEdge(
         name="get_event_valid_router",
         conditions=[
             Condition(
@@ -1425,7 +1425,7 @@ def setup_unknown_flow(graph: StateGraph) -> None:
 
 def setup_reply_channel(graph: StateGraph) -> None:
     """Route finalized replies either to customer service or internally."""
-    reply_channel_router = IfElse(
+    reply_channel_router = IfElseEdge(
         name="reply_channel_router",
         conditions=[
             Condition(

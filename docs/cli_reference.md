@@ -64,7 +64,16 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo node list [--tag <tag>]` | List registered nodes with metadata (name, category, description). Filter by tag. |
 | `orcheo node show <node>` | Display detailed node schema, inputs/outputs, and credential requirements. |
 | `orcheo edge list [--category <category>]` | List registered edges with metadata (name, category, description). Filter by category. |
-| `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. |
+| `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. Canonical built-ins use the `*Edge` suffix; legacy aliases still resolve for compatibility. |
+| `orcheo plugin list` | List installed plugins with enabled state, status, version, exports, and source ref. |
+| `orcheo plugin show <plugin>` | Show plugin manifest, compatibility, entry points, and resolved install state. |
+| `orcheo plugin install <ref>` | Install a plugin from a package name, pinned package, local path, wheel, or Git URL. |
+| `orcheo plugin update <plugin>` | Rebuild and update one plugin from its stored source ref. |
+| `orcheo plugin update --all` | Rebuild and update all configured plugins. |
+| `orcheo plugin uninstall <plugin>` | Remove a plugin and rebuild the shared plugin environment. |
+| `orcheo plugin enable <plugin>` | Mark an installed plugin enabled so the runtime may load it. |
+| `orcheo plugin disable <plugin>` | Mark an installed plugin disabled without forgetting its install source. |
+| `orcheo plugin doctor` | Run non-destructive diagnostics against plugin state, compatibility, and importability. |
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
@@ -104,6 +113,86 @@ When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
 features stay disabled until the key is set.
+
+## Edge Naming
+
+Built-in branching edges now use canonical names with an `Edge` suffix:
+
+- `IfElseEdge`
+- `SwitchEdge`
+- `WhileEdge`
+
+`orcheo edge list` emits these canonical names. Older names (`IfElse`, `Switch`,
+`While`) still work for `orcheo edge show` and older workflow definitions, but
+new examples and custom registrations should use the canonical `*Edge` names.
+
+## Plugin Management
+
+The plugin subsystem uses a shared managed virtual environment plus desired and
+lock state files under `~/.orcheo/plugins/` by default:
+
+```text
+~/.orcheo/
+  plugins/
+    plugins.toml
+    plugin-lock.toml
+    venv/
+    wheels/
+    manifests/
+```
+
+Cached plugin downloads and metadata live under `~/.cache/orcheo/plugins/`.
+Set `ORCHEO_PLUGIN_DIR` to relocate the runtime-managed plugin tree. The cache
+root continues to follow `ORCHEO_CACHE_DIR`.
+
+Supported plugin refs:
+
+- package: `orcheo-plugin-wecom-listener`
+- pinned package: `orcheo-plugin-wecom-listener==0.1.0`
+- local path: `./plugins/orcheo-plugin-acme`
+- wheel: `dist/orcheo_plugin_acme-0.1.0-py3-none-any.whl`
+- git: `git+https://github.com/acme/orcheo-plugin-acme.git`
+
+`orcheo plugin install`, `update`, `disable`, and `uninstall` classify changes
+as silent hot reload, confirmation-required hot reload, or restart-required.
+Listener and trigger plugins always surface restart guidance because they are
+not hot-reloadable in v1.
+
+`orcheo plugin doctor` checks the managed plugin venv, Python version,
+importability of enabled plugins, manifest hash integrity, plugin API
+compatibility, Orcheo version compatibility, disabled-plugin references, and
+lock consistency. It exits `1` when any error-level diagnostic is present.
+
+### Validation listener plugins
+
+Two reference plugins exercise the listener-plugin contract end to end:
+
+```bash
+orcheo plugin install orcheo-plugin-wecom-listener
+orcheo plugin install orcheo-plugin-lark-listener
+```
+
+They register:
+
+- `WeComListenerPluginNode` + listener platform `wecom`
+- `LarkListenerPluginNode` + listener platform `lark`
+
+Both plugins are intended to be operated through the plugin CLI. Because they
+export listeners, install, update, disable, and uninstall operations should be
+treated as restart or reconcile events for affected runtime processes.
+
+### Plugin troubleshooting
+
+Common operator flows:
+
+- Broken import on startup: run `orcheo plugin doctor`, then
+  `orcheo plugin disable <name>` if you need to restore service health quickly.
+- Compatibility failure: `orcheo plugin show <name>` and `orcheo plugin doctor`
+  will surface plugin API or Orcheo version mismatches. Reinstall a compatible
+  plugin version or upgrade the plugin package.
+- Integrity drift: if `plugin doctor` reports manifest or lock inconsistencies,
+  reinstall or update the affected plugin so the managed venv and lock state are
+  rebuilt together.
 
 ## Workflow Commands
 

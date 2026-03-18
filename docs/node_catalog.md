@@ -190,4 +190,4 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 ## Creating Custom Nodes
 
-See the [Custom Nodes and Tools](custom_nodes_and_tools.md) guide for instructions on creating and registering custom nodes.
+See the [Plugin Author Guide](custom_nodes_and_tools.md) for instructions on creating and registering plugin-managed nodes.

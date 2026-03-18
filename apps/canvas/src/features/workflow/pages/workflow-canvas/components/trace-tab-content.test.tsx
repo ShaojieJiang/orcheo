@@ -131,6 +131,15 @@ describe("TraceTabContent", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("wraps the viewer in a full-width container", () => {
+    render(<TraceTabContent {...createProps()} />);
+
+    expect(screen.getByTestId("trace-viewer").parentElement).toHaveClass(
+      "w-full",
+      "min-w-0",
+    );
+  });
+
   it("passes the active trace id to the viewer", () => {
     render(<TraceTabContent {...createProps()} />);
 

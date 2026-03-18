@@ -37,6 +37,14 @@ def _parse_optional_datetime(value: str | None) -> datetime | None:
     return dt
 
 
+def _deserialize_legacy_workflow_payload(payload_json: str) -> Workflow:
+    """Load workflow payloads while ignoring removed publish-token fields."""
+    payload = json.loads(payload_json)
+    payload.pop("publish_token_hash", None)
+    payload.pop("publish_token_rotated_at", None)
+    return Workflow.model_validate(payload)
+
+
 class SqliteRepositoryBase:
     """Provide locking, connections, and trigger-layer hydration."""
 
@@ -240,7 +248,7 @@ class SqliteRepositoryBase:
         cursor = await conn.execute("SELECT id, payload FROM workflows")
         workflow_rows = await cursor.fetchall()
         for row in workflow_rows:
-            workflow = Workflow.model_validate_json(row["payload"])
+            workflow = _deserialize_legacy_workflow_payload(row["payload"])
             await conn.execute(
                 """
                 UPDATE workflows

@@ -74,6 +74,11 @@ class NodeRegistry:
                 return self._metadata.get(name)
         return None
 
+    def unregister(self, name: str) -> None:
+        """Remove one registered node and its metadata if present."""
+        self._nodes.pop(name, None)
+        self._metadata.pop(name, None)
+
 
 # Global registry instance
 registry = NodeRegistry()

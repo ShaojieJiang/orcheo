@@ -4,7 +4,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from pydantic import Field
-from orcheo.edges import Switch, SwitchCase
+from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.conversation import (
@@ -200,7 +200,7 @@ async def orcheo_workflow() -> StateGraph:
     workflow.add_edge(conversation_start.name, conversation_context.name)
     workflow.add_edge(conversation_context.name, classifier.name)
 
-    routing_switch = Switch(
+    routing_switch = SwitchEdge(
         name="query_routing",
         value="{{query_classifier.classification}}",
         case_sensitive=False,

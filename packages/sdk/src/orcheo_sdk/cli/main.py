@@ -25,6 +25,7 @@ from orcheo_sdk.cli.edge import edge_app
 from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.cli.node import node_app
+from orcheo_sdk.cli.plugin import plugin_app
 from orcheo_sdk.cli.service_token import app as service_token_app
 from orcheo_sdk.cli.setup import (
     AuthMode,
@@ -97,6 +98,7 @@ app = typer.Typer(help="Command line interface for Orcheo workflows.")
 app.add_typer(auth_app, name="auth")
 app.add_typer(node_app, name="node")
 app.add_typer(edge_app, name="edge")
+app.add_typer(plugin_app, name="plugin")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")

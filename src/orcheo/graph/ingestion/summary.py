@@ -182,16 +182,14 @@ def _extract_cron_index(graph: StateGraph) -> list[dict[str, Any]]:
 
 def _extract_listener_index(graph: StateGraph) -> list[dict[str, Any]]:
     """Extract listener node metadata from the graph."""
+    from orcheo.nodes.listeners import ListenerNode
+
     listener_nodes: list[dict[str, Any]] = []
-    listener_types = {
-        "TelegramBotListenerNode",
-        "DiscordBotListenerNode",
-        "QQBotListenerNode",
-    }
     for name, spec in graph.nodes.items():
-        node = _serialise_node(name, spec.runnable)
-        if node.get("type") not in listener_types:
+        runnable_obj = _unwrap_runnable(spec.runnable)
+        if not isinstance(runnable_obj, ListenerNode):
             continue
+        node = _serialise_node(name, runnable_obj)
 
         payload: dict[str, Any] = {
             "node_name": name,

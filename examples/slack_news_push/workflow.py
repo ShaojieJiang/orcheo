@@ -16,7 +16,7 @@ import html
 from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
-from orcheo.edges import Condition, IfElse
+from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.mongodb import (
@@ -43,6 +43,7 @@ class FormatDigestNode(TaskNode):
 
     @staticmethod
     def decode_title(text: str | None) -> str:
+        """Decode and sanitize item titles from the news store."""
         if not text:
             return "No Title"
         decoded = html.unescape(text).replace("\xa0", " ")
@@ -50,6 +51,7 @@ class FormatDigestNode(TaskNode):
 
     @staticmethod
     def read_items(state: State) -> list[dict[str, Any]]:
+        """Return the stored find_unread documents from the previous nodes."""
         results = state.get("results", {})
         if not isinstance(results, dict):
             return []
@@ -63,6 +65,7 @@ class FormatDigestNode(TaskNode):
 
     @staticmethod
     def read_unread_count(state: State) -> int:
+        """Return the latest unread item count from the aggregation node."""
         results = state.get("results", {})
         if not isinstance(results, dict):
             return 0
@@ -168,7 +171,7 @@ async def build_graph() -> StateGraph:
     )
 
     graph.set_entry_point("detect_trigger")
-    trigger_router = IfElse(
+    trigger_router = IfElseEdge(
         name="trigger_router",
         conditions=[
             Condition(left="{{detect_trigger.has_webhook}}", operator="is_truthy")
@@ -184,7 +187,7 @@ async def build_graph() -> StateGraph:
     )
     graph.add_edge("cron_trigger", "count_unread")
 
-    reply_router = IfElse(
+    reply_router = IfElseEdge(
         name="reply_router",
         conditions=[
             Condition(
@@ -204,7 +207,7 @@ async def build_graph() -> StateGraph:
     graph.add_edge("find_unread", "format_digest")
     graph.add_edge("format_digest", "post_message")
 
-    post_router = IfElse(
+    post_router = IfElseEdge(
         name="post_router",
         conditions=[
             Condition(left="{{post_message.is_error}}", operator="is_falsy"),

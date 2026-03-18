@@ -6,7 +6,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
-from orcheo.listeners import ListenerPlatform
+from orcheo.listeners.models import ListenerPlatform
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
@@ -14,7 +14,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
 class ListenerNode(TaskNode):
     """Common runtime contract for listener-triggered workflow nodes."""
 
-    platform: ListenerPlatform
+    platform: str
     bot_identity_key: str | None = None
     dedupe_window_seconds: int = Field(default=300, ge=1)
 
@@ -24,7 +24,7 @@ class ListenerNode(TaskNode):
             listener = inputs.get("listener")
             if isinstance(listener, Mapping):
                 return dict(listener)
-            if inputs.get("platform") == self.platform.value:
+            if inputs.get("platform") == self.platform:
                 return dict(inputs)
         return {}
 
@@ -32,9 +32,9 @@ class ListenerNode(TaskNode):
         """Expose the normalized listener event for downstream nodes."""
         del config
         payload = self._extract_listener_payload(state)
-        if payload.get("platform") != self.platform.value:
+        if payload.get("platform") != self.platform:
             return {
-                "platform": self.platform.value,
+                "platform": self.platform,
                 "should_process": False,
                 "skipped": True,
                 "bot_identity": self.bot_identity_key,
@@ -79,7 +79,7 @@ class ListenerNode(TaskNode):
 class TelegramBotListenerNode(ListenerNode):
     """Declare a Telegram private listener subscription."""
 
-    platform: ListenerPlatform = ListenerPlatform.TELEGRAM
+    platform: str = ListenerPlatform.TELEGRAM
     token: str = "[[telegram_token]]"
     allowed_updates: list[str] = Field(default_factory=lambda: ["message"])
     allowed_chat_types: list[str] = Field(default_factory=lambda: ["private"])
@@ -99,7 +99,7 @@ class TelegramBotListenerNode(ListenerNode):
 class DiscordBotListenerNode(ListenerNode):
     """Declare a Discord Gateway listener subscription."""
 
-    platform: ListenerPlatform = ListenerPlatform.DISCORD
+    platform: str = ListenerPlatform.DISCORD
     token: str = "[[discord_bot_token]]"
     intents: list[str] = Field(
         default_factory=lambda: ["guilds", "guild_messages", "direct_messages"]
@@ -123,7 +123,7 @@ class DiscordBotListenerNode(ListenerNode):
 class QQBotListenerNode(ListenerNode):
     """Declare a QQ Gateway listener subscription."""
 
-    platform: ListenerPlatform = ListenerPlatform.QQ
+    platform: str = ListenerPlatform.QQ
     app_id: str = "[[qq_app_id]]"
     client_secret: str = "[[qq_client_secret]]"
     sandbox: bool = False

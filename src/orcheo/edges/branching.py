@@ -47,12 +47,12 @@ def _coerce_branch_key(candidate: str | None, fallback: str) -> str:
 
 @edge_registry.register(
     EdgeMetadata(
-        name="IfElse",
+        name="IfElseEdge",
         description="Branch execution based on a condition",
         category="logic",
     )
 )
-class IfElse(BaseEdge):
+class IfElseEdge(BaseEdge):
     """Evaluate a boolean expression and emit the chosen branch."""
 
     conditions: list[Condition] = Field(
@@ -77,12 +77,12 @@ class IfElse(BaseEdge):
 
 @edge_registry.register(
     EdgeMetadata(
-        name="Switch",
+        name="SwitchEdge",
         description="Resolve a case key for downstream branching",
         category="logic",
     )
 )
-class Switch(BaseEdge):
+class SwitchEdge(BaseEdge):
     """Map an input value to a branch identifier."""
 
     value: Any = Field(description="Value to inspect for routing decisions")
@@ -140,12 +140,12 @@ class Switch(BaseEdge):
 
 @edge_registry.register(
     EdgeMetadata(
-        name="While",
+        name="WhileEdge",
         description="Emit a continue signal while the condition holds",
         category="logic",
     )
 )
-class While(BaseEdge):
+class WhileEdge(BaseEdge):
     """Evaluate a condition and loop until it fails or a limit is reached.
 
     The iteration counter is read from ``state["results"][self.name]``
@@ -204,8 +204,21 @@ class While(BaseEdge):
         return "continue" if should_continue else "exit"
 
 
+edge_registry.register_alias("IfElse", "IfElseEdge")
+edge_registry.register_alias("Switch", "SwitchEdge")
+edge_registry.register_alias("While", "WhileEdge")
+
+# Backward-compatible imports for existing Python workflows.
+IfElse = IfElseEdge
+Switch = SwitchEdge
+While = WhileEdge
+
+
 __all__ = [
     "SwitchCase",
+    "IfElseEdge",
+    "SwitchEdge",
+    "WhileEdge",
     "IfElse",
     "Switch",
     "While",

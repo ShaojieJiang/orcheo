@@ -16,7 +16,7 @@ def test_build_edge_nodes_missing_name() -> None:
     """Edge without name raises ValueError."""
 
     with pytest.raises(ValueError, match="Edge must have a name"):
-        build_edges([{"type": "IfElse"}])
+        build_edges([{"type": "IfElseEdge"}])
 
 
 def test_build_edge_nodes_unknown_type() -> None:
@@ -33,7 +33,7 @@ def test_build_edge_nodes_success() -> None:
     edges_config = [
         {
             "name": "my_decision",
-            "type": "IfElse",
+            "type": "IfElseEdge",
             "conditions": [{"left": True, "operator": "is_truthy"}],
         }
     ]
@@ -42,8 +42,23 @@ def test_build_edge_nodes_success() -> None:
 
     assert "my_decision" in result
     assert result["my_decision"].name == "my_decision"
-    edge_class = edge_registry.get_edge("IfElse")
+    edge_class = edge_registry.get_edge("IfElseEdge")
     assert isinstance(result["my_decision"], edge_class)
+
+
+def test_build_edge_nodes_accepts_legacy_alias_type() -> None:
+    """Legacy edge aliases continue to load existing workflow definitions."""
+    edges_config = [
+        {
+            "name": "my_decision",
+            "type": "IfElse",
+            "conditions": [{"left": True, "operator": "is_truthy"}],
+        }
+    ]
+
+    result = build_edges(edges_config)
+
+    assert result["my_decision"].__class__.__name__ == "IfElseEdge"
 
 
 @pytest.mark.parametrize(

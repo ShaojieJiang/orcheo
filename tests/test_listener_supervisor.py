@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import pytest
 from orcheo.listeners import ListenerHealthSnapshot, ListenerSupervisor
-from orcheo.listeners.models import ListenerPlatform, ListenerSubscriptionStatus
+from orcheo.listeners.models import ListenerSubscriptionStatus
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
@@ -23,7 +23,7 @@ class StubAdapter:
             subscription_id=self.subscription.id,
             runtime_id="runtime-1",
             status="healthy",
-            platform=ListenerPlatform(self.subscription.platform),
+            platform=self.subscription.platform,
         )
 
 

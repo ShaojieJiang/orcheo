@@ -1,6 +1,8 @@
 """Listener-plane exports."""
 
-from orcheo.listeners.compiler import compile_listener_subscriptions
+from __future__ import annotations
+from typing import Any
+from uuid import UUID
 from orcheo.listeners.discord import (
     DefaultDiscordGatewayConnector,
     DefaultDiscordGatewayHttpClient,
@@ -40,6 +42,13 @@ from orcheo.listeners.qq import (
     normalize_qq_event,
     qq_intents_bitmask,
 )
+from orcheo.listeners.registry import (
+    ListenerMetadata,
+    ListenerRegistry,
+    default_listener_compiler,
+    listener_registry,
+    register_builtin_listeners,
+)
 from orcheo.listeners.supervisor import ListenerAdapter, ListenerSupervisor
 from orcheo.listeners.telegram import (
     DefaultTelegramPollingClient,
@@ -47,6 +56,22 @@ from orcheo.listeners.telegram import (
     TelegramPollingClient,
     normalize_telegram_update,
 )
+
+
+def compile_listener_subscriptions(
+    workflow_id: UUID,
+    workflow_version_id: UUID,
+    graph: dict[str, Any],
+) -> list[ListenerSubscription]:
+    """Compile listener subscriptions without importing plugin code eagerly."""
+    from orcheo.listeners.compiler import (
+        compile_listener_subscriptions as _compile_listener_subscriptions,
+    )
+
+    return _compile_listener_subscriptions(workflow_id, workflow_version_id, graph)
+
+
+register_builtin_listeners()
 
 
 __all__ = [
@@ -62,7 +87,9 @@ __all__ = [
     "ListenerDispatchMessage",
     "ListenerDispatchPayload",
     "ListenerHealthSnapshot",
+    "ListenerMetadata",
     "ListenerPlatform",
+    "ListenerRegistry",
     "ListenerAdapter",
     "DiscordGatewayAdapter",
     "DiscordGatewayConnection",
@@ -80,6 +107,9 @@ __all__ = [
     "QQGatewayInfo",
     "QQGatewaySessionStartLimit",
     "ListenerSupervisor",
+    "default_listener_compiler",
+    "listener_registry",
+    "register_builtin_listeners",
     "ListenerSubscription",
     "ListenerSubscriptionStatus",
     "DefaultTelegramPollingClient",

@@ -23,7 +23,9 @@ def load_tool_registry() -> ToolRegistry:
         CLIError: If unable to import or load the registry
     """
     from orcheo.nodes.agent_tools.registry import ToolRegistry
+    from orcheo.plugins import ensure_plugins_loaded
 
+    ensure_plugins_loaded()
     try:
         # Import tools module to trigger registration
         import_module("orcheo.nodes.agent_tools.tools")

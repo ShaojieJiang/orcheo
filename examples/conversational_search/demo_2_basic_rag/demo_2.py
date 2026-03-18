@@ -2,7 +2,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from pydantic import Field
-from orcheo.edges import Condition, IfElse, Switch, SwitchCase
+from orcheo.edges import Condition, IfElseEdge, SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.generation import GroundedGeneratorNode
@@ -116,7 +116,7 @@ def create_routing_edges(vector_store: InMemoryVectorStore) -> dict[str, Any]:
     )
 
     # Entry router: Switch edge that reads routing decision from state
-    entry_router = Switch(
+    entry_router = SwitchEdge(
         name="entry_router",
         value="{{entry_routing.routing_mode}}",  # Template string reads from state
         cases=[
@@ -128,7 +128,7 @@ def create_routing_edges(vector_store: InMemoryVectorStore) -> dict[str, Any]:
     )
 
     # Post-ingestion router: checks if query/message is present for search
-    post_ingestion_router = IfElse(
+    post_ingestion_router = IfElseEdge(
         name="post_ingestion_router",
         conditions=[
             Condition(

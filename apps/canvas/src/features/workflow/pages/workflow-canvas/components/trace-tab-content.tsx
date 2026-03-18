@@ -120,7 +120,7 @@ export function TraceTabContent({
   const hasData = displayedViewerData.length > 0;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full w-full min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Execution trace</h2>
@@ -174,7 +174,7 @@ export function TraceTabContent({
       )}
 
       {hasData && (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+        <div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
           <TraceViewer
             data={displayedViewerData}
             activeTraceId={displayedActiveTraceId}

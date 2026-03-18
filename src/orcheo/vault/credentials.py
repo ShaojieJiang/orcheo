@@ -198,6 +198,10 @@ class CredentialOperationsMixin:
             if item.scope.allows(access_context)
         ]
 
+    def list_all_credentials(self) -> list[CredentialMetadata]:
+        """Return all credential metadata without applying scope filtering."""
+        return [item.model_copy(deep=True) for item in self._iter_metadata()]
+
     def describe_credentials(
         self, *, context: CredentialAccessContext | None = None
     ) -> list[MutableMapping[str, object]]:

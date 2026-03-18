@@ -1,0 +1,19 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+description = "Fixture broken plugin"
+name = "orcheo-plugin-fixture-broken"
+requires-python = ">=3.12"
+version = "0.1.0"
+
+[project.entry-points."orcheo.plugins"]
+fixture_broken = "orcheo_plugin_fixture_broken:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_fixture_broken = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

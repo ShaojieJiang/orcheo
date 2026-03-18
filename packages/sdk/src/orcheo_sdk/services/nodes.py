@@ -18,7 +18,9 @@ def list_nodes_data(tag: str | None = None) -> list[dict[str, Any]]:
         List of node metadata objects
     """
     from orcheo.nodes.registry import registry
+    from orcheo.plugins import ensure_plugins_loaded
 
+    ensure_plugins_loaded()
     entries = registry.list_metadata()
 
     if tag:
@@ -52,7 +54,9 @@ def show_node_data(name: str) -> dict[str, Any]:
         CLIError: If node is not registered
     """
     from orcheo.nodes.registry import registry
+    from orcheo.plugins import ensure_plugins_loaded
 
+    ensure_plugins_loaded()
     metadata = registry.get_metadata(name)
     node_cls = registry.get_node(name)
 

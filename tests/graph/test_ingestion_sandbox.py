@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import importlib
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from orcheo.graph.ingestion import sandbox
@@ -162,6 +163,36 @@ def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:
     module = restricted_import("html.parser")
 
     assert module is importlib.import_module("html.parser")
+
+
+def test_create_sandbox_namespace_loads_plugin_site_packages_for_plugin_imports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Plugin imports should add the managed plugin venv to ``sys.path``."""
+    site_packages = (
+        tmp_path
+        / "plugins"
+        / "venv"
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    module_dir = site_packages / "orcheo_plugin_fixture_runtime"
+    module_dir.mkdir(parents=True)
+    (module_dir / "__init__.py").write_text("VALUE = 'ok'\n", encoding="utf-8")
+    monkeypatch.setenv("ORCHEO_PLUGIN_DIR", str(tmp_path / "plugins"))
+
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    before = list(sys.path)
+    try:
+        module = restricted_import("orcheo_plugin_fixture_runtime")
+        assert module.VALUE == "ok"
+        assert str(site_packages) in sys.path
+    finally:
+        sys.path[:] = before
+        sys.modules.pop("orcheo_plugin_fixture_runtime", None)
 
 
 def test_create_sandbox_namespace_rejects_relative_imports() -> None:

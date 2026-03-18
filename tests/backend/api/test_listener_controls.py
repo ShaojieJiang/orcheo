@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from orcheo.listeners import (
@@ -406,3 +407,129 @@ def test_metrics_breakdown_blocked_does_not_count_as_dispatch_failure(
     breakdown = payload["by_platform"][0]
     assert breakdown["blocked"] == 1
     assert breakdown["errors"] == 0
+
+
+# ---------------------------------------------------------------------------
+# WeCom relay endpoint tests (lines 293-309, 324-348)
+# ---------------------------------------------------------------------------
+
+
+def test_relay_wecom_reply_plugin_not_installed_returns_501(
+    api_client: TestClient,
+) -> None:
+    """_get_wecom_client returns 501 when WeCom plugin is not importable."""
+    with patch.dict("sys.modules", {"orcheo_plugin_wecom_listener": None}):
+        response = api_client.post(
+            "/api/internal/listeners/wecom/reply",
+            json={
+                "subscription_id": "sub-123",
+                "message": "hello",
+                "raw_event": {},
+            },
+        )
+    assert response.status_code == 501
+    assert "WeCom listener plugin is not installed" in response.json()["detail"]
+
+
+def test_relay_wecom_reply_client_not_found_returns_404(
+    api_client: TestClient,
+) -> None:
+    """_get_wecom_client returns 404 when no active client for subscription."""
+    mock_module = MagicMock()
+    mock_module.get_wecom_client.return_value = None
+    with patch.dict("sys.modules", {"orcheo_plugin_wecom_listener": mock_module}):
+        response = api_client.post(
+            "/api/internal/listeners/wecom/reply",
+            json={
+                "subscription_id": "sub-missing",
+                "message": "hello",
+                "raw_event": {},
+            },
+        )
+    assert response.status_code == 404
+    assert "sub-missing" in response.json()["detail"]
+
+
+def test_relay_wecom_reply_build_body_plugin_not_installed_returns_501(
+    api_client: TestClient,
+) -> None:
+    """relay_wecom_reply returns 501 when WS reply body builder is not importable."""
+    mock_client = MagicMock()
+    mock_loop = MagicMock()
+
+    with patch(
+        "orcheo_backend.app.routers.listeners._get_wecom_client",
+        return_value=(mock_client, mock_loop),
+    ):
+        with patch.dict("sys.modules", {"orcheo_plugin_wecom_listener": None}):
+            response = api_client.post(
+                "/api/internal/listeners/wecom/reply",
+                json={
+                    "subscription_id": "sub-ok",
+                    "message": "hello",
+                    "raw_event": {},
+                },
+            )
+    assert response.status_code == 501
+    assert "WeCom listener plugin is not installed" in response.json()["detail"]
+
+
+def test_relay_wecom_reply_success(
+    api_client: TestClient,
+) -> None:
+    """relay_wecom_reply returns sent=True on success (lines 332-348)."""
+    mock_get_module = MagicMock()
+    mock_ws_client = MagicMock()
+    mock_event_loop = MagicMock()
+    mock_get_module.get_wecom_client.return_value = (mock_ws_client, mock_event_loop)
+    mock_get_module.build_wecom_ws_reply_body.return_value = {
+        "type": "text",
+        "content": "hello",
+    }
+
+    with patch.dict("sys.modules", {"orcheo_plugin_wecom_listener": mock_get_module}):
+        with patch("asyncio.run_coroutine_threadsafe") as mock_rcts:
+            mock_rcts.return_value = MagicMock()
+            with patch(
+                "asyncio.wrap_future", new_callable=AsyncMock, return_value=None
+            ):
+                response = api_client.post(
+                    "/api/internal/listeners/wecom/reply",
+                    json={
+                        "subscription_id": "sub-ok",
+                        "message": "hello",
+                        "raw_event": {"key": "val"},
+                    },
+                )
+    assert response.status_code == 200
+    assert response.json() == {"sent": True}
+
+
+def test_relay_wecom_reply_client_error_returns_502(
+    api_client: TestClient,
+) -> None:
+    """relay_wecom_reply raises 502 when client.reply fails (lines 339-347)."""
+    mock_module = MagicMock()
+    mock_ws_client = MagicMock()
+    mock_event_loop = MagicMock()
+    mock_module.get_wecom_client.return_value = (mock_ws_client, mock_event_loop)
+    mock_module.build_wecom_ws_reply_body.return_value = {"type": "text"}
+
+    with patch.dict("sys.modules", {"orcheo_plugin_wecom_listener": mock_module}):
+        with patch("asyncio.run_coroutine_threadsafe") as mock_rcts:
+            mock_rcts.return_value = MagicMock()
+            with patch(
+                "asyncio.wrap_future",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("connection lost"),
+            ):
+                response = api_client.post(
+                    "/api/internal/listeners/wecom/reply",
+                    json={
+                        "subscription_id": "sub-fail",
+                        "message": "hello",
+                        "raw_event": {},
+                    },
+                )
+    assert response.status_code == 502
+    assert "connection lost" in response.json()["detail"]

@@ -6,14 +6,12 @@ import logging
 from typing import Any, cast
 from uuid import uuid4
 from orcheo.listeners import (
-    DiscordGatewayAdapter,
-    ListenerPlatform,
     ListenerSubscription,
     ListenerSupervisor,
-    QQGatewayAdapter,
-    TelegramPollingAdapter,
 )
+from orcheo.listeners.registry import listener_registry, register_builtin_listeners
 from orcheo.models import CredentialAccessContext
+from orcheo.plugins import ensure_plugins_loaded
 from orcheo.runtime.credentials import CredentialResolver, parse_credential_reference
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
@@ -131,30 +129,18 @@ class ListenerRuntimeService:
         logger.info("Stopped listener runtime %s", self._runtime_id)
 
     def _build_adapter(self, subscription: ListenerSubscription) -> Any:
+        register_builtin_listeners()
+        ensure_plugins_loaded()
         resolved = resolve_listener_subscription_credentials(
             subscription,
             vault=self._vault,
         )
-        if resolved.platform == ListenerPlatform.TELEGRAM:
-            return TelegramPollingAdapter(
-                repository=cast(Any, self._repository),
-                subscription=resolved,
-                runtime_id=self._runtime_id,
-            )
-        if resolved.platform == ListenerPlatform.DISCORD:
-            return DiscordGatewayAdapter(
-                repository=cast(Any, self._repository),
-                subscription=resolved,
-                runtime_id=self._runtime_id,
-            )
-        if resolved.platform == ListenerPlatform.QQ:
-            return QQGatewayAdapter(
-                repository=cast(Any, self._repository),
-                subscription=resolved,
-                runtime_id=self._runtime_id,
-            )
-        msg = f"Unsupported listener platform: {resolved.platform!r}"
-        raise ValueError(msg)
+        return listener_registry.build_adapter(
+            resolved.platform,
+            repository=cast(Any, self._repository),
+            subscription=resolved,
+            runtime_id=self._runtime_id,
+        )
 
     async def _run_supervisor(self) -> None:
         try:

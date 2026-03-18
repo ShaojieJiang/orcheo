@@ -36,6 +36,7 @@ const mapEntryToCredential = (
   name: entry.name,
   provider: entry.provider ?? entry.kind,
   type: entry.provider ?? entry.kind,
+  workflowId: entry.workflow_id ?? null,
   createdAt: entry.created_at,
   updatedAt: entry.updated_at,
   owner: entry.owner,
@@ -44,6 +45,16 @@ const mapEntryToCredential = (
   status: entry.status,
   secretPreview: entry.secret_preview ?? null,
 });
+
+const resolveCredentialWorkflowId = (
+  credentials: Credential[],
+  credentialId: string,
+  fallbackWorkflowId: string | null,
+): string | null =>
+  fallbackWorkflowId ??
+  credentials.find((credential) => credential.id === credentialId)
+    ?.workflowId ??
+  null;
 
 const getCredentialSecret = (
   secrets: Record<string, string> | undefined,
@@ -201,6 +212,7 @@ export function useCredentialVault(
         name: payload.name,
         provider: payload.provider ?? payload.kind,
         type: payload.provider ?? payload.kind,
+        workflowId: payload.workflow_id ?? null,
         createdAt: payload.created_at,
         updatedAt: payload.updated_at,
         owner: payload.owner,
@@ -228,6 +240,11 @@ export function useCredentialVault(
   const onUpdateCredential = useCallback(
     async (id: string, updates: CredentialUpdateInput) => {
       const secret = getCredentialSecret(updates.secrets);
+      const credentialWorkflowId = resolveCredentialWorkflowId(
+        credentials,
+        id,
+        workflowId,
+      );
       const payload: Record<string, string> = {
         actor: actorName,
       };
@@ -246,8 +263,8 @@ export function useCredentialVault(
       if (updates.access !== undefined) {
         payload.access = updates.access;
       }
-      if (workflowId) {
-        payload.workflow_id = workflowId;
+      if (credentialWorkflowId) {
+        payload.workflow_id = credentialWorkflowId;
       }
 
       const hasChanges = Object.keys(payload).some((key) => key !== "actor");
@@ -302,6 +319,7 @@ export function useCredentialVault(
             name: updated.name,
             provider: updated.provider ?? updated.kind,
             type: updated.provider ?? updated.kind,
+            workflowId: updated.workflow_id ?? credential.workflowId ?? null,
             access: updated.access,
             status: updated.status,
             updatedAt: updated.updated_at,
@@ -316,16 +334,21 @@ export function useCredentialVault(
         description: "Your credential changes were saved successfully.",
       });
     },
-    [actorName, backendBaseUrl, workflowId],
+    [actorName, backendBaseUrl, credentials, workflowId],
   );
 
   const onDeleteCredential = useCallback(
     async (id: string) => {
+      const credentialWorkflowId = resolveCredentialWorkflowId(
+        credentials,
+        id,
+        workflowId,
+      );
       const url = new URL(
         buildBackendHttpUrl(`/api/credentials/${id}`, backendBaseUrl),
       );
-      if (workflowId) {
-        url.searchParams.set("workflow_id", workflowId);
+      if (credentialWorkflowId) {
+        url.searchParams.set("workflow_id", credentialWorkflowId);
       }
 
       try {
@@ -359,16 +382,21 @@ export function useCredentialVault(
         return;
       }
     },
-    [backendBaseUrl, workflowId],
+    [backendBaseUrl, credentials, workflowId],
   );
 
   const onRevealCredentialSecret = useCallback(
     async (id: string) => {
+      const credentialWorkflowId = resolveCredentialWorkflowId(
+        credentials,
+        id,
+        workflowId,
+      );
       const url = new URL(
         buildBackendHttpUrl(`/api/credentials/${id}/secret`, backendBaseUrl),
       );
-      if (workflowId) {
-        url.searchParams.set("workflow_id", workflowId);
+      if (credentialWorkflowId) {
+        url.searchParams.set("workflow_id", credentialWorkflowId);
       }
 
       const response = await authFetch(url.toString());
@@ -401,7 +429,7 @@ export function useCredentialVault(
       );
       return payload.secret;
     },
-    [backendBaseUrl, workflowId],
+    [backendBaseUrl, credentials, workflowId],
   );
 
   return {
