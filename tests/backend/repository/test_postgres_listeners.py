@@ -362,6 +362,33 @@ async def test_claim_subscription_success(
 
 
 @pytest.mark.asyncio
+async def test_claim_subscription_same_runtime_skips_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Re-claiming by the same runtime skips record_event (branch 236->241 False)."""
+    sub_id = uuid4()
+    wf_id = uuid4()
+    ver_id = uuid4()
+    # already assigned to "rt-1" so should_record_claim == False
+    payload = _subscription_payload(sub_id, wf_id, ver_id, assigned_runtime="rt-1")
+    repo = make_repo(
+        monkeypatch,
+        [
+            {"row": {"payload": payload}},
+            {"row": {"id": str(sub_id)}},
+        ],
+    )
+
+    result = await repo.claim_listener_subscription(
+        sub_id, runtime_id="rt-1", lease_seconds=60
+    )
+    assert result is not None
+    assert result.assigned_runtime == "rt-1"
+    # audit_log should still be empty because same runtime did not record a new event
+    assert result.audit_log == []
+
+
+@pytest.mark.asyncio
 async def test_claim_subscription_conflict_on_db_update(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

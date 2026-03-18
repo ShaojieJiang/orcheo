@@ -123,3 +123,233 @@ async def test_lark_send_message_ignores_unresolved_templates() -> None:
         "is_error": True,
         "error": "No Lark receive_id or reply_to_message_id provided",
     }
+
+
+@pytest.mark.asyncio
+async def test_lark_fetch_tenant_token_api_error_code() -> None:
+    """_fetch_tenant_access_token raises ValueError on non-zero Lark API code."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="bad_app",
+        app_secret="bad_secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 99,
+        "msg": "invalid app_id",
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        with pytest.raises(ValueError, match="invalid app_id"):
+            await node._fetch_tenant_access_token()
+
+
+@pytest.mark.asyncio
+async def test_lark_fetch_tenant_token_missing_token_field() -> None:
+    """_fetch_tenant_access_token raises ValueError when token field is missing."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+    }  # no tenant_access_token
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        with pytest.raises(ValueError, match="missing tenant_access_token"):
+            await node._fetch_tenant_access_token()
+
+
+@pytest.mark.asyncio
+async def test_lark_resolve_access_token_results_not_dict() -> None:
+    """_resolve_access_token fetches token when results is not a dict."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    # results is a list, not a dict
+    state = State(messages=[], inputs={}, results=[])
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "tenant_access_token": "fetched_token",
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        token = await node._resolve_access_token(state)
+    assert token == "fetched_token"
+
+
+@pytest.mark.asyncio
+async def test_lark_resolve_access_token_token_result_not_dict() -> None:
+    """_resolve_access_token fetches token when token_result is not a dict."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    # get_lark_tenant_token result is a string, not a dict
+    state = State(
+        messages=[],
+        inputs={},
+        results={"get_lark_tenant_token": "not-a-dict"},
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "tenant_access_token": "fetched_token",
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        token = await node._resolve_access_token(state)
+    assert token == "fetched_token"
+
+
+@pytest.mark.asyncio
+async def test_lark_resolve_access_token_json_payload_not_dict() -> None:
+    """_resolve_access_token fetches when json payload is not a dict."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    # token_result exists as dict but json is not a dict
+    state = State(
+        messages=[],
+        inputs={},
+        results={"get_lark_tenant_token": {"json": "not-a-dict"}},
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "tenant_access_token": "fetched_token",
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        token = await node._resolve_access_token(state)
+    assert token == "fetched_token"
+
+
+@pytest.mark.asyncio
+async def test_lark_resolve_access_token_empty_token_string() -> None:
+    """_resolve_access_token fetches when cached token is empty/whitespace."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    # token field exists but is empty
+    state = State(
+        messages=[],
+        inputs={},
+        results={"get_lark_tenant_token": {"json": {"tenant_access_token": "   "}}},
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "tenant_access_token": "fetched_token",
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        token = await node._resolve_access_token(state)
+    assert token == "fetched_token"
+
+
+@pytest.mark.asyncio
+async def test_lark_send_message_delivery_error_code() -> None:
+    """run returns error dict when Lark message delivery returns non-zero code."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    state = State(
+        messages=[],
+        inputs={},
+        results={
+            "get_lark_tenant_token": {"json": {"tenant_access_token": "tenant_token"}}
+        },
+    )
+
+    send_response = MagicMock()
+    send_response.json.return_value = {
+        "code": 1002003,
+        "msg": "user_not_exist",
+    }
+    send_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=send_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        result = await node.run(state, RunnableConfig())
+
+    assert result["is_error"] is True
+    assert result["code"] == 1002003
+    assert result["msg"] == "user_not_exist"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 from orcheo_sdk.cli.main import app
@@ -351,3 +352,475 @@ def test_plugin_install_incompatible_manifest_is_transactional(
     list_result = runner.invoke(app, ["plugin", "list"], env=machine_env)
     assert list_result.exit_code == 0
     assert list_result.stdout.strip() == "(empty)"
+
+
+def test_plugin_list_human_mode_render_table(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Human mode renders a table instead of machine output (line 91)."""
+    mock_rows = [
+        {
+            "name": "orcheo-plugin-fixture-node",
+            "enabled": True,
+            "status": "installed",
+            "version": "0.1.0",
+            "exports": ["nodes"],
+            "source": "/path/to/plugin",
+        }
+    ]
+    with patch("orcheo_sdk.cli.plugin.list_plugins_data", return_value=mock_rows):
+        result = runner.invoke(app, ["plugin", "list"], env=env)
+    assert result.exit_code == 0
+    # Human mode shows a rich table (machine mode shows markdown)
+    assert "Installed Plugins" in result.stdout
+    assert "orcheo-plugin-f" in result.stdout
+
+
+def test_plugin_show_error_nonexistent(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """show_plugin raises BadParameter when plugin not found (lines 116-117)."""
+    result = runner.invoke(
+        app, ["plugin", "show", "nonexistent-plugin"], env=machine_env
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_update_no_name_no_all_raises(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update with no name and no --all raises BadParameter (line 206)."""
+    result = runner.invoke(app, ["plugin", "update"], env=machine_env)
+    assert result.exit_code != 0
+    assert "Provide a plugin name" in result.output
+
+
+def test_plugin_update_single_preview_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update single raises BadParameter on preview PluginError (lines 209-210)."""
+    result = runner.invoke(
+        app, ["plugin", "update", "nonexistent-plugin"], env=machine_env
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_update_single_machine_mode_output(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update single in machine mode prints JSON and returns (lines 226-232)."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+    mock_plugin = {"name": "my-plugin", "version": "0.2.0"}
+    mock_payload = {"plugin": mock_plugin, "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.update_plugin_data",
+            return_value=mock_payload,
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "update", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "my-plugin"
+    assert "impact" in payload
+
+
+def test_plugin_update_single_error_in_update_data(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update_plugin_data raises BadParameter (lines 223-224)."""
+    from orcheo.plugins.manager import PluginError
+
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.update_plugin_data",
+            side_effect=PluginError("update failed"),
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "update", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code != 0
+
+
+def test_plugin_update_all_no_plugins_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update --all with no installed plugins outputs empty JSON (lines 181-191)."""
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_all_plugins_data",
+        return_value=[],
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.update_all_plugins_data",
+            return_value=[],
+        ):
+            result = runner.invoke(
+                app, ["plugin", "update", "--all", "--force"], env=machine_env
+            )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload == []
+
+
+def test_plugin_update_all_human_mode(runner: CliRunner, env: dict[str, str]) -> None:
+    """update --all in human mode uses render_json (lines 192-202)."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = [{"name": "my-plugin", "impact": mock_impact}]
+    mock_plugin = {"name": "my-plugin", "version": "0.2.0"}
+    mock_payload = [{"plugin": mock_plugin, "impact": mock_impact}]
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_all_plugins_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.update_all_plugins_data",
+            return_value=mock_payload,
+        ):
+            result = runner.invoke(
+                app, ["plugin", "update", "--all", "--force"], env=env
+            )
+    assert result.exit_code == 0
+
+
+def test_plugin_update_all_preview_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update --all raises BadParameter on preview PluginError (lines 165-166)."""
+    from orcheo.plugins.manager import PluginError
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_all_plugins_data",
+        side_effect=PluginError("preview failed"),
+    ):
+        result = runner.invoke(
+            app, ["plugin", "update", "--all", "--force"], env=machine_env
+        )
+    assert result.exit_code != 0
+
+
+def test_plugin_update_all_update_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """update --all raises BadParameter on update_all_plugins_data PluginError."""
+    from orcheo.plugins.manager import PluginError
+
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = [{"name": "some-plugin", "impact": mock_impact}]
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_all_plugins_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.update_all_plugins_data",
+            side_effect=PluginError("update all failed"),
+        ):
+            result = runner.invoke(
+                app, ["plugin", "update", "--all", "--force"], env=machine_env
+            )
+    assert result.exit_code != 0
+
+
+def test_plugin_uninstall_preview_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """uninstall raises BadParameter on preview PluginError (lines 250-251)."""
+    result = runner.invoke(
+        app, ["plugin", "uninstall", "nonexistent-plugin", "--force"], env=machine_env
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_uninstall_data_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """uninstall_plugin_data raises BadParameter (lines 261-262)."""
+    from orcheo.plugins.manager import PluginError
+
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_uninstall_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.uninstall_plugin_data",
+            side_effect=PluginError("uninstall failed"),
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "uninstall", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code != 0
+
+
+def test_plugin_uninstall_human_mode_output(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Uninstall in human mode prints confirmation message (lines 267-268)."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+    mock_payload = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_uninstall_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.uninstall_plugin_data",
+            return_value=mock_payload,
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "uninstall", "my-plugin", "--force"],
+                env=env,
+            )
+    assert result.exit_code == 0
+    assert "my-plugin" in result.output
+
+
+def test_plugin_enable_preview_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """enable raises BadParameter on preview PluginError (lines 284-285)."""
+    result = runner.invoke(
+        app, ["plugin", "enable", "nonexistent-plugin", "--force"], env=machine_env
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_enable_data_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """enable_plugin_data raises BadParameter (lines 295-296)."""
+    from orcheo.plugins.manager import PluginError
+
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_enable_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.enable_plugin_data",
+            side_effect=PluginError("enable failed"),
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "enable", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code != 0
+
+
+def test_plugin_enable_machine_mode_output(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Enable in machine mode prints JSON (lines 299-300)."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+    mock_payload = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_enable_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.enable_plugin_data",
+            return_value=mock_payload,
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "enable", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "my-plugin"
+
+
+def test_plugin_disable_preview_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """disable raises BadParameter on preview PluginError (lines 318-319)."""
+    result = runner.invoke(
+        app, ["plugin", "disable", "nonexistent-plugin", "--force"], env=machine_env
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_disable_data_error(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """disable_plugin_data raises BadParameter (lines 329-330)."""
+    from orcheo.plugins.manager import PluginError
+
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_disable_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.disable_plugin_data",
+            side_effect=PluginError("disable failed"),
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "disable", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code != 0
+
+
+def test_plugin_disable_machine_mode_output(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Disable in machine mode prints JSON (lines 333-334)."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = False
+    mock_impact.activation_mode = "silent_hot_reload"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+    mock_payload = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_disable_plugin_data",
+        return_value=mock_preview,
+    ):
+        with patch(
+            "orcheo_sdk.cli.plugin.disable_plugin_data",
+            return_value=mock_payload,
+        ):
+            result = runner.invoke(
+                app,
+                ["plugin", "disable", "my-plugin", "--force"],
+                env=machine_env,
+            )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "my-plugin"
+
+
+def test_plugin_doctor_human_mode_with_errors(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Doctor in human mode renders a table and exits 1 on errors (lines 348-360)."""
+    mock_payload = {
+        "has_errors": True,
+        "checks": [
+            {
+                "name": "some-check",
+                "severity": "ERROR",
+                "ok": False,
+                "message": "Something failed",
+            }
+        ],
+    }
+    with patch("orcheo_sdk.cli.plugin.doctor_plugins_data", return_value=mock_payload):
+        result = runner.invoke(app, ["plugin", "doctor"], env=env)
+    assert result.exit_code == 1
+    assert "Plugin Doctor" in result.output
+
+
+def test_plugin_doctor_human_mode_no_errors(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Doctor in human mode exits 0 when no errors (line 358 False branch)."""
+    mock_payload = {
+        "has_errors": False,
+        "checks": [
+            {
+                "name": "some-check",
+                "severity": "INFO",
+                "ok": True,
+                "message": "All good",
+            }
+        ],
+    }
+    with patch("orcheo_sdk.cli.plugin.doctor_plugins_data", return_value=mock_payload):
+        result = runner.invoke(app, ["plugin", "doctor"], env=env)
+    assert result.exit_code == 0
+    assert "Plugin Doctor" in result.output
+
+
+def test_plugin_doctor_machine_mode_no_errors(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """Doctor in machine mode exits 0 and returns when no errors (line 348)."""
+    mock_payload = {
+        "has_errors": False,
+        "checks": [
+            {
+                "name": "some-check",
+                "severity": "INFO",
+                "ok": True,
+                "message": "All good",
+            }
+        ],
+    }
+    with patch("orcheo_sdk.cli.plugin.doctor_plugins_data", return_value=mock_payload):
+        result = runner.invoke(app, ["plugin", "doctor"], env=machine_env)
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["has_errors"] is False
+
+
+def test_maybe_confirm_machine_mode_prompt_required_raises(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """_maybe_confirm raises BadParameter in machine mode when prompt is needed."""
+    mock_impact = MagicMock()
+    mock_impact.prompt_required = True
+    mock_impact.activation_mode = "requires_restart"
+    mock_preview = {"name": "my-plugin", "impact": mock_impact}
+
+    with patch(
+        "orcheo_sdk.cli.plugin.preview_update_plugin_data",
+        return_value=mock_preview,
+    ):
+        # No --force in machine mode with prompt_required=True → BadParameter
+        result = runner.invoke(
+            app,
+            ["plugin", "update", "my-plugin"],
+            env=machine_env,
+        )
+    assert result.exit_code != 0

@@ -7,6 +7,7 @@ import httpx
 import pytest
 import respx
 from typer.testing import CliRunner
+from orcheo_sdk.cli import main as main_mod
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app, run
 from orcheo_sdk.cli.output import (
@@ -214,7 +215,8 @@ class TestRunErrorMachineMode:
         def mock_app(*args: object, **kwargs: object) -> None:
             raise CLIError("Something went wrong")
 
-        monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+        monkeypatch.setattr(main_mod, "app", mock_app)
+        monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
         monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
 
         with pytest.raises(SystemExit) as exc_info:
@@ -239,7 +241,8 @@ class TestRunErrorMachineMode:
             ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
             raise click.UsageError("Missing command.", ctx=ctx)
 
-        monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+        monkeypatch.setattr(main_mod, "app", mock_app)
+        monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
         monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
 
         with pytest.raises(SystemExit) as exc_info:

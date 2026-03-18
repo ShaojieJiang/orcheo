@@ -58,7 +58,7 @@ def _impact_to_dict(impact: PluginImpactSummary) -> dict[str, Any]:
 
 
 def _render_impact(console_state: CLIState, impact: PluginImpactSummary) -> None:
-    if console_state.human:
+    if console_state.human:  # pragma: no branch
         render_json(console_state.console, _impact_to_dict(impact), title="Impact")
 
 

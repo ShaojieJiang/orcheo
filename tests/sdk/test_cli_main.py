@@ -7,6 +7,7 @@ import pytest
 import respx
 import typer
 from typer.testing import CliRunner
+from orcheo_sdk.cli import main as main_mod
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run, run_human
 
@@ -44,7 +45,8 @@ def test_run_cli_error_handling(
     def mock_app(*args: object, **kwargs: object) -> None:
         raise CLIError("Test error")
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -70,7 +72,8 @@ def test_run_usage_error_handling(
         ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
         raise click.UsageError("Missing command.", ctx=ctx)
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -93,7 +96,8 @@ def test_run_usage_error_without_context(
         # Raise UsageError without context
         raise click.UsageError("Invalid option.")
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -114,7 +118,8 @@ def test_run_authentication_error_401(
     def mock_app(*args: object, **kwargs: object) -> None:
         raise APICallError("Invalid bearer token", status_code=401)
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -135,7 +140,8 @@ def test_run_authentication_error_403(
     def mock_app(*args: object, **kwargs: object) -> None:
         raise APICallError("Missing required scopes: workflows:write", status_code=403)
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -156,7 +162,8 @@ def test_run_api_error_without_hint(
     def mock_app(*args: object, **kwargs: object) -> None:
         raise APICallError("Server error", status_code=500)
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -232,7 +239,8 @@ def test_run_usage_error_machine_mode_with_context(
         ctx = click.Context(cmd, parent=parent_ctx, info_name="workflow")
         raise click.UsageError("Bad arg.", ctx=ctx)
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:
@@ -255,7 +263,8 @@ def test_run_usage_error_machine_mode_without_context(
     def mock_app(*args: object, **kwargs: object) -> None:
         raise click.UsageError("No ctx.")
 
-    monkeypatch.setattr("orcheo_sdk.cli.main.app", mock_app)
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
     monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:

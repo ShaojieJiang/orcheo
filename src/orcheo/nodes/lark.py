@@ -160,7 +160,7 @@ class LarkSendMessageNode(TaskNode):
                     "event": "lark_message_delivery",
                     "status": "failed",
                     "code": code,
-                    "msg": data.get("msg", "Unknown error"),
+                    "error_msg": data.get("msg", "Unknown error"),
                 },
             )
             return {
