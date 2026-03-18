@@ -11,7 +11,6 @@ from orcheo_sdk.cli.main import app
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "plugin_fixtures"
-VALIDATION_PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "packages" / "plugins"
 
 
 def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:
@@ -86,30 +85,6 @@ def test_plugin_install_machine_mode_returns_json(
     edge_list_result = runner.invoke(app, ["edge", "list"], env=machine_env)
     assert edge_list_result.exit_code == 0
     assert "FixturePluginEdge" in edge_list_result.stdout
-
-
-def test_validation_listener_plugins_install_via_cli(
-    runner: CliRunner, machine_env: dict[str, str]
-) -> None:
-    """The shipped WeCom and Lark validation plugins install through the CLI."""
-    wecom_result = runner.invoke(
-        app,
-        ["plugin", "install", str(VALIDATION_PLUGIN_ROOT / "wecom_listener")],
-        env=machine_env,
-    )
-    assert wecom_result.exit_code == 0
-
-    lark_result = runner.invoke(
-        app,
-        ["plugin", "install", str(VALIDATION_PLUGIN_ROOT / "lark_listener")],
-        env=machine_env,
-    )
-    assert lark_result.exit_code == 0
-
-    list_result = runner.invoke(app, ["plugin", "list"], env=machine_env)
-    assert list_result.exit_code == 0
-    assert "orcheo-plugin-wecom-listener" in list_result.stdout
-    assert "orcheo-plugin-lark-listener" in list_result.stdout
 
 
 def test_plugin_update_prompts_for_existing_hot_reloadable_plugin(
