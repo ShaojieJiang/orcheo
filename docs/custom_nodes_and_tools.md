@@ -13,8 +13,8 @@ the same component set.
 Install a plugin from a package name, local path, wheel, or Git URL:
 
 ```bash
-orcheo plugin install ./packages/plugins/wecom_listener
-orcheo plugin install ./packages/plugins/lark_listener
+orcheo plugin install orcheo-plugin-wecom-listener
+orcheo plugin install orcheo-plugin-lark-listener
 ```
 
 Inspect or manage installed plugins:
@@ -218,14 +218,15 @@ Adapters should:
 - Resolve secrets through subscription config and Orcheo credentials, not ad hoc
   environment variables.
 
-## Validation Plugins in This Repository
+## Validation Plugins
 
-This repository ships two local validation plugins:
+Two reference listener plugins are published as standalone repositories and
+prove the v1 listener-plugin contract end to end:
 
-- `packages/plugins/wecom_listener`
-- `packages/plugins/lark_listener`
+- [orcheo-plugin-wecom-listener](https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener)
+- [orcheo-plugin-lark-listener](https://github.com/ShaojieJiang/orcheo-plugin-lark-listener)
 
-They prove the v1 listener-plugin contract end to end:
+They:
 
 - install through `orcheo plugin install`
 - register plugin-provided listener nodes plus listener runtimes
