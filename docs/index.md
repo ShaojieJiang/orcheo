@@ -108,11 +108,12 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 - **[Developer Guide](developer_guide.md)** — Repository layout, development environment, and testing
 - **[Deployment Guide](deployment.md)** — Docker Compose and PostgreSQL deployment recipes
-- **[Plugin Author Guide](custom_nodes_and_tools.md)** — Extend Orcheo with managed plugins for nodes, edges, tools, triggers, and listeners
+- **[Plugin Tutorial](plugin_tutorial.md)** — Step-by-step guide: scaffold, register, test, and distribute a plugin
+- **[Plugin Reference](custom_nodes_and_tools.md)** — Full reference for all plugin authoring concepts and the registration API
 
 ## Contributing
 
 We welcome contributions from the community:
 
-- **Share your extensions**: Plugins, workflows, and integrations that extend Orcheo's capabilities. See the [Plugin Author Guide](custom_nodes_and_tools.md) for the supported extension workflow.
+- **Share your extensions**: Plugins, workflows, and integrations that extend Orcheo's capabilities. See the [Plugin Tutorial](plugin_tutorial.md) to get started and the [Plugin Reference](custom_nodes_and_tools.md) for the full API.
 - **How to contribute**: Open an [issue](https://github.com/ShaojieJiang/orcheo/issues), submit a [pull request](https://github.com/ShaojieJiang/orcheo/pulls), or start a [discussion](https://github.com/ShaojieJiang/orcheo/discussions). You can also publish and share your extensions independently for others to install.

@@ -165,12 +165,11 @@ lock consistency. It exits `1` when any error-level diagnostic is present.
 
 ### Validation listener plugins
 
-This repository ships two installable validation plugins that exercise the
-listener-plugin contract:
+Two reference plugins exercise the listener-plugin contract end to end:
 
 ```bash
-orcheo plugin install ./packages/plugins/wecom_listener
-orcheo plugin install ./packages/plugins/lark_listener
+orcheo plugin install orcheo-plugin-wecom-listener
+orcheo plugin install orcheo-plugin-lark-listener
 ```
 
 They register:

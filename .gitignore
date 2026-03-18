@@ -192,6 +192,7 @@ checkpoints.sqlite
 # Plugin packages managed as independent projects
 packages/plugins/lark_listener/
 packages/plugins/wecom_listener/
+packages/plugins/plugin_template/
 
 # Miscellaneous
 homepage/
