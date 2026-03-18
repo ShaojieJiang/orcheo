@@ -888,7 +888,7 @@ describe("workflow-storage API integration - template creation", () => {
 
     expect(ingestBody.script).toContain("AgentNode");
     expect(ingestBody.script).toContain("AgentReplyExtractorNode");
-    expect(ingestBody.script).toContain("WeComSendMessageNode");
+    expect(ingestBody.script).toContain("WeComWsReplyNode");
     expect(ingestBody.script).toContain("HttpRequestNode");
     expect(ingestBody.script).toContain("tenant_access_token/internal");
     expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
