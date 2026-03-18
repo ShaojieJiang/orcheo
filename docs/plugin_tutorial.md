@@ -19,6 +19,28 @@ git clone https://github.com/ShaojieJiang/orcheo-plugin-template orcheo-plugin-a
 cd orcheo-plugin-acme
 ```
 
+Before editing any code, rename the template package metadata so your local copy
+uses your real plugin name instead of the example placeholder. Update the
+distribution name, package directory, and entry-point target consistently across
+the template files. A typical rename from `example` to `acme` looks like this:
+
+```bash
+mv src/orcheo_plugin_example src/orcheo_plugin_acme
+```
+
+Then update the remaining template placeholders:
+
+- change the project name in `pyproject.toml` to `orcheo-plugin-acme`
+- update the `orcheo.plugins` entry point in `pyproject.toml` to target
+  `orcheo_plugin_acme:plugin`
+- rename the plugin metadata in `src/orcheo_plugin_acme/orcheo_plugin.toml`
+  to match the new package
+- replace any remaining `example` references in the README, tests, and module
+  docstrings
+
+After that rename, the file paths in the rest of this tutorial will match your
+plugin checkout.
+
 ## 1. Understand the plugin contract
 
 An Orcheo plugin is a Python distribution package that:
@@ -185,6 +207,8 @@ api.register_agent_tool(
 )
 ```
 
+Add `"agent_tools"` to `exports` in `orcheo_plugin.toml`.
+
 ### Trigger
 
 ```python
@@ -199,6 +223,8 @@ api.register_trigger(
     lambda **kwargs: {"config": kwargs},
 )
 ```
+
+Add `"triggers"` to `exports` in `orcheo_plugin.toml`.
 
 ### Listener
 
@@ -266,6 +292,9 @@ api.register_listener(
 )
 ```
 
+Add `"listeners"` to `exports` in `orcheo_plugin.toml` so Orcheo can
+classify listener installs and updates correctly.
+
 !!! note
     Trigger and listener changes always require a process restart to become
     active. The CLI surfaces this guidance when you install or update a plugin
@@ -276,13 +305,13 @@ api.register_listener(
 | Command | What it does |
 |---|---|
 | `orcheo plugin list` | Show all installed plugins and their status. |
-| `orcheo plugin show acme` | Show manifest, exports, and resolved install state. |
+| `orcheo plugin show orcheo-plugin-acme` | Show manifest, exports, and resolved install state. |
 | `orcheo plugin install .` | Install from the local source directory. |
-| `orcheo plugin update acme` | Re-install from the stored source reference. |
+| `orcheo plugin update orcheo-plugin-acme` | Re-install from the stored source reference. |
 | `orcheo plugin update --all` | Re-install all plugins. |
-| `orcheo plugin disable acme` | Prevent Orcheo from loading the plugin at startup. |
-| `orcheo plugin enable acme` | Re-enable a previously disabled plugin. |
-| `orcheo plugin uninstall acme` | Remove the plugin from the managed environment. |
+| `orcheo plugin disable orcheo-plugin-acme` | Prevent Orcheo from loading the plugin at startup. |
+| `orcheo plugin enable orcheo-plugin-acme` | Re-enable a previously disabled plugin. |
+| `orcheo plugin uninstall orcheo-plugin-acme` | Remove the plugin from the managed environment. |
 | `orcheo plugin doctor` | Run diagnostics against all installed plugins. |
 
 ### Impact classification
@@ -299,7 +328,7 @@ When you update or uninstall a plugin, the CLI classifies the change:
 Use `--force` to skip interactive confirmation in scripted environments:
 
 ```bash
-orcheo plugin update acme --force
+orcheo plugin update orcheo-plugin-acme --force
 ```
 
 ## 7. Distribute the plugin
