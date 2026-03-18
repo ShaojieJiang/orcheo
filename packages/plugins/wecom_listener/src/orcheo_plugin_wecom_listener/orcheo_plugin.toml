@@ -1,3 +1,0 @@
-exports = ["nodes", "listeners"]
-orcheo_version = ">=0.0.0"
-plugin_api_version = 1
