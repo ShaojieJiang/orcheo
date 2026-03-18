@@ -448,7 +448,9 @@ def _prepare_wecom_websocket_mock(
     first_loop_ref: list[asyncio.AbstractEventLoop | None],
 ) -> None:
     class FakeWSClient:
-        def __init__(self, *, bot_id: str, secret: str) -> None:
+        def __init__(
+            self, *, bot_id: str, secret: str, max_reconnect_attempts: int = 0
+        ) -> None:
             self.bot_id = bot_id
             self.secret = secret
             self._handlers: dict[str, object] = {}
