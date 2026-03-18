@@ -25,3 +25,4 @@ repos:
     hooks:
       - id: pretty-format-toml
         args: [--autofix]
+        additional_dependencies: ["setuptools<81"]
