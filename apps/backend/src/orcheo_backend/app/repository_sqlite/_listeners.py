@@ -118,7 +118,7 @@ class ListenerRepositoryMixin(SqlitePersistenceMixin):
                         str(subscription.workflow_id),
                         str(subscription.workflow_version_id),
                         subscription.node_name,
-                        subscription.platform.value,
+                        subscription.platform,
                         subscription.bot_identity_key,
                         subscription.status.value,
                         subscription.assigned_runtime,
@@ -204,12 +204,14 @@ class ListenerRepositoryMixin(SqlitePersistenceMixin):
                     and subscription.lease_expires_at > now
                 ):
                     return None
+                should_record_claim = subscription.assigned_runtime != runtime_id
                 subscription.assigned_runtime = runtime_id
                 subscription.lease_expires_at = now + timedelta(seconds=lease_seconds)
-                subscription.record_event(
-                    actor=runtime_id,
-                    action="listener_subscription_claimed",
-                )
+                if should_record_claim:
+                    subscription.record_event(
+                        actor=runtime_id,
+                        action="listener_subscription_claimed",
+                    )
                 await conn.execute(
                     """
                     UPDATE listener_subscriptions

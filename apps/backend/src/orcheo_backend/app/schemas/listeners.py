@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
-from orcheo.listeners import ListenerPlatform, ListenerSubscriptionStatus
+from orcheo.listeners import ListenerSubscriptionStatus
 
 
 class ListenerStatusUpdateRequest(BaseModel):
@@ -19,7 +19,7 @@ class ListenerHealthResponse(BaseModel):
 
     subscription_id: UUID
     node_name: str
-    platform: ListenerPlatform
+    platform: str
     status: ListenerSubscriptionStatus
     bot_identity_key: str
     assigned_runtime: str | None = None
@@ -43,7 +43,7 @@ class ListenerAlertResponse(BaseModel):
     """Operational alert raised for a listener subscription."""
 
     subscription_id: UUID
-    platform: ListenerPlatform
+    platform: str
     kind: Literal["stalled_listener", "reconnect_loop", "dispatch_failure"]
     detail: str
 
@@ -51,7 +51,7 @@ class ListenerAlertResponse(BaseModel):
 class ListenerMetricsPlatformBreakdown(BaseModel):
     """Per-platform listener counts."""
 
-    platform: ListenerPlatform
+    platform: str
     total: int = 0
     healthy: int = 0
     blocked: int = 0
@@ -77,10 +77,19 @@ class ListenerMetricsResponse(BaseModel):
     alerts: list[ListenerAlertResponse]
 
 
+class ListenerReplyRequest(BaseModel):
+    """Payload for sending a reply through a listener adapter's active connection."""
+
+    subscription_id: str
+    message: str
+    raw_event: dict[str, Any] = Field(default_factory=dict)
+
+
 __all__ = [
     "ListenerAlertResponse",
     "ListenerHealthResponse",
     "ListenerMetricsPlatformBreakdown",
     "ListenerMetricsResponse",
+    "ListenerReplyRequest",
     "ListenerStatusUpdateRequest",
 ]

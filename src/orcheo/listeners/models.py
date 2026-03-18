@@ -9,12 +9,14 @@ from pydantic import Field
 from orcheo.models.base import OrcheoBaseModel, TimestampedAuditModel, _utcnow
 
 
-class ListenerPlatform(str, Enum):
-    """Supported private-listener platforms."""
+class ListenerPlatform:
+    """Legacy compatibility constants for built-in listener identifiers."""
 
     TELEGRAM = "telegram"
     DISCORD = "discord"
     QQ = "qq"
+
+    BUILTIN = frozenset({TELEGRAM, DISCORD, QQ})
 
 
 class ListenerSubscriptionStatus(str, Enum):
@@ -44,7 +46,7 @@ class ListenerDispatchMessage(OrcheoBaseModel):
 class ListenerDispatchPayload(OrcheoBaseModel):
     """Normalized platform event dispatched as a workflow run."""
 
-    platform: ListenerPlatform
+    platform: str
     event_type: str
     dedupe_key: str
     bot_identity: str
@@ -74,7 +76,7 @@ class ListenerSubscription(TimestampedAuditModel):
     workflow_id: UUID
     workflow_version_id: UUID
     node_name: str
-    platform: ListenerPlatform
+    platform: str
     bot_identity_key: str
     config: dict[str, Any] = Field(default_factory=dict)
     status: ListenerSubscriptionStatus = ListenerSubscriptionStatus.ACTIVE
@@ -116,7 +118,7 @@ class ListenerHealthSnapshot(OrcheoBaseModel):
     subscription_id: UUID
     runtime_id: str
     status: Literal["starting", "healthy", "backoff", "stopped", "error"]
-    platform: ListenerPlatform
+    platform: str
     last_polled_at: datetime | None = None
     last_event_at: datetime | None = None
     consecutive_failures: int = 0

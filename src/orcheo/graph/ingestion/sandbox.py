@@ -11,6 +11,7 @@ import threading
 import time
 from collections.abc import Callable, Generator
 from functools import lru_cache
+from pathlib import Path
 from types import CodeType, FrameType, MappingProxyType
 from typing import Any, cast
 from RestrictedPython import compile_restricted, safe_builtins
@@ -22,6 +23,7 @@ from RestrictedPython.Guards import (
 )
 from RestrictedPython.transformer import RestrictingNodeTransformer
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
+from orcheo.plugins.paths import build_storage_paths
 
 
 class AsyncAllowingTransformer(RestrictingNodeTransformer):
@@ -95,6 +97,24 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
 )
 
 
+def _plugin_site_packages() -> Path:
+    """Return the managed plugin ``site-packages`` path for the active Python."""
+    install_dir = Path(build_storage_paths().install_dir)
+    return (
+        install_dir
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+
+
+def _ensure_plugin_sys_path() -> None:
+    """Expose managed plugin packages to sandboxed workflow imports."""
+    site_packages = _plugin_site_packages()
+    if site_packages.exists() and str(site_packages) not in sys.path:
+        sys.path.insert(0, str(site_packages))
+
+
 def _resolve_compiler() -> Callable[[str, str, str], CodeType]:
     """Return the active RestrictedPython compiler, honoring monkeypatching."""
     ingestion_module = sys.modules.get("orcheo.graph.ingestion")
@@ -124,9 +144,12 @@ def create_sandbox_namespace() -> dict[str, Any]:
         if not any(
             name == prefix or name.startswith(f"{prefix}.")
             for prefix in _SAFE_MODULE_PREFIXES
-        ):
+        ) and not name.startswith("orcheo_plugin_"):
             msg = f"Import of module '{name}' is not permitted in LangGraph scripts"
             raise ScriptIngestionError(msg)
+
+        if name.startswith("orcheo_plugin_"):
+            _ensure_plugin_sys_path()
 
         module = importlib.import_module(name)
 

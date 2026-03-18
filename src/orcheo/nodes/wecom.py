@@ -47,6 +47,16 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 DEFAULT_TIMEOUT = 10.0
 
 
+def _normalize_optional_runtime_value(value: str | None) -> str | None:
+    """Return a usable runtime value or ``None`` for blanks/templates."""
+    if not value:
+        return None
+    stripped = value.strip()
+    if not stripped or ("{{" in stripped and "}}" in stripped):
+        return None
+    return stripped
+
+
 def verify_wecom_signature(
     token: str,
     timestamp: str,
@@ -1138,12 +1148,14 @@ class WeComSendMessageNode(TaskNode):
             )
             return {"is_error": True, "error": "No access token available"}
 
-        target_user = self.to_user
+        target_user = _normalize_optional_runtime_value(self.to_user)
         if not target_user and isinstance(results, dict):
             parser_result = results.get("wecom_events_parser")
             if isinstance(parser_result, dict):
-                target_user = parser_result.get("target_user")
-        target_chat = self.chat_id
+                target_user = _normalize_optional_runtime_value(
+                    parser_result.get("target_user")
+                )
+        target_chat = _normalize_optional_runtime_value(self.chat_id)
         if not target_user and not target_chat:
             logger.warning(
                 "WeCom message delivery failed: missing recipient",

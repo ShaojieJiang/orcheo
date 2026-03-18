@@ -1,13 +1,13 @@
 import pytest
 from langchain_core.runnables import RunnableConfig
-from orcheo.edges import Switch
+from orcheo.edges import SwitchEdge
 from orcheo.graph.state import State
 
 
 @pytest.mark.asyncio
 async def test_switch_node_casefolds_strings() -> None:
     state = State({"results": {}})
-    node = Switch(
+    node = SwitchEdge(
         name="router",
         value="Completed",
         case_sensitive=False,
@@ -22,7 +22,7 @@ async def test_switch_node_casefolds_strings() -> None:
 @pytest.mark.asyncio
 async def test_switch_node_formats_special_values() -> None:
     state = State({"results": {}})
-    node = Switch(
+    node = SwitchEdge(
         name="router",
         value=None,
         cases=[{"match": True, "branch_key": "truthy"}],
@@ -36,7 +36,7 @@ async def test_switch_node_formats_special_values() -> None:
 @pytest.mark.asyncio
 async def test_switch_node_matches_first_successful_case() -> None:
     state = State({"results": {}})
-    node = Switch(
+    node = SwitchEdge(
         name="router",
         value="beta",
         cases=[
@@ -52,7 +52,7 @@ async def test_switch_node_matches_first_successful_case() -> None:
 @pytest.mark.asyncio
 async def test_switch_node_case_sensitive_override() -> None:
     state = State({"results": {}})
-    node = Switch(
+    node = SwitchEdge(
         name="router",
         value="TEST",
         case_sensitive=False,

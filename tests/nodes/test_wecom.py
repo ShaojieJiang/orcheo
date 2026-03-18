@@ -2567,3 +2567,11 @@ class TestWeComHelperFunctions:
         ]
         messages = WeComCustomerServiceSyncNode._build_agent_messages(history)
         assert messages == [{"role": "user", "content": "hello"}]
+
+
+def test_normalize_optional_runtime_value_template_returns_none() -> None:
+    """Returns None when value contains template syntax {{...}} (line 56)."""
+    from orcheo.nodes.wecom import _normalize_optional_runtime_value
+
+    assert _normalize_optional_runtime_value("{{results.token}}") is None
+    assert _normalize_optional_runtime_value("  {{some.value}}  ") is None

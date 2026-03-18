@@ -44,8 +44,11 @@ async def list_credentials(
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
-    credentials = vault.list_credentials(context=context)
+    if resolved_workflow_id is None:
+        credentials = vault.list_all_credentials()
+    else:
+        context = credential_context_from_workflow(resolved_workflow_id)
+        credentials = vault.list_credentials(context=context)
     return [credential_to_response(metadata) for metadata in credentials]
 
 

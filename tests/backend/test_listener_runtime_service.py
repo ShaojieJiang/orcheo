@@ -7,17 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
 from orcheo.listeners import ListenerPlatform, ListenerSubscription
+from orcheo.listeners.registry import ListenerMetadata, listener_registry
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 
 
-def _make_subscription(platform: ListenerPlatform) -> ListenerSubscription:
+def _make_subscription(platform: str) -> ListenerSubscription:
     return ListenerSubscription(
         workflow_id=uuid4(),
         workflow_version_id=uuid4(),
         node_name="test_listener",
         platform=platform,
-        bot_identity_key=f"{platform.value}:test-bot",
+        bot_identity_key=f"{platform}:test-bot",
         config={"token": "plain-token"},
     )
 
@@ -124,18 +125,29 @@ async def test_stop_swallows_cancelled_error_from_tasks() -> None:
 
 
 def test_build_adapter_discord(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_build_adapter instantiates a DiscordGatewayAdapter for DISCORD subscriptions."""
+    """_build_adapter instantiates the registered adapter for Discord."""
     mod = importlib.import_module("orcheo_backend.app.listener_runtime_service")
-
+    original = listener_registry.resolve(ListenerPlatform.DISCORD)
+    assert original is not None
     mock_adapter = MagicMock()
-    mock_cls = MagicMock(return_value=mock_adapter)
-    monkeypatch.setattr(mod, "DiscordGatewayAdapter", mock_cls)
+    listener_registry.register(
+        ListenerMetadata(id="discord-test", display_name="Discord Test"),
+        compiler=original.compiler,
+        adapter_factory=lambda *, repository, subscription, runtime_id: mock_adapter,
+        aliases=("discord-test-alias",),
+    )
+    monkeypatch.setattr(
+        mod,
+        "resolve_listener_subscription_credentials",
+        lambda subscription, **_: subscription.model_copy(
+            update={"platform": "discord-test"}
+        ),
+    )
 
     service, _ = _make_service()
     adapter = service._build_adapter(_make_subscription(ListenerPlatform.DISCORD))
 
     assert adapter is mock_adapter
-    mock_cls.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -144,18 +156,28 @@ def test_build_adapter_discord(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_build_adapter_qq(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_build_adapter instantiates a QQGatewayAdapter for QQ subscriptions."""
+    """_build_adapter instantiates the registered adapter for QQ."""
     mod = importlib.import_module("orcheo_backend.app.listener_runtime_service")
-
+    original = listener_registry.resolve(ListenerPlatform.QQ)
+    assert original is not None
     mock_adapter = MagicMock()
-    mock_cls = MagicMock(return_value=mock_adapter)
-    monkeypatch.setattr(mod, "QQGatewayAdapter", mock_cls)
+    listener_registry.register(
+        ListenerMetadata(id="qq-test", display_name="QQ Test"),
+        compiler=original.compiler,
+        adapter_factory=lambda *, repository, subscription, runtime_id: mock_adapter,
+    )
+    monkeypatch.setattr(
+        mod,
+        "resolve_listener_subscription_credentials",
+        lambda subscription, **_: subscription.model_copy(
+            update={"platform": "qq-test"}
+        ),
+    )
 
     service, _ = _make_service()
     adapter = service._build_adapter(_make_subscription(ListenerPlatform.QQ))
 
     assert adapter is mock_adapter
-    mock_cls.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,22 @@ from orcheo_sdk.services.credentials import (
 )
 from orcheo_sdk.services.edges import list_edges_data, show_edge_data
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
+from orcheo_sdk.services.plugins import (
+    disable_plugin_data,
+    doctor_plugins_data,
+    enable_plugin_data,
+    install_plugin_data,
+    list_plugins_data,
+    preview_disable_plugin_data,
+    preview_enable_plugin_data,
+    preview_uninstall_plugin_data,
+    preview_update_all_plugins_data,
+    preview_update_plugin_data,
+    show_plugin_data,
+    uninstall_plugin_data,
+    update_all_plugins_data,
+    update_plugin_data,
+)
 from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
     list_service_tokens_data,
@@ -76,6 +92,21 @@ __all__ = [
     # Edges
     "list_edges_data",
     "show_edge_data",
+    # Plugins
+    "list_plugins_data",
+    "show_plugin_data",
+    "install_plugin_data",
+    "preview_update_plugin_data",
+    "update_plugin_data",
+    "preview_update_all_plugins_data",
+    "update_all_plugins_data",
+    "preview_uninstall_plugin_data",
+    "uninstall_plugin_data",
+    "preview_enable_plugin_data",
+    "enable_plugin_data",
+    "preview_disable_plugin_data",
+    "disable_plugin_data",
+    "doctor_plugins_data",
     # Credentials
     "list_credentials_data",
     "create_credential_data",

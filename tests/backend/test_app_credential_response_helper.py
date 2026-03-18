@@ -45,12 +45,13 @@ def test_credential_to_response_secret() -> None:
     """Credential to response converts secret metadata correctly."""
 
     cred_id = uuid4()
+    workflow_id = uuid4()
     metadata = CredentialMetadata(
         id=cred_id,
         name="Test Secret",
         provider="custom",
         kind=CredentialKind.SECRET,
-        scope=CredentialScope(workflow_ids=[uuid4()]),
+        scope=CredentialScope(workflow_ids=[workflow_id]),
         encryption=EncryptionEnvelope(
             algorithm="aes-256-gcm",
             key_id="test-key",
@@ -66,6 +67,7 @@ def test_credential_to_response_secret() -> None:
     assert response.kind == "secret"
     assert response.secret_preview == "••••••••"
     assert response.access == "private"
+    assert response.workflow_id == str(workflow_id)
 
 
 def test_credential_to_response_without_owner() -> None:

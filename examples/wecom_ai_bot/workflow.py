@@ -17,7 +17,7 @@ Orcheo vault secrets required:
 from collections.abc import Mapping
 from typing import Any
 from langgraph.graph import END, StateGraph
-from orcheo.edges import Condition, IfElse
+from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.wecom import (
@@ -137,7 +137,7 @@ async def build_graph() -> StateGraph:
 
     graph.set_entry_point("wecom_ai_bot_events_parser")
 
-    immediate_response_router = IfElse(
+    immediate_response_router = IfElseEdge(
         name="immediate_response_router",
         conditions=[
             Condition(
@@ -152,7 +152,7 @@ async def build_graph() -> StateGraph:
         condition_logic="or",
     )
 
-    reply_mode_router = IfElse(
+    reply_mode_router = IfElseEdge(
         name="reply_mode_router",
         conditions=[
             Condition(

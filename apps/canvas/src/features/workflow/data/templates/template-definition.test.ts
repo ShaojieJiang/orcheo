@@ -14,9 +14,13 @@ describe("template compatibility", () => {
     const sharedTemplate = getWorkflowTemplateDefinition(
       "template-private-bot-shared-listener",
     );
+    const pluginTemplate = getWorkflowTemplateDefinition(
+      "template-wecom-lark-shared-listener",
+    );
 
     expect(qqTemplate).toBeDefined();
     expect(sharedTemplate).toBeDefined();
+    expect(pluginTemplate).toBeDefined();
     expect(() =>
       assertWorkflowTemplateCompatibility(
         qqTemplate as WorkflowTemplateDefinition,
@@ -25,6 +29,11 @@ describe("template compatibility", () => {
     expect(() =>
       assertWorkflowTemplateCompatibility(
         sharedTemplate as WorkflowTemplateDefinition,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertWorkflowTemplateCompatibility(
+        pluginTemplate as WorkflowTemplateDefinition,
       ),
     ).not.toThrow();
   });

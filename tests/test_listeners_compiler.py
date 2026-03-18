@@ -31,7 +31,7 @@ def test_compile_listener_subscriptions_filters_invalid_entries() -> None:
 
     assert len(subscriptions) == 1
     subscription = subscriptions[0]
-    assert subscription.platform is ListenerPlatform.DISCORD
+    assert subscription.platform == ListenerPlatform.DISCORD
     assert subscription.bot_identity_key == "explicit-key"
     assert subscription.node_name == "explicit"
     assert subscription.config == {
@@ -92,3 +92,21 @@ def test_compile_listener_subscriptions_returns_empty_for_non_listeners() -> Non
     graph = {"index": {"listeners": "invalid"}}
 
     assert compile_listener_subscriptions(workflow_id, version_id, graph) == []
+
+
+def test_compile_listener_subscriptions_skips_empty_platform_value() -> None:
+    """Entries with empty/blank platform are skipped (line 29)."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    graph = {
+        "index": {
+            "listeners": [
+                {"node_name": "bot", "platform": ""},
+                {"node_name": "bot2"},  # no platform key at all
+                {"node_name": "bot3", "platform": "   "},  # whitespace only
+            ]
+        }
+    }
+
+    result = compile_listener_subscriptions(workflow_id, version_id, graph)
+    assert result == []

@@ -1,0 +1,3 @@
+exports = ["nodes"]
+orcheo_version = ">=0.25,<1.0"
+plugin_api_version = 1

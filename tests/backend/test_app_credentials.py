@@ -33,38 +33,43 @@ async def test_list_credentials_success() -> None:
     cred1_id = uuid4()
     cred2_id = uuid4()
 
+    creds = [
+        CredentialMetadata(
+            id=cred1_id,
+            name="Cred 1",
+            provider="slack",
+            kind=CredentialKind.OAUTH,
+            scope=CredentialScope(),
+            encryption=EncryptionEnvelope(
+                algorithm="aes-256-gcm",
+                key_id="test-key",
+                ciphertext="encrypted",
+            ),
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        ),
+        CredentialMetadata(
+            id=cred2_id,
+            name="Cred 2",
+            provider="github",
+            kind=CredentialKind.SECRET,
+            scope=CredentialScope(),
+            encryption=EncryptionEnvelope(
+                algorithm="aes-256-gcm",
+                key_id="test-key",
+                ciphertext="encrypted",
+            ),
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        ),
+    ]
+
     class Vault:
         def list_credentials(self, context=None):
-            return [
-                CredentialMetadata(
-                    id=cred1_id,
-                    name="Cred 1",
-                    provider="slack",
-                    kind=CredentialKind.OAUTH,
-                    scope=CredentialScope(),
-                    encryption=EncryptionEnvelope(
-                        algorithm="aes-256-gcm",
-                        key_id="test-key",
-                        ciphertext="encrypted",
-                    ),
-                    created_at=datetime.now(tz=UTC),
-                    updated_at=datetime.now(tz=UTC),
-                ),
-                CredentialMetadata(
-                    id=cred2_id,
-                    name="Cred 2",
-                    provider="github",
-                    kind=CredentialKind.SECRET,
-                    scope=CredentialScope(),
-                    encryption=EncryptionEnvelope(
-                        algorithm="aes-256-gcm",
-                        key_id="test-key",
-                        ciphertext="encrypted",
-                    ),
-                    created_at=datetime.now(tz=UTC),
-                    updated_at=datetime.now(tz=UTC),
-                ),
-            ]
+            return creds
+
+        def list_all_credentials(self):
+            return creds
 
     result = await list_credentials(Vault(), _Repository())
 

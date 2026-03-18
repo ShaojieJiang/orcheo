@@ -1,8 +1,10 @@
 """Listener health, control, and metrics routes."""
 
 from __future__ import annotations
+import asyncio
+import logging
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from orcheo.listeners import (
@@ -23,8 +25,12 @@ from orcheo_backend.app.schemas.listeners import (
     ListenerHealthResponse,
     ListenerMetricsPlatformBreakdown,
     ListenerMetricsResponse,
+    ListenerReplyRequest,
     ListenerStatusUpdateRequest,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -188,7 +194,7 @@ async def get_workflow_listener_metrics(
     )
     by_platform: dict[str, ListenerMetricsPlatformBreakdown] = {}
     for item in items:
-        key = item.platform.value
+        key = item.platform
         breakdown = by_platform.setdefault(
             key,
             ListenerMetricsPlatformBreakdown(platform=item.platform),
@@ -280,10 +286,73 @@ async def resume_workflow_listener(
     return _merge_listener_health(updated, runtime_store.get_health(subscription_id))
 
 
+def _get_wecom_client(
+    subscription_id: str,
+) -> tuple[Any, asyncio.AbstractEventLoop]:
+    """Look up the WeCom WSClient registered in the backend process."""
+    try:
+        from orcheo_plugin_wecom_listener import get_wecom_client
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="WeCom listener plugin is not installed.",
+        ) from exc
+    entry = get_wecom_client(subscription_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No active WeCom WSClient for subscription {subscription_id}. "
+                "The listener may have disconnected."
+            ),
+        )
+    return entry
+
+
+@router.post(
+    "/internal/listeners/wecom/reply",
+    status_code=status.HTTP_200_OK,
+)
+async def relay_wecom_reply(
+    request: ListenerReplyRequest,
+) -> dict[str, bool]:
+    """Relay a WeCom reply through the active WSClient in the backend process.
+
+    Called by the Celery worker (via WeComWsReplyNode) because the WSClient
+    lives in the backend process while workflow execution runs in the worker.
+    """
+    client, sdk_loop = _get_wecom_client(request.subscription_id)
+    try:
+        from orcheo_plugin_wecom_listener import build_wecom_ws_reply_body
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="WeCom listener plugin is not installed.",
+        ) from exc
+    body = build_wecom_ws_reply_body(request.message)
+    future = asyncio.run_coroutine_threadsafe(
+        client.reply(request.raw_event, body),
+        sdk_loop,
+    )
+    try:
+        await asyncio.wrap_future(future)
+    except Exception as exc:
+        logger.exception(
+            "Failed to relay WeCom reply for subscription %s",
+            request.subscription_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"WeCom reply failed: {exc}",
+        ) from exc
+    return {"sent": True}
+
+
 __all__ = [
     "get_workflow_listener_metrics",
     "list_workflow_listeners",
     "pause_workflow_listener",
+    "relay_wecom_reply",
     "resume_workflow_listener",
     "router",
 ]

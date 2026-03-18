@@ -15,7 +15,7 @@ Orcheo Cloud is a managed platform for building stateful AI workflows. Teams use
 
 ## Documentation Map
 - Architecture: `project/architecture/design.md`
-- Node Reference: `docs/custom_nodes_and_tools.md`
+- Plugin Author Guide: `docs/custom_nodes_and_tools.md`
 - Deployment Guide: `docs/deployment.md`
 
 ## Example Questions

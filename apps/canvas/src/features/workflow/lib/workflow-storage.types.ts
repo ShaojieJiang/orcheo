@@ -100,7 +100,7 @@ export interface WorkflowCredentialReadinessResponse {
 export interface WorkflowListenerHealth {
   subscription_id: string;
   node_name: string;
-  platform: "telegram" | "discord" | "qq";
+  platform: string;
   status: "active" | "blocked" | "paused" | "error" | "disabled";
   bot_identity_key: string;
   assigned_runtime?: string | null;
@@ -121,13 +121,13 @@ export interface WorkflowListenerHealth {
 
 export interface WorkflowListenerAlert {
   subscription_id: string;
-  platform: "telegram" | "discord" | "qq";
+  platform: string;
   kind: "stalled_listener" | "reconnect_loop" | "dispatch_failure";
   detail: string;
 }
 
 export interface WorkflowListenerMetricsByPlatform {
-  platform: "telegram" | "discord" | "qq";
+  platform: string;
   total: number;
   healthy: number;
   paused: number;

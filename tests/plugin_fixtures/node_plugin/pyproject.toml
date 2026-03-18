@@ -1,0 +1,19 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+description = "Fixture node plugin"
+name = "orcheo-plugin-fixture-node"
+requires-python = ">=3.12"
+version = "0.1.0"
+
+[project.entry-points."orcheo.plugins"]
+fixture_node = "orcheo_plugin_fixture_node:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_fixture_node = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

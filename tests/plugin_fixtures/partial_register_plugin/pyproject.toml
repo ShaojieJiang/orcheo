@@ -1,0 +1,19 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+
+[project]
+authors = [{name = "Codex"}]
+description = "Fixture plugin that partially registers then fails"
+name = "orcheo-plugin-fixture-partial-register"
+requires-python = ">=3.12"
+version = "0.1.0"
+
+[project.entry-points."orcheo.plugins"]
+fixture_partial_register = "orcheo_plugin_fixture_partial_register:plugin"
+
+[tool.setuptools.package-data]
+orcheo_plugin_fixture_partial_register = ["orcheo_plugin.toml"]
+
+[tool.setuptools.package-dir]
+"" = "src"

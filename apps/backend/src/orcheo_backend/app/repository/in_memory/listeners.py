@@ -116,12 +116,14 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
                 and subscription.lease_expires_at > now
             ):
                 return None
+            should_record_claim = subscription.assigned_runtime != runtime_id
             subscription.assigned_runtime = runtime_id
             subscription.lease_expires_at = now + timedelta(seconds=lease_seconds)
-            subscription.record_event(
-                actor=runtime_id,
-                action="listener_subscription_claimed",
-            )
+            if should_record_claim:
+                subscription.record_event(
+                    actor=runtime_id,
+                    action="listener_subscription_claimed",
+                )
             return subscription.model_copy(deep=True)
 
     async def release_listener_subscription(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from io import StringIO
-from unittest.mock import patch
+import pytest
 from rich.console import Console
 from orcheo_sdk.cli.output import (
     format_datetime,
@@ -114,55 +114,35 @@ def test_format_datetime_none_attribute() -> None:
     assert "2024-11-03" in result
 
 
-def test_success_message() -> None:
+def test_success_message(capsys: pytest.CaptureFixture[str]) -> None:
     """Test success message output."""
-    output = StringIO()
-    with patch("orcheo_sdk.cli.output.Console") as mock_console_class:
-        mock_console = Console(file=output, force_terminal=True)
-        mock_console_class.return_value = mock_console
+    success("Operation completed")
 
-        success("Operation completed")
-
-        result = output.getvalue()
-        assert "Operation completed" in result
+    result = capsys.readouterr().out
+    assert "Operation completed" in result
 
 
-def test_warning_message() -> None:
+def test_warning_message(capsys: pytest.CaptureFixture[str]) -> None:
     """Test warning message output."""
-    output = StringIO()
-    with patch("orcheo_sdk.cli.output.Console") as mock_console_class:
-        mock_console = Console(file=output, force_terminal=True)
-        mock_console_class.return_value = mock_console
+    warning("This is a warning")
 
-        warning("This is a warning")
-
-        result = output.getvalue()
-        assert "This is a warning" in result
+    result = capsys.readouterr().out
+    assert "This is a warning" in result
 
 
-def test_success_with_special_characters() -> None:
+def test_success_with_special_characters(capsys: pytest.CaptureFixture[str]) -> None:
     """Test success message with special characters."""
-    output = StringIO()
-    with patch("orcheo_sdk.cli.output.Console") as mock_console_class:
-        mock_console = Console(file=output, force_terminal=True)
-        mock_console_class.return_value = mock_console
+    success("Success: 100% complete!")
 
-        success("Success: 100% complete!")
-
-        result = output.getvalue()
-        assert "100" in result
-        assert "complete" in result
+    result = capsys.readouterr().out
+    assert "100" in result
+    assert "complete" in result
 
 
-def test_warning_with_special_characters() -> None:
+def test_warning_with_special_characters(capsys: pytest.CaptureFixture[str]) -> None:
     """Test warning message with special characters."""
-    output = StringIO()
-    with patch("orcheo_sdk.cli.output.Console") as mock_console_class:
-        mock_console = Console(file=output, force_terminal=True)
-        mock_console_class.return_value = mock_console
+    warning("Warning: Rate limit 90% reached")
 
-        warning("Warning: Rate limit 90% reached")
-
-        result = output.getvalue()
-        assert "90" in result
-        assert "Rate limit" in result
+    result = capsys.readouterr().out
+    assert "90" in result
+    assert "Rate limit" in result
