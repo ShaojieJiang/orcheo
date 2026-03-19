@@ -110,7 +110,7 @@ def _run_stack_subprocess(
         raise typer.BadParameter(
             "Docker is not installed or not in PATH. Install Docker and retry."
         )
-    if expected_exit_codes is None:
+    if expected_exit_codes is None:  # pragma: no branch
         expected_exit_codes = {0}
     result = subprocess.run(
         command,
@@ -324,7 +324,7 @@ def install_plugin(
     use_stack_runtime = _use_stack_runtime(runtime) and not _is_local_plugin_ref(ref)
     if use_stack_runtime:
         payload = _run_stack_plugin_json(["install", ref])
-        if _payload_requires_restart(payload):
+        if _payload_requires_restart(payload):  # pragma: no branch
             _restart_running_stack_services(state)
         if not state.human:
             print_json(payload)

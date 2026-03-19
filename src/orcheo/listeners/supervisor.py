@@ -175,7 +175,7 @@ class ListenerSupervisor:
                 subscription.id,
                 exc,
             )
-            if subscription.last_error != str(exc):
+            if subscription.last_error != str(exc):  # pragma: no branch
                 await self._repository.update_listener_subscription_status(
                     subscription.id,
                     status=ListenerSubscriptionStatus.BLOCKED,

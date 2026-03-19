@@ -27,7 +27,7 @@ def test_stack_logs_shortcut_runs_compose_logs_follow(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     compose_file = stack_dir / "docker-compose.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
 
@@ -67,7 +67,7 @@ def test_stack_start_shortcut_runs_compose_up_detached(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     compose_file = stack_dir / "docker-compose.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
 
@@ -107,7 +107,7 @@ def test_stack_logs_treats_sigint_exit_as_success(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     compose_file = stack_dir / "docker-compose.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
 
@@ -147,7 +147,7 @@ def test_stack_rejects_multiple_actions(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     (stack_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
     called = {"value": False}
@@ -176,7 +176,7 @@ def test_stack_requires_existing_compose_file(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
     called = {"value": False}
     monkeypatch.setattr(
@@ -204,7 +204,7 @@ def test_stack_requires_docker_binary(
     tmp_path: Path,
 ) -> None:
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     (stack_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: None)
     called = {"value": False}
@@ -278,7 +278,7 @@ def test_stack_no_action_raises_error(
 ) -> None:
     """Invoking stack without any action flag shows an error."""
     stack_dir = tmp_path / "stack"
-    stack_dir.mkdir()
+    stack_dir.mkdir(exist_ok=True)
     (stack_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
 
