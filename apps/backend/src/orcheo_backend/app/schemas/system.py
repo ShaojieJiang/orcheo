@@ -23,3 +23,21 @@ class SystemInfoResponse(BaseModel):
     cli: PackageVersionStatus
     canvas: PackageVersionStatus
     checked_at: datetime
+
+
+class SystemPluginStatus(BaseModel):
+    """Plugin status as observed by the current backend process."""
+
+    name: str
+    enabled: bool
+    status: str
+    version: str
+    exports: list[str]
+    loaded: bool
+    load_error: str | None = None
+
+
+class SystemPluginsResponse(BaseModel):
+    """Installed plugin inventory for the current backend process."""
+
+    plugins: list[SystemPluginStatus]

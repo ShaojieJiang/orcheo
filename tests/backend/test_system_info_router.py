@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
 import httpx
 import pytest
-from orcheo_backend.app import versioning
+from orcheo.plugins import PluginLoadReport, PluginLoadResult
+from orcheo_backend.app import plugin_inventory, versioning
 from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
 
 
@@ -124,6 +125,65 @@ def test_system_health_is_public_when_auth_required(
     health_response = client.get("/api/system/health")
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
+
+
+def test_system_plugins_reports_backend_process_availability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plugin inventory includes enabled state plus current-process load status."""
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setattr(
+        plugin_inventory,
+        "PluginManager",
+        lambda: type(
+            "_Manager",
+            (),
+            {
+                "list_plugins": staticmethod(
+                    lambda: [
+                        {
+                            "name": "orcheo-plugin-lark-listener",
+                            "enabled": True,
+                            "status": "installed",
+                            "version": "0.1.0",
+                            "exports": ["nodes", "listeners"],
+                            "source": "orcheo-plugin-lark-listener",
+                        }
+                    ]
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        plugin_inventory,
+        "load_enabled_plugins",
+        lambda *, force=False: PluginLoadReport(
+            generation=1,
+            results=[
+                PluginLoadResult(
+                    name="orcheo-plugin-lark-listener",
+                    loaded=True,
+                )
+            ],
+        ),
+    )
+
+    client = create_test_client()
+    response = client.get("/api/system/plugins")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["plugins"] == [
+        {
+            "name": "orcheo-plugin-lark-listener",
+            "enabled": True,
+            "status": "installed",
+            "version": "0.1.0",
+            "exports": ["nodes", "listeners"],
+            "loaded": True,
+            "load_error": None,
+        }
+    ]
 
 
 def test_robots_txt_is_public_when_auth_required(

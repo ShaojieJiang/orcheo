@@ -1,6 +1,11 @@
 """Plugin lifecycle CLI commands."""
 
 from __future__ import annotations
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
 from typing import Annotated, Any
 import typer
 from orcheo.plugins import PluginImpactSummary
@@ -40,10 +45,173 @@ RefArgument = Annotated[
     str,
     typer.Argument(help="Package, path, wheel, or git reference."),
 ]
+RuntimeOption = Annotated[
+    str,
+    typer.Option(
+        "--runtime",
+        help="Plugin runtime target: auto, local, or stack.",
+    ),
+]
+
+_STACK_RUNTIME_SERVICES = ("backend", "worker", "celery-beat")
 
 
 def _state(ctx: typer.Context) -> CLIState:
     return ctx.ensure_object(CLIState)
+
+
+def _resolve_stack_project_dir() -> Path:
+    configured = os.getenv("ORCHEO_STACK_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".orcheo" / "stack"
+
+
+def _stack_compose_base_args() -> list[str]:
+    stack_dir = _resolve_stack_project_dir()
+    compose_file = stack_dir / "docker-compose.yml"
+    if not compose_file.exists():
+        raise typer.BadParameter(
+            "Stack docker-compose file not found. Run 'orcheo install --yes' first."
+        )
+    return [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+    ]
+
+
+def _normalize_runtime(runtime: str) -> str:
+    resolved = runtime.strip().lower()
+    if resolved not in {"auto", "local", "stack"}:
+        raise typer.BadParameter("Runtime must be one of: auto, local, stack.")
+    return resolved
+
+
+def _use_stack_runtime(runtime: str) -> bool:
+    resolved = _normalize_runtime(runtime)
+    if resolved == "local":
+        return False
+    if resolved == "stack":
+        return True
+    stack_dir = _resolve_stack_project_dir()
+    return (stack_dir / "docker-compose.yml").exists()
+
+
+def _run_stack_subprocess(
+    command: list[str],
+    *,
+    expected_exit_codes: set[int] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if shutil.which("docker") is None:
+        raise typer.BadParameter(
+            "Docker is not installed or not in PATH. Install Docker and retry."
+        )
+    if expected_exit_codes is None:
+        expected_exit_codes = {0}
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in expected_exit_codes:
+        message = result.stderr.strip() or result.stdout.strip() or "Command failed."
+        raise typer.BadParameter(message)
+    return result
+
+
+def _running_stack_services() -> set[str]:
+    compose_base_args = _stack_compose_base_args()
+    result = _run_stack_subprocess(
+        [*compose_base_args, "ps", "--services", "--status", "running"]
+    )
+    return {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() in _STACK_RUNTIME_SERVICES
+    }
+
+
+def _stack_plugin_command(
+    *,
+    args: list[str],
+    human: bool,
+) -> list[str]:
+    compose_base_args = _stack_compose_base_args()
+    running = _running_stack_services()
+    runtime_args = [*args, "--runtime", "local"]
+    if "backend" in running:
+        return [
+            *compose_base_args,
+            "exec",
+            "-T",
+            "backend",
+            "orcheo",
+            *(["--human"] if human else []),
+            "plugin",
+            *runtime_args,
+        ]
+    return [
+        *compose_base_args,
+        "run",
+        "--rm",
+        "-T",
+        "--no-deps",
+        "backend",
+        "orcheo",
+        *(["--human"] if human else []),
+        "plugin",
+        *runtime_args,
+    ]
+
+
+def _run_stack_plugin_passthrough(*, args: list[str], state: CLIState) -> None:
+    expected_exit_codes = {0, 1} if args and args[0] == "doctor" else {0}
+    result = _run_stack_subprocess(
+        _stack_plugin_command(args=args, human=state.human),
+        expected_exit_codes=expected_exit_codes,
+    )
+    output = result.stdout.rstrip()
+    if output:
+        if state.human:
+            state.console.print(output)
+        else:
+            typer.echo(output)
+    if args and args[0] == "doctor" and result.returncode == 1:
+        raise typer.Exit(code=1)
+
+
+def _run_stack_plugin_json(args: list[str]) -> Any:
+    result = _run_stack_subprocess(
+        _stack_plugin_command(args=args, human=False),
+    )
+    payload = result.stdout.strip()
+    if not payload:
+        return None
+    return json.loads(payload)
+
+
+def _restart_running_stack_services(console_state: CLIState) -> None:
+    running = _running_stack_services()
+    if not running:
+        return
+    compose_base_args = _stack_compose_base_args()
+    _run_stack_subprocess([*compose_base_args, "restart", *sorted(running)])
+    if console_state.human:
+        console_state.console.print(
+            "Restarted stack services: " + ", ".join(sorted(running))
+        )
+
+
+def _payload_requires_restart(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    impact = payload.get("impact")
+    return isinstance(impact, dict) and bool(impact.get("restart_required"))
 
 
 def _impact_to_dict(impact: PluginImpactSummary) -> dict[str, Any]:
@@ -81,9 +249,15 @@ def _maybe_confirm(
 
 
 @plugin_app.command("list")
-def list_plugins(ctx: typer.Context) -> None:
+def list_plugins(
+    ctx: typer.Context,
+    runtime: RuntimeOption = "auto",
+) -> None:
     """List installed plugins and their status."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        _run_stack_plugin_passthrough(args=["list"], state=state)
+        return
     rows = list_plugins_data()
     if not state.human:
         print_markdown_table(rows)
@@ -108,9 +282,16 @@ def list_plugins(ctx: typer.Context) -> None:
 
 
 @plugin_app.command("show")
-def show_plugin(ctx: typer.Context, name: NameArgument) -> None:
+def show_plugin(
+    ctx: typer.Context,
+    name: NameArgument,
+    runtime: RuntimeOption = "auto",
+) -> None:
     """Show plugin details."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        _run_stack_plugin_passthrough(args=["show", name], state=state)
+        return
     try:
         payload = show_plugin_data(name)
     except PluginError as exc:
@@ -122,9 +303,26 @@ def show_plugin(ctx: typer.Context, name: NameArgument) -> None:
 
 
 @plugin_app.command("install")
-def install_plugin(ctx: typer.Context, ref: RefArgument) -> None:
+def install_plugin(
+    ctx: typer.Context,
+    ref: RefArgument,
+    runtime: RuntimeOption = "auto",
+) -> None:
     """Install a plugin from a package, path, wheel, or git ref."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        payload = _run_stack_plugin_json(["install", ref])
+        if _payload_requires_restart(payload):
+            _restart_running_stack_services(state)
+        if not state.human:
+            print_json(payload)
+            return
+        render_json(state.console, payload["plugin"], title="Installed Plugin")
+        _render_impact(
+            state,
+            PluginImpactSummary(**payload["impact"]),
+        )
+        return
     try:
         payload = install_plugin_data(ref)
     except PluginError as exc:
@@ -337,9 +535,15 @@ def disable_plugin(
 
 
 @plugin_app.command("doctor")
-def doctor_plugins(ctx: typer.Context) -> None:
+def doctor_plugins(
+    ctx: typer.Context,
+    runtime: RuntimeOption = "auto",
+) -> None:
     """Inspect plugin state and report errors and warnings."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        _run_stack_plugin_passthrough(args=["doctor"], state=state)
+        return
     payload = doctor_plugins_data()
     if not state.human:
         print_json(payload)

@@ -808,6 +808,28 @@ describe("workflow-storage API integration - template creation", () => {
 
     queueResponses([
       jsonResponse({
+        plugins: [
+          {
+            name: "orcheo-plugin-wecom-listener",
+            enabled: true,
+            status: "installed",
+            version: "0.1.0",
+            exports: ["nodes", "listeners"],
+            loaded: true,
+            load_error: null,
+          },
+          {
+            name: "orcheo-plugin-lark-listener",
+            enabled: true,
+            status: "installed",
+            version: "0.1.0",
+            exports: ["nodes", "listeners"],
+            loaded: true,
+            load_error: null,
+          },
+        ],
+      }),
+      jsonResponse({
         id: "workflow-template-9",
         name: "WeCom + Lark Shared Listener Copy",
         slug: "workflow-template-9",
@@ -872,7 +894,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-wecom-lark-shared-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {
@@ -900,6 +922,30 @@ describe("workflow-storage API integration - template creation", () => {
     );
     expect(ingestBody.runnable_config?.configurable?.operator_note).toContain(
       "listener plugins",
+    );
+  });
+
+  it("fails fast when a plugin-backed template is missing required plugins", async () => {
+    queueResponses([
+      jsonResponse({
+        plugins: [
+          {
+            name: "orcheo-plugin-wecom-listener",
+            enabled: true,
+            status: "installed",
+            version: "0.1.0",
+            exports: ["nodes", "listeners"],
+            loaded: true,
+            load_error: null,
+          },
+        ],
+      }),
+    ]);
+
+    await expect(
+      createWorkflowFromTemplate("template-wecom-lark-shared-listener"),
+    ).rejects.toThrow(
+      "Install required plugins before using this template: orcheo-plugin-lark-listener",
     );
   });
 });

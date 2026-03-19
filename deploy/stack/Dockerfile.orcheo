@@ -8,6 +8,7 @@ WORKDIR /app
 # Install Node.js for MCP stdio transports (e.g., Slack node uses npx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs=20.* \
     && apt-get clean \

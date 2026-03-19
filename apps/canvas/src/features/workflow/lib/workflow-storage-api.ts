@@ -8,6 +8,7 @@ import type {
   CronTriggerConfig,
   PublicWorkflowMetadata,
   RequestOptions,
+  SystemPluginsResponse,
   WorkflowListenerHealth,
   WorkflowListenerMetricsResponse,
   WorkflowCredentialReadinessResponse,
@@ -155,6 +156,9 @@ export const fetchWorkflowCredentialReadiness = async (
     throw error;
   }
 };
+
+export const fetchSystemPlugins = async (): Promise<SystemPluginsResponse> =>
+  request<SystemPluginsResponse>("/api/system/plugins");
 
 export const fetchWorkflowListeners = async (
   workflowId: string,

@@ -147,8 +147,8 @@ root continues to follow `ORCHEO_CACHE_DIR`.
 
 Supported plugin refs:
 
-- package: `orcheo-plugin-wecom-listener`
-- pinned package: `orcheo-plugin-wecom-listener==0.1.0`
+- package: `orcheo-plugin-acme`
+- pinned package: `orcheo-plugin-acme==0.1.0`
 - local path: `./plugins/orcheo-plugin-acme`
 - wheel: `dist/orcheo_plugin_acme-0.1.0-py3-none-any.whl`
 - git: `git+https://github.com/acme/orcheo-plugin-acme.git`
@@ -168,8 +168,8 @@ lock consistency. It exits `1` when any error-level diagnostic is present.
 Two reference plugins exercise the listener-plugin contract end to end:
 
 ```bash
-orcheo plugin install orcheo-plugin-wecom-listener
-orcheo plugin install orcheo-plugin-lark-listener
+orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
+orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-lark-listener.git"
 ```
 
 They register:

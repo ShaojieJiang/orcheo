@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
@@ -22,6 +23,12 @@ def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:
 
 def _plugin_dir(env: dict[str, str]) -> Path:
     return Path(env["ORCHEO_PLUGIN_DIR"])
+
+
+def _stack_env(base_env: dict[str, str], stack_dir: Path) -> dict[str, str]:
+    env = dict(base_env)
+    env["ORCHEO_STACK_DIR"] = str(stack_dir)
+    return env
 
 
 def test_plugin_list_empty(runner: CliRunner, machine_env: dict[str, str]) -> None:
@@ -85,6 +92,98 @@ def test_plugin_install_machine_mode_returns_json(
     edge_list_result = runner.invoke(app, ["edge", "list"], env=machine_env)
     assert edge_list_result.exit_code == 0
     assert "FixturePluginEdge" in edge_list_result.stdout
+
+
+def test_plugin_install_targets_stack_and_restarts_running_services(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Stack-aware install shells into the backend container and restarts services."""
+    stack_dir = tmp_path / "stack"
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    executed: list[list[str]] = []
+    responses = iter(
+        [
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\nworker\n"),
+            subprocess.CompletedProcess(
+                ["docker"],
+                0,
+                stdout=json.dumps(
+                    {
+                        "plugin": {"name": "orcheo-plugin-lark-listener"},
+                        "impact": {
+                            "change_type": "install",
+                            "affected_component_kinds": ["listeners"],
+                            "affected_component_ids": ["lark"],
+                            "activation_mode": "restart_required",
+                            "prompt_required": False,
+                            "restart_required": True,
+                        },
+                    }
+                ),
+            ),
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\nworker\n"),
+            subprocess.CompletedProcess(["docker"], 0, stdout=""),
+        ]
+    )
+
+    def _run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text
+        executed.append(command)
+        return next(responses)
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", _run)
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", "orcheo-plugin-lark-listener"],
+        env=_stack_env(machine_env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "orcheo-plugin-lark-listener"
+    assert executed[1] == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "exec",
+        "-T",
+        "backend",
+        "orcheo",
+        "plugin",
+        "install",
+        "orcheo-plugin-lark-listener",
+        "--runtime",
+        "local",
+    ]
+    assert executed[3] == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "restart",
+        "backend",
+        "worker",
+    ]
 
 
 def test_plugin_update_prompts_for_existing_hot_reloadable_plugin(

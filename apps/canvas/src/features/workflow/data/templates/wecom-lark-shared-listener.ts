@@ -230,6 +230,10 @@ export const WECOM_LARK_SHARED_LISTENER_TEMPLATE: WorkflowTemplateDefinition = {
     validatedProviderApi: "wecom-lark-listener-plugin-suite-2026-03-16",
     validationDate: "2026-03-16",
     owner: "Shaojie Jiang",
+    requiredPlugins: [
+      "orcheo-plugin-wecom-listener",
+      "orcheo-plugin-lark-listener",
+    ],
     acceptanceCriteria: [
       "Imports into Canvas once both listener plugins are installed.",
       "Compiles valid WeCom and Lark listener subscriptions from one workflow.",

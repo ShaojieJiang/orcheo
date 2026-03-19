@@ -156,6 +156,20 @@ export interface WorkflowPublishResponse {
   share_url?: string | null;
 }
 
+export interface SystemPluginStatus {
+  name: string;
+  enabled: boolean;
+  status: string;
+  version: string;
+  exports: string[];
+  loaded: boolean;
+  load_error?: string | null;
+}
+
+export interface SystemPluginsResponse {
+  plugins: SystemPluginStatus[];
+}
+
 export interface CronTriggerConfig {
   expression: string;
   timezone?: string;
