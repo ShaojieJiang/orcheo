@@ -115,6 +115,7 @@ const parseCanvasMetadata = (
         edges: cloneEdges(templateDefinition.workflow.edges),
       },
       summary: { ...DEFAULT_SUMMARY },
+      templateId,
     };
   };
 
@@ -122,6 +123,7 @@ const parseCanvasMetadata = (
     return {
       snapshot: emptySnapshot(fallbackName, fallbackDescription),
       summary: { ...DEFAULT_SUMMARY },
+      templateId: undefined,
     };
   }
 
@@ -147,6 +149,10 @@ const parseCanvasMetadata = (
   const graphToCanvas = canvasRecord.graphToCanvas as
     | Record<string, string>
     | undefined;
+  const templateId =
+    typeof (metadata as Record<string, unknown>).template_id === "string"
+      ? ((metadata as Record<string, unknown>).template_id as string)
+      : undefined;
 
   const snapshot = snapshotPayload
     ? {
@@ -178,6 +184,7 @@ const parseCanvasMetadata = (
     message: messagePayload,
     canvasToGraph,
     graphToCanvas,
+    templateId,
   };
 };
 
@@ -210,6 +217,7 @@ const toVersionRecord = (
     mermaid: version.mermaid ?? null,
     runnableConfig: version.runnable_config ?? null,
     graphToCanvas: metadata.graphToCanvas,
+    templateId: metadata.templateId,
   };
 };
 

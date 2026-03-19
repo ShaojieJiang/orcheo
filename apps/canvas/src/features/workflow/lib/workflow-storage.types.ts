@@ -184,6 +184,7 @@ export interface CanvasVersionMetadata {
   message?: string;
   canvasToGraph?: Record<string, string>;
   graphToCanvas?: Record<string, string>;
+  templateId?: string;
 }
 
 export interface RequestOptions extends RequestInit {
@@ -202,6 +203,7 @@ export interface WorkflowVersionRecord {
   mermaid?: string | null;
   runnableConfig?: WorkflowRunnableConfig | null;
   graphToCanvas?: Record<string, string>;
+  templateId?: string;
 }
 
 export interface StoredWorkflow extends Workflow {

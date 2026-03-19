@@ -161,4 +161,33 @@ describe("WorkflowCard", () => {
 
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
+
+  it("requires confirmation before deleting a workflow", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /workflow actions/i,
+      }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: /^delete$/i }),
+    );
+
+    expect(handlers.onDeleteWorkflow).not.toHaveBeenCalled();
+    expect(screen.getByText(/delete workflow\?/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    expect(handlers.onDeleteWorkflow).toHaveBeenCalledTimes(1);
+    expect(handlers.onDeleteWorkflow).toHaveBeenCalledWith(
+      workflow.id,
+      workflow.name,
+    );
+  });
 });

@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Workflow } from "@features/workflow/data/workflow-data";
+import {
+  getWorkflowTemplateDefinition,
+  type Workflow,
+} from "@features/workflow/data/workflow-data";
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
   forceMermaidLeftToRight,
+  makeMermaidSvgTransparent,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
 
@@ -29,7 +33,13 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const latestVersion = workflow.versions?.at(-1);
 
   const mermaidSource = useMemo(() => {
-    const source = latestVersion?.mermaid;
+    const templateMermaid =
+      latestVersion?.templateId != null
+        ? getWorkflowTemplateDefinition(
+            latestVersion.templateId,
+          )?.workflow.versions?.at(-1)?.mermaid
+        : undefined;
+    const source = templateMermaid ?? latestVersion?.mermaid;
     if (!source) {
       return null;
     }
@@ -38,7 +48,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
     return trimmedSource.length > 0
       ? forceMermaidLeftToRight(trimmedSource)
       : null;
-  }, [latestVersion?.mermaid]);
+  }, [latestVersion?.mermaid, latestVersion?.templateId]);
 
   const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {
@@ -134,6 +144,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
           source: mermaidSource,
           cacheKey: mermaidCacheKey,
           renderId,
+          transformSvg: makeMermaidSvgTransparent,
         });
         if (!isMounted) {
           return;

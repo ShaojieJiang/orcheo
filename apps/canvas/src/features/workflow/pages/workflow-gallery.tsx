@@ -29,6 +29,7 @@ export default function WorkflowGallery() {
     setNewFolderName,
     selectedTab,
     setSelectedTab,
+    isLoadingWorkflows,
     sortedWorkflows,
     isTemplateView,
     handleCreateFolder,
@@ -75,6 +76,7 @@ export default function WorkflowGallery() {
               <WorkflowGalleryTabs
                 selectedTab={selectedTab}
                 onSelectedTabChange={setSelectedTab}
+                isLoading={isLoadingWorkflows}
                 sortedWorkflows={sortedWorkflows}
                 isTemplateView={isTemplateView}
                 searchQuery={searchQuery}

@@ -3,19 +3,37 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
+const workflowDataMock = vi.hoisted(() => ({
+  getWorkflowTemplateDefinition: vi.fn(),
+}));
+
 const mermaidRendererMock = vi.hoisted(() => ({
   buildMermaidCacheKey: vi.fn(),
   buildMermaidRenderId: vi.fn(),
   forceMermaidLeftToRight: vi.fn((source: string) =>
     source.replace(/\b(?:TB|TD|BT|RL|LR)\b/, "LR"),
   ),
+  makeMermaidSvgTransparent: vi.fn((svg: string) => svg),
   renderMermaidSvg: vi.fn(),
 }));
+
+vi.mock("@features/workflow/data/workflow-data", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@features/workflow/data/workflow-data")
+    >();
+  return {
+    ...actual,
+    getWorkflowTemplateDefinition:
+      workflowDataMock.getWorkflowTemplateDefinition,
+  };
+});
 
 vi.mock("@features/workflow/lib/mermaid-renderer", () => ({
   buildMermaidCacheKey: mermaidRendererMock.buildMermaidCacheKey,
   buildMermaidRenderId: mermaidRendererMock.buildMermaidRenderId,
   forceMermaidLeftToRight: mermaidRendererMock.forceMermaidLeftToRight,
+  makeMermaidSvgTransparent: mermaidRendererMock.makeMermaidSvgTransparent,
   renderMermaidSvg: mermaidRendererMock.renderMermaidSvg,
 }));
 
@@ -37,9 +55,11 @@ const baseWorkflow = {
 
 afterEach(() => {
   cleanup();
+  workflowDataMock.getWorkflowTemplateDefinition.mockReset();
   mermaidRendererMock.buildMermaidCacheKey.mockReset();
   mermaidRendererMock.buildMermaidRenderId.mockReset();
   mermaidRendererMock.forceMermaidLeftToRight.mockClear();
+  mermaidRendererMock.makeMermaidSvgTransparent.mockClear();
   mermaidRendererMock.renderMermaidSvg.mockReset();
 });
 
@@ -80,6 +100,7 @@ describe("WorkflowThumbnail", () => {
         source: "flowchart LR\nA[Start] --> B[End]",
         cacheKey: "cache-key",
         renderId: "render-id",
+        transformSvg: mermaidRendererMock.makeMermaidSvgTransparent,
       });
     });
     expect(mermaidRendererMock.forceMermaidLeftToRight).toHaveBeenCalledWith(
@@ -129,5 +150,50 @@ describe("WorkflowThumbnail", () => {
       container.querySelector(".workflow-thumbnail-loading"),
     ).not.toBeNull();
     expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
+  });
+
+  it("prefers the template Mermaid preview for template-derived workflows", async () => {
+    mermaidRendererMock.buildMermaidCacheKey.mockReturnValue("cache-key");
+    mermaidRendererMock.buildMermaidRenderId.mockReturnValue("render-id");
+    mermaidRendererMock.renderMermaidSvg.mockResolvedValue(
+      '<svg data-testid="template-preview"></svg>',
+    );
+    workflowDataMock.getWorkflowTemplateDefinition.mockReturnValue({
+      workflow: {
+        ...baseWorkflow,
+        versions: [
+          {
+            id: "template-v1",
+            mermaid: "flowchart TD\nTemplate --> Preview",
+          },
+        ],
+      },
+      script: "",
+      notes: "",
+    });
+
+    render(
+      <WorkflowThumbnail
+        workflow={{
+          ...baseWorkflow,
+          versions: [
+            {
+              id: "saved-v1",
+              mermaid: "flowchart TD\nSaved --> Workflow",
+              templateId: "template-python-agent",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mermaidRendererMock.renderMermaidSvg).toHaveBeenCalledWith({
+        source: "flowchart LR\nTemplate --> Preview",
+        cacheKey: "cache-key",
+        renderId: "render-id",
+        transformSvg: mermaidRendererMock.makeMermaidSvgTransparent,
+      });
+    });
   });
 });
