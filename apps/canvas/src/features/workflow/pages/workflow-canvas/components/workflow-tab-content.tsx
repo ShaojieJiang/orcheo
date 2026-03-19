@@ -23,10 +23,10 @@ import type {
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
-  forceMermaidLeftToRight,
   makeMermaidSvgTransparent,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
+import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet";
 
 export interface WorkflowTabContentProps {
@@ -236,14 +236,8 @@ export function WorkflowTabContent({
   }, [hasCronTriggerNode, workflowId]);
 
   const mermaidSource = useMemo(() => {
-    if (!latestVersion?.mermaid) {
-      return null;
-    }
-    const trimmedSource = latestVersion.mermaid.trim();
-    return trimmedSource.length > 0
-      ? forceMermaidLeftToRight(trimmedSource)
-      : null;
-  }, [latestVersion?.mermaid]);
+    return resolveWorkflowVersionMermaidSource(latestVersion);
+  }, [latestVersion]);
 
   const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {

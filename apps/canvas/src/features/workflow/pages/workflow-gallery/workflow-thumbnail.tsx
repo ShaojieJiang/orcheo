@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  getWorkflowTemplateDefinition,
-  type Workflow,
-} from "@features/workflow/data/workflow-data";
+import { type Workflow } from "@features/workflow/data/workflow-data";
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
-  forceMermaidLeftToRight,
   makeMermaidSvgTransparent,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
+import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 
 const NODE_COLORS: Record<string, string> = {
   trigger: "#f59e0b",
@@ -33,22 +30,8 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const latestVersion = workflow.versions?.at(-1);
 
   const mermaidSource = useMemo(() => {
-    const templateMermaid =
-      latestVersion?.templateId != null
-        ? getWorkflowTemplateDefinition(
-            latestVersion.templateId,
-          )?.workflow.versions?.at(-1)?.mermaid
-        : undefined;
-    const source = templateMermaid ?? latestVersion?.mermaid;
-    if (!source) {
-      return null;
-    }
-
-    const trimmedSource = source.trim();
-    return trimmedSource.length > 0
-      ? forceMermaidLeftToRight(trimmedSource)
-      : null;
-  }, [latestVersion?.mermaid, latestVersion?.templateId]);
+    return resolveWorkflowVersionMermaidSource(latestVersion);
+  }, [latestVersion]);
 
   const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {

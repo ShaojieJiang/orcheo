@@ -13,6 +13,11 @@ const mermaidRendererMock = vi.hoisted(() => ({
   forceMermaidLeftToRight: vi.fn((source: string) =>
     source.replace(/\b(?:TB|TD|BT|RL|LR)\b/, "LR"),
   ),
+  normalizeMermaidPalette: vi.fn((source: string) =>
+    source
+      .replace(/classDef default fill:#eef4ff/g, "classDef default fill:#f2f0ff")
+      .replace(/classDef last fill:#94b8ff/g, "classDef last fill:#bfb6fc"),
+  ),
   makeMermaidSvgTransparent: vi.fn((svg: string) => svg),
   renderMermaidSvg: vi.fn(),
 }));
@@ -33,6 +38,7 @@ vi.mock("@features/workflow/lib/mermaid-renderer", () => ({
   buildMermaidCacheKey: mermaidRendererMock.buildMermaidCacheKey,
   buildMermaidRenderId: mermaidRendererMock.buildMermaidRenderId,
   forceMermaidLeftToRight: mermaidRendererMock.forceMermaidLeftToRight,
+  normalizeMermaidPalette: mermaidRendererMock.normalizeMermaidPalette,
   makeMermaidSvgTransparent: mermaidRendererMock.makeMermaidSvgTransparent,
   renderMermaidSvg: mermaidRendererMock.renderMermaidSvg,
 }));
@@ -59,6 +65,7 @@ afterEach(() => {
   mermaidRendererMock.buildMermaidCacheKey.mockReset();
   mermaidRendererMock.buildMermaidRenderId.mockReset();
   mermaidRendererMock.forceMermaidLeftToRight.mockClear();
+  mermaidRendererMock.normalizeMermaidPalette.mockClear();
   mermaidRendererMock.makeMermaidSvgTransparent.mockClear();
   mermaidRendererMock.renderMermaidSvg.mockReset();
 });
@@ -164,7 +171,12 @@ describe("WorkflowThumbnail", () => {
         versions: [
           {
             id: "template-v1",
-            mermaid: "flowchart TD\nTemplate --> Preview",
+            mermaid: [
+              "flowchart TD",
+              "Template --> Preview",
+              "classDef default fill:#eef4ff,line-height:1.2",
+              "classDef last fill:#94b8ff",
+            ].join("\n"),
           },
         ],
       },
@@ -189,7 +201,12 @@ describe("WorkflowThumbnail", () => {
 
     await waitFor(() => {
       expect(mermaidRendererMock.renderMermaidSvg).toHaveBeenCalledWith({
-        source: "flowchart LR\nTemplate --> Preview",
+        source: [
+          "flowchart LR",
+          "Template --> Preview",
+          "classDef default fill:#f2f0ff,line-height:1.2",
+          "classDef last fill:#bfb6fc",
+        ].join("\n"),
         cacheKey: "cache-key",
         renderId: "render-id",
         transformSvg: mermaidRendererMock.makeMermaidSvgTransparent,

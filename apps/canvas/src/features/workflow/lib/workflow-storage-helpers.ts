@@ -11,6 +11,10 @@ import {
   DEFAULT_SUMMARY,
   HISTORY_LIMIT,
 } from "./workflow-storage.constants";
+import {
+  forceMermaidLeftToRight,
+  normalizeMermaidPalette,
+} from "./mermaid-renderer";
 import type {
   ApiWorkflow,
   ApiWorkflowVersionSummary,
@@ -86,6 +90,30 @@ export const getWorkflowRouteRef = (
     | Pick<ApiWorkflow, "id" | "handle">
     | Pick<Workflow, "id" | "handle">,
 ): string => workflow.handle ?? workflow.id;
+
+export const resolveWorkflowVersionMermaidSource = (
+  version:
+    | Pick<WorkflowVersionRecord, "mermaid" | "templateId">
+    | Pick<NonNullable<Workflow["versions"]>[number], "mermaid" | "templateId">
+    | null
+    | undefined,
+): string | null => {
+  const templateMermaid =
+    version?.templateId != null
+      ? getWorkflowTemplateDefinition(
+          version.templateId,
+        )?.workflow.versions?.at(-1)?.mermaid
+      : undefined;
+  const source = templateMermaid ?? version?.mermaid;
+  if (!source) {
+    return null;
+  }
+
+  const trimmedSource = source.trim();
+  return trimmedSource.length > 0
+    ? normalizeMermaidPalette(forceMermaidLeftToRight(trimmedSource))
+    : null;
+};
 
 const parseCanvasMetadata = (
   metadata: unknown,
