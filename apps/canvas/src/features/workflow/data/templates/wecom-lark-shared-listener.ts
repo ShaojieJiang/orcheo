@@ -10,30 +10,28 @@ config:
     curve: linear
 ---
 graph TD;
-	root__start(["START"]):::first
-	root__node__wecom_listener["WeComListenerPluginNode"]
-	root__node__lark_listener["LarkListenerPluginNode"]
-	root__node__agent_reply["AgentNode"]
-	root__node__extract_reply["AgentReplyExtractorNode"]
-	root__node__reply_route{"SwitchNode"}
-	root__node__ws_reply_wecom["WeComWsReplyNode"]
-	root__node__get_lark_tenant_token["HttpRequestNode"]
-	root__node__send_lark["LarkSendMessageNode"]
-	root__end(["END"]):::last
-	root__start --> root__node__wecom_listener;
-	root__start --> root__node__lark_listener;
-	root__node__wecom_listener --> root__node__agent_reply;
-	root__node__lark_listener --> root__node__agent_reply;
-	root__node__agent_reply --> root__node__extract_reply;
-	root__node__extract_reply --> root__node__reply_route;
-	root__node__reply_route -->|wecom| root__node__ws_reply_wecom;
-	root__node__reply_route -->|lark| root__node__get_lark_tenant_token;
-	root__node__get_lark_tenant_token --> root__node__send_lark;
-	root__node__ws_reply_wecom --> root__end;
-	root__node__send_lark --> root__end;
-	classDef default fill:#eef4ff,line-height:1.2
+	__start__([<p>START</p>]):::first
+	wecom_listener(wecom_listener)
+	lark_listener(lark_listener)
+	agent_reply(agent_reply)
+	extract_reply(extract_reply)
+	ws_reply_wecom(ws_reply_wecom)
+	get_lark_tenant_token(get_lark_tenant_token)
+	send_lark(send_lark)
+	__end__([<p>END</p>]):::last
+	__start__ -. &nbsp;lark&nbsp; .-> lark_listener;
+	__start__ -. &nbsp;wecom&nbsp; .-> wecom_listener;
+	agent_reply --> extract_reply;
+	extract_reply -. &nbsp;lark&nbsp; .-> get_lark_tenant_token;
+	extract_reply -. &nbsp;wecom&nbsp; .-> ws_reply_wecom;
+	get_lark_tenant_token --> send_lark;
+	lark_listener --> agent_reply;
+	wecom_listener --> agent_reply;
+	send_lark --> __end__;
+	ws_reply_wecom --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
-	classDef last fill:#94b8ff
+	classDef last fill:#bfb6fc
 `;
 
 export const WECOM_LARK_SHARED_LISTENER_WORKFLOW: Workflow = {

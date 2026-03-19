@@ -10,18 +10,18 @@ config:
     curve: linear
 ---
 graph TD;
-	root__start(["START"]):::first
-	root__node__discord_listener["DiscordBotListenerNode"]
-	root__node__agent_reply["AgentNode"]
-	root__node__send_discord["MessageDiscordNode"]
-	root__end(["END"]):::last
-	root__start --> root__node__discord_listener;
-	root__node__discord_listener --> root__node__agent_reply;
-	root__node__agent_reply --> root__node__send_discord;
-	root__node__send_discord --> root__end;
-	classDef default fill:#eef4ff,line-height:1.2
+	__start__([<p>START</p>]):::first
+	discord_listener(discord_listener)
+	agent_reply(agent_reply)
+	send_discord(send_discord)
+	__end__([<p>END</p>]):::last
+	__start__ --> discord_listener;
+	agent_reply --> send_discord;
+	discord_listener --> agent_reply;
+	send_discord --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
-	classDef last fill:#94b8ff
+	classDef last fill:#bfb6fc
 `;
 
 export const DISCORD_PRIVATE_LISTENER_WORKFLOW: Workflow = {

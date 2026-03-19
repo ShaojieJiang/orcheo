@@ -10,18 +10,18 @@ config:
     curve: linear
 ---
 graph TD;
-	root__start(["START"]):::first
-	root__node__telegram_listener["TelegramBotListenerNode"]
-	root__node__agent_reply["AgentNode"]
-	root__node__send_telegram["MessageTelegramNode"]
-	root__end(["END"]):::last
-	root__start --> root__node__telegram_listener;
-	root__node__telegram_listener --> root__node__agent_reply;
-	root__node__agent_reply --> root__node__send_telegram;
-	root__node__send_telegram --> root__end;
-	classDef default fill:#eef4ff,line-height:1.2
+	__start__([<p>START</p>]):::first
+	telegram_listener(telegram_listener)
+	agent_reply(agent_reply)
+	send_telegram(send_telegram)
+	__end__([<p>END</p>]):::last
+	__start__ --> telegram_listener;
+	agent_reply --> send_telegram;
+	telegram_listener --> agent_reply;
+	send_telegram --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
-	classDef last fill:#94b8ff
+	classDef last fill:#bfb6fc
 `;
 
 export const TELEGRAM_PRIVATE_LISTENER_WORKFLOW: Workflow = {
