@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Play } from "lucide-react";
+import { Copy, ExternalLink, Play, Trash } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
 import { toast } from "@/hooks/use-toast";
+import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
+import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
 import {
   fetchCronTriggerConfig,
   publishWorkflow,
@@ -20,9 +23,10 @@ import type {
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
-  forceMermaidLeftToRight,
+  makeMermaidSvgTransparent,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
+import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet";
 
 export interface WorkflowTabContentProps {
@@ -103,42 +107,6 @@ const resolveSvgSize = (svg: string) => {
   return DEFAULT_SVG_SIZE;
 };
 
-const makeMermaidSvgTransparent = (svg: string): string => {
-  const svgWithTransparentRoot = svg.replace(
-    /<svg\b([^>]*)>/i,
-    (match, attributes: string) => {
-      const styleMatch = attributes.match(/\sstyle="([^"]*)"/i);
-      if (!styleMatch) {
-        return `<svg${attributes} style="background-color: transparent;">`;
-      }
-
-      const cleanedStyle = styleMatch[1]
-        .split(";")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .filter(
-          (entry) =>
-            !entry.toLowerCase().startsWith("background-color") &&
-            !entry.toLowerCase().startsWith("background"),
-        )
-        .join("; ");
-      const nextStyle = ` style="background-color: transparent${cleanedStyle ? `; ${cleanedStyle}` : ""};"`;
-
-      return match.replace(styleMatch[0], nextStyle);
-    },
-  );
-
-  return svgWithTransparentRoot
-    .replace(
-      /<rect\b([^>]*\bclass="[^"]*\b(background|canvas)\b[^"]*"[^>]*)\/?>/gi,
-      "",
-    )
-    .replace(
-      /<rect\b([^>]*\bid="[^"]*(background|canvas)[^"]*"[^>]*)\/?>/gi,
-      "",
-    );
-};
-
 const MermaidSvgNode = ({ data }: NodeProps<Node<MermaidSvgNodeData>>) => {
   const nodeData = data as MermaidSvgNodeData;
 
@@ -202,6 +170,7 @@ export function WorkflowTabContent({
   initialIsPublished,
   initialShareUrl,
 }: WorkflowTabContentProps) {
+  const navigate = useNavigate();
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
@@ -211,6 +180,8 @@ export function WorkflowTabContent({
   const [isSchedulePending, setIsSchedulePending] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeletePending, setIsDeletePending] = useState(false);
 
   useEffect(() => {
     if (!workflowId) {
@@ -265,14 +236,8 @@ export function WorkflowTabContent({
   }, [hasCronTriggerNode, workflowId]);
 
   const mermaidSource = useMemo(() => {
-    if (!latestVersion?.mermaid) {
-      return null;
-    }
-    const trimmedSource = latestVersion.mermaid.trim();
-    return trimmedSource.length > 0
-      ? forceMermaidLeftToRight(trimmedSource)
-      : null;
-  }, [latestVersion?.mermaid]);
+    return resolveWorkflowVersionMermaidSource(latestVersion);
+  }, [latestVersion]);
 
   const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {
@@ -504,141 +469,190 @@ export function WorkflowTabContent({
     }
   };
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-      <div className="flex items-center justify-between border-b pb-3">
-        <div>
-          <h2 className="text-lg font-semibold">Workflow</h2>
-          <p className="text-sm text-muted-foreground">
-            {workflowName}
-            {latestVersion ? ` · ${latestVersion.version}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Publish</span>
-            <Switch
-              aria-label="Publish workflow"
-              checked={isPublished}
-              onCheckedChange={(checked) => void handlePublishToggle(checked)}
-              disabled={isPublishPending}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Schedule</span>
-            <Switch
-              aria-label="Schedule workflow"
-              checked={isScheduled}
-              onCheckedChange={(checked) => void handleScheduleToggle(checked)}
-              disabled={isSchedulePending || !canToggleSchedule}
-            />
-          </div>
-          <Button
-            onClick={() => void onRunWorkflow()}
-            disabled={!canRun || isRunPending}
-          >
-            <Play className="mr-1.5 h-4 w-4" />
-            {isRunPending ? "Running..." : "Run"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setIsConfigOpen(true)}
-            disabled={!canConfigure}
-          >
-            Config
-          </Button>
-        </div>
-      </div>
+  const handleDeleteCurrentWorkflow = async () => {
+    if (!workflowId) {
+      return;
+    }
 
-      {isPublished && shareUrl && (
-        <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Public URL
+    setIsDeletePending(true);
+    try {
+      await deleteWorkflow(workflowId);
+      toast({
+        title: "Workflow deleted",
+        description: `"${workflowName}" has been removed from your workspace.`,
+      });
+      setIsDeleteDialogOpen(false);
+      navigate("/");
+    } catch (error) {
+      toast({
+        title: "Failed to delete workflow",
+        description: getErrorMessage(error, "Unable to delete workflow."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletePending(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <div>
+            <h2 className="text-lg font-semibold">Workflow</h2>
+            <p className="text-sm text-muted-foreground">
+              {workflowName}
+              {latestVersion ? ` · ${latestVersion.version}` : ""}
             </p>
-            <a
-              href={shareUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="block truncate text-sm text-primary hover:underline"
-            >
-              {shareUrl}
-            </a>
           </div>
-          <div className="ml-3 flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Publish</span>
+              <Switch
+                aria-label="Publish workflow"
+                checked={isPublished}
+                onCheckedChange={(checked) => void handlePublishToggle(checked)}
+                disabled={isPublishPending}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Schedule</span>
+              <Switch
+                aria-label="Schedule workflow"
+                checked={isScheduled}
+                onCheckedChange={(checked) =>
+                  void handleScheduleToggle(checked)
+                }
+                disabled={isSchedulePending || !canToggleSchedule}
+              />
+            </div>
+            {workflowId ? (
+              <Button
+                variant="destructive"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                disabled={isDeletePending}
+              >
+                <Trash className="mr-1.5 h-4 w-4" />
+                Delete
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => void onRunWorkflow()}
+              disabled={!canRun || isRunPending}
+            >
+              <Play className="mr-1.5 h-4 w-4" />
+              {isRunPending ? "Running..." : "Run"}
+            </Button>
             <Button
               variant="outline"
-              size="sm"
-              onClick={() => void handleCopyShareUrl()}
+              onClick={() => setIsConfigOpen(true)}
+              disabled={!canConfigure}
             >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              Copy
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href={shareUrl} target="_blank" rel="noreferrer">
-                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                Open
-              </a>
+              Config
             </Button>
           </div>
         </div>
-      )}
 
-      {!latestVersion && (
-        <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-          No version is available yet to generate a Mermaid diagram.
-        </div>
-      )}
-
-      {latestVersion && !mermaidSource && (
-        <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-          Mermaid data is unavailable for this workflow version.
-        </div>
-      )}
-
-      {latestVersion && mermaidSource && diagramError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-          Unable to render Mermaid diagram: {diagramError}
-        </div>
-      )}
-
-      {latestVersion && mermaidSource && !diagramError && (
-        <div className="min-h-0 flex flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {diagramNodes.length > 0 ? (
-              <ReactFlow
-                key={`${latestVersion.id}-mermaid-svg`}
-                nodes={diagramNodes}
-                edges={[]}
-                nodeTypes={nodeTypes}
-                fitView
-                minZoom={0.2}
-                maxZoom={2}
-                nodesDraggable={false}
-                nodesConnectable={false}
-                elementsSelectable={false}
-                zoomOnDoubleClick={false}
-                className="h-full w-full"
-                proOptions={{ hideAttribution: true }}
-                style={{ background: "transparent" }}
+        {isPublished && shareUrl && (
+          <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Public URL
+              </p>
+              <a
+                href={shareUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block truncate text-sm text-primary hover:underline"
               >
-                <Controls showInteractive={false} />
-              </ReactFlow>
-            ) : (
-              <pre className="h-full overflow-auto p-3 text-xs text-muted-foreground">
-                {defaultMermaid}
-              </pre>
-            )}
+                {shareUrl}
+              </a>
+            </div>
+            <div className="ml-3 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleCopyShareUrl()}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                Copy
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href={shareUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                  Open
+                </a>
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <WorkflowConfigSheet
-        open={isConfigOpen}
-        onOpenChange={setIsConfigOpen}
-        initialConfig={latestConfig}
-        onSave={onSaveConfig}
-      />
-    </div>
+        {!latestVersion && (
+          <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+            No version is available yet to generate a Mermaid diagram.
+          </div>
+        )}
+
+        {latestVersion && !mermaidSource && (
+          <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+            Mermaid data is unavailable for this workflow version.
+          </div>
+        )}
+
+        {latestVersion && mermaidSource && diagramError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+            Unable to render Mermaid diagram: {diagramError}
+          </div>
+        )}
+
+        {latestVersion && mermaidSource && !diagramError && (
+          <div className="min-h-0 flex flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {diagramNodes.length > 0 ? (
+                <ReactFlow
+                  key={`${latestVersion.id}-mermaid-svg`}
+                  nodes={diagramNodes}
+                  edges={[]}
+                  nodeTypes={nodeTypes}
+                  fitView
+                  minZoom={0.2}
+                  maxZoom={2}
+                  nodesDraggable={false}
+                  nodesConnectable={false}
+                  elementsSelectable={false}
+                  zoomOnDoubleClick={false}
+                  className="h-full w-full"
+                  proOptions={{ hideAttribution: true }}
+                  style={{ background: "transparent" }}
+                >
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              ) : (
+                <pre className="h-full overflow-auto p-3 text-xs text-muted-foreground">
+                  {defaultMermaid}
+                </pre>
+              )}
+            </div>
+          </div>
+        )}
+
+        <WorkflowConfigSheet
+          open={isConfigOpen}
+          onOpenChange={setIsConfigOpen}
+          initialConfig={latestConfig}
+          onSave={onSaveConfig}
+        />
+      </div>
+
+      {workflowId ? (
+        <ConfirmDeleteWorkflowDialog
+          open={isDeleteDialogOpen}
+          workflowName={workflowName}
+          isPending={isDeletePending}
+          onOpenChange={setIsDeleteDialogOpen}
+          onConfirm={handleDeleteCurrentWorkflow}
+        />
+      ) : null}
+    </>
   );
 }

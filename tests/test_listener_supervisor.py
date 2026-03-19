@@ -75,9 +75,7 @@ async def test_listener_supervisor_claims_and_releases_subscriptions() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_listener_supervisor_blocks_missing_credentials_without_retrying() -> (
-    None
-):
+async def test_listener_supervisor_retries_blocked_listeners_and_recovers() -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
         name="Supervisor Failure Flow",
@@ -128,10 +126,11 @@ async def test_listener_supervisor_blocks_missing_credentials_without_retrying()
     assert subscription.assigned_runtime is None
 
     await supervisor.run_once()
-    claimed = await repository.get_listener_subscription(subscription.id)
-    assert claimed.status == ListenerSubscriptionStatus.BLOCKED
-    assert claimed.assigned_runtime is None
-    assert attempts == 1
+    recovered = await repository.get_listener_subscription(subscription.id)
+    assert recovered.status == ListenerSubscriptionStatus.ACTIVE
+    assert recovered.assigned_runtime == "runtime-1"
+    assert recovered.last_error is None
+    assert attempts == 2
 
     await supervisor.shutdown()
 

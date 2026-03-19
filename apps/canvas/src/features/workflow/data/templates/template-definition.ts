@@ -10,6 +10,7 @@ export interface WorkflowTemplateMetadata {
   acceptanceCriteria: string[];
   revalidationTriggers: string[];
   replyNodeContracts?: string[];
+  requiredPlugins?: string[];
 }
 
 export interface WorkflowTemplateDefinition {

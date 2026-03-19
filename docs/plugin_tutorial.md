@@ -363,7 +363,7 @@ in separate processes. Plugin state lives under `~/.orcheo/plugins/` (or
 
 ## 9. Reference: validation plugins
 
-Two production-grade listener plugins are published as reference
+Two production-grade listener plugins are available as reference
 implementations:
 
 - [orcheo-plugin-wecom-listener](https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener) —

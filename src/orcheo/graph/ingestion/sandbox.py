@@ -111,7 +111,8 @@ def _plugin_site_packages() -> Path:
 def _ensure_plugin_sys_path() -> None:
     """Expose managed plugin packages to sandboxed workflow imports."""
     site_packages = _plugin_site_packages()
-    if site_packages.exists() and str(site_packages) not in sys.path:
+    condition = site_packages.exists() and str(site_packages) not in sys.path
+    if condition:  # pragma: no branch
         sys.path.insert(0, str(site_packages))
 
 

@@ -194,6 +194,18 @@ export const forceMermaidLeftToRight = (source: string): string => {
   return normalizedSource.replace(/^(\s*(?:flowchart|graph))(\s*)$/im, "$1 LR");
 };
 
+const MERMAID_COLOR_ALIASES: ReadonlyArray<[RegExp, string]> = [
+  [/\bclassDef\s+default\s+fill:#eef4ff\b/gi, "classDef default fill:#f2f0ff"],
+  [/\bclassDef\s+last\s+fill:#94b8ff\b/gi, "classDef last fill:#bfb6fc"],
+];
+
+export const normalizeMermaidPalette = (source: string): string =>
+  MERMAID_COLOR_ALIASES.reduce(
+    (normalized, [pattern, replacement]) =>
+      normalized.replace(pattern, replacement),
+    source,
+  );
+
 export const hashMermaidSource = (value: string): string => {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
@@ -225,6 +237,42 @@ export const buildMermaidRenderId = (
   cacheKey: string,
 ): string =>
   `${sanitizeMermaidIdPart(prefix)}-${sanitizeMermaidIdPart(cacheKey)}`;
+
+export const makeMermaidSvgTransparent = (svg: string): string => {
+  const svgWithTransparentRoot = svg.replace(
+    /<svg\b([^>]*)>/i,
+    (match, attributes: string) => {
+      const styleMatch = attributes.match(/\sstyle="([^"]*)"/i);
+      if (!styleMatch) {
+        return `<svg${attributes} style="background-color: transparent;">`;
+      }
+
+      const cleanedStyle = styleMatch[1]
+        .split(";")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .filter(
+          (entry) =>
+            !entry.toLowerCase().startsWith("background-color") &&
+            !entry.toLowerCase().startsWith("background"),
+        )
+        .join("; ");
+      const nextStyle = ` style="background-color: transparent${cleanedStyle ? `; ${cleanedStyle}` : ""};"`;
+
+      return match.replace(styleMatch[0], nextStyle);
+    },
+  );
+
+  return svgWithTransparentRoot
+    .replace(
+      /<rect\b([^>]*\bclass="[^"]*\b(background|canvas)\b[^"]*"[^>]*)\/?>/gi,
+      "",
+    )
+    .replace(
+      /<rect\b([^>]*\bid="[^"]*(background|canvas)[^"]*"[^>]*)\/?>/gi,
+      "",
+    );
+};
 
 export const renderMermaidSvg = async ({
   source,

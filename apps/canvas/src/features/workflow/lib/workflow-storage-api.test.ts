@@ -5,6 +5,7 @@ import {
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
   fetchWorkflowListeners,
+  fetchSystemPlugins,
   pauseWorkflowListener,
   resolveWorkflowShareUrl,
   resumeWorkflowListener,
@@ -335,6 +336,30 @@ describe("workflow-storage-api helpers", () => {
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
       "/api/workflows/wf-1/credentials/readiness",
     );
+  });
+
+  it("fetches backend plugin availability", async () => {
+    queueResponses([
+      jsonResponse({
+        plugins: [
+          {
+            name: "orcheo-plugin-lark-listener",
+            enabled: true,
+            status: "installed",
+            version: "0.1.0",
+            exports: ["nodes", "listeners"],
+            loaded: true,
+            load_error: null,
+          },
+        ],
+      }),
+    ]);
+
+    const payload = await fetchSystemPlugins();
+
+    expect(payload.plugins).toHaveLength(1);
+    expect(payload.plugins[0]?.name).toBe("orcheo-plugin-lark-listener");
+    expect(payload.plugins[0]?.loaded).toBe(true);
   });
 
   it("fetches workflow listener health and metrics", async () => {

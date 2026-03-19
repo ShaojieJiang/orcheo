@@ -27,6 +27,7 @@ export interface WorkflowEdge {
 export interface WorkflowMermaidPreviewVersion {
   id: string;
   mermaid?: string | null;
+  templateId?: string;
 }
 
 export interface Workflow {

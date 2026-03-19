@@ -471,6 +471,7 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
         "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE" in query
         for query in queries
     )
+    assert not any("UPDATE workflows" in query for query in queries)
 
 
 @pytest.mark.asyncio

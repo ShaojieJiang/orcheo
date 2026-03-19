@@ -4,6 +4,7 @@ import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
   forceMermaidLeftToRight,
+  normalizeMermaidPalette,
   renderMermaidSvg,
 } from "./mermaid-renderer";
 
@@ -37,6 +38,27 @@ describe("mermaid-renderer", () => {
     expect(forceMermaidLeftToRight("flowchart\nA --> B")).toBe(
       "flowchart LR\nA --> B",
     );
+  });
+
+  it("normalizes template palette aliases to the default workflow palette", () => {
+    expect(
+      normalizeMermaidPalette(
+        [
+          "graph TD;",
+          "\tclassDef default fill:#eef4ff,line-height:1.2",
+          "\tclassDef last fill:#94b8ff",
+        ].join("\n"),
+      ),
+    ).toContain("classDef default fill:#f2f0ff,line-height:1.2");
+    expect(
+      normalizeMermaidPalette(
+        [
+          "graph TD;",
+          "\tclassDef default fill:#eef4ff,line-height:1.2",
+          "\tclassDef last fill:#94b8ff",
+        ].join("\n"),
+      ),
+    ).toContain("classDef last fill:#bfb6fc");
   });
 
   it("reuses cached svg for the same key", async () => {

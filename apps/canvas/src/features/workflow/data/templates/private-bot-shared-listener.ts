@@ -10,32 +10,30 @@ config:
     curve: linear
 ---
 graph TD;
-	root__start(["START"]):::first
-	root__node__telegram_listener["TelegramBotListenerNode"]
-	root__node__discord_listener["DiscordBotListenerNode"]
-	root__node__qq_listener["QQBotListenerNode"]
-	root__node__agent_reply["AgentNode"]
-	root__node__reply_route{"SwitchNode"}
-	root__node__send_telegram["MessageTelegramNode"]
-	root__node__send_discord["MessageDiscordNode"]
-	root__node__send_qq["MessageQQNode"]
-	root__end(["END"]):::last
-	root__start --> root__node__telegram_listener;
-	root__start --> root__node__discord_listener;
-	root__start --> root__node__qq_listener;
-	root__node__telegram_listener --> root__node__agent_reply;
-	root__node__discord_listener --> root__node__agent_reply;
-	root__node__qq_listener --> root__node__agent_reply;
-	root__node__agent_reply --> root__node__reply_route;
-	root__node__reply_route -->|telegram| root__node__send_telegram;
-	root__node__reply_route -->|discord| root__node__send_discord;
-	root__node__reply_route -->|qq| root__node__send_qq;
-	root__node__send_telegram --> root__end;
-	root__node__send_discord --> root__end;
-	root__node__send_qq --> root__end;
-	classDef default fill:#eef4ff,line-height:1.2
+	__start__([<p>START</p>]):::first
+	telegram_listener(telegram_listener)
+	discord_listener(discord_listener)
+	qq_listener(qq_listener)
+	agent_reply(agent_reply)
+	send_telegram(send_telegram)
+	send_discord(send_discord)
+	send_qq(send_qq)
+	__end__([<p>END</p>]):::last
+	__start__ --> discord_listener;
+	__start__ --> qq_listener;
+	__start__ --> telegram_listener;
+	agent_reply -. &nbsp;discord&nbsp; .-> send_discord;
+	agent_reply -. &nbsp;qq&nbsp; .-> send_qq;
+	agent_reply -. &nbsp;telegram&nbsp; .-> send_telegram;
+	discord_listener --> agent_reply;
+	qq_listener --> agent_reply;
+	telegram_listener --> agent_reply;
+	send_discord --> __end__;
+	send_qq --> __end__;
+	send_telegram --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
-	classDef last fill:#94b8ff
+	classDef last fill:#bfb6fc
 `;
 
 export const PRIVATE_BOT_SHARED_LISTENER_WORKFLOW: Workflow = {

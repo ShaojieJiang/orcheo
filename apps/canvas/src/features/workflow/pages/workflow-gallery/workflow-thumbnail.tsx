@@ -3,9 +3,10 @@ import { type Workflow } from "@features/workflow/data/workflow-data";
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
-  forceMermaidLeftToRight,
+  makeMermaidSvgTransparent,
   renderMermaidSvg,
 } from "@features/workflow/lib/mermaid-renderer";
+import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 
 const NODE_COLORS: Record<string, string> = {
   trigger: "#f59e0b",
@@ -29,16 +30,8 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const latestVersion = workflow.versions?.at(-1);
 
   const mermaidSource = useMemo(() => {
-    const source = latestVersion?.mermaid;
-    if (!source) {
-      return null;
-    }
-
-    const trimmedSource = source.trim();
-    return trimmedSource.length > 0
-      ? forceMermaidLeftToRight(trimmedSource)
-      : null;
-  }, [latestVersion?.mermaid]);
+    return resolveWorkflowVersionMermaidSource(latestVersion);
+  }, [latestVersion]);
 
   const mermaidCacheKey = useMemo(() => {
     if (!mermaidSource) {
@@ -134,6 +127,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
           source: mermaidSource,
           cacheKey: mermaidCacheKey,
           renderId,
+          transformSvg: makeMermaidSvgTransparent,
         });
         if (!isMounted) {
           return;

@@ -8,6 +8,7 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
 )
 from orcheo.listeners.supervisor import ListenerSupervisor
+from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 
 
 class StubRepository:
@@ -60,6 +61,28 @@ class StubRepository:
                 subscription.lease_expires_at = None
                 return subscription
         raise AssertionError(f"Unknown subscription {subscription_id}")
+
+
+class RecordingRepository(StubRepository):
+    def __init__(self, subscriptions: list[ListenerSubscription]) -> None:
+        super().__init__(subscriptions)
+        self.update_calls: list[tuple[ListenerSubscriptionStatus, str, str | None]] = []
+
+    async def update_listener_subscription_status(
+        self,
+        subscription_id: UUID,
+        *,
+        status: ListenerSubscriptionStatus,
+        actor: str,
+        last_error: str | None = None,
+    ) -> ListenerSubscription:
+        self.update_calls.append((status, actor, last_error))
+        return await super().update_listener_subscription_status(
+            subscription_id,
+            status=status,
+            actor=actor,
+            last_error=last_error,
+        )
 
 
 def create_subscription(status: ListenerSubscriptionStatus) -> ListenerSubscription:
@@ -222,3 +245,60 @@ async def test_stop_adapter_returns_when_no_task() -> None:
         adapter_factory=lambda subscription: BlockingAdapter(subscription),
     )
     await supervisor._stop_adapter(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_recover_blocked_subscription_updates_blocked_status() -> None:
+    subscription = create_subscription(ListenerSubscriptionStatus.BLOCKED)
+    subscription.last_error = "previous"
+    repository = StubRepository([subscription])
+
+    supervisor = ListenerSupervisor(
+        repository=repository,
+        runtime_id="runtime",
+        adapter_factory=lambda _: (_ for _ in ()).throw(
+            CredentialReferenceNotFoundError("missing secret")
+        ),
+    )
+
+    result = await supervisor._recover_blocked_subscription(subscription)
+    assert result == (None, None)
+    assert subscription.status == ListenerSubscriptionStatus.BLOCKED
+    assert subscription.last_error == "missing secret"
+
+
+@pytest.mark.asyncio
+async def test_recover_blocked_subscription_records_status_update() -> None:
+    subscription = create_subscription(ListenerSubscriptionStatus.BLOCKED)
+    subscription.last_error = "old error"
+    repository = RecordingRepository([subscription])
+
+    supervisor = ListenerSupervisor(
+        repository=repository,
+        runtime_id="runtime",
+        adapter_factory=lambda _: (_ for _ in ()).throw(
+            CredentialReferenceNotFoundError("missing secret")
+        ),
+    )
+
+    result = await supervisor._recover_blocked_subscription(subscription)
+    assert result == (None, None)
+    assert repository.update_calls == [
+        (ListenerSubscriptionStatus.BLOCKED, "runtime", "missing secret")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_recover_blocked_subscription_records_build_failure() -> None:
+    subscription = create_subscription(ListenerSubscriptionStatus.BLOCKED)
+    repository = StubRepository([subscription])
+    supervisor = ListenerSupervisor(
+        repository=repository,
+        runtime_id="runtime",
+        adapter_factory=lambda _: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    await supervisor._recover_blocked_subscription(subscription)
+    failure = supervisor._build_failures[subscription.id]
+    assert failure.consecutive_failures == 1
+    assert "boom" in (failure.detail or "")

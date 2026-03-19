@@ -12,6 +12,7 @@ import {
 } from "./workflow-storage-helpers";
 import {
   API_BASE,
+  fetchSystemPlugins,
   fetchWorkflowVersions,
   request,
   upsertWorkflow,
@@ -73,6 +74,27 @@ const buildTemplateCanvasMetadata = ({
   },
   summary: { added: 0, removed: 0, modified: 0 },
 });
+
+const assertTemplatePluginRequirements = async (
+  requiredPlugins: string[] | undefined,
+): Promise<void> => {
+  if (!requiredPlugins || requiredPlugins.length === 0) {
+    return;
+  }
+  const payload = await fetchSystemPlugins();
+  const available = new Set(
+    payload.plugins
+      .filter((plugin) => plugin.enabled && plugin.loaded)
+      .map((plugin) => plugin.name),
+  );
+  const missing = requiredPlugins.filter((plugin) => !available.has(plugin));
+  if (missing.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Install required plugins before using this template: ${missing.join(", ")}`,
+  );
+};
 
 export const invalidateWorkflowListCache = () => {
   workflowListCache = undefined;
@@ -170,6 +192,9 @@ export const createWorkflowFromTemplate = async (
     return undefined;
   }
   assertWorkflowTemplateCompatibility(templateDefinition);
+  await assertTemplatePluginRequirements(
+    templateDefinition.metadata?.requiredPlugins,
+  );
 
   const actor = resolveActor();
   const templateWorkflow = templateDefinition.workflow;

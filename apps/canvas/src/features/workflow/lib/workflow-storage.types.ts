@@ -156,6 +156,20 @@ export interface WorkflowPublishResponse {
   share_url?: string | null;
 }
 
+export interface SystemPluginStatus {
+  name: string;
+  enabled: boolean;
+  status: string;
+  version: string;
+  exports: string[];
+  loaded: boolean;
+  load_error?: string | null;
+}
+
+export interface SystemPluginsResponse {
+  plugins: SystemPluginStatus[];
+}
+
 export interface CronTriggerConfig {
   expression: string;
   timezone?: string;
@@ -170,6 +184,7 @@ export interface CanvasVersionMetadata {
   message?: string;
   canvasToGraph?: Record<string, string>;
   graphToCanvas?: Record<string, string>;
+  templateId?: string;
 }
 
 export interface RequestOptions extends RequestInit {
@@ -188,6 +203,7 @@ export interface WorkflowVersionRecord {
   mermaid?: string | null;
   runnableConfig?: WorkflowRunnableConfig | null;
   graphToCanvas?: Record<string, string>;
+  templateId?: string;
 }
 
 export interface StoredWorkflow extends Workflow {

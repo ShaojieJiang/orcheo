@@ -14,6 +14,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.routers import workflows as workflow_routes
 from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
@@ -112,6 +113,55 @@ async def test_ingest_workflow_version_script_error() -> None:
         await ingest_workflow_version(str(workflow_id), request, Repository())
 
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_rejects_missing_required_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Template ingest fails early when required plugins are unavailable."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
+            del wf_id, graph, metadata, notes, created_by, runnable_config
+            raise AssertionError("create_version should not be called")
+
+    monkeypatch.setattr(
+        workflow_routes,
+        "missing_required_plugins",
+        lambda required_plugins: list(required_plugins),
+    )
+
+    request = WorkflowVersionIngestRequest(
+        script="from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
+        entrypoint="graph",
+        metadata={
+            "template": {
+                "requiredPlugins": ["orcheo-plugin-lark-listener"],
+            }
+        },
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(str(workflow_id), request, Repository())
+
+    assert exc_info.value.status_code == 400
+    assert "orcheo-plugin-lark-listener" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio()

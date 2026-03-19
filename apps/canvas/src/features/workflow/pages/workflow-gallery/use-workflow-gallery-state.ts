@@ -30,6 +30,7 @@ interface WorkflowGalleryStateSlice {
   setShowFilterPopover: (value: boolean) => void;
   filters: WorkflowGalleryFilters;
   setFilters: (value: WorkflowGalleryFilters) => void;
+  isLoadingWorkflows: boolean;
   sortedWorkflows: Workflow[];
   isTemplateView: boolean;
   templates: Workflow[];
@@ -55,6 +56,7 @@ const DEFAULT_FILTERS: WorkflowGalleryFilters = {
 
 export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [workflows, setWorkflows] = useState<StoredWorkflow[]>([]);
+  const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
   const [sortBy, setSortBy] = useState<WorkflowGallerySort>("updated");
@@ -68,6 +70,9 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     let isMounted = true;
 
     const load = async (forceRefresh = false) => {
+      if (isMounted) {
+        setIsLoadingWorkflows(true);
+      }
       try {
         const items = await listWorkflows({ forceRefresh });
         if (isMounted) {
@@ -85,6 +90,10 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",
         });
+      } finally {
+        if (isMounted) {
+          setIsLoadingWorkflows(false);
+        }
       }
     };
 
@@ -187,6 +196,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     setShowFilterPopover,
     filters,
     setFilters,
+    isLoadingWorkflows,
     sortedWorkflows,
     isTemplateView,
     templates,

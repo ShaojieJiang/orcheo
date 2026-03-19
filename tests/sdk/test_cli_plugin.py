@@ -3,11 +3,17 @@
 from __future__ import annotations
 import json
 import shutil
+import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
+import typer
+from rich.console import Console
 from typer.testing import CliRunner
+from orcheo_sdk.cli import plugin as plugin_module
 from orcheo_sdk.cli.main import app
+from orcheo_sdk.cli.state import CLIState
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "plugin_fixtures"
@@ -22,6 +28,163 @@ def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:
 
 def _plugin_dir(env: dict[str, str]) -> Path:
     return Path(env["ORCHEO_PLUGIN_DIR"])
+
+
+def _stack_env(base_env: dict[str, str], stack_dir: Path) -> dict[str, str]:
+    env = dict(base_env)
+    env["ORCHEO_STACK_DIR"] = str(stack_dir)
+    return env
+
+
+def _make_cli_state(*, human: bool) -> CLIState:
+    return CLIState(
+        settings=MagicMock(),
+        client=MagicMock(),
+        cache=MagicMock(),
+        console=Console(record=True),
+        human=human,
+    )
+
+
+def test_run_stack_subprocess_defaults_to_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    def fake_run(
+        command: list[str], *, check: bool, capture_output: bool, text: bool
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n")
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", fake_run)
+    result = plugin_module._run_stack_subprocess(["docker", "ps"])
+    assert result.returncode == 0
+
+
+def test_run_stack_plugin_passthrough_prints_to_console(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _make_cli_state(human=True)
+    monkeypatch.setattr(
+        plugin_module,
+        "_stack_plugin_command",
+        lambda *, args, human: ["dummy"],
+    )
+
+    def fake_subprocess(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del expected_exit_codes
+        return subprocess.CompletedProcess(command, 0, stdout="hello\n")
+
+    monkeypatch.setattr(plugin_module, "_run_stack_subprocess", fake_subprocess)
+    plugin_module._run_stack_plugin_passthrough(args=["list"], state=state)
+    assert "hello" in state.console.export_text()
+
+
+def test_run_stack_plugin_passthrough_uses_typer_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _make_cli_state(human=False)
+    monkeypatch.setattr(
+        plugin_module,
+        "_stack_plugin_command",
+        lambda *, args, human: ["dummy"],
+    )
+
+    def fake_subprocess(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del expected_exit_codes
+        return subprocess.CompletedProcess(command, 0, stdout="machine\n")
+
+    monkeypatch.setattr(plugin_module, "_run_stack_subprocess", fake_subprocess)
+    echoed: list[str] = []
+
+    def capture_echo(message: str) -> None:
+        echoed.append(message)
+
+    monkeypatch.setattr("typer.echo", capture_echo)
+    plugin_module._run_stack_plugin_passthrough(args=["list"], state=state)
+    assert echoed == ["machine"]
+
+
+def test_run_stack_plugin_passthrough_doctor_raises_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _make_cli_state(human=False)
+    monkeypatch.setattr(
+        plugin_module,
+        "_stack_plugin_command",
+        lambda *, args, human: ["dummy"],
+    )
+
+    def fake_subprocess(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del expected_exit_codes
+        return subprocess.CompletedProcess(command, 1, stdout="")
+
+    monkeypatch.setattr(plugin_module, "_run_stack_subprocess", fake_subprocess)
+    with pytest.raises(typer.Exit) as excinfo:
+        plugin_module._run_stack_plugin_passthrough(args=["doctor"], state=state)
+    assert excinfo.value.exit_code == 1
+
+
+def test_install_plugin_stack_runtime_restart(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = MagicMock()
+    state.human = False
+    payload = {
+        "plugin": {"name": "example"},
+        "impact": {
+            "change_type": "install",
+            "affected_component_kinds": [],
+            "affected_component_ids": [],
+            "activation_mode": "silent_hot_reload",
+            "prompt_required": False,
+            "restart_required": True,
+        },
+    }
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    monkeypatch.setattr(plugin_module, "_is_local_plugin_ref", lambda ref: False)
+    monkeypatch.setattr(plugin_module, "_run_stack_plugin_json", lambda args: payload)
+    restarts: list[CLIState] = []
+
+    def capture_restart(console_state: CLIState) -> None:
+        restarts.append(console_state)
+
+    monkeypatch.setattr(
+        plugin_module, "_restart_running_stack_services", capture_restart
+    )
+    printed: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        plugin_module, "print_json", lambda value: printed.append(value)
+    )
+    plugin_module.install_plugin(None, "example-ref", runtime="auto")
+    assert restarts == [state]
+    assert printed == [payload]
+
+
+def test_doctor_plugins_stack_runtime_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = MagicMock()
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    calls: list[tuple[list[str], CLIState]] = []
+
+    def capture_passthrough(*, args: list[str], state: CLIState) -> None:
+        calls.append((args, state))
+
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_plugin_passthrough",
+        capture_passthrough,
+    )
+    plugin_module.doctor_plugins(None, runtime="auto")
+    assert calls == [(["doctor"], state)]
 
 
 def test_plugin_list_empty(runner: CliRunner, machine_env: dict[str, str]) -> None:
@@ -85,6 +248,128 @@ def test_plugin_install_machine_mode_returns_json(
     edge_list_result = runner.invoke(app, ["edge", "list"], env=machine_env)
     assert edge_list_result.exit_code == 0
     assert "FixturePluginEdge" in edge_list_result.stdout
+
+
+def test_plugin_install_targets_stack_and_restarts_running_services(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Stack-aware install shells into the backend container and restarts services."""
+    stack_dir = tmp_path / "stack"
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    executed: list[list[str]] = []
+    responses = iter(
+        [
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\nworker\n"),
+            subprocess.CompletedProcess(
+                ["docker"],
+                0,
+                stdout=json.dumps(
+                    {
+                        "plugin": {"name": "orcheo-plugin-lark-listener"},
+                        "impact": {
+                            "change_type": "install",
+                            "affected_component_kinds": ["listeners"],
+                            "affected_component_ids": ["lark"],
+                            "activation_mode": "restart_required",
+                            "prompt_required": False,
+                            "restart_required": True,
+                        },
+                    }
+                ),
+            ),
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\nworker\n"),
+            subprocess.CompletedProcess(["docker"], 0, stdout=""),
+        ]
+    )
+
+    def _run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text
+        executed.append(command)
+        return next(responses)
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", _run)
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", "orcheo-plugin-lark-listener"],
+        env=_stack_env(machine_env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "orcheo-plugin-lark-listener"
+    assert executed[1] == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "exec",
+        "-T",
+        "backend",
+        "orcheo",
+        "plugin",
+        "install",
+        "orcheo-plugin-lark-listener",
+        "--runtime",
+        "local",
+    ]
+    assert executed[3] == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "restart",
+        "backend",
+        "worker",
+    ]
+
+
+def test_plugin_install_local_path_ignores_stack_runtime(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local path installs should remain on host even if stack runtime selected."""
+    fixture_path = _copy_fixture(tmp_path, "node_plugin")
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(exist_ok=True)
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    stack_install = MagicMock(
+        side_effect=AssertionError("stack install should not run")
+    )
+    monkeypatch.setattr("orcheo_sdk.cli.plugin._run_stack_plugin_json", stack_install)
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", str(fixture_path), "--runtime", "stack"],
+        env=_stack_env(machine_env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "orcheo-plugin-fixture-node"
+    stack_install.assert_not_called()
 
 
 def test_plugin_update_prompts_for_existing_hot_reloadable_plugin(

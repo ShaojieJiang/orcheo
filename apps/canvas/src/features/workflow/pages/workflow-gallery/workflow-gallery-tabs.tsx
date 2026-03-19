@@ -5,7 +5,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Zap } from "lucide-react";
+import { Loader2, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { WorkflowCard } from "./workflow-card";
 import { type WorkflowGalleryTab } from "./types";
@@ -13,6 +13,7 @@ import { type WorkflowGalleryTab } from "./types";
 interface WorkflowGalleryTabsProps {
   selectedTab: WorkflowGalleryTab;
   onSelectedTabChange: (value: WorkflowGalleryTab) => void;
+  isLoading: boolean;
   sortedWorkflows: Workflow[];
   isTemplateView: boolean;
   searchQuery: string;
@@ -20,12 +21,16 @@ interface WorkflowGalleryTabsProps {
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
   onExportWorkflow: (workflow: Workflow) => void;
-  onDeleteWorkflow: (workflowId: string, workflowName: string) => void;
+  onDeleteWorkflow: (
+    workflowId: string,
+    workflowName: string,
+  ) => Promise<void> | void;
 }
 
 export const WorkflowGalleryTabs = ({
   selectedTab,
   onSelectedTabChange,
+  isLoading,
   sortedWorkflows,
   isTemplateView,
   searchQuery,
@@ -53,7 +58,19 @@ export const WorkflowGalleryTabs = ({
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
-        {sortedWorkflows.length === 0 ? (
+        {isLoading && !isTemplateView ? (
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center">
+            <div className="rounded-full bg-muted p-4">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium">Loading workflows</h3>
+              <p className="text-sm text-muted-foreground">
+                Pulling your workspace from storage.
+              </p>
+            </div>
+          </div>
+        ) : sortedWorkflows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-4 rounded-full bg-muted p-4">
               <Zap className="h-8 w-8 text-muted-foreground" />

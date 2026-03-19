@@ -1090,6 +1090,26 @@ async def test_postgres_repository_ensure_initialized_runs_once(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_ensure_initialized_takes_advisory_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Initialization acquires a cross-process advisory lock before schema work."""
+    repo = make_repository(monkeypatch, [], initialized=False)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_initialized()
+
+    queries = [query for query, _ in connection.queries]
+    advisory_lock_index = queries.index("SELECT pg_advisory_xact_lock(%s, %s)")
+    first_schema_index = next(
+        index
+        for index, query in enumerate(queries)
+        if query.startswith("CREATE TABLE IF NOT EXISTS workflows")
+    )
+    assert advisory_lock_index < first_schema_index
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_delete_cron_trigger(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

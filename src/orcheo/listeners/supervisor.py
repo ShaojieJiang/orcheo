@@ -96,13 +96,7 @@ class ListenerSupervisor:
         subscriptions = await self._repository.list_listener_subscriptions()
         active_ids: set[UUID] = set()
         for subscription in subscriptions:
-            if subscription.status != ListenerSubscriptionStatus.ACTIVE:
-                continue
-            claimed = await self._repository.claim_listener_subscription(
-                subscription.id,
-                runtime_id=self._runtime_id,
-                lease_seconds=self._lease_seconds,
-            )
+            claimed, recovered_adapter = await self._prepare_subscription(subscription)
             if claimed is None:
                 continue
             active_ids.add(claimed.id)
@@ -111,7 +105,7 @@ class ListenerSupervisor:
                 continue
             stop_event = asyncio.Event()
             try:
-                adapter = self._adapter_factory(claimed)
+                adapter = recovered_adapter or self._adapter_factory(claimed)
             except CredentialReferenceNotFoundError as exc:
                 logger.warning(
                     "Blocking listener subscription %s until credentials are "
@@ -132,20 +126,7 @@ class ListenerSupervisor:
                     "Failed to build listener adapter for subscription %s",
                     claimed.id,
                 )
-                previous_failure = self._build_failures.get(claimed.id)
-                self._build_failures[claimed.id] = ListenerHealthSnapshot(
-                    subscription_id=claimed.id,
-                    runtime_id=self._runtime_id,
-                    status="error",
-                    platform=claimed.platform,
-                    last_event_at=claimed.last_event_at,
-                    consecutive_failures=(
-                        previous_failure.consecutive_failures + 1
-                        if previous_failure is not None
-                        else 1
-                    ),
-                    detail=str(exc),
-                )
+                self._record_build_failure(claimed, exc)
                 await self._repository.release_listener_subscription(
                     claimed.id,
                     runtime_id=self._runtime_id,
@@ -164,6 +145,84 @@ class ListenerSupervisor:
             await self._stop_adapter(subscription_id)
         for subscription_id in set(self._build_failures) - active_ids:
             self._build_failures.pop(subscription_id, None)
+
+    async def _prepare_subscription(
+        self,
+        subscription: ListenerSubscription,
+    ) -> tuple[ListenerSubscription | None, ListenerAdapter | None]:
+        """Return a claimable subscription plus any prebuilt adapter."""
+        if subscription.status == ListenerSubscriptionStatus.BLOCKED:
+            return await self._recover_blocked_subscription(subscription)
+        if subscription.status != ListenerSubscriptionStatus.ACTIVE:
+            return None, None
+        claimed = await self._repository.claim_listener_subscription(
+            subscription.id,
+            runtime_id=self._runtime_id,
+            lease_seconds=self._lease_seconds,
+        )
+        return claimed, None
+
+    async def _recover_blocked_subscription(
+        self,
+        subscription: ListenerSubscription,
+    ) -> tuple[ListenerSubscription | None, ListenerAdapter | None]:
+        """Promote a blocked subscription back to active once credentials resolve."""
+        try:
+            adapter = self._adapter_factory(subscription)
+        except CredentialReferenceNotFoundError as exc:
+            logger.warning(
+                "Listener subscription %s is still blocked on credentials: %s",
+                subscription.id,
+                exc,
+            )
+            if subscription.last_error != str(exc):  # pragma: no branch
+                await self._repository.update_listener_subscription_status(
+                    subscription.id,
+                    status=ListenerSubscriptionStatus.BLOCKED,
+                    actor=self._runtime_id,
+                    last_error=str(exc),
+                )
+            self._build_failures.pop(subscription.id, None)
+            return None, None
+        except Exception as exc:
+            logger.exception(
+                "Failed to re-evaluate blocked listener subscription %s",
+                subscription.id,
+            )
+            self._record_build_failure(subscription, exc)
+            return None, None
+        await self._repository.update_listener_subscription_status(
+            subscription.id,
+            status=ListenerSubscriptionStatus.ACTIVE,
+            actor=self._runtime_id,
+        )
+        claimed = await self._repository.claim_listener_subscription(
+            subscription.id,
+            runtime_id=self._runtime_id,
+            lease_seconds=self._lease_seconds,
+        )
+        return claimed, adapter
+
+    def _record_build_failure(
+        self,
+        subscription: ListenerSubscription,
+        exc: Exception,
+    ) -> None:
+        """Record a build failure snapshot for one subscription."""
+        previous_failure = self._build_failures.get(subscription.id)
+        self._build_failures[subscription.id] = ListenerHealthSnapshot(
+            subscription_id=subscription.id,
+            runtime_id=self._runtime_id,
+            status="error",
+            platform=subscription.platform,
+            last_event_at=subscription.last_event_at,
+            consecutive_failures=(
+                previous_failure.consecutive_failures + 1
+                if previous_failure is not None
+                else 1
+            ),
+            detail=str(exc),
+        )
 
     async def serve(self, stop_event: asyncio.Event | None = None) -> None:
         """Continuously reconcile subscriptions until asked to stop."""

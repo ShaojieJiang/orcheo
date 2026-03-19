@@ -43,8 +43,8 @@ cut a release.
    uv build --package <package-name>
    ```
    When the plugin ecosystem changes, also verify:
-   - `orcheo plugin install orcheo-plugin-wecom-listener`
-   - `orcheo plugin install orcheo-plugin-lark-listener`
+   - `orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"`
+   - `orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-lark-listener.git"`
    - successful validation of the shared Canvas template
      `template-wecom-lark-shared-listener`
    - plugin edge compatibility and legacy alias coverage remain green

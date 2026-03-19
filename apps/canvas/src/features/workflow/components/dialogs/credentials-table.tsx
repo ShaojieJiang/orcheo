@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/design-system/ui/badge";
 import { Button } from "@/design-system/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
   TableRow,
 } from "@/design-system/ui/table";
 import {
+  Check,
   Copy,
   Edit,
   Eye,
@@ -26,6 +28,7 @@ import {
   Loader2,
   MoreHorizontal,
   Trash,
+  X,
 } from "lucide-react";
 import type {
   Credential,
@@ -50,6 +53,7 @@ interface CredentialsTableProps {
 const SECRET_PLACEHOLDER = "•••••••••••••••";
 const MASKED_SECRET_MARKER = "•";
 const SECRET_VALUE_WIDTH_CLASS = "w-[120px]";
+type CredentialCopyState = "idle" | "success" | "error";
 
 const isMaskedSecret = (value: string): boolean =>
   value.includes(MASKED_SECRET_MARKER);
@@ -88,9 +92,20 @@ export function CredentialsTable({
   const [loadingSecretState, setLoadingSecretState] = useState<
     Record<string, boolean>
   >({});
+  const [copyState, setCopyState] = useState<
+    Record<string, CredentialCopyState>
+  >({});
   const [editingCredential, setEditingCredential] = useState<Credential | null>(
     null,
   );
+  const copyResetTimersRef = useRef<Record<string, number>>({});
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const filteredCredentials = useMemo(() => {
     if (!searchQuery) {
@@ -161,17 +176,49 @@ export function CredentialsTable({
   };
 
   const copySecret = async (credential: Credential) => {
-    let secret: string | undefined;
     try {
-      secret = await ensureCredentialSecret(credential);
+      const secret = await ensureCredentialSecret(credential);
+      if (!secret || typeof navigator === "undefined" || !navigator.clipboard) {
+        throw new Error("Clipboard API is unavailable");
+      }
+      await navigator.clipboard.writeText(secret);
+      setCredentialCopyState(credential.id, "success");
     } catch (error) {
       console.error("Failed to copy credential secret", error);
+      setCredentialCopyState(credential.id, "error");
+    }
+  };
+
+  const setCredentialCopyState = (
+    credentialId: string,
+    nextState: CredentialCopyState,
+  ) => {
+    const activeTimer = copyResetTimersRef.current[credentialId];
+    if (activeTimer !== undefined) {
+      window.clearTimeout(activeTimer);
+      delete copyResetTimersRef.current[credentialId];
+    }
+
+    setCopyState((previous) => ({
+      ...previous,
+      [credentialId]: nextState,
+    }));
+
+    if (nextState === "idle") {
       return;
     }
-    if (!secret || typeof navigator === "undefined") {
-      return;
-    }
-    await navigator.clipboard.writeText(secret);
+
+    copyResetTimersRef.current[credentialId] = window.setTimeout(() => {
+      if (!isMountedRef.current) {
+        delete copyResetTimersRef.current[credentialId];
+        return;
+      }
+      setCopyState((previous) => ({
+        ...previous,
+        [credentialId]: "idle",
+      }));
+      delete copyResetTimersRef.current[credentialId];
+    }, 2000);
   };
 
   const openCredentialEditor = async (credential: Credential) => {
@@ -243,6 +290,7 @@ export function CredentialsTable({
               const secretVisible = visibleSecrets[credential.id];
               const isLoadingSecret =
                 loadingSecretState[credential.id] === true;
+              const currentCopyState = copyState[credential.id] ?? "idle";
               const provider =
                 credential.provider ?? credential.type ?? "unknown";
               const hasSecret =
@@ -307,12 +355,24 @@ export function CredentialsTable({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className={cn(
+                          "h-6 w-6 transition-colors",
+                          currentCopyState === "success" &&
+                            "text-emerald-600 hover:text-emerald-700",
+                          currentCopyState === "error" &&
+                            "text-destructive hover:text-destructive",
+                        )}
                         onClick={() => void copySecret(credential)}
-                        disabled={!canReadSecret}
+                        disabled={!canReadSecret || isLoadingSecret}
                         aria-label={`Copy secret for ${credential.name}`}
                       >
-                        <Copy className="h-3 w-3" />
+                        {currentCopyState === "success" ? (
+                          <Check className="h-3 w-3 animate-in zoom-in-50 fade-in-0" />
+                        ) : currentCopyState === "error" ? (
+                          <X className="h-3 w-3 animate-in zoom-in-50 fade-in-0" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
                       </Button>
                     </div>
                   </TableCell>

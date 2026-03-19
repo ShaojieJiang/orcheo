@@ -24,6 +24,7 @@ from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_not_found
+from orcheo_backend.app.plugin_inventory import missing_required_plugins
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowHandleConflictError,
@@ -82,6 +83,23 @@ def _apply_share_urls(
     for workflow in workflows:
         _apply_share_url(workflow, public_base_url)
     return workflows
+
+
+def _required_plugins_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    """Extract template plugin prerequisites from workflow-version metadata."""
+    template_metadata = metadata.get("template")
+    if not isinstance(template_metadata, dict):
+        return []
+    raw_required = template_metadata.get("requiredPlugins")
+    if raw_required is None:
+        raw_required = template_metadata.get("required_plugins")
+    if not isinstance(raw_required, list):
+        return []
+    return [
+        str(plugin_name).strip()
+        for plugin_name in raw_required
+        if str(plugin_name).strip()
+    ]
 
 
 def _serialize_runnable_config(
@@ -419,6 +437,18 @@ async def ingest_workflow_version(
 ) -> WorkflowVersion:
     """Create a workflow version from a LangGraph Python script."""
     workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    required_plugins = _required_plugins_from_metadata(request.metadata)
+    missing_plugins = missing_required_plugins(required_plugins)
+    if missing_plugins:
+        plugin_list = ", ".join(missing_plugins)
+        noun = "plugin" if len(missing_plugins) == 1 else "plugins"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Missing required {noun} for this template: {plugin_list}. "
+                "Install them into the runtime before importing the template."
+            ),
+        )
     try:
         graph_payload = ingest_langgraph_script(
             request.script,
