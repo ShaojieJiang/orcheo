@@ -15,7 +15,10 @@ const mermaidRendererMock = vi.hoisted(() => ({
   ),
   normalizeMermaidPalette: vi.fn((source: string) =>
     source
-      .replace(/classDef default fill:#eef4ff/g, "classDef default fill:#f2f0ff")
+      .replace(
+        /classDef default fill:#eef4ff/g,
+        "classDef default fill:#f2f0ff",
+      )
       .replace(/classDef last fill:#94b8ff/g, "classDef last fill:#bfb6fc"),
   ),
   makeMermaidSvgTransparent: vi.fn((svg: string) => svg),
@@ -159,7 +162,57 @@ describe("WorkflowThumbnail", () => {
     expect(container.querySelector(".workflow-thumbnail-fallback")).toBeNull();
   });
 
-  it("prefers the template Mermaid preview for template-derived workflows", async () => {
+  it("preserves the saved Mermaid preview for template-derived workflows", async () => {
+    mermaidRendererMock.buildMermaidCacheKey.mockReturnValue("cache-key");
+    mermaidRendererMock.buildMermaidRenderId.mockReturnValue("render-id");
+    mermaidRendererMock.renderMermaidSvg.mockResolvedValue(
+      '<svg data-testid="saved-preview"></svg>',
+    );
+    workflowDataMock.getWorkflowTemplateDefinition.mockReturnValue({
+      workflow: {
+        ...baseWorkflow,
+        versions: [
+          {
+            id: "template-v1",
+            mermaid: [
+              "flowchart TD",
+              "Template --> Preview",
+              "classDef default fill:#eef4ff,line-height:1.2",
+              "classDef last fill:#94b8ff",
+            ].join("\n"),
+          },
+        ],
+      },
+      script: "",
+      notes: "",
+    });
+
+    render(
+      <WorkflowThumbnail
+        workflow={{
+          ...baseWorkflow,
+          versions: [
+            {
+              id: "saved-v1",
+              mermaid: "flowchart TD\nSaved --> Workflow",
+              templateId: "template-python-agent",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mermaidRendererMock.renderMermaidSvg).toHaveBeenCalledWith({
+        source: "flowchart LR\nSaved --> Workflow",
+        cacheKey: "cache-key",
+        renderId: "render-id",
+        transformSvg: mermaidRendererMock.makeMermaidSvgTransparent,
+      });
+    });
+  });
+
+  it("falls back to the template Mermaid preview when the saved version has none", async () => {
     mermaidRendererMock.buildMermaidCacheKey.mockReturnValue("cache-key");
     mermaidRendererMock.buildMermaidRenderId.mockReturnValue("render-id");
     mermaidRendererMock.renderMermaidSvg.mockResolvedValue(
@@ -191,7 +244,6 @@ describe("WorkflowThumbnail", () => {
           versions: [
             {
               id: "saved-v1",
-              mermaid: "flowchart TD\nSaved --> Workflow",
               templateId: "template-python-agent",
             },
           ],

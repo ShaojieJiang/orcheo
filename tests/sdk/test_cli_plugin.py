@@ -186,6 +186,36 @@ def test_plugin_install_targets_stack_and_restarts_running_services(
     ]
 
 
+def test_plugin_install_local_path_ignores_stack_runtime(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local path installs should stay on the host even when stack runtime is selected."""
+    fixture_path = _copy_fixture(tmp_path, "node_plugin")
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(exist_ok=True)
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    stack_install = MagicMock(
+        side_effect=AssertionError("stack install should not run")
+    )
+    monkeypatch.setattr("orcheo_sdk.cli.plugin._run_stack_plugin_json", stack_install)
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", str(fixture_path), "--runtime", "stack"],
+        env=_stack_env(machine_env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "orcheo-plugin-fixture-node"
+    stack_install.assert_not_called()
+
+
 def test_plugin_update_prompts_for_existing_hot_reloadable_plugin(
     runner: CliRunner, env: dict[str, str], tmp_path: Path
 ) -> None:

@@ -58,7 +58,7 @@ export const WorkflowGalleryTabs = ({
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
-        {isLoading ? (
+        {isLoading && !isTemplateView ? (
           <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center">
             <div className="rounded-full bg-muted p-4">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

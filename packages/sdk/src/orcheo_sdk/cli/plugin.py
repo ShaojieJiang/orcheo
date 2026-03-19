@@ -185,6 +185,17 @@ def _run_stack_plugin_passthrough(*, args: list[str], state: CLIState) -> None:
         raise typer.Exit(code=1)
 
 
+def _is_local_plugin_ref(ref: str) -> bool:
+    candidate = Path(ref).expanduser()
+    if candidate.exists():
+        return True
+    if ref.startswith(("./", "../", "~/")):
+        return True
+    if candidate.suffix == ".whl":
+        return True
+    return "/" in ref or "\\" in ref
+
+
 def _run_stack_plugin_json(args: list[str]) -> Any:
     result = _run_stack_subprocess(
         _stack_plugin_command(args=args, human=False),
@@ -310,7 +321,8 @@ def install_plugin(
 ) -> None:
     """Install a plugin from a package, path, wheel, or git ref."""
     state = _state(ctx)
-    if _use_stack_runtime(runtime):
+    use_stack_runtime = _use_stack_runtime(runtime) and not _is_local_plugin_ref(ref)
+    if use_stack_runtime:
         payload = _run_stack_plugin_json(["install", ref])
         if _payload_requires_restart(payload):
             _restart_running_stack_services(state)

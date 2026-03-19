@@ -98,13 +98,13 @@ export const resolveWorkflowVersionMermaidSource = (
     | null
     | undefined,
 ): string | null => {
-  const templateMermaid =
-    version?.templateId != null
+  const source =
+    version?.mermaid ??
+    (version?.templateId != null
       ? getWorkflowTemplateDefinition(
           version.templateId,
         )?.workflow.versions?.at(-1)?.mermaid
-      : undefined;
-  const source = templateMermaid ?? version?.mermaid;
+      : undefined);
   if (!source) {
     return null;
   }
