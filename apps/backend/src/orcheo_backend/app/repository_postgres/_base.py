@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 AsyncConnectionPool: Any | None
 DictRowFactory: Any | None
 
+_INIT_LOCK_NAMESPACE = 0x4F524348
+_INIT_LOCK_KEY = 1
+
 try:  # pragma: no cover - optional dependency
     AsyncConnectionPool = importlib.import_module("psycopg_pool").AsyncConnectionPool
     DictRowFactory = importlib.import_module("psycopg.rows").dict_row
@@ -252,6 +255,11 @@ class PostgresRepositoryBase:
                 return
 
             async with self._connection() as conn:
+                # Serialize first-run schema work across worker processes.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(%s, %s)",
+                    (_INIT_LOCK_NAMESPACE, _INIT_LOCK_KEY),
+                )
                 # Execute schema statements one by one
                 for raw_stmt in POSTGRES_SCHEMA.strip().split(";"):
                     stmt = raw_stmt.strip()
@@ -290,31 +298,34 @@ class PostgresRepositoryBase:
         )
         rows = await cursor.fetchall()
         existing_columns = {row["column_name"] for row in rows}
-        if "handle" not in existing_columns:
+        missing_handle = "handle" not in existing_columns
+        missing_is_archived = "is_archived" not in existing_columns
+        if missing_handle:
             await conn.execute("ALTER TABLE workflows ADD COLUMN handle TEXT")
-        if "is_archived" not in existing_columns:
+        if missing_is_archived:
             await conn.execute(
                 "ALTER TABLE workflows "
                 "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
             )
 
-        cursor = await conn.execute("SELECT id, payload FROM workflows")
-        rows = await cursor.fetchall()
-        for row in rows:
-            workflow = Workflow.model_validate(row["payload"])
-            await conn.execute(
-                """
-                UPDATE workflows
-                   SET handle = %s, is_archived = %s, updated_at = %s
-                 WHERE id = %s
-                """,
-                (
-                    workflow.handle,
-                    workflow.is_archived,
-                    workflow.updated_at,
-                    row["id"],
-                ),
-            )
+        if missing_handle or missing_is_archived:
+            cursor = await conn.execute("SELECT id, payload FROM workflows")
+            rows = await cursor.fetchall()
+            for row in rows:
+                workflow = Workflow.model_validate(row["payload"])
+                await conn.execute(
+                    """
+                    UPDATE workflows
+                       SET handle = %s, is_archived = %s, updated_at = %s
+                     WHERE id = %s
+                    """,
+                    (
+                        workflow.handle,
+                        workflow.is_archived,
+                        workflow.updated_at,
+                        row["id"],
+                    ),
+                )
 
         # Create indexes after columns are guaranteed to exist
         await conn.execute(
