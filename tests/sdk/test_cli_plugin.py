@@ -342,6 +342,88 @@ def test_plugin_install_targets_stack_and_restarts_running_services(
     ]
 
 
+def test_plugin_install_git_ref_targets_stack_runtime(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Git refs should install into the stack when stack runtime is requested."""
+    stack_dir = tmp_path / "stack"
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    git_ref = "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
+    executed: list[list[str]] = []
+    responses = iter(
+        [
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\n"),
+            subprocess.CompletedProcess(
+                ["docker"],
+                0,
+                stdout=json.dumps(
+                    {
+                        "plugin": {"name": "orcheo-plugin-wecom-listener"},
+                        "impact": {
+                            "change_type": "install",
+                            "affected_component_kinds": ["listeners"],
+                            "affected_component_ids": ["wecom"],
+                            "activation_mode": "restart_required",
+                            "prompt_required": False,
+                            "restart_required": True,
+                        },
+                    }
+                ),
+            ),
+            subprocess.CompletedProcess(["docker"], 0, stdout="backend\n"),
+            subprocess.CompletedProcess(["docker"], 0, stdout=""),
+        ]
+    )
+
+    def _run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text
+        executed.append(command)
+        return next(responses)
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", _run)
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", "--runtime", "stack", git_ref],
+        env=_stack_env(machine_env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["plugin"]["name"] == "orcheo-plugin-wecom-listener"
+    assert executed[1] == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "exec",
+        "-T",
+        "backend",
+        "orcheo",
+        "plugin",
+        "install",
+        git_ref,
+        "--runtime",
+        "local",
+    ]
+
+
 def test_plugin_install_local_path_ignores_stack_runtime(
     runner: CliRunner,
     machine_env: dict[str, str],
