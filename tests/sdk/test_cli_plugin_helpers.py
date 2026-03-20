@@ -1,5 +1,6 @@
 from __future__ import annotations
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
@@ -336,6 +337,117 @@ def test_maybe_confirm_handles_human_prompts(monkeypatch: pytest.MonkeyPatch) ->
     )
 
 
+def _impact_payload() -> dict[str, object]:
+    return {
+        "change_type": "update",
+        "affected_component_kinds": [],
+        "affected_component_ids": [],
+        "activation_mode": "silent_hot_reload",
+        "prompt_required": False,
+        "restart_required": False,
+    }
+
+
+def test_render_update_single_payload_human_handles_dict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=True)
+    rendered: list[tuple[str, dict[str, object], str]] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "render_json",
+        lambda console, payload, title: rendered.append(("render", payload, title)),
+    )
+    impact_calls: list[object] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "_render_impact",
+        lambda state_arg, impact: impact_calls.append(impact),
+    )
+    payload = {"plugin": {"name": "pkg"}, "impact": _impact_payload()}
+    plugin_module._render_update_single_payload(state, payload)
+    assert rendered and impact_calls
+
+
+def test_render_update_single_payload_machine_mode_prints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=False)
+    printed: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "print_json",
+        lambda payload: printed.append(payload),
+    )
+    impact = PluginImpactSummary(
+        change_type="install",
+        affected_component_kinds=[],
+        affected_component_ids=[],
+        activation_mode="silent",
+        prompt_required=False,
+        restart_required=False,
+    )
+    plugin_module._render_update_single_payload(
+        state, {"plugin": {"name": "pkg"}, "impact": impact}
+    )
+    assert printed
+    assert printed[0]["impact"]["change_type"] == "install"
+
+
+def test_update_plugins_in_stack_all_human_renders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=True)
+    renders: list[tuple[list[dict[str, object]], str]] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_mutation",
+        lambda *, args, state, force: [
+            {"plugin": {"name": "pkg"}, "impact": _impact_payload()}
+        ],
+    )
+    monkeypatch.setattr(
+        plugin_module,
+        "render_json",
+        lambda console, payload, title: renders.append((payload, title)),
+    )
+    plugin_module._update_plugins_in_stack(
+        state=state, name=None, all_plugins=True, force=False
+    )
+    assert renders
+
+
+def test_update_plugins_in_stack_requires_name() -> None:
+    with pytest.raises(typer.BadParameter):
+        plugin_module._update_plugins_in_stack(
+            state=DummyState(human=False), name=None, all_plugins=False, force=False
+        )
+
+
+def test_update_plugins_in_stack_single_plugin_triggers_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=False)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_mutation",
+        lambda *, args, state, force: {
+            "plugin": {"name": "pkg"},
+            "impact": _impact_payload(),
+        },
+    )
+    monkeypatch.setattr(
+        plugin_module,
+        "_render_update_single_payload",
+        lambda state_arg, payload: calls.append(payload),
+    )
+    plugin_module._update_plugins_in_stack(
+        state=state, name="pkg", all_plugins=False, force=True
+    )
+    assert calls
+
+
 def test_list_command_uses_stack_passthrough(
     runner: CliRunner, env: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -480,3 +592,59 @@ def test_stack_runtime_mutation_commands_route_through_stack_runner(
 
     assert result.exit_code == 0
     assert calls == [(expected_args, expected_force)]
+
+
+@pytest.mark.parametrize(
+    "command_fn",
+    [
+        plugin_module.uninstall_plugin,
+        plugin_module.enable_plugin,
+        plugin_module.disable_plugin,
+    ],
+    ids=["uninstall", "enable", "disable"],
+)
+def test_stack_runtime_command_returns_without_payload(
+    monkeypatch: pytest.MonkeyPatch, command_fn: Callable
+) -> None:
+    state = DummyState(human=False)
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_mutation",
+        lambda *, args, state, force: None,
+    )
+    command_fn(None, name="pkg", runtime="stack")
+
+
+@pytest.mark.parametrize(
+    ("command_fn", "expected_message"),
+    [
+        (plugin_module.uninstall_plugin, "Uninstalled plugin pkg"),
+        (plugin_module.enable_plugin, "Enabled plugin pkg"),
+        (plugin_module.disable_plugin, "Disabled plugin pkg"),
+    ],
+)
+def test_stack_runtime_command_human_prints_and_renders(
+    monkeypatch: pytest.MonkeyPatch,
+    command_fn: Callable,
+    expected_message: str,
+) -> None:
+    state = DummyState(human=True)
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    payload = {"name": "pkg", "impact": _impact_payload()}
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_mutation",
+        lambda *, args, state, force: payload,
+    )
+    impact_calls: list[object] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "_render_impact",
+        lambda state_arg, impact: impact_calls.append(impact),
+    )
+    command_fn(None, name="pkg", runtime="stack")
+    assert expected_message in state.console.export_text()
+    assert impact_calls

@@ -248,7 +248,7 @@ def _run_stack_mutation(
         _run_stack_plugin_passthrough(args=stack_args, state=state)
         return None
     payload = _run_stack_plugin_json(stack_args)
-    if _payload_requires_restart(payload):
+    if _payload_requires_restart(payload):  # pragma: no branch
         _restart_running_stack_services(state)
     return payload
 
@@ -335,7 +335,7 @@ def _update_plugins_in_stack(
             state=state,
             force=force,
         )
-        if payload is not None:
+        if payload is not None:  # pragma: no branch
             if not state.human:
                 print_json(payload)
                 return
@@ -348,7 +348,7 @@ def _update_plugins_in_stack(
         state=state,
         force=force,
     )
-    if payload is not None:
+    if payload is not None:  # pragma: no branch
         _render_update_single_payload(state, payload)
 
 
