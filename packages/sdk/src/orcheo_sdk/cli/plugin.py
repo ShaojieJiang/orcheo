@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -54,6 +55,8 @@ RuntimeOption = Annotated[
 ]
 
 _STACK_RUNTIME_SERVICES = ("backend", "worker", "celery-beat")
+_REMOTE_PLUGIN_REF_PATTERN = re.compile(r"^(?:git\+)?[A-Za-z][A-Za-z0-9+.-]*://")
+_GIT_SCP_PLUGIN_REF_PATTERN = re.compile(r"^[^/\\\\]+@[^:]+:.+")
 
 
 def _state(ctx: typer.Context) -> CLIState:
@@ -186,14 +189,21 @@ def _run_stack_plugin_passthrough(*, args: list[str], state: CLIState) -> None:
 
 
 def _is_local_plugin_ref(ref: str) -> bool:
-    candidate = Path(ref).expanduser()
+    stripped = ref.strip()
+    if _REMOTE_PLUGIN_REF_PATTERN.match(stripped) and not stripped.startswith(
+        "file://"
+    ):
+        return False
+    if _GIT_SCP_PLUGIN_REF_PATTERN.match(stripped):
+        return False
+    candidate = Path(stripped).expanduser()
     if candidate.exists():
         return True
-    if ref.startswith(("./", "../", "~/")):
+    if stripped.startswith(("./", "../", "~/")) or candidate.is_absolute():
         return True
     if candidate.suffix == ".whl":
         return True
-    return "/" in ref or "\\" in ref
+    return "/" in stripped or "\\" in stripped
 
 
 def _run_stack_plugin_json(args: list[str]) -> Any:
