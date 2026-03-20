@@ -4,8 +4,7 @@ from orcheo_plugin_wecom_listener import WeComListenerPluginNode, WeComWsReplyNo
 from orcheo.edges import Switch, SwitchCase
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode
-from orcheo.nodes.data import HttpRequestNode
-from orcheo.nodes.lark import LarkSendMessageNode
+from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 
 
 def orcheo_workflow() -> StateGraph:
@@ -57,16 +56,10 @@ def orcheo_workflow() -> StateGraph:
     )
     graph.add_node(
         "get_lark_tenant_token",
-        HttpRequestNode(  # TODO: make this a standard node in orcheo.nodes.lark
+        LarkTenantAccessTokenNode(
             name="get_lark_tenant_token",
-            method="POST",
-            url="https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
-            headers={"Content-Type": "application/json; charset=utf-8"},
-            json_body={
-                "app_id": "[[lark_app_id]]",
-                "app_secret": "[[lark_app_secret]]",
-            },
-            raise_for_status=True,
+            app_id="[[lark_app_id]]",
+            app_secret="[[lark_app_secret]]",
         ),
     )
     graph.add_node(

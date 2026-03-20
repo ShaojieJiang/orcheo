@@ -40,7 +40,7 @@ export const WECOM_LARK_SHARED_LISTENER_WORKFLOW: Workflow = {
   description:
     "Uses plugin-provided WeCom and Lark listener nodes in one workflow, generates one shared AgentNode reply, and sends it through the matching channel branch.",
   createdAt: "2026-03-16T12:00:00Z",
-  updatedAt: "2026-03-16T12:00:00Z",
+  updatedAt: "2026-03-20T12:00:00Z",
   owner: TEMPLATE_OWNER,
   tags: ["template", "wecom", "lark", "listener", "plugin", "agent"],
   nodes: [
@@ -136,10 +136,11 @@ export const WECOM_LARK_SHARED_LISTENER_WORKFLOW: Workflow = {
       type: "utility",
       position: { x: 1300, y: 220 },
       data: {
-        label: "HttpRequestNode",
+        label: "LarkTenantAccessTokenNode",
         type: "utility",
-        backendType: "HttpRequestNode",
-        description: "Fetches a Lark tenant access token for the send branch.",
+        backendType: "LarkTenantAccessTokenNode",
+        description:
+          "Fetches a Lark tenant access token with the standard Lark auth node.",
       },
     },
     {
@@ -223,10 +224,10 @@ export const WECOM_LARK_SHARED_LISTENER_TEMPLATE: WorkflowTemplateDefinition = {
   notes:
     "Seeded from the shared WeCom and Lark listener plugin reply template.",
   metadata: {
-    templateVersion: "1.0.0",
+    templateVersion: "1.0.1",
     minOrcheoVersion: "0.1.0",
     validatedProviderApi: "wecom-lark-listener-plugin-suite-2026-03-16",
-    validationDate: "2026-03-16",
+    validationDate: "2026-03-20",
     owner: "Shaojie Jiang",
     requiredPlugins: [
       "orcheo-plugin-wecom-listener",
@@ -240,7 +241,7 @@ export const WECOM_LARK_SHARED_LISTENER_TEMPLATE: WorkflowTemplateDefinition = {
     ],
     revalidationTriggers: [
       "WeCom or Lark listener plugin contract change",
-      "WeComWsReplyNode or Lark OpenAPI send contract change",
+      "WeComWsReplyNode, LarkTenantAccessTokenNode, or Lark OpenAPI send contract change",
       "Shared listener payload contract change",
       "Canvas template import contract change",
     ],

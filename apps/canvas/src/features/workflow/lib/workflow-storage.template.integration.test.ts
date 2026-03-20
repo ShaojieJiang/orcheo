@@ -911,9 +911,9 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.script).toContain("AgentNode");
     expect(ingestBody.script).toContain("AgentReplyExtractorNode");
     expect(ingestBody.script).toContain("WeComWsReplyNode");
-    expect(ingestBody.script).toContain("HttpRequestNode");
-    expect(ingestBody.script).toContain("tenant_access_token/internal");
-    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.0");
+    expect(ingestBody.script).toContain("LarkSendMessageNode");
+    expect(ingestBody.script).toContain("LarkTenantAccessTokenNode");
+    expect(ingestBody.metadata?.template?.templateVersion).toBe("1.0.1");
     expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
       "wecom-lark-listener-plugin-suite-2026-03-16",
     );

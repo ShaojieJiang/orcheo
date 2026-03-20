@@ -28,7 +28,7 @@ from orcheo.nodes.data import (
 )
 from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
-from orcheo.nodes.lark import LarkSendMessageNode
+from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 from orcheo.nodes.listeners import (
     DiscordBotListenerNode,
     QQBotListenerNode,
@@ -118,6 +118,7 @@ __all__ = [
     "TelegramEventsParserNode",
     "JavaScriptSandboxNode",
     "LarkSendMessageNode",
+    "LarkTenantAccessTokenNode",
     "DebugNode",
     "SubWorkflowNode",
     "TelegramBotListenerNode",

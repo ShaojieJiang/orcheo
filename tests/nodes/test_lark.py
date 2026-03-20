@@ -5,7 +5,49 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.lark import LarkSendMessageNode
+from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
+
+
+@pytest.mark.asyncio
+async def test_lark_tenant_access_token_node_returns_normalized_payload() -> None:
+    """The standard Lark token node should normalize the auth response shape."""
+    node = LarkTenantAccessTokenNode(
+        name="get_lark_tenant_token",
+        app_id="cli_app_id",
+        app_secret="app_secret",
+    )
+
+    token_response = MagicMock()
+    token_response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "tenant_access_token": "tenant_token",
+        "expire": 7200,
+    }
+    token_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post = AsyncMock(return_value=token_response)
+
+    with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
+        result = await node.run(
+            State(messages=[], inputs={}, results={}), RunnableConfig()
+        )
+
+    assert result == {
+        "tenant_access_token": "tenant_token",
+        "expire": 7200,
+        "code": 0,
+        "msg": "success",
+        "json": {
+            "code": 0,
+            "msg": "success",
+            "tenant_access_token": "tenant_token",
+            "expire": 7200,
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -210,6 +252,27 @@ async def test_lark_resolve_access_token_results_not_dict() -> None:
     with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
         token = await node._resolve_access_token(state)
     assert token == "fetched_token"
+
+
+@pytest.mark.asyncio
+async def test_lark_resolve_access_token_standard_node_result() -> None:
+    """_resolve_access_token should accept the standard node's top-level token."""
+    node = LarkSendMessageNode(
+        name="send_lark",
+        app_id="app",
+        app_secret="secret",
+        receive_id="oc_chat",
+        message="Hello",
+    )
+    state = State(
+        messages=[],
+        inputs={},
+        results={"get_lark_tenant_token": {"tenant_access_token": "node_token"}},
+    )
+
+    token = await node._resolve_access_token(state)
+
+    assert token == "node_token"
 
 
 @pytest.mark.asyncio

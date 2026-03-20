@@ -23,8 +23,12 @@ export const setupMockBackendFetch = () => {
       input: Parameters<typeof fetch>[0],
       init?: Parameters<typeof fetch>[1],
     ) => {
+      const clonedInit = init ? { ...init } : undefined;
+      if (clonedInit) {
+        delete clonedInit.signal;
+      }
       const request =
-        input instanceof Request ? input : new Request(input, init);
+        input instanceof Request ? input : new Request(input, clonedInit);
 
       const url = new URL(request.url, "http://localhost:8000");
 
