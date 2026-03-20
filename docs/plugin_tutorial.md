@@ -355,8 +355,10 @@ In a Docker Compose or multi-worker deployment, backend and Celery workers run
 in separate processes. Plugin state lives under `~/.orcheo/plugins/` (or
 `ORCHEO_PLUGIN_DIR`). To propagate a plugin change:
 
-1. Run `orcheo plugin install` (or `update`, `uninstall`) on each host, or
-   mount a shared `ORCHEO_PLUGIN_DIR`.
+1. Run `orcheo plugin install`, `update`, `uninstall`, `enable`, or `disable`
+   on each host. When using the managed stack from the host CLI, pass
+   `--runtime stack` to target the backend runtime directly. Or mount a shared
+   `ORCHEO_PLUGIN_DIR`.
 2. Restart the affected backend and worker processes. Nodes, edges, and agent
    tools support per-process hot reload for additive changes, but triggers and
    listeners always require a restart.

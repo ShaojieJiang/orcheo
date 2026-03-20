@@ -221,6 +221,67 @@ def test_payload_requires_restart_checks_types() -> None:
     assert plugin_module._payload_requires_restart(
         {"impact": {"restart_required": True}}
     )
+    assert plugin_module._payload_requires_restart(
+        [
+            {"impact": {"restart_required": False}},
+            {"impact": {"restart_required": True}},
+        ]
+    )
+
+
+def test_run_stack_mutation_force_uses_json_and_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=False)
+    calls: list[list[str]] = []
+    restarts: list[DummyState] = []
+
+    def fake_json(args: list[str]) -> dict[str, object]:
+        calls.append(args)
+        return {"impact": {"restart_required": True}}
+
+    monkeypatch.setattr(plugin_module, "_run_stack_plugin_json", fake_json)
+    monkeypatch.setattr(
+        plugin_module,
+        "_restart_running_stack_services",
+        lambda console_state: restarts.append(console_state),
+    )
+
+    payload = plugin_module._run_stack_mutation(
+        args=["update", "pkg"],
+        state=state,
+        force=True,
+    )
+
+    assert calls == [["update", "pkg", "--force"]]
+    assert payload == {"impact": {"restart_required": True}}
+    assert restarts == [state]
+
+
+def test_run_stack_mutation_human_without_force_uses_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = DummyState(human=True)
+    calls: list[tuple[list[str], DummyState]] = []
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_plugin_passthrough",
+        lambda *, args, state: calls.append((args, state)),
+    )
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_plugin_json",
+        lambda args: pytest.fail("json path should not run"),
+    )
+
+    payload = plugin_module._run_stack_mutation(
+        args=["disable", "pkg"],
+        state=state,
+        force=False,
+    )
+
+    assert payload is None
+    assert calls == [(["disable", "pkg"], state)]
 
 
 def test_impact_to_dict_and_render(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -341,3 +402,81 @@ def test_install_command_stack_path_renders_human_output(
     runner.invoke(plugin_module.plugin_app, ["install", "pkg"], env=env)
     assert renders
     assert impacts
+
+
+@pytest.mark.parametrize(
+    ("command_args", "expected_args", "expected_force"),
+    [
+        (["update", "pkg", "--runtime", "stack", "--force"], ["update", "pkg"], True),
+        (
+            ["update", "--all", "--runtime", "stack", "--force"],
+            ["update", "--all"],
+            True,
+        ),
+        (
+            ["uninstall", "pkg", "--runtime", "stack", "--force"],
+            ["uninstall", "pkg"],
+            True,
+        ),
+        (["enable", "pkg", "--runtime", "stack", "--force"], ["enable", "pkg"], True),
+        (
+            ["disable", "pkg", "--runtime", "stack", "--force"],
+            ["disable", "pkg"],
+            True,
+        ),
+    ],
+)
+def test_stack_runtime_mutation_commands_route_through_stack_runner(
+    runner: CliRunner,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    command_args: list[str],
+    expected_args: list[str],
+    expected_force: bool,
+) -> None:
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: DummyState(human=False))
+    calls: list[tuple[list[str], bool]] = []
+
+    def fake_run_stack_mutation(
+        *,
+        args: list[str],
+        state: DummyState,
+        force: bool,
+    ) -> dict[str, object]:
+        del state
+        calls.append((args, force))
+        if args[0] == "update":
+            if "--all" in args:
+                return [
+                    {"plugin": {"name": "pkg"}, "impact": {"restart_required": False}}
+                ]
+            return {
+                "plugin": {"name": "pkg"},
+                "impact": {
+                    "change_type": "update",
+                    "affected_component_kinds": [],
+                    "affected_component_ids": [],
+                    "activation_mode": "silent_hot_reload",
+                    "prompt_required": False,
+                    "restart_required": False,
+                },
+            }
+        return {
+            "name": "pkg",
+            "impact": {
+                "change_type": args[0],
+                "affected_component_kinds": [],
+                "affected_component_ids": [],
+                "activation_mode": "silent_hot_reload",
+                "prompt_required": False,
+                "restart_required": False,
+            },
+        }
+
+    monkeypatch.setattr(plugin_module, "_run_stack_mutation", fake_run_stack_mutation)
+
+    result = runner.invoke(plugin_module.plugin_app, command_args, env=env)
+
+    assert result.exit_code == 0
+    assert calls == [(expected_args, expected_force)]

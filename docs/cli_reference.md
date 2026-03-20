@@ -65,15 +65,15 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo node show <node>` | Display detailed node schema, inputs/outputs, and credential requirements. |
 | `orcheo edge list [--category <category>]` | List registered edges with metadata (name, category, description). Filter by category. |
 | `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. Canonical built-ins use the `*Edge` suffix; legacy aliases still resolve for compatibility. |
-| `orcheo plugin list` | List installed plugins with enabled state, status, version, exports, and source ref. |
-| `orcheo plugin show <plugin>` | Show plugin manifest, compatibility, entry points, and resolved install state. |
-| `orcheo plugin install <ref>` | Install a plugin from a package name, pinned package, local path, wheel, or Git URL. |
-| `orcheo plugin update <plugin>` | Rebuild and update one plugin from its stored source ref. |
-| `orcheo plugin update --all` | Rebuild and update all configured plugins. |
-| `orcheo plugin uninstall <plugin>` | Remove a plugin and rebuild the shared plugin environment. |
-| `orcheo plugin enable <plugin>` | Mark an installed plugin enabled so the runtime may load it. |
-| `orcheo plugin disable <plugin>` | Mark an installed plugin disabled without forgetting its install source. |
-| `orcheo plugin doctor` | Run non-destructive diagnostics against plugin state, compatibility, and importability. |
+| `orcheo plugin list [--runtime auto\|local\|stack]` | List installed plugins with enabled state, status, version, exports, and source ref. |
+| `orcheo plugin show <plugin> [--runtime auto\|local\|stack]` | Show plugin manifest, compatibility, entry points, and resolved install state. |
+| `orcheo plugin install <ref> [--runtime auto\|local\|stack]` | Install a plugin from a package name, pinned package, local path, wheel, or Git URL. |
+| `orcheo plugin update <plugin> [--runtime auto\|local\|stack]` | Rebuild and update one plugin from its stored source ref. |
+| `orcheo plugin update --all [--runtime auto\|local\|stack]` | Rebuild and update all configured plugins. |
+| `orcheo plugin uninstall <plugin> [--runtime auto\|local\|stack]` | Remove a plugin and rebuild the shared plugin environment. |
+| `orcheo plugin enable <plugin> [--runtime auto\|local\|stack]` | Mark an installed plugin enabled so the runtime may load it. |
+| `orcheo plugin disable <plugin> [--runtime auto\|local\|stack]` | Mark an installed plugin disabled without forgetting its install source. |
+| `orcheo plugin doctor [--runtime auto\|local\|stack]` | Run non-destructive diagnostics against plugin state, compatibility, and importability. |
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
 | `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |

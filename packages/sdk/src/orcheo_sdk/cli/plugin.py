@@ -229,10 +229,28 @@ def _restart_running_stack_services(console_state: CLIState) -> None:
 
 
 def _payload_requires_restart(payload: Any) -> bool:
+    if isinstance(payload, list):
+        return any(_payload_requires_restart(item) for item in payload)
     if not isinstance(payload, dict):
         return False
     impact = payload.get("impact")
     return isinstance(impact, dict) and bool(impact.get("restart_required"))
+
+
+def _run_stack_mutation(
+    *,
+    args: list[str],
+    state: CLIState,
+    force: bool,
+) -> Any:
+    stack_args = [*args, *(["--force"] if force else [])]
+    if state.human and not force:
+        _run_stack_plugin_passthrough(args=stack_args, state=state)
+        return None
+    payload = _run_stack_plugin_json(stack_args)
+    if _payload_requires_restart(payload):
+        _restart_running_stack_services(state)
+    return payload
 
 
 def _impact_to_dict(impact: PluginImpactSummary) -> dict[str, Any]:
@@ -267,6 +285,115 @@ def _maybe_confirm(
     should_continue = typer.confirm(prompt_text, default=False)
     if not should_continue:
         raise typer.Exit(code=1)
+
+
+def _render_update_all_payload(state: CLIState, payload: list[dict[str, Any]]) -> None:
+    serialized = [
+        {
+            "plugin": item["plugin"],
+            "impact": _impact_to_dict(item["impact"]),
+        }
+        for item in payload
+    ]
+    if not state.human:
+        print_json(serialized)
+        return
+    render_json(state.console, serialized, title="Updated Plugins")
+
+
+def _render_update_single_payload(state: CLIState, payload: dict[str, Any]) -> None:
+    impact = payload["impact"]
+    if isinstance(impact, PluginImpactSummary):
+        serialized_impact = _impact_to_dict(impact)
+    else:
+        serialized_impact = impact
+    if not state.human:
+        print_json(
+            {
+                "plugin": payload["plugin"],
+                "impact": serialized_impact,
+            }
+        )
+        return
+    render_json(state.console, payload["plugin"], title="Updated Plugin")
+    if isinstance(impact, PluginImpactSummary):
+        _render_impact(state, impact)
+        return
+    _render_impact(state, PluginImpactSummary(**impact))
+
+
+def _update_plugins_in_stack(
+    *,
+    state: CLIState,
+    name: str | None,
+    all_plugins: bool,
+    force: bool,
+) -> None:
+    if all_plugins:
+        payload = _run_stack_mutation(
+            args=["update", "--all"],
+            state=state,
+            force=force,
+        )
+        if payload is not None:
+            if not state.human:
+                print_json(payload)
+                return
+            render_json(state.console, payload, title="Updated Plugins")
+        return
+    if not name:
+        raise typer.BadParameter("Provide a plugin name or pass --all.")
+    payload = _run_stack_mutation(
+        args=["update", name],
+        state=state,
+        force=force,
+    )
+    if payload is not None:
+        _render_update_single_payload(state, payload)
+
+
+def _update_all_plugins_locally(*, state: CLIState, force: bool) -> None:
+    try:
+        preview_all = preview_update_all_plugins_data()
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    for item in preview_all:
+        _maybe_confirm(
+            impact=item["impact"],
+            prompt_text=(
+                f"Apply update for {item['name']} with activation mode "
+                f"{item['impact'].activation_mode}?"
+            ),
+            state=state,
+            force=force,
+        )
+    try:
+        payload = update_all_plugins_data()
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _render_update_all_payload(state, payload)
+
+
+def _update_plugin_locally(*, state: CLIState, name: str, force: bool) -> None:
+    try:
+        preview_single = preview_update_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _maybe_confirm(
+        impact=preview_single["impact"],
+        prompt_text=(
+            "Update "
+            f"{name} with activation mode "
+            f"{preview_single['impact'].activation_mode}?"
+        ),
+        state=state,
+        force=force,
+    )
+    try:
+        payload = update_plugin_data(name)
+    except PluginError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _render_update_single_payload(state, payload)
 
 
 @plugin_app.command("list")
@@ -376,82 +503,25 @@ def update_plugin(
         bool,
         typer.Option("--force", help="Skip confirmation prompts."),
     ] = False,
+    runtime: RuntimeOption = "auto",
 ) -> None:
     """Update a plugin using the stored install reference."""
     state = _state(ctx)
-    if all_plugins:
-        try:
-            preview_all = preview_update_all_plugins_data()
-        except PluginError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        for item in preview_all:
-            _maybe_confirm(
-                impact=item["impact"],
-                prompt_text=(
-                    f"Apply update for {item['name']} with activation mode "
-                    f"{item['impact'].activation_mode}?"
-                ),
-                state=state,
-                force=force,
-            )
-        try:
-            payload_all = update_all_plugins_data()
-        except PluginError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        if not state.human:
-            print_json(
-                [
-                    {
-                        "plugin": item["plugin"],
-                        "impact": _impact_to_dict(item["impact"]),
-                    }
-                    for item in payload_all
-                ]
-            )
-            return
-        render_json(
-            state.console,
-            [
-                {
-                    "plugin": item["plugin"],
-                    "impact": _impact_to_dict(item["impact"]),
-                }
-                for item in payload_all
-            ],
-            title="Updated Plugins",
+    if _use_stack_runtime(runtime):
+        _update_plugins_in_stack(
+            state=state,
+            name=name,
+            all_plugins=all_plugins,
+            force=force,
         )
+        return
+    if all_plugins:
+        _update_all_plugins_locally(state=state, force=force)
         return
 
     if not name:
         raise typer.BadParameter("Provide a plugin name or pass --all.")
-    try:
-        preview_single = preview_update_plugin_data(name)
-    except PluginError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _maybe_confirm(
-        impact=preview_single["impact"],
-        prompt_text=(
-            "Update "
-            f"{name} with activation mode "
-            f"{preview_single['impact'].activation_mode}?"
-        ),
-        state=state,
-        force=force,
-    )
-    try:
-        payload_single = update_plugin_data(name)
-    except PluginError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    if not state.human:
-        print_json(
-            {
-                "plugin": payload_single["plugin"],
-                "impact": _impact_to_dict(payload_single["impact"]),
-            }
-        )
-        return
-    render_json(state.console, payload_single["plugin"], title="Updated Plugin")
-    _render_impact(state, payload_single["impact"])
+    _update_plugin_locally(state=state, name=name, force=force)
 
 
 @plugin_app.command("uninstall")
@@ -462,9 +532,24 @@ def uninstall_plugin(
         bool,
         typer.Option("--force", help="Skip confirmation prompts."),
     ] = False,
+    runtime: RuntimeOption = "auto",
 ) -> None:
     """Uninstall a plugin and rebuild the shared plugin environment."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        payload = _run_stack_mutation(
+            args=["uninstall", name],
+            state=state,
+            force=force,
+        )
+        if payload is None:
+            return
+        if not state.human:
+            print_json(payload)
+            return
+        state.console.print(f"Uninstalled plugin {name}")
+        _render_impact(state, PluginImpactSummary(**payload["impact"]))
+        return
     try:
         payload = preview_uninstall_plugin_data(name)
     except PluginError as exc:
@@ -496,9 +581,24 @@ def enable_plugin(
         bool,
         typer.Option("--force", help="Skip confirmation prompts."),
     ] = False,
+    runtime: RuntimeOption = "auto",
 ) -> None:
     """Enable a previously installed plugin."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        payload = _run_stack_mutation(
+            args=["enable", name],
+            state=state,
+            force=force,
+        )
+        if payload is None:
+            return
+        if not state.human:
+            print_json(payload)
+            return
+        state.console.print(f"Enabled plugin {name}")
+        _render_impact(state, PluginImpactSummary(**payload["impact"]))
+        return
     try:
         payload = preview_enable_plugin_data(name)
     except PluginError as exc:
@@ -530,9 +630,24 @@ def disable_plugin(
         bool,
         typer.Option("--force", help="Skip confirmation prompts."),
     ] = False,
+    runtime: RuntimeOption = "auto",
 ) -> None:
     """Disable a plugin without removing its desired source reference."""
     state = _state(ctx)
+    if _use_stack_runtime(runtime):
+        payload = _run_stack_mutation(
+            args=["disable", name],
+            state=state,
+            force=force,
+        )
+        if payload is None:
+            return
+        if not state.human:
+            print_json(payload)
+            return
+        state.console.print(f"Disabled plugin {name}")
+        _render_impact(state, PluginImpactSummary(**payload["impact"]))
+        return
     try:
         payload = preview_disable_plugin_data(name)
     except PluginError as exc:
