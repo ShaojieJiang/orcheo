@@ -32,6 +32,8 @@ class BrowserContextStore:
         self._ttl = timedelta(seconds=ttl_seconds)
         self._sessions: dict[str, BrowserContextEntry] = {}
         self._lock = threading.Lock()
+        self._cleanup_timer: threading.Timer | None = None
+        self._start_periodic_cleanup()
 
     def upsert(
         self,
@@ -59,6 +61,20 @@ class BrowserContextStore:
                 last_seen=now,
                 last_focused_at=last_focused_at,
             )
+
+    def _start_periodic_cleanup(self) -> None:
+        """Schedule a background cleanup every TTL interval."""
+        interval = self._ttl.total_seconds()
+        self._cleanup_timer = threading.Timer(interval, self._periodic_cleanup)
+        self._cleanup_timer.daemon = True
+        self._cleanup_timer.start()
+
+    def _periodic_cleanup(self) -> None:
+        """Run eviction and reschedule the next cleanup."""
+        now = datetime.now(UTC)
+        with self._lock:
+            self._evict(now)
+        self._start_periodic_cleanup()
 
     def _evict(self, now: datetime) -> None:
         """Remove entries older than TTL. Must be called under lock."""

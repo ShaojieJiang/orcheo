@@ -17,10 +17,24 @@ logger = logging.getLogger(__name__)
 _REQUIRED_POST_FIELDS = {"session_id", "page", "focused"}
 
 
-def _cors_headers() -> dict[str, str]:
-    """Return CORS headers allowing any origin (localhost-bound server)."""
+def _cors_headers(origin: str | None = None) -> dict[str, str]:
+    """Return CORS headers restricted to localhost origins."""
+    allowed_origin = ""
+    if origin:
+        # Allow any localhost origin (any port, http only).
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(origin)
+            if (
+                parsed.hostname in ("localhost", "127.0.0.1")
+                and parsed.scheme == "http"
+            ):
+                allowed_origin = origin
+        except Exception:  # noqa: BLE001
+            pass
     return {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": allowed_origin,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
     }
@@ -61,11 +75,15 @@ class ContextRequestHandler(BaseHTTPRequestHandler):
 
     store: ClassVar[BrowserContextStore]
 
+    def _origin(self) -> str | None:
+        """Return the Origin header from the request."""
+        return self.headers.get("Origin")
+
     def _send_json(self, status: int, data: Any) -> None:
         """Send a JSON response with CORS headers."""
         body = json.dumps(data, default=str).encode()
         self.send_response(status)
-        for key, value in _cors_headers().items():
+        for key, value in _cors_headers(self._origin()).items():
             self.send_header(key, value)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -75,7 +93,7 @@ class ContextRequestHandler(BaseHTTPRequestHandler):
     def _send_no_content(self) -> None:
         """Send a 204 No Content response with CORS headers."""
         self.send_response(204)
-        for key, value in _cors_headers().items():
+        for key, value in _cors_headers(self._origin()).items():
             self.send_header(key, value)
         self.end_headers()
 
@@ -134,12 +152,37 @@ def create_request_handler(
     )
 
 
-def run_server(*, host: str = "localhost", port: int = 3333) -> None:
-    """Start the browser context HTTP server (blocking)."""
+def run_server(
+    *, host: str = "localhost", port: int = 3333, max_port_attempts: int = 10
+) -> None:
+    """Start the browser context HTTP server (blocking).
+
+    If the requested port is in use, tries up to ``max_port_attempts``
+    consecutive ports before giving up.
+    """
     store = BrowserContextStore()
     handler_class = create_request_handler(store)
-    server = HTTPServer((host, port), handler_class)
-    logger.info("Browser context server listening on %s:%d", host, port)
+
+    server: HTTPServer | None = None
+    last_error: OSError | None = None
+    for port_attempt in range(port, port + max_port_attempts):
+        try:
+            server = HTTPServer((host, port_attempt), handler_class)
+            break
+        except OSError as exc:
+            last_error = exc
+            logger.debug("Port %d unavailable, trying next", port_attempt)
+            continue
+
+    if server is None:
+        msg = (
+            f"Could not bind to any port in range {port}–{port + max_port_attempts - 1}"
+        )
+        raise OSError(msg) from last_error
+
+    logger.info(
+        "Browser context server listening on %s:%d", host, server.server_address[1]
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
