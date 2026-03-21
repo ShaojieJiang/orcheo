@@ -887,7 +887,7 @@ class AgentNode(AINode):
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
-            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
+            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
 
         if (
             self.use_graph_chat_history
@@ -994,7 +994,7 @@ class LLMNode(AgentNode):
 
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
-            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type]
+            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
         return result
 
     def _build_messages(

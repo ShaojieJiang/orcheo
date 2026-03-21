@@ -27,6 +27,7 @@ from orcheo.nodes.data import (
     MergeNode,
 )
 from orcheo.nodes.debug import DebugNode
+from orcheo.nodes.deep_agent import DeepAgentNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 from orcheo.nodes.listeners import (
@@ -119,6 +120,7 @@ __all__ = [
     "JavaScriptSandboxNode",
     "LarkSendMessageNode",
     "LarkTenantAccessTokenNode",
+    "DeepAgentNode",
     "DebugNode",
     "SubWorkflowNode",
     "TelegramBotListenerNode",
