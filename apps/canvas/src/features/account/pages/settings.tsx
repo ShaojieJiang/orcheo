@@ -5,6 +5,7 @@ import {
   TabsTrigger,
 } from "@/design-system/ui/tabs";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import AgentSettingsTab from "@features/account/components/settings/agent-settings-tab";
 import AppearanceSettingsTab from "@features/account/components/settings/appearance-settings-tab";
 import ApplicationSettingsTab from "@features/account/components/settings/application-settings-tab";
 import NotificationSettingsTab from "@features/account/components/settings/notification-settings-tab";
@@ -42,6 +43,7 @@ export default function Settings() {
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="application">Application</TabsTrigger>
             <TabsTrigger value="teams">Teams & Billing</TabsTrigger>
+            <TabsTrigger value="agent">Connect Agent</TabsTrigger>
           </TabsList>
           <TabsContent value="appearance" className="space-y-4">
             <AppearanceSettingsTab />
@@ -54,6 +56,9 @@ export default function Settings() {
           </TabsContent>
           <TabsContent value="teams" className="space-y-4">
             <TeamBillingSettingsTab />
+          </TabsContent>
+          <TabsContent value="agent" className="space-y-4">
+            <AgentSettingsTab />
           </TabsContent>
         </Tabs>
       </div>

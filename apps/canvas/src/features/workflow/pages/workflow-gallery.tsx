@@ -1,10 +1,16 @@
+import { useEffect } from "react";
 import TopNavigation from "@features/shared/components/top-navigation";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import { usePageContext } from "@/hooks/use-page-context";
 import { WorkflowGalleryHeader } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-header";
 import { WorkflowGalleryTabs } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-tabs";
 import { useWorkflowGallery } from "@/features/workflow/pages/workflow-gallery/use-workflow-gallery";
 
 export default function WorkflowGallery() {
+  const { setPageContext } = usePageContext();
+  useEffect(() => {
+    setPageContext({ page: "gallery" });
+  }, [setPageContext]);
   const {
     credentials,
     isLoading: isCredentialsLoading,
