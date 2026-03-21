@@ -4,9 +4,15 @@ from __future__ import annotations
 import threading
 from datetime import UTC, datetime
 from http.server import HTTPServer
+from unittest.mock import patch
 import httpx
 import pytest
-from orcheo_sdk.cli.browser_context.server import create_request_handler
+from orcheo_sdk.cli.browser_context.server import (
+    _cors_headers,
+    _resolve_timestamp,
+    create_request_handler,
+    run_server,
+)
 from orcheo_sdk.cli.browser_context.store import BrowserContextStore
 
 
@@ -160,3 +166,85 @@ def test_post_unknown_path(context_server: tuple[str, HTTPServer]) -> None:
     base_url, _ = context_server
     resp = httpx.post(f"{base_url}/unknown", json={})
     assert resp.status_code == 404
+
+
+def test_cors_headers_urlparse_exception() -> None:
+    """_cors_headers returns empty origin when urlparse raises."""
+    with patch("urllib.parse.urlparse", side_effect=Exception("bad parse")):
+        headers = _cors_headers("http://localhost:5173")
+    assert headers["Access-Control-Allow-Origin"] == ""
+
+
+def test_resolve_timestamp_invalid() -> None:
+    """_resolve_timestamp falls back to now() when timestamp is unparseable."""
+    before = datetime.now(UTC)
+    result = _resolve_timestamp({"timestamp": "not-a-date"})
+    after = datetime.now(UTC)
+    assert before <= result <= after
+
+
+def test_resolve_timestamp_no_key() -> None:
+    """_resolve_timestamp falls back to now() when timestamp key is absent."""
+    before = datetime.now(UTC)
+    result = _resolve_timestamp({})
+    after = datetime.now(UTC)
+    assert before <= result <= after
+
+
+def test_run_server_keyboard_interrupt() -> None:
+    """run_server shuts down cleanly on KeyboardInterrupt."""
+
+    class _FakeServer:
+        server_address = ("localhost", 9876)
+
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def server_close(self) -> None:
+            pass
+
+    with patch(
+        "orcheo_sdk.cli.browser_context.server.HTTPServer",
+        return_value=_FakeServer(),
+    ):
+        # Should not raise
+        run_server(host="localhost", port=9876)
+
+
+def test_run_server_port_retry() -> None:
+    """run_server retries the next port when the first is unavailable."""
+    call_count = 0
+
+    class _FakeServer:
+        server_address = ("localhost", 9878)
+
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def server_close(self) -> None:
+            pass
+
+    def _fake_http_server(addr: tuple[str, int], handler: type) -> _FakeServer:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError("port in use")
+        return _FakeServer()
+
+    with patch(
+        "orcheo_sdk.cli.browser_context.server.HTTPServer",
+        side_effect=_fake_http_server,
+    ):
+        run_server(host="localhost", port=9877, max_port_attempts=3)
+
+    assert call_count == 2
+
+
+def test_run_server_all_ports_busy() -> None:
+    """run_server raises OSError when all port attempts fail."""
+    with patch(
+        "orcheo_sdk.cli.browser_context.server.HTTPServer",
+        side_effect=OSError("port in use"),
+    ):
+        with pytest.raises(OSError, match="Could not bind"):
+            run_server(host="localhost", port=9900, max_port_attempts=3)

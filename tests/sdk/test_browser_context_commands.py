@@ -5,6 +5,7 @@ import json
 import threading
 from datetime import UTC, datetime
 from http.server import HTTPServer
+from unittest.mock import patch
 import httpx
 import pytest
 from typer.testing import CliRunner
@@ -132,3 +133,90 @@ def test_context_sessions_empty(
     result = runner.invoke(app, ["context", "sessions", "--port", str(port)], env=env)
     assert result.exit_code == 0
     assert "no active" in result.stdout.lower()
+
+
+def test_browser_aware_starts_server(runner: CliRunner, env: dict[str, str]) -> None:
+    """orcheo browser-aware invokes run_server with correct arguments."""
+    with patch("orcheo_sdk.cli.browser_context.server.run_server") as mock_run_server:
+        result = runner.invoke(app, ["browser-aware", "--port", "4444"], env=env)
+    assert result.exit_code == 0
+    mock_run_server.assert_called_once_with(host="localhost", port=4444)
+    assert "4444" in result.stdout
+
+
+def test_context_no_server_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """orcheo context outputs JSON error in machine mode when server not running."""
+    result = runner.invoke(app, ["context", "--port", "19999"], env=machine_env)
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert "error" in data
+
+
+def test_context_no_sessions_machine_mode(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    _context_server: tuple[int, HTTPServer],
+) -> None:
+    """orcheo context outputs JSON warning in machine mode when no sessions exist."""
+    port, _ = _context_server
+    result = runner.invoke(app, ["context", "--port", str(port)], env=machine_env)
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert "warning" in data
+    assert data["total_sessions"] == 0
+
+
+def test_context_sessions_no_server_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """orcheo context sessions outputs JSON error in machine mode when no server."""
+    result = runner.invoke(
+        app, ["context", "sessions", "--port", "19999"], env=machine_env
+    )
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert "error" in data
+
+
+def test_context_sessions_empty_machine_mode(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    _context_server: tuple[int, HTTPServer],
+) -> None:
+    """orcheo context sessions outputs empty JSON list in machine mode."""
+    port, _ = _context_server
+    result = runner.invoke(
+        app, ["context", "sessions", "--port", str(port)], env=machine_env
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data == []
+
+
+def test_context_sessions_machine_output(
+    runner: CliRunner,
+    machine_env: dict[str, str],
+    _context_server: tuple[int, HTTPServer],
+) -> None:
+    """orcheo context sessions outputs JSON list of sessions in machine mode."""
+    port, _ = _context_server
+    httpx.post(
+        f"http://localhost:{port}/context",
+        json={
+            "session_id": "tab-machine",
+            "page": "canvas",
+            "workflow_id": "wf-1",
+            "workflow_name": "Machine Flow",
+            "focused": True,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    )
+    result = runner.invoke(
+        app, ["context", "sessions", "--port", str(port)], env=machine_env
+    )
+    assert result.exit_code == 0
+    sessions = json.loads(result.stdout)
+    assert isinstance(sessions, list)
+    assert any(s["session_id"] == "tab-machine" for s in sessions)
