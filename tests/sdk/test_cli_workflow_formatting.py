@@ -1,6 +1,7 @@
 """Workflow upload validation and formatting tests."""
 
 from __future__ import annotations
+import sys
 from pathlib import Path
 import httpx
 import pytest
@@ -8,6 +9,7 @@ import respx
 from typer.testing import CliRunner
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.main import app
+from orcheo_sdk.cli.workflow import _load_workflow_from_python
 
 
 def test_load_workflow_from_python_missing_workflow_variable(
@@ -55,6 +57,50 @@ def test_load_workflow_from_python_wrong_type(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "must be an orcheo_sdk.Workflow instance" in str(result.exception)
+
+
+def test_load_workflow_from_python_adds_managed_plugin_site_packages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Managed plugin installs should be importable during local workflow loading."""
+    plugin_dir = tmp_path / "plugins"
+    site_packages = (
+        plugin_dir
+        / "venv"
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    module_dir = site_packages / "orcheo_plugin_fixture_runtime"
+    module_dir.mkdir(parents=True)
+    (module_dir / "__init__.py").write_text("VALUE = 'ready'\n", encoding="utf-8")
+
+    workflow_file = tmp_path / "workflow.py"
+    workflow_file.write_text(
+        "\n".join(
+            [
+                "from orcheo_plugin_fixture_runtime import VALUE",
+                "",
+                "class FakeWorkflow:",
+                "    def to_deployment_payload(self):",
+                "        return {'_type': 'langgraph_script', 'script': VALUE}",
+                "",
+                "workflow = FakeWorkflow()",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("ORCHEO_PLUGIN_DIR", str(plugin_dir))
+
+    before = list(sys.path)
+    try:
+        payload = _load_workflow_from_python(workflow_file)
+    finally:
+        sys.path[:] = before
+        sys.modules.pop("orcheo_plugin_fixture_runtime", None)
+
+    assert payload == {"_type": "langgraph_script", "script": "ready"}
 
 
 def test_load_workflow_from_json_is_rejected(

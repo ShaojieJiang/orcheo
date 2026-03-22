@@ -60,9 +60,35 @@ def plugin_template_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     wecom_module.WeComWsReplyNode = _WeComWsReplyNode
     lark_module = types.ModuleType("orcheo_plugin_lark_listener")
     lark_module.LarkListenerPluginNode = _LarkListenerPluginNode
+    wechat_module = types.ModuleType("orcheo_plugin_wechat_listener")
+
+    class _WechatListenerPluginNode(ListenerNode):
+        platform: str = "wechat"
+        account_id: str = ""
+        bot_token: str = ""
+        base_url: str = ""
+        bot_identity_key: str = ""
+
+    class _WechatReplyNode(TaskNode):
+        account_id: str = ""
+        bot_token: str = ""
+        base_url: str = ""
+        message: str = ""
+        reply_target: dict[str, str] | str = {}
+        raw_event: dict[str, str] | str = {}
+
+        async def run(
+            self, state: State, config: RunnableConfig
+        ) -> dict[str, bool | str | None]:
+            del state, config
+            return {"sent": True}
+
+    wechat_module.WechatListenerPluginNode = _WechatListenerPluginNode
+    wechat_module.WechatReplyNode = _WechatReplyNode
 
     monkeypatch.setitem(sys.modules, "orcheo_plugin_wecom_listener", wecom_module)
     monkeypatch.setitem(sys.modules, "orcheo_plugin_lark_listener", lark_module)
+    monkeypatch.setitem(sys.modules, "orcheo_plugin_wechat_listener", wechat_module)
 
 
 @pytest.mark.parametrize(

@@ -28,12 +28,14 @@ const CURRENT_PROVIDER_APIS = new Set([
   "qq-bot-api-v2",
   "private-bot-listener-suite-2026-03-11",
   "wecom-lark-listener-plugin-suite-2026-03-16",
+  "openclaw-wechat-plugin-2026-03-22",
 ]);
 
 const CURRENT_REPLY_NODE_CONTRACTS = new Set([
   "MessageTelegramNode@1",
   "MessageDiscordNode@1",
   "MessageQQNode@1",
+  "WechatReplyNode@1",
 ]);
 
 export const getWorkflowTemplateCompatibilityIssues = (

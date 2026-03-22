@@ -1,9 +1,12 @@
 """Helpers for ingesting workflow definitions."""
 
 from __future__ import annotations
+import contextlib
 import re
+import sys
 from pathlib import Path
 from typing import Any
+from orcheo.plugins.paths import build_storage_paths
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.state import CLIState
 
@@ -26,6 +29,33 @@ def _normalize_workflow_name(name: str | None) -> str | None:
     if not normalized:
         raise CLIError("Workflow name cannot be empty.")
     return normalized
+
+
+def _plugin_site_packages() -> Path:
+    """Return the managed plugin ``site-packages`` path for the active Python."""
+    install_dir = Path(build_storage_paths().install_dir)
+    return (
+        install_dir
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+
+
+@contextlib.contextmanager
+def _managed_plugin_sys_path() -> Any:
+    """Temporarily expose managed plugin packages during local script loading."""
+    site_packages = _plugin_site_packages()
+    path_str = str(site_packages)
+    should_add = site_packages.exists() and path_str not in sys.path
+    if should_add:
+        sys.path.insert(0, path_str)
+    try:
+        yield
+    finally:
+        if should_add:
+            with contextlib.suppress(ValueError):
+                sys.path.remove(path_str)
 
 
 def _upload_langgraph_script(
@@ -118,7 +148,6 @@ def _strip_main_block(script: str) -> str:
 def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     """Load a workflow from a Python file."""
     import importlib.util
-    import sys
 
     spec = importlib.util.spec_from_file_location("workflow_module", path)
     if spec is None or spec.loader is None:
@@ -127,7 +156,8 @@ def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     module = importlib.util.module_from_spec(spec)
     sys.modules["workflow_module"] = module
     try:
-        spec.loader.exec_module(module)
+        with _managed_plugin_sys_path():
+            spec.loader.exec_module(module)
     except Exception as exc:  # pragma: no cover
         raise CLIError(f"Failed to execute Python file: {exc}") from exc
     finally:

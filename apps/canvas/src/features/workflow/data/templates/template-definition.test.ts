@@ -17,10 +17,14 @@ describe("template compatibility", () => {
     const pluginTemplate = getWorkflowTemplateDefinition(
       "template-wecom-lark-shared-listener",
     );
+    const wechatTemplate = getWorkflowTemplateDefinition(
+      "template-wechat-private-listener",
+    );
 
     expect(qqTemplate).toBeDefined();
     expect(sharedTemplate).toBeDefined();
     expect(pluginTemplate).toBeDefined();
+    expect(wechatTemplate).toBeDefined();
     expect(() =>
       assertWorkflowTemplateCompatibility(
         qqTemplate as WorkflowTemplateDefinition,
@@ -34,6 +38,11 @@ describe("template compatibility", () => {
     expect(() =>
       assertWorkflowTemplateCompatibility(
         pluginTemplate as WorkflowTemplateDefinition,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertWorkflowTemplateCompatibility(
+        wechatTemplate as WorkflowTemplateDefinition,
       ),
     ).not.toThrow();
   });

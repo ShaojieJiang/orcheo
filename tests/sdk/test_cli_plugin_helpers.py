@@ -193,6 +193,101 @@ def test_run_stack_plugin_json_parses_payload(monkeypatch: pytest.MonkeyPatch) -
     assert plugin_module._run_stack_plugin_json(["install"]) is None
 
 
+def test_stack_service_container_id_reads_compose_ps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(plugin_module, "_stack_compose_base_args", lambda: ["docker"])
+    monkeypatch.setattr(
+        plugin_module,
+        "_run_stack_subprocess",
+        lambda command, expected_exit_codes=None: subprocess.CompletedProcess(
+            command, 0, stdout="abc123\n", stderr=""
+        ),
+    )
+    assert plugin_module._stack_service_container_id("backend") == "abc123"
+
+
+def test_copy_local_plugin_ref_into_stack_stages_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "plugin"
+    source_dir.mkdir()
+    (source_dir / "pyproject.toml").write_text(
+        "[project]\nname='demo'\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: {"backend"})
+    monkeypatch.setattr(
+        plugin_module, "_stack_service_container_id", lambda service: "cid-1"
+    )
+    monkeypatch.setattr(
+        plugin_module, "_stack_compose_base_args", lambda: ["docker", "compose"]
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del expected_exit_codes
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(plugin_module, "_run_stack_subprocess", fake_run)
+
+    staged_ref = plugin_module._copy_local_plugin_ref_into_stack(str(source_dir))
+
+    expected_parent = (
+        f"/data/plugin-sources/"
+        f"{plugin_module.hash_install_source(str(source_dir.resolve()))}"
+    )
+    assert staged_ref == f"{expected_parent}/plugin"
+    assert calls[0][:6] == ["docker", "compose", "exec", "-T", "backend", "sh"]
+    assert calls[1] == [
+        "docker",
+        "cp",
+        str(source_dir.resolve()),
+        f"cid-1:{expected_parent}",
+    ]
+
+
+def test_copy_local_plugin_ref_into_stack_requires_running_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "plugin"
+    source_dir.mkdir()
+    monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: set())
+    with pytest.raises(typer.BadParameter):
+        plugin_module._copy_local_plugin_ref_into_stack(str(source_dir))
+
+
+def test_copy_local_plugin_ref_into_stack_requires_source(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "plugin"
+    with pytest.raises(typer.BadParameter, match="Local plugin reference not found"):
+        plugin_module._copy_local_plugin_ref_into_stack(str(missing))
+
+
+def test_copy_local_plugin_ref_into_stack_requires_container_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "plugin"
+    source_dir.mkdir()
+
+    monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: {"backend"})
+    monkeypatch.setattr(
+        plugin_module, "_stack_service_container_id", lambda service: None
+    )
+    with pytest.raises(
+        typer.BadParameter,
+        match="Could not resolve the backend container id for the running stack",
+    ):
+        plugin_module._copy_local_plugin_ref_into_stack(str(source_dir))
+
+
 def test_restart_running_stack_services(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: set())
     monkeypatch.setattr(

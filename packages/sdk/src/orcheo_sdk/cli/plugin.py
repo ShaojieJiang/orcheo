@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 import typer
 from orcheo.plugins import PluginImpactSummary
-from orcheo.plugins.manager import PluginError
+from orcheo.plugins.manager import PluginError, hash_install_source
 from orcheo_sdk.cli.output import (
     print_json,
     print_markdown_table,
@@ -214,6 +215,58 @@ def _run_stack_plugin_json(args: list[str]) -> Any:
     if not payload:
         return None
     return json.loads(payload)
+
+
+def _stack_service_container_id(service: str) -> str | None:
+    compose_base_args = _stack_compose_base_args()
+    result = _run_stack_subprocess([*compose_base_args, "ps", "-q", service])
+    container_id = result.stdout.strip()
+    return container_id or None
+
+
+def _copy_local_plugin_ref_into_stack(ref: str) -> str:
+    source_path = Path(ref).expanduser().resolve()
+    if not source_path.exists():
+        raise typer.BadParameter(f"Local plugin reference not found: {ref}")
+    if "backend" not in _running_stack_services():
+        raise typer.BadParameter(
+            "Local stack plugin installs require the backend service to be "
+            "running so the source can be staged into the shared stack volume."
+        )
+    container_id = _stack_service_container_id("backend")
+    if container_id is None:
+        raise typer.BadParameter(
+            "Could not resolve the backend container id for the running stack."
+        )
+
+    destination_parent = Path("/data/plugin-sources") / hash_install_source(
+        str(source_path)
+    )
+    destination_path = destination_parent / source_path.name
+    compose_base_args = _stack_compose_base_args()
+    _run_stack_subprocess(
+        [
+            *compose_base_args,
+            "exec",
+            "-T",
+            "backend",
+            "sh",
+            "-lc",
+            (
+                f"mkdir -p {shlex.quote(str(destination_parent))} && "
+                f"rm -rf {shlex.quote(str(destination_path))}"
+            ),
+        ]
+    )
+    _run_stack_subprocess(
+        [
+            "docker",
+            "cp",
+            str(source_path),
+            f"{container_id}:{destination_parent}",
+        ]
+    )
+    return str(destination_path)
 
 
 def _restart_running_stack_services(console_state: CLIState) -> None:
@@ -458,9 +511,12 @@ def install_plugin(
 ) -> None:
     """Install a plugin from a package, path, wheel, or git ref."""
     state = _state(ctx)
-    use_stack_runtime = _use_stack_runtime(runtime) and not _is_local_plugin_ref(ref)
+    use_stack_runtime = _use_stack_runtime(runtime)
     if use_stack_runtime:
-        payload = _run_stack_plugin_json(["install", ref])
+        stack_ref = (
+            _copy_local_plugin_ref_into_stack(ref) if _is_local_plugin_ref(ref) else ref
+        )
+        payload = _run_stack_plugin_json(["install", stack_ref])
         if _payload_requires_restart(payload):  # pragma: no branch
             _restart_running_stack_services(state)
         if not state.human:
