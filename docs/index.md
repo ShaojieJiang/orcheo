@@ -47,7 +47,7 @@ Use the installation path that matches your setup:
 === "macOS/Linux (non-interactive)"
 
     ```bash
-    curl -fsSL https://ai-colleagues.com/install.sh | sh -s -- --yes --start-stack
+    curl -fsSL https://ai-colleagues.com/install.sh | bash -s -- --yes --start-stack
     ```
 
 === "Upgrade"
