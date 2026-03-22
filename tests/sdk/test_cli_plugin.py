@@ -1166,3 +1166,139 @@ def test_maybe_confirm_machine_mode_prompt_required_raises(
             env=machine_env,
         )
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# plugin init
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_init_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init in machine mode outputs JSON with path and name."""
+    result = runner.invoke(
+        app,
+        ["plugin", "init", "hello", "--output-dir", str(tmp_path)],
+        env=machine_env,
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "orcheo-plugin-hello"
+    assert Path(payload["path"]).is_dir()
+
+
+def test_plugin_init_human_mode(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """init in human mode prints a success message."""
+    result = runner.invoke(
+        app,
+        ["plugin", "init", "hello", "--output-dir", str(tmp_path)],
+        env=env,
+    )
+    assert result.exit_code == 0
+    assert "orcheo-plugin-hello" in result.output
+
+
+def test_plugin_init_creates_files(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init creates a complete plugin skeleton."""
+    result = runner.invoke(
+        app,
+        ["plugin", "init", "acme", "--output-dir", str(tmp_path)],
+        env=machine_env,
+    )
+    assert result.exit_code == 0
+    root = tmp_path / "orcheo-plugin-acme"
+    assert (root / "pyproject.toml").is_file()
+    assert (root / "src" / "orcheo_plugin_acme" / "__init__.py").is_file()
+    assert (root / "tests" / "test_plugin.py").is_file()
+
+
+def test_plugin_init_with_author_and_description(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init passes author and description through to the scaffold."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "init",
+            "acme",
+            "--author",
+            "Jane Doe",
+            "--description",
+            "My cool plugin",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        env=machine_env,
+    )
+    assert result.exit_code == 0
+    pyproject = (tmp_path / "orcheo-plugin-acme" / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+    assert "Jane Doe" in pyproject
+    assert "My cool plugin" in pyproject
+
+
+def test_plugin_init_with_custom_exports(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init passes comma-separated exports to the manifest."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "init",
+            "acme",
+            "--exports",
+            "nodes,edges",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        env=machine_env,
+    )
+    assert result.exit_code == 0
+    manifest = (
+        tmp_path
+        / "orcheo-plugin-acme"
+        / "src"
+        / "orcheo_plugin_acme"
+        / "orcheo_plugin.toml"
+    ).read_text(encoding="utf-8")
+    assert '"nodes"' in manifest
+    assert '"edges"' in manifest
+
+
+def test_plugin_init_invalid_name(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init rejects invalid plugin names."""
+    result = runner.invoke(
+        app,
+        ["plugin", "init", "Bad-Name", "--output-dir", str(tmp_path)],
+        env=machine_env,
+    )
+    assert result.exit_code != 0
+
+
+def test_plugin_init_duplicate_directory(
+    runner: CliRunner, machine_env: dict[str, str], tmp_path: Path
+) -> None:
+    """init rejects when target directory already exists."""
+    result1 = runner.invoke(
+        app,
+        ["plugin", "init", "hello", "--output-dir", str(tmp_path)],
+        env=machine_env,
+    )
+    assert result1.exit_code == 0
+
+    result2 = runner.invoke(
+        app,
+        ["plugin", "init", "hello", "--output-dir", str(tmp_path)],
+        env=machine_env,
+    )
+    assert result2.exit_code != 0

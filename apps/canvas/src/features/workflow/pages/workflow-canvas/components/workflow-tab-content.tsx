@@ -499,7 +499,9 @@ export function WorkflowTabContent({
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex items-center justify-between border-b pb-3">
           <div>
-            <h2 className="text-lg font-semibold">Workflow</h2>
+            <h2 className="text-lg font-semibold">
+              {workflowName || "Workflow"}
+            </h2>
             <p className="text-sm text-muted-foreground">
               {workflowName}
               {latestVersion ? ` · ${latestVersion.version}` : ""}
