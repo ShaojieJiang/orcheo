@@ -425,7 +425,7 @@ def list_plugins(
             ]
             for row in rows
         ],
-        column_overflow={"Source": "fold"},
+        column_overflow={"Name": "fold", "Source": "fold"},
     )
 
 
@@ -699,6 +699,61 @@ def doctor_plugins(
     )
     if payload["has_errors"]:
         raise typer.Exit(code=1)
+
+
+@plugin_app.command("init")
+def init_plugin(
+    ctx: typer.Context,
+    name: Annotated[
+        str,
+        typer.Argument(help="Plugin slug (e.g. 'my-plugin')."),
+    ],
+    author: Annotated[
+        str,
+        typer.Option("--author", help="Author name for pyproject.toml."),
+    ] = "Your Name",
+    description: Annotated[
+        str,
+        typer.Option("--description", help="Short plugin description."),
+    ] = "",
+    exports: Annotated[
+        str,
+        typer.Option(
+            "--exports",
+            help="Comma-separated export kinds.",
+        ),
+    ] = "nodes",
+    output_dir: Annotated[
+        str,
+        typer.Option("--output-dir", "-o", help="Parent directory for the scaffold."),
+    ] = "",
+) -> None:
+    """Generate a plugin package skeleton from the built-in template."""
+    from orcheo_sdk.cli.scaffold import scaffold_plugin, validate_plugin_name
+
+    state = _state(ctx)
+    error = validate_plugin_name(name)
+    if error:
+        raise typer.BadParameter(error)
+
+    target = Path(output_dir) if output_dir else None
+    exports_list = [e.strip() for e in exports.split(",") if e.strip()]
+
+    try:
+        root = scaffold_plugin(
+            name,
+            target_dir=target,
+            author=author,
+            description=description,
+            exports=exports_list,
+        )
+    except FileExistsError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if state.human:
+        state.console.print(f"[green]✓[/green] Created plugin scaffold at {root}")
+    else:
+        print_json({"path": str(root), "name": f"orcheo-plugin-{name}"})
 
 
 __all__ = ["plugin_app"]

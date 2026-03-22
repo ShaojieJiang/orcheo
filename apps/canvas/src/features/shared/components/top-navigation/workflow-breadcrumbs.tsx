@@ -1,4 +1,10 @@
-import React, { useMemo } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -7,12 +13,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import { ChevronRight, MoreHorizontal } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Check, X } from "lucide-react";
 
 interface WorkflowBreadcrumbsProps {
   currentWorkflow: {
     name: string;
     path?: string[];
+    onNameChange?: (name: string) => void;
   };
   windowWidth: number;
 }
@@ -21,6 +28,90 @@ export default function WorkflowBreadcrumbs({
   currentWorkflow,
   windowWidth,
 }: WorkflowBreadcrumbsProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(currentWorkflow.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(currentWorkflow.name);
+    }
+  }, [currentWorkflow.name, isEditing]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const commitEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== currentWorkflow.name) {
+      currentWorkflow.onNameChange?.(trimmed);
+    }
+    setIsEditing(false);
+  }, [editValue, currentWorkflow]);
+
+  const cancelEdit = useCallback(() => {
+    setEditValue(currentWorkflow.name);
+    setIsEditing(false);
+  }, [currentWorkflow.name]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === "Enter") {
+        commitEdit();
+      } else if (event.key === "Escape") {
+        cancelEdit();
+      }
+    },
+    [commitEdit, cancelEdit],
+  );
+
+  const isEditable = Boolean(currentWorkflow.onNameChange);
+
+  const nameElement = isEditing ? (
+    <span className="inline-flex items-center gap-1">
+      <input
+        ref={inputRef}
+        type="text"
+        className="h-6 w-[140px] rounded border border-border bg-background px-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring sm:w-[180px]"
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={commitEdit}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-5 w-5 p-0"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={commitEdit}
+      >
+        <Check className="h-3 w-3" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-5 w-5 p-0"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={cancelEdit}
+      >
+        <X className="h-3 w-3" />
+      </Button>
+    </span>
+  ) : (
+    <span
+      data-testid="workflow-name-display"
+      className={`max-w-[120px] truncate text-foreground sm:max-w-[200px] ${isEditable ? "cursor-pointer rounded px-0.5 hover:bg-muted" : ""}`}
+      onDoubleClick={isEditable ? () => setIsEditing(true) : undefined}
+      title={isEditable ? "Double-click to rename" : undefined}
+    >
+      {currentWorkflow.name}
+    </span>
+  );
+
   const normalizedPath = useMemo(() => {
     const path = currentWorkflow.path ?? [];
     if (path.length === 0) {
@@ -43,7 +134,7 @@ export default function WorkflowBreadcrumbs({
   if (normalizedPath.length === 0) {
     return (
       <span className="truncate font-medium text-foreground">
-        {currentWorkflow.name}
+        {nameElement}
       </span>
     );
   }
@@ -86,9 +177,7 @@ export default function WorkflowBreadcrumbs({
           </React.Fragment>
         ))}
         <ChevronRight className="mx-1 h-4 w-4 flex-shrink-0" />
-        <span className="max-w-[120px] truncate text-foreground sm:max-w-[200px]">
-          {currentWorkflow.name}
-        </span>
+        {nameElement}
       </div>
     </div>
   );

@@ -38,6 +38,16 @@ describe("template compatibility", () => {
     ).not.toThrow();
   });
 
+  it("includes the chatkit widgets template in the registry", () => {
+    const chatkitTemplate = getWorkflowTemplateDefinition(
+      "template-chatkit-widgets",
+    );
+    expect(chatkitTemplate).toBeDefined();
+    expect(chatkitTemplate!.workflow.name).toBe("ChatKit Widgets Agent");
+    expect(chatkitTemplate!.script).toContain("mcp-chatkit-widget");
+    expect(chatkitTemplate!.workflow.tags).toContain("chatkit");
+  });
+
   it("rejects templates when provider or reply-node contracts drift", () => {
     const staleTemplate: WorkflowTemplateDefinition = {
       workflow: {
