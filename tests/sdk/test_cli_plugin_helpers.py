@@ -262,6 +262,32 @@ def test_copy_local_plugin_ref_into_stack_requires_running_backend(
         plugin_module._copy_local_plugin_ref_into_stack(str(source_dir))
 
 
+def test_copy_local_plugin_ref_into_stack_requires_source(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "plugin"
+    with pytest.raises(typer.BadParameter, match="Local plugin reference not found"):
+        plugin_module._copy_local_plugin_ref_into_stack(str(missing))
+
+
+def test_copy_local_plugin_ref_into_stack_requires_container_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "plugin"
+    source_dir.mkdir()
+
+    monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: {"backend"})
+    monkeypatch.setattr(
+        plugin_module, "_stack_service_container_id", lambda service: None
+    )
+    with pytest.raises(
+        typer.BadParameter,
+        match="Could not resolve the backend container id for the running stack",
+    ):
+        plugin_module._copy_local_plugin_ref_into_stack(str(source_dir))
+
+
 def test_restart_running_stack_services(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(plugin_module, "_running_stack_services", lambda: set())
     monkeypatch.setattr(
