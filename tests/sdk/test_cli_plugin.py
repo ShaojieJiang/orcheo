@@ -424,21 +424,35 @@ def test_plugin_install_git_ref_targets_stack_runtime(
     ]
 
 
-def test_plugin_install_local_path_ignores_stack_runtime(
+def test_plugin_install_local_path_uses_stack_runtime(
     runner: CliRunner,
     machine_env: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Local path installs should remain on host even if stack runtime selected."""
+    """Local path installs should stage into the stack runtime when selected."""
     fixture_path = _copy_fixture(tmp_path, "node_plugin")
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir(exist_ok=True)
     compose_file = stack_dir / "docker-compose.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
 
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin._copy_local_plugin_ref_into_stack",
+        lambda ref: "/data/plugin-sources/abc/node_plugin",
+    )
     stack_install = MagicMock(
-        side_effect=AssertionError("stack install should not run")
+        return_value={
+            "plugin": {"name": "orcheo-plugin-fixture-node"},
+            "impact": {
+                "change_type": "install",
+                "affected_component_kinds": [],
+                "affected_component_ids": [],
+                "activation_mode": "restart_required",
+                "prompt_required": False,
+                "restart_required": False,
+            },
+        }
     )
     monkeypatch.setattr("orcheo_sdk.cli.plugin._run_stack_plugin_json", stack_install)
 
@@ -451,7 +465,9 @@ def test_plugin_install_local_path_ignores_stack_runtime(
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["plugin"]["name"] == "orcheo-plugin-fixture-node"
-    stack_install.assert_not_called()
+    stack_install.assert_called_once_with(
+        ["install", "/data/plugin-sources/abc/node_plugin"]
+    )
 
 
 def test_plugin_update_prompts_for_existing_hot_reloadable_plugin(
