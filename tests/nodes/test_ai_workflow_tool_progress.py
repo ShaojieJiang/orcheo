@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
+from typing_extensions import TypedDict
 from orcheo.graph.state import State
 from orcheo.nodes.agent_tools.context import (
     tool_execution_context,
@@ -60,6 +61,46 @@ async def test_workflow_tool_emits_progress_updates() -> None:
     assert updates
     assert any("node_a" in step for step in updates)
     assert any("node_b" in step for step in updates)
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_streaming_respects_graph_output_schema() -> None:
+    """Streaming tool runs should still return the narrowed output schema."""
+
+    class ToolOutput(TypedDict):
+        answer: str
+
+    graph = StateGraph(dict, output_schema=ToolOutput)
+
+    def produce_answer(_state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "answer": "compact answer",
+            "results": {"hidden_documents": [{"id": "1"}]},
+        }
+
+    graph.add_node("produce_answer", produce_answer)
+    graph.add_edge(START, "produce_answer")
+    graph.add_edge("produce_answer", END)
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=graph.compile(),
+        name="schema_tool",
+        description="Schema-aware streaming tool",
+        args_schema=None,
+    )
+
+    updates: list[dict[str, Any]] = []
+
+    async def progress_callback(step: dict[str, Any]) -> None:
+        updates.append(step)
+
+    config: RunnableConfig = {"configurable": {"thread_id": "schema-tool"}}
+
+    with tool_execution_context(config), tool_progress_context(progress_callback):
+        result = await tool.ainvoke({"query": "hello"})
+
+    assert result == {"answer": "compact answer"}
+    assert updates == [{"produce_answer": {"answer": "compact answer"}}]
 
 
 @pytest.mark.asyncio

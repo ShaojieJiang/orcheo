@@ -59,10 +59,17 @@ async def _run_tool_graph(
         return await compiled_graph.ainvoke(payload, config=config)
 
     last_values: Any | None = None
-    async for event in compiled_graph.astream(
+    stream_kwargs: dict[str, Any] = {
+        "config": config,
+        "stream_mode": ["updates", "values"],
+    }
+    output_keys = getattr(compiled_graph, "output_channels", None)
+    if output_keys is not None:
+        stream_kwargs["output_keys"] = output_keys
+
+    async for event in compiled_graph.astream(  # type: ignore[arg-type]
         payload,
-        config=config,  # type: ignore[arg-type]
-        stream_mode=["updates", "values"],
+        **stream_kwargs,
     ):
         if isinstance(event, tuple) and len(event) == 2:
             mode, data = event
