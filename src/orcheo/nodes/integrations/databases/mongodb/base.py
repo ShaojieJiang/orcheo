@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 import atexit
+import base64
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import date, datetime, time
+from decimal import Decimal
 from threading import Lock
 from typing import Any, ClassVar, Literal
+from uuid import UUID
 from bson import ObjectId
+from bson.binary import Binary
+from bson.decimal128 import Decimal128
+from bson.regex import Regex
+from bson.timestamp import Timestamp
 from langchain_core.runnables import RunnableConfig
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pydantic import Field, PrivateAttr, field_validator
@@ -59,12 +67,39 @@ class MongoDBClientNode(TaskNode):
     _async_client_key: str | None = PrivateAttr(default=None)
 
     @classmethod
-    def _encode_bson(cls, value: Any) -> Any:
+    def _encode_special_bson_value(cls, value: Any) -> tuple[bool, Any]:
+        """Return encoded scalar BSON-like values when special handling is needed."""
+        handled = True
+        encoded: Any
         if isinstance(value, ObjectId):
-            return str(value)
-        if isinstance(value, dict):
+            encoded = str(value)
+        elif isinstance(value, (datetime, date, time)):
+            encoded = value.isoformat()
+        elif isinstance(value, Decimal128):
+            encoded = str(value.to_decimal())
+        elif isinstance(value, Decimal):
+            encoded = str(value)
+        elif isinstance(value, Timestamp):
+            encoded = {"time": value.time, "inc": value.inc}
+        elif isinstance(value, Regex):
+            encoded = {"pattern": value.pattern, "flags": value.flags}
+        elif isinstance(value, UUID):
+            encoded = str(value)
+        elif isinstance(value, (Binary, bytes, bytearray, memoryview)):
+            encoded = base64.b64encode(bytes(value)).decode("ascii")
+        else:
+            handled = False
+            encoded = value
+        return handled, encoded
+
+    @classmethod
+    def _encode_bson(cls, value: Any) -> Any:
+        handled, encoded = cls._encode_special_bson_value(value)
+        if handled:
+            return encoded
+        if isinstance(value, Mapping):
             return {key: cls._encode_bson(item) for key, item in value.items()}
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple, set)):
             return [cls._encode_bson(item) for item in value]
         return value
 
@@ -317,6 +352,10 @@ class MongoDBNode(MongoDBClientNode):
     sort: dict[str, int] | list[tuple[str, int]] | None = Field(
         default=None, description="Sort specification for find operations"
     )
+    projection: dict[str, Any] | list[str] | str | None = Field(
+        default=None,
+        description="Projection specification for read operations",
+    )
     limit: int | str | None = Field(
         default=None, description="Limit for find operations"
     )
@@ -393,6 +432,19 @@ class MongoDBNode(MongoDBClientNode):
             return list(value.items())
         return list(value)
 
+    def _resolve_projection(self) -> dict[str, Any] | list[str]:
+        """Resolve a projection document or field list from inputs."""
+        projection = self.projection
+        if isinstance(projection, str):
+            msg = "projection must resolve to a dict or list before execution"
+            raise ValueError(msg)
+        if projection is None:
+            msg = "projection is not set for this operation"
+            raise ValueError(msg)
+        if isinstance(projection, list):
+            return list(projection)
+        return dict(projection)
+
     def _build_operation_call(self) -> tuple[list[Any], dict[str, Any]]:
         """Return positional args and kwargs for the configured operation."""
         filter_operations = {
@@ -413,6 +465,14 @@ class MongoDBNode(MongoDBClientNode):
             "find_one_and_replace",
         }
         pipeline_operations = {"aggregate", "aggregate_raw_batches"}
+        projection_operations = {
+            "find",
+            "find_one",
+            "find_raw_batches",
+            "find_one_and_delete",
+            "find_one_and_replace",
+            "find_one_and_update",
+        }
 
         if self.operation in pipeline_operations:
             pipeline = self._coerce_object_ids(self._resolve_pipeline())
@@ -421,11 +481,16 @@ class MongoDBNode(MongoDBClientNode):
         if self.operation in update_operations:
             filter_doc = self._coerce_object_ids(self._resolve_filter())
             update_doc = self._coerce_object_ids(self._resolve_update())
-            return [filter_doc, update_doc], dict(self.options)
+            kwargs = dict(self.options)
+            if self.operation in projection_operations and self.projection is not None:
+                kwargs["projection"] = self._resolve_projection()
+            return [filter_doc, update_doc], kwargs
 
         if self.operation in filter_operations:
             filter_doc = self._coerce_object_ids(self._resolve_filter())
             kwargs = dict(self.options)
+            if self.operation in projection_operations and self.projection is not None:
+                kwargs["projection"] = self._resolve_projection()
             if self.operation in find_operations:  # pragma: no branch
                 if self.sort is not None:
                     kwargs["sort"] = self._normalize_sort(self.sort)

@@ -151,6 +151,7 @@ async def mongodb_find(
     database: str,
     collection: str,
     filter: dict[str, Any] | None = None,
+    projection: dict[str, Any] | list[str] | None = None,
     sort: dict[str, int] | list[dict[str, int]] | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
@@ -163,6 +164,12 @@ async def mongodb_find(
         filter = {}
     if not isinstance(filter, dict):
         raise ValueError("mongodb_find requires a filter document")
+    if projection is not None and not isinstance(projection, (dict, list)):
+        raise ValueError("mongodb_find projection must be a dict or list")
+    if isinstance(projection, list) and not all(
+        isinstance(field, str) for field in projection
+    ):
+        raise ValueError("mongodb_find projection list entries must be strings")
     if limit is not None and not isinstance(limit, int):
         raise ValueError("mongodb_find limit must be an int")
 
@@ -174,6 +181,7 @@ async def mongodb_find(
         database=database,
         collection=collection,
         filter=filter,
+        projection=projection,
         sort=_normalize_mongodb_sort(sort),
         limit=limit,
     )

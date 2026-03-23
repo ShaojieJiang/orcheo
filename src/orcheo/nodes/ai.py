@@ -15,7 +15,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
@@ -85,6 +85,7 @@ def _create_workflow_tool_func(
     name: str,
     description: str,
     args_schema: type[BaseModel] | None,
+    output_path: str | None = None,
 ) -> StructuredTool:
     """Create a StructuredTool from a compiled workflow graph.
 
@@ -96,20 +97,28 @@ def _create_workflow_tool_func(
         name: Tool name
         description: Tool description
         args_schema: Optional Pydantic model for tool arguments
+        output_path: Optional dotted path selecting the final tool payload
 
     Returns:
         StructuredTool instance wrapping the workflow
     """
 
+    def select_output(result: Any) -> Any:
+        if output_path is None:
+            return result
+        return _select_workflow_tool_output(result, output_path, name)
+
     async def workflow_coroutine(**kwargs: Any) -> Any:
         """Execute the workflow graph asynchronously."""
         payload = {"inputs": kwargs, "results": {}, "messages": []}
-        return await _run_tool_graph(compiled_graph, payload)
+        result = await _run_tool_graph(compiled_graph, payload)
+        return select_output(result)
 
     def workflow_sync(**kwargs: Any) -> Any:
         """Execute the workflow graph synchronously."""
         payload = {"inputs": kwargs, "results": {}, "messages": []}
-        return asyncio.run(_run_tool_graph(compiled_graph, payload))
+        result = asyncio.run(_run_tool_graph(compiled_graph, payload))
+        return select_output(result)
 
     return StructuredTool.from_function(
         func=workflow_sync,
@@ -118,6 +127,49 @@ def _create_workflow_tool_func(
         description=description,
         args_schema=args_schema,
     )
+
+
+def _select_workflow_tool_output(
+    result: Any,
+    output_path: str,
+    tool_name: str,
+) -> Any:
+    """Select a nested output value from a workflow-tool result."""
+    current = result
+    for segment in output_path.split("."):
+        if isinstance(current, Mapping):
+            if segment not in current:
+                msg = (
+                    f"Workflow tool '{tool_name}' output_path '{output_path}' "
+                    f"could not resolve segment '{segment}'."
+                )
+                raise ValueError(msg)
+            current = current[segment]
+            continue
+        if isinstance(current, list):
+            try:
+                index = int(segment)
+            except ValueError as exc:
+                msg = (
+                    f"Workflow tool '{tool_name}' output_path '{output_path}' "
+                    "encountered a list and requires an integer segment."
+                )
+                raise ValueError(msg) from exc
+            try:
+                current = current[index]
+            except IndexError as exc:
+                msg = (
+                    f"Workflow tool '{tool_name}' output_path '{output_path}' "
+                    f"index {index} is out of range."
+                )
+                raise ValueError(msg) from exc
+            continue
+        msg = (
+            f"Workflow tool '{tool_name}' output_path '{output_path}' "
+            f"cannot descend into {type(current).__name__}."
+        )
+        raise ValueError(msg)
+    return current
 
 
 class WorkflowTool(BaseModel):
@@ -133,8 +185,21 @@ class WorkflowTool(BaseModel):
     """Workflow to be used as tool."""
     args_schema: type[BaseModel] | None = None
     """Input schema for the tool."""
+    output_path: str | None = None
+    """Optional dotted path selecting the value returned to the caller."""
     _compiled_graph: SkipJsonSchema[Runnable | None] = None
     """Cached compiled graph to avoid recompilation."""
+
+    @field_validator("output_path")
+    @classmethod
+    def _validate_output_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            msg = "output_path must not be empty"
+            raise ValueError(msg)
+        return normalized
 
     def get_compiled_graph(self) -> Runnable:
         """Get or compile the graph, caching the result.
@@ -321,6 +386,7 @@ class AgentNode(AINode):
                 name=wf_tool_def.name,
                 description=wf_tool_def.description,
                 args_schema=wf_tool_def.args_schema,
+                output_path=wf_tool_def.output_path,
             )
             tools.append(tool)
 

@@ -361,6 +361,7 @@ async def test_prepare_tools_workflow_tools() -> None:
         name="sub_wf",
         description="A sub-workflow tool",
         graph=mock_graph,
+        output_path="results.final.answer",
     )
 
     with (
@@ -379,6 +380,7 @@ async def test_prepare_tools_workflow_tools() -> None:
         node = DeepAgentNode(name="t", ai_model="m", workflow_tools=[wf_tool])
         tools = await node._prepare_tools()
         mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["output_path"] == "results.final.answer"
         assert mock_structured in tools
 
 

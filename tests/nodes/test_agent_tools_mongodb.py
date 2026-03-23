@@ -56,6 +56,7 @@ async def test_mongodb_find_tool_builds_node(monkeypatch):
             "database": "db",
             "collection": "rsvps",
             "filter": {"event_id": "1"},
+            "projection": {"_id": 1, "updated_at": 1},
             "sort": {"updated_at": -1},
             "limit": 5,
         }
@@ -68,6 +69,7 @@ async def test_mongodb_find_tool_builds_node(monkeypatch):
     assert node.database == "db"
     assert node.collection == "rsvps"
     assert node.filter == {"event_id": "1"}
+    assert node.projection == {"_id": 1, "updated_at": 1}
     assert node.sort == {"updated_at": -1}
     assert node.limit == 5
 

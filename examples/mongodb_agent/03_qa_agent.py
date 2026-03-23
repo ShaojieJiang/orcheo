@@ -7,6 +7,7 @@ LangChain messages and generates a reply.
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.conversational_search import (
@@ -23,9 +24,19 @@ class HybridSearchInput(BaseModel):
     query: str = Field(description="User question to search for.")
 
 
+class HybridSearchToolOutput(TypedDict):
+    """Narrow output returned by the workflow tool."""
+
+    markdown: str
+
+
 def build_hybrid_search_tool_graph() -> StateGraph:
-    """Build a subworkflow used as an agent tool."""
-    graph = StateGraph(State)
+    """Build a subworkflow used as an agent tool.
+
+    The explicit output schema keeps the tool payload compact so only the
+    formatted markdown is returned to the calling agent.
+    """
+    graph = StateGraph(State, output_schema=HybridSearchToolOutput)
     graph.add_node(
         "query_embedding",
         TextEmbeddingNode(

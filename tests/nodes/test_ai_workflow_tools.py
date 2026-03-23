@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 from orcheo.graph.state import State
 from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
 
@@ -204,3 +205,94 @@ def test_workflow_tool_sync_execution():
 
     assert execution_tracker["executed"]
     assert result["result"] == "sync_executed"
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_respects_graph_output_schema() -> None:
+    """Graph output_schema should narrow the tool payload automatically."""
+
+    from langgraph.graph import StateGraph
+
+    class ToolOutput(TypedDict):
+        answer: str
+
+    workflow_graph = StateGraph(dict, output_schema=ToolOutput)
+
+    def test_node(_state):
+        return {
+            "answer": "compact answer",
+            "results": {"hidden_documents": [{"id": "1"}]},
+        }
+
+    workflow_graph.add_node("process", test_node)
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="schema_tool",
+        description="Test output schema narrowing",
+        args_schema=None,
+    )
+
+    result = await tool.ainvoke({"query": "hello"})
+
+    assert result == {"answer": "compact answer"}
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_selects_nested_value() -> None:
+    """WorkflowTool output_path should return a selected nested result only."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+
+    def test_node(_state):
+        return {
+            "results": {
+                "format_results": {
+                    "markdown": "formatted answer",
+                    "documents": [{"id": "1"}],
+                }
+            }
+        }
+
+    workflow_graph.add_node("process", test_node)
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="Test selector output",
+        args_schema=None,
+        output_path="results.format_results.markdown",
+    )
+
+    result = await tool.ainvoke({"query": "hello"})
+
+    assert result == "formatted answer"
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_errors_when_missing() -> None:
+    """Missing output_path segments should raise a clear error."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+    workflow_graph.add_node("process", lambda _state: {"results": {}})
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="Test selector output",
+        args_schema=None,
+        output_path="results.format_results.markdown",
+    )
+
+    with pytest.raises(ValueError, match="output_path"):
+        await tool.ainvoke({"query": "hello"})
