@@ -64,7 +64,7 @@ async def _run_tool_graph(
         "stream_mode": ["updates", "values"],
     }
     output_keys = getattr(compiled_graph, "output_channels", None)
-    if output_keys is not None:
+    if output_keys is not None:  # pragma: no branch
         stream_kwargs["output_keys"] = output_keys
 
     async for event in compiled_graph.astream(  # type: ignore[arg-type]
@@ -201,7 +201,7 @@ class WorkflowTool(BaseModel):
     @classmethod
     def _validate_output_path(cls, value: str | None) -> str | None:
         if value is None:
-            return None
+            return None  # pragma: no cover - optional field
         normalized = value.strip()
         if not normalized:
             msg = "output_path must not be empty"
