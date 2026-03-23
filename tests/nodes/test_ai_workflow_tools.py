@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 from orcheo.graph.state import State
 from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
 
@@ -204,3 +205,212 @@ def test_workflow_tool_sync_execution():
 
     assert execution_tracker["executed"]
     assert result["result"] == "sync_executed"
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_respects_graph_output_schema() -> None:
+    """Graph output_schema should narrow the tool payload automatically."""
+
+    from langgraph.graph import StateGraph
+
+    class ToolOutput(TypedDict):
+        answer: str
+
+    workflow_graph = StateGraph(dict, output_schema=ToolOutput)
+
+    def test_node(_state):
+        return {
+            "answer": "compact answer",
+            "results": {"hidden_documents": [{"id": "1"}]},
+        }
+
+    workflow_graph.add_node("process", test_node)
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="schema_tool",
+        description="Test output schema narrowing",
+        args_schema=None,
+    )
+
+    result = await tool.ainvoke({"query": "hello"})
+
+    assert result == {"answer": "compact answer"}
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_selects_nested_value() -> None:
+    """WorkflowTool output_path should return a selected nested result only."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+
+    def test_node(_state):
+        return {
+            "results": {
+                "format_results": {
+                    "markdown": "formatted answer",
+                    "documents": [{"id": "1"}],
+                }
+            }
+        }
+
+    workflow_graph.add_node("process", test_node)
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="Test selector output",
+        args_schema=None,
+        output_path="results.format_results.markdown",
+    )
+
+    result = await tool.ainvoke({"query": "hello"})
+
+    assert result == "formatted answer"
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_errors_when_missing() -> None:
+    """Missing output_path segments should raise a clear error."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+    workflow_graph.add_node("process", lambda _state: {"results": {}})
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="Test selector output",
+        args_schema=None,
+        output_path="results.format_results.markdown",
+    )
+
+    with pytest.raises(ValueError, match="output_path"):
+        await tool.ainvoke({"query": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_handles_list_segments() -> None:
+    """List-based output_path segments should resolve numeric indexes."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+
+    def test_node(_state):
+        return {
+            "items": [
+                {"value": "first"},
+                {"value": "second"},
+            ]
+        }
+
+    workflow_graph.add_node("process", test_node)
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="List segment selector",
+        args_schema=None,
+        output_path="items.1.value",
+    )
+
+    result = await tool.ainvoke({"query": "hello"})
+    assert result == "second"
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_requires_integer_list_segments() -> None:
+    """List traversal requires integer segments with clear messaging."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+    workflow_graph.add_node("process", lambda _state: {"items": [{"value": "ok"}]})
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="List segment selector",
+        args_schema=None,
+        output_path="items.one.value",
+    )
+
+    with pytest.raises(ValueError, match="requires an integer segment"):
+        await tool.ainvoke({"query": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_list_index_out_of_range() -> None:
+    """Out-of-range list indexes should raise an informative error."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+    workflow_graph.add_node(
+        "process",
+        lambda _state: {"items": [{"value": "first"}]},
+    )
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="List segment selector",
+        args_schema=None,
+        output_path="items.2.value",
+    )
+
+    with pytest.raises(ValueError, match="index 2 is out of range"):
+        await tool.ainvoke({"query": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_output_path_cannot_descend_into_scalar() -> None:
+    """Non-iterable payload segments should raise a clear error."""
+
+    from langgraph.graph import StateGraph
+
+    workflow_graph = StateGraph(dict)
+    workflow_graph.add_node("process", lambda _state: {"value": "scalar"})
+    workflow_graph.set_entry_point("process")
+    workflow_graph.set_finish_point("process")
+
+    tool = _create_workflow_tool_func(
+        compiled_graph=workflow_graph.compile(),
+        name="selector_tool",
+        description="List segment selector",
+        args_schema=None,
+        output_path="value.key",
+    )
+
+    with pytest.raises(ValueError, match="cannot descend into str"):
+        await tool.ainvoke({"query": "hello"})
+
+
+def test_workflow_tool_output_path_validator_trims_whitespace() -> None:
+    """Whitespace-only output paths should be rejected after trimming."""
+
+    normalized = WorkflowTool._validate_output_path("  path ")
+    assert normalized == "path"
+
+
+def test_workflow_tool_output_path_validator_rejects_empty_string() -> None:
+    """Empty output paths must raise a validation error."""
+
+    with pytest.raises(ValueError, match="output_path must not be empty"):
+        WorkflowTool._validate_output_path("   ")

@@ -184,3 +184,27 @@ async def test_mongodb_find_validates_arguments() -> None:
     payload["limit"] = "five"
     with pytest.raises(ValueError, match="limit must be an int"):
         await tools.mongodb_find.coroutine(**payload)
+
+
+@pytest.mark.asyncio
+async def test_mongodb_find_projection_requires_dict_or_list() -> None:
+    payload = {
+        "database": "db",
+        "collection": "col",
+        "filter": {},
+        "projection": 123,
+    }
+    with pytest.raises(ValueError, match="projection must be a dict or list"):
+        await tools.mongodb_find.coroutine(**payload)
+
+
+@pytest.mark.asyncio
+async def test_mongodb_find_projection_list_entries_strings() -> None:
+    payload = {
+        "database": "db",
+        "collection": "col",
+        "filter": {},
+        "projection": ["valid", 123],
+    }
+    with pytest.raises(ValueError, match="projection list entries must be strings"):
+        await tools.mongodb_find.coroutine(**payload)

@@ -24,7 +24,11 @@ class HybridSearchInput(BaseModel):
 
 
 def build_hybrid_search_tool_graph() -> StateGraph:
-    """Build a subworkflow used as an agent tool."""
+    """Build a subworkflow used as an agent tool.
+
+    The formatter writes its markdown output under ``results.format_results``,
+    so the parent tool selects that nested field via ``output_path``.
+    """
     graph = StateGraph(State)
     graph.add_node(
         "query_embedding",
@@ -99,6 +103,7 @@ async def orcheo_workflow() -> StateGraph:
                 "description": "Hybrid search over MongoDB Atlas data.",
                 "graph": build_hybrid_search_tool_graph(),
                 "args_schema": HybridSearchInput,
+                "output_path": "results.format_results.markdown",
             }
         ],
     )

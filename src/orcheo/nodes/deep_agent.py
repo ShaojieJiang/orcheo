@@ -142,6 +142,7 @@ class DeepAgentNode(AINode):
                 name=wf_tool_def.name,
                 description=wf_tool_def.description,
                 args_schema=wf_tool_def.args_schema,
+                output_path=wf_tool_def.output_path,
             )
             tools.append(tool)
 

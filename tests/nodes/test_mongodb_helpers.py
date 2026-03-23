@@ -1,6 +1,7 @@
 """Additional MongoDBNode helper and error-handling tests."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
@@ -159,6 +160,18 @@ def test_resolve_pipeline_uses_query_candidate_when_missing() -> None:
     assert node._resolve_pipeline() == [{"$match": {"state": "active"}}]
 
 
+def test_resolve_projection_handles_dict_list_and_templates() -> None:
+    node = _build_node(operation="find", projection={"title": 1, "content": 1})
+    assert node._resolve_projection() == {"title": 1, "content": 1}
+
+    node.projection = ["title", "content"]
+    assert node._resolve_projection() == ["title", "content"]
+
+    node.projection = "{{prepare_event.projection}}"
+    with pytest.raises(ValueError, match="projection must resolve to a dict or list"):
+        node._resolve_projection()
+
+
 def test_normalize_sort_converts_dicts_and_lists() -> None:
     node = _build_node(operation="find")
     assert node._normalize_sort({"name": -1}) == [("name", -1)]
@@ -189,10 +202,12 @@ def test_build_operation_call_covers_each_operation_type() -> None:
     find_node = _build_node(
         operation="find",
         filter={"status": "active"},
+        projection={"_id": 1, "status": 1},
         sort={"isoDate": -1},
         limit=5,
     )
     find_args, find_kwargs = find_node._build_operation_call()
+    assert find_kwargs["projection"] == {"_id": 1, "status": 1}
     assert find_kwargs["sort"] == [("isoDate", -1)]
     assert find_kwargs["limit"] == 5
     assert find_args[0] == {"status": "active"}
@@ -201,6 +216,20 @@ def test_build_operation_call_covers_each_operation_type() -> None:
     other_args, other_kwargs = other_node._build_operation_call()
     assert other_args == [{"name": 1}]
     assert other_kwargs == {}
+
+
+def test_build_operation_call_applies_projection_to_find_one_and_update() -> None:
+    node = _build_node(
+        operation="find_one_and_update",
+        filter={"status": "active"},
+        update={"$set": {"status": "done"}},
+        projection={"status": 1},
+    )
+
+    args, kwargs = node._build_operation_call()
+
+    assert args == [{"status": "active"}, {"$set": {"status": "done"}}]
+    assert kwargs["projection"] == {"status": 1}
 
 
 def test_resolve_limit_requires_integer_values() -> None:
@@ -231,6 +260,21 @@ def test_coerce_object_ids_converts_nested_ids() -> None:
     assert coerced["_id"] == object_id
     assert coerced["nested"][0]["_id"] == object_id
     assert coerced["other"]["_id"] == "not-an-id"
+
+
+def test_encode_bson_normalizes_datetime_and_binary_values() -> None:
+    created_at = datetime(2026, 3, 23, 15, 30, tzinfo=UTC)
+    payload = {
+        "created_at": created_at,
+        "nested": {"_id": ObjectId("507f1f77bcf86cd799439011")},
+        "blob": b"abc",
+    }
+
+    encoded = MongoDBNode._encode_bson(payload)
+
+    assert encoded["created_at"] == created_at.isoformat()
+    assert encoded["nested"]["_id"] == "507f1f77bcf86cd799439011"
+    assert encoded["blob"] == "YWJj"
 
 
 def test_shared_client_lifecycle() -> None:
