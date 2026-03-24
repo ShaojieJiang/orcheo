@@ -21,7 +21,7 @@ export interface ApiWorkflow {
   created_at: string;
   updated_at: string;
   share_url?: string | null;
-  chatkit_start_screen_prompts?: ChatKitStartScreenPrompt[] | null;
+  chatkit?: WorkflowChatKitConfig | null;
   latest_version?: ApiWorkflowVersion | null;
   is_scheduled?: boolean;
 }
@@ -30,6 +30,19 @@ export interface ChatKitStartScreenPrompt {
   label: string;
   prompt: string;
   icon?: string | null;
+}
+
+export interface ChatKitSupportedModel {
+  id: string;
+  label?: string | null;
+  description?: string | null;
+  disabled?: boolean;
+  default?: boolean;
+}
+
+export interface WorkflowChatKitConfig {
+  start_screen_prompts?: ChatKitStartScreenPrompt[] | null;
+  supported_models?: ChatKitSupportedModel[] | null;
 }
 
 export interface ApiWorkflowVersionSummary {
@@ -60,7 +73,7 @@ export interface PublicWorkflowMetadata {
   is_public: boolean;
   require_login: boolean;
   share_url: string | null;
-  chatkit_start_screen_prompts?: ChatKitStartScreenPrompt[] | null;
+  chatkit?: WorkflowChatKitConfig | null;
 }
 
 export interface WorkflowRunnableConfig {
@@ -221,6 +234,7 @@ export interface StoredWorkflow extends Workflow {
   isArchived?: boolean;
   isPublic?: boolean;
   shareUrl?: string | null;
+  chatkitSupportedModels?: ChatKitSupportedModel[] | null;
 }
 
 export interface SaveWorkflowInput {

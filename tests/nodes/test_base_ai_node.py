@@ -18,6 +18,17 @@ class MockAINode(AINode):
         return {"messages": {"result": self.input_var}}  # type: ignore[return-value]
 
 
+class MockModelOverrideNode(AINode):
+    ai_model: str | None = Field(default=None)
+
+    def __init__(self, name: str, ai_model: str | None):
+        super().__init__(name=name, ai_model=ai_model)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, str | None]:
+        del state, config
+        return {"messages": {"model": self.ai_model}}  # type: ignore[return-value]
+
+
 @pytest.mark.asyncio
 async def test_ai_node_call() -> None:
     state = State({"results": {}})
@@ -45,3 +56,16 @@ async def test_ai_node_call_re_resolves_templates_per_invocation() -> None:
     assert first == {"messages": {"result": "first"}}
     assert second == {"messages": {"result": "second"}}
     assert node.input_var == "{{payload.value}}"
+
+
+@pytest.mark.asyncio
+async def test_ai_node_call_applies_chatkit_model_override_per_run() -> None:
+    node = MockModelOverrideNode(name="test_ai_model", ai_model="openai:gpt-4o-mini")
+
+    result = await node(
+        State({"results": {}}),
+        RunnableConfig(configurable={"chatkit_model": "openai:gpt-5"}),
+    )
+
+    assert result == {"messages": {"model": "openai:gpt-5"}}
+    assert node.ai_model == "openai:gpt-4o-mini"

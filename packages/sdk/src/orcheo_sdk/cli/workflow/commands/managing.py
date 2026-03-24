@@ -10,6 +10,8 @@ from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import (
     ActorOption,
+    ChatKitModelsFileOption,
+    ChatKitModelsOption,
     ChatKitPromptsFileOption,
     ChatKitPromptsOption,
     ConfigOutputPathOption,
@@ -29,6 +31,7 @@ from orcheo_sdk.cli.workflow.app import (
 from orcheo_sdk.cli.workflow.inputs import (
     _cache_notice,
     _resolve_chatkit_start_screen_prompts,
+    _resolve_chatkit_supported_models,
     _resolve_runnable_config,
     _validate_local_path,
 )
@@ -261,12 +264,19 @@ def update_workflow(
         "--description",
         help="Update the workflow description.",
     ),
+    chatkit_models: ChatKitModelsOption = None,
+    chatkit_models_file: ChatKitModelsFileOption = None,
     chatkit_prompts: ChatKitPromptsOption = None,
     chatkit_prompts_file: ChatKitPromptsFileOption = None,
     clear_chatkit_prompts: bool = typer.Option(
         False,
         "--clear-chatkit-prompts",
         help="Reset ChatKit start-screen prompts to the built-in defaults.",
+    ),
+    clear_chatkit_models: bool = typer.Option(
+        False,
+        "--clear-chatkit-models",
+        help="Reset ChatKit supported models to the built-in defaults.",
     ),
     actor: ActorOption = "cli",
 ) -> None:
@@ -281,10 +291,21 @@ def update_workflow(
             "Use either --clear-chatkit-prompts or "
             "--chatkit-prompts/--chatkit-prompts-file, not both."
         )
+    if clear_chatkit_models and (
+        chatkit_models is not None or chatkit_models_file is not None
+    ):
+        raise CLIError(
+            "Use either --clear-chatkit-models or "
+            "--chatkit-models/--chatkit-models-file, not both."
+        )
 
     resolved_chatkit_prompts = _resolve_chatkit_start_screen_prompts(
         chatkit_prompts,
         chatkit_prompts_file,
+    )
+    resolved_chatkit_models = _resolve_chatkit_supported_models(
+        chatkit_models,
+        chatkit_models_file,
     )
 
     if (
@@ -292,7 +313,9 @@ def update_workflow(
         and handle is None
         and description is None
         and resolved_chatkit_prompts is None
+        and resolved_chatkit_models is None
         and not clear_chatkit_prompts
+        and not clear_chatkit_models
     ):
         raise CLIError("Provide at least one field to update.")
 
@@ -303,7 +326,9 @@ def update_workflow(
         handle=handle,
         description=description,
         chatkit_start_screen_prompts=resolved_chatkit_prompts,
+        chatkit_supported_models=resolved_chatkit_models,
         clear_chatkit_start_screen_prompts=clear_chatkit_prompts,
+        clear_chatkit_supported_models=clear_chatkit_models,
         actor=actor,
     )
     if not state.human:

@@ -3,7 +3,10 @@ import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { ColorScheme } from "@/hooks/use-color-scheme";
-import type { ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt } from "@features/workflow/lib/workflow-storage.types";
+import type {
+  ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt,
+  ChatKitSupportedModel as WorkflowChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
@@ -11,7 +14,10 @@ import {
 } from "@features/chatkit/lib/chatkit-client";
 import { ChatKitSurface } from "@features/chatkit/components/chatkit-surface";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
-import { buildStartScreenPrompts } from "@features/chatkit/components/public-chat-config";
+import {
+  buildModelOptions,
+  buildStartScreenPrompts,
+} from "@features/chatkit/components/public-chat-config";
 
 interface PublicChatWidgetProps {
   workflowId: string;
@@ -23,6 +29,7 @@ interface PublicChatWidgetProps {
   colorScheme?: ColorScheme;
   onThemeRequest?: (scheme: ColorScheme) => Promise<void> | void;
   startScreenPrompts?: WorkflowChatKitStartScreenPrompt[] | null;
+  supportedModels?: WorkflowChatKitSupportedModel[] | null;
 }
 
 const buildGreeting = (workflowName: string): string =>
@@ -41,6 +48,7 @@ export function PublicChatWidget({
   colorScheme = "light",
   onThemeRequest,
   startScreenPrompts,
+  supportedModels,
 }: PublicChatWidgetProps) {
   const options = useMemo<UseChatKitOptions>(() => {
     const domainKey = getChatKitDomainKey();
@@ -48,6 +56,7 @@ export function PublicChatWidget({
       "/api/chatkit/upload",
       backendBaseUrl,
     );
+    const modelOptions = buildModelOptions(supportedModels);
 
     return {
       api: {
@@ -77,14 +86,7 @@ export function PublicChatWidget({
       },
       composer: {
         placeholder: buildComposerPlaceholder(workflowName),
-        models: [
-          {
-            id: "gpt-5",
-            label: "gpt-5",
-            description: "Balanced intelligence",
-            default: true,
-          },
-        ],
+        ...(modelOptions ? { models: modelOptions } : {}),
         tools: [
           {
             id: "search_docs",
@@ -136,6 +138,7 @@ export function PublicChatWidget({
     onReady,
     onThemeRequest,
     startScreenPrompts,
+    supportedModels,
     workflowId,
     workflowName,
   ]);

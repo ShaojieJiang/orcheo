@@ -1,5 +1,8 @@
-import type { StartScreenPrompt } from "@openai/chatkit";
-import type { ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt } from "@features/workflow/lib/workflow-storage.types";
+import type { ModelOption, StartScreenPrompt } from "@openai/chatkit";
+import type {
+  ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt,
+  ChatKitSupportedModel as WorkflowChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 
 export const buildStartScreenPrompts = (
   workflowName: string,
@@ -35,4 +38,24 @@ export const buildStartScreenPrompts = (
       icon: "sparkle",
     },
   ];
+};
+
+export const buildModelOptions = (
+  configuredModels?: WorkflowChatKitSupportedModel[] | null,
+): ModelOption[] | undefined => {
+  if (configuredModels === undefined || configuredModels === null) {
+    return undefined;
+  }
+
+  const hasExplicitDefault = configuredModels.some((model) => model.default);
+  const normalized = configuredModels.map((model, index) => ({
+    id: model.id,
+    label: model.label?.trim() || model.id,
+    ...(model.description ? { description: model.description } : {}),
+    ...(model.disabled ? { disabled: true } : {}),
+    ...(model.default || (!hasExplicitDefault && index === 0)
+      ? { default: true }
+      : {}),
+  }));
+  return normalized.length > 0 ? normalized : undefined;
 };

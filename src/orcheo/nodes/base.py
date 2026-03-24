@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any, Self, cast
+from typing import Any, ClassVar, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
@@ -29,6 +29,8 @@ class BaseRunnable(BaseModel):
     and state management. Does not include tool execution methods, which are
     specific to nodes.
     """
+
+    _CHATKIT_MODEL_CONFIG_KEY: ClassVar[str] = "chatkit_model"
 
     name: str
     """Unique name of the runnable."""
@@ -207,8 +209,8 @@ class BaseRunnable(BaseModel):
         config: Mapping[str, Any] | None = None,
     ) -> None:
         """Decode the variables in attributes of the runnable."""
-        del config
         self.__dict__.update(self._decoded_updates(state))
+        self.__dict__.update(self._runtime_run_updates(config))
 
     def _compute_run_updates(self, state: State) -> dict[str, Any]:
         """Return only the fields whose values changed during resolution.
@@ -234,11 +236,39 @@ class BaseRunnable(BaseModel):
         Uses copy-on-write: avoids the ``model_copy()`` allocation when no
         field values actually changed during template resolution.
         """
-        del config
         changed = self._compute_run_updates(state)
+        changed.update(self._runtime_run_updates(config))
         if not changed:
             return self
         return cast(Self, self.model_copy(update=changed))
+
+    def _runtime_run_updates(
+        self,
+        config: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Return per-run updates sourced from runtime config."""
+        if "ai_model" not in self.__dict__:
+            return {}
+        selected_model = self._chatkit_selected_model(config)
+        if not selected_model:
+            return {}
+        if self.__dict__.get("ai_model") == selected_model:
+            return {}
+        return {"ai_model": selected_model}
+
+    @classmethod
+    def _chatkit_selected_model(cls, config: Mapping[str, Any] | None) -> str | None:
+        """Return the ChatKit-selected model override from runnable config."""
+        if not isinstance(config, Mapping):
+            return None
+        configurable = config.get("configurable")
+        if not isinstance(configurable, Mapping):
+            return None
+        selected_model = configurable.get(cls._CHATKIT_MODEL_CONFIG_KEY)
+        if not isinstance(selected_model, str):
+            return None
+        normalized = selected_model.strip()
+        return normalized or None
 
 
 class BaseNode(BaseRunnable):

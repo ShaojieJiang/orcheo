@@ -301,11 +301,11 @@ class AgentNode(AINode):
         config: Mapping[str, Any] | None = None,
     ) -> None:
         """Decode variables, skipping fields handled by _resolve_history_key."""
-        del config
         for key, value in self.__dict__.items():
             if key in self._DEFERRED_DECODE_FIELDS:
                 continue
             self.__dict__[key] = self._decode_value(value, state)
+        self.__dict__.update(self._runtime_run_updates(config))
 
     @field_serializer("system_prompt", when_used="json")
     def _serialize_system_prompt(self, value: str | TextTensor | None) -> str | None:

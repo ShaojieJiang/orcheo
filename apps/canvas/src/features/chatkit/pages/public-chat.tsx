@@ -311,7 +311,10 @@ export default function PublicChatPage() {
                   workflowId={workflowState.workflow.id}
                   workflowName={workflowState.workflow.name}
                   startScreenPrompts={
-                    workflowState.workflow.chatkit_start_screen_prompts
+                    workflowState.workflow.chatkit?.start_screen_prompts
+                  }
+                  supportedModels={
+                    workflowState.workflow.chatkit?.supported_models
                   }
                   backendBaseUrl={backendBaseUrl}
                   onHttpError={handleChatHttpError}

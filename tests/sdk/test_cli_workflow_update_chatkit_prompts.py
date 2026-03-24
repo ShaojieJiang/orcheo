@@ -30,13 +30,15 @@ def test_workflow_update_chatkit_prompts(
                     "created_at": "2026-01-01T00:00:00Z",
                     "updated_at": "2026-01-01T00:00:00Z",
                     "audit_log": [],
-                    "chatkit_start_screen_prompts": [
-                        {
-                            "label": "Summarize the latest run",
-                            "prompt": "Summarize the latest run for me.",
-                            "icon": "search",
-                        }
-                    ],
+                    "chatkit": {
+                        "start_screen_prompts": [
+                            {
+                                "label": "Summarize the latest run",
+                                "prompt": "Summarize the latest run for me.",
+                                "icon": "search",
+                            }
+                        ]
+                    },
                 },
             )
         )
@@ -55,13 +57,15 @@ def test_workflow_update_chatkit_prompts(
 
     assert result.exit_code == 0
     request_payload = json.loads(update_route.calls[0].request.content)
-    assert request_payload["chatkit_start_screen_prompts"] == [
-        {
-            "label": "Summarize the latest run",
-            "prompt": "Summarize the latest run for me.",
-            "icon": "search",
-        }
-    ]
+    assert request_payload["chatkit"] == {
+        "start_screen_prompts": [
+            {
+                "label": "Summarize the latest run",
+                "prompt": "Summarize the latest run for me.",
+                "icon": "search",
+            }
+        ]
+    }
     assert request_payload["actor"] == "cli"
 
 
@@ -86,7 +90,7 @@ def test_workflow_update_clear_chatkit_prompts(
                     "created_at": "2026-01-01T00:00:00Z",
                     "updated_at": "2026-01-01T00:00:00Z",
                     "audit_log": [],
-                    "chatkit_start_screen_prompts": None,
+                    "chatkit": {"start_screen_prompts": None},
                 },
             )
         )
@@ -99,7 +103,7 @@ def test_workflow_update_clear_chatkit_prompts(
 
     assert result.exit_code == 0
     request_payload = json.loads(update_route.calls[0].request.content)
-    assert request_payload["clear_chatkit_start_screen_prompts"] is True
+    assert request_payload["chatkit"] == {"start_screen_prompts": None}
 
 
 def test_workflow_update_rejects_clear_and_chatkit_prompts_together(
@@ -121,3 +125,119 @@ def test_workflow_update_rejects_clear_and_chatkit_prompts_together(
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
     assert "Use either --clear-chatkit-prompts" in str(result.exception)
+
+
+def test_workflow_update_chatkit_models(runner: CliRunner, env: dict[str, str]) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        update_route = router.put("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "wf-1",
+                    "name": "Workflow",
+                    "slug": "workflow",
+                    "description": None,
+                    "tags": [],
+                    "is_archived": False,
+                    "is_public": False,
+                    "require_login": False,
+                    "published_at": None,
+                    "published_by": None,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "audit_log": [],
+                    "chatkit": {
+                        "supported_models": [
+                            {
+                                "id": "openai:gpt-5",
+                                "label": "GPT-5",
+                                "default": True,
+                            }
+                        ]
+                    },
+                },
+            )
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "workflow",
+                "update",
+                "wf-1",
+                "--chatkit-models",
+                '[{"id":"openai:gpt-5","label":"GPT-5","default":true}]',
+            ],
+            env=env,
+        )
+
+    assert result.exit_code == 0
+    request_payload = json.loads(update_route.calls[0].request.content)
+    assert request_payload["chatkit"] == {
+        "supported_models": [
+            {
+                "id": "openai:gpt-5",
+                "label": "GPT-5",
+                "default": True,
+            }
+        ]
+    }
+    assert request_payload["actor"] == "cli"
+
+
+def test_workflow_update_clear_chatkit_models(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        update_route = router.put("http://api.test/api/workflows/wf-1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "wf-1",
+                    "name": "Workflow",
+                    "slug": "workflow",
+                    "description": None,
+                    "tags": [],
+                    "is_archived": False,
+                    "is_public": False,
+                    "require_login": False,
+                    "published_at": None,
+                    "published_by": None,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "audit_log": [],
+                    "chatkit": {"supported_models": None},
+                },
+            )
+        )
+
+        result = runner.invoke(
+            app,
+            ["workflow", "update", "wf-1", "--clear-chatkit-models"],
+            env=env,
+        )
+
+    assert result.exit_code == 0
+    request_payload = json.loads(update_route.calls[0].request.content)
+    assert request_payload["chatkit"] == {"supported_models": None}
+
+
+def test_workflow_update_rejects_clear_and_chatkit_models_together(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "workflow",
+            "update",
+            "wf-1",
+            "--chatkit-models",
+            '["openai:gpt-5"]',
+            "--clear-chatkit-models",
+        ],
+        env=env,
+    )
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Use either --clear-chatkit-models" in str(result.exception)

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildStartScreenPrompts } from "./public-chat-config";
+import {
+  buildModelOptions,
+  buildStartScreenPrompts,
+} from "./public-chat-config";
 
 describe("buildStartScreenPrompts", () => {
   it("uses configured workflow prompts when present", () => {
@@ -51,5 +54,41 @@ describe("buildStartScreenPrompts", () => {
         icon: "sparkle",
       },
     ]);
+  });
+
+  it("uses configured workflow models when present", () => {
+    expect(
+      buildModelOptions([
+        {
+          id: "openai:gpt-5",
+          label: "GPT-5",
+          description: "Best quality",
+          default: true,
+        },
+        {
+          id: "openai:gpt-5-mini",
+          label: "GPT-5 Mini",
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "openai:gpt-5",
+        label: "GPT-5",
+        description: "Best quality",
+        default: true,
+      },
+      {
+        id: "openai:gpt-5-mini",
+        label: "GPT-5 Mini",
+      },
+    ]);
+  });
+
+  it("hides the model picker when no workflow models are set", () => {
+    expect(buildModelOptions()).toBeUndefined();
+  });
+
+  it("hides the model picker when the configured model list is empty", () => {
+    expect(buildModelOptions([])).toBeUndefined();
   });
 });
