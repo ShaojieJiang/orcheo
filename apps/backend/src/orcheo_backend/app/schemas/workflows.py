@@ -4,9 +4,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess, WorkflowVersion
+from orcheo.models.workflow import (
+    Workflow,
+    WorkflowChatKitConfig,
+    WorkflowDraftAccess,
+    WorkflowVersion,
+)
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
@@ -39,7 +44,29 @@ class WorkflowUpdateRequest(BaseModel):
     tags: list[str] | None = None
     draft_access: WorkflowDraftAccess | None = None
     is_archived: bool | None = None
+    chatkit: WorkflowChatKitConfig | None = None
+    clear_chatkit_start_screen_prompts: bool = False
+    clear_chatkit_supported_models: bool = False
     actor: str = Field(default="system")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_chatkit_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if data.get("chatkit") is not None:
+            return data
+
+        chatkit_payload: dict[str, object] = {}
+        if "chatkit_start_screen_prompts" in data:
+            chatkit_payload["start_screen_prompts"] = data.get(
+                "chatkit_start_screen_prompts"
+            )
+        if "chatkit_supported_models" in data:
+            chatkit_payload["supported_models"] = data.get("chatkit_supported_models")
+        if not chatkit_payload:
+            return data
+        return {**data, "chatkit": chatkit_payload}
 
     @field_validator("handle", mode="before")
     @classmethod
@@ -47,6 +74,28 @@ class WorkflowUpdateRequest(BaseModel):
         if value is None:
             return None
         return normalize_workflow_handle(str(value))
+
+    @model_validator(mode="after")
+    def _validate_chatkit_prompt_update(self) -> WorkflowUpdateRequest:
+        chatkit_fields = (
+            self.chatkit.model_fields_set if self.chatkit is not None else set()
+        )
+        if (
+            self.clear_chatkit_start_screen_prompts
+            and "start_screen_prompts" in chatkit_fields
+        ):
+            msg = (
+                "Provide either chatkit.start_screen_prompts or "
+                "clear_chatkit_start_screen_prompts, not both."
+            )
+            raise ValueError(msg)
+        if self.clear_chatkit_supported_models and "supported_models" in chatkit_fields:
+            msg = (
+                "Provide either chatkit.supported_models or "
+                "clear_chatkit_supported_models, not both."
+            )
+            raise ValueError(msg)
+        return self
 
 
 class WorkflowVersionIngestRequest(BaseModel):
@@ -127,6 +176,7 @@ class PublicWorkflow(BaseModel):
     is_public: bool
     require_login: bool
     share_url: str | None = None
+    chatkit: WorkflowChatKitConfig | None = None
 
 
 class WorkflowListItem(Workflow):

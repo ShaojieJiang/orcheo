@@ -26,6 +26,10 @@ from orcheo.nodes.conversational_search.vector_store import (
     InMemoryVectorStore,
 )
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_model_name_from_instance,
+)
 
 
 @dataclass
@@ -760,6 +764,7 @@ class ChunkEmbeddingNode(TaskNode):
         chunk_texts = [chunk.content for chunk in chunks]
         total_specs = len(self.dense_embedding_specs) + len(self.sparse_embedding_specs)
         multiple_functions = total_specs > 1
+        trace_metadata: dict[str, Any] | None = None
 
         for name, spec_data in self.dense_embedding_specs.items():
             spec = DenseEmbeddingSpec.model_validate(spec_data)
@@ -777,6 +782,19 @@ class ChunkEmbeddingNode(TaskNode):
                 embedding_name=name,
                 multiple_functions=multiple_functions,
             )
+            if total_specs == 1:
+                vector_size = len(embeddings[0]) if embeddings else None
+                trace_metadata = {
+                    "ai": build_ai_trace_metadata(
+                        kind="embedding",
+                        requested_model=spec.embed_model,
+                        actual_model=(
+                            infer_model_name_from_instance(model) or spec.embed_model
+                        ),
+                        operation="documents",
+                        vector_size=vector_size,
+                    )
+                }
 
         for name, spec_data in self.sparse_embedding_specs.items():
             sparse_spec = SparseEmbeddingSpec.model_validate(spec_data)
@@ -802,6 +820,18 @@ class ChunkEmbeddingNode(TaskNode):
                 embedding_name=name,
                 multiple_functions=multiple_functions,
             )
+            if total_specs == 1:
+                trace_metadata = {
+                    "ai": build_ai_trace_metadata(
+                        kind="sparse_embedding",
+                        requested_model=sparse_spec.sparse_model,
+                        actual_model=sparse_spec.sparse_model,
+                        operation="documents",
+                    )
+                }
+
+        if trace_metadata is not None:
+            self._set_trace_metadata_for_run(trace_metadata)
 
         return {"chunk_embeddings": records_by_function}
 
@@ -981,6 +1011,21 @@ class TextEmbeddingNode(TaskNode):
 
         if self.text_output_key:
             output_payload[self.text_output_key] = self._maybe_unwrap(texts, is_single)
+
+        vector_size = len(dense_vectors[0]) if dense_vectors else None
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="embedding",
+                    requested_model=self.embed_model,
+                    actual_model=(
+                        infer_model_name_from_instance(model) or self.embed_model
+                    ),
+                    operation="documents",
+                    vector_size=vector_size,
+                )
+            }
+        )
 
         return output_payload
 
@@ -1191,6 +1236,21 @@ class IncrementalIndexerNode(TaskNode):
             dense_vectors = await model.aembed_documents(
                 [chunk.content for chunk in batch]
             )
+            if dense_vectors:  # pragma: no branch
+                self._set_trace_metadata_for_run(
+                    {
+                        "ai": build_ai_trace_metadata(
+                            kind="embedding",
+                            requested_model=self.embed_model,
+                            actual_model=(
+                                infer_model_name_from_instance(model)
+                                or self.embed_model
+                            ),
+                            operation="documents",
+                            vector_size=len(dense_vectors[0]),
+                        )
+                    }
+                )
 
             records: list[VectorRecord] = []
             for chunk, values in zip(batch, dense_vectors, strict=True):

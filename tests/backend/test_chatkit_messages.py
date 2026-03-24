@@ -23,12 +23,14 @@ from starlette.datastructures import Headers
 from orcheo_backend.app.chatkit import messages as chatkit_messages
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.messages import (
+    _selected_model_from_user_item,
     build_assistant_item,
     build_history,
     build_inputs_payload,
     record_run_metadata,
     require_workflow_id,
     resolve_user_item,
+    sync_thread_inference_metadata,
 )
 from orcheo_backend.app.repository import WorkflowRun
 
@@ -228,6 +230,75 @@ def test_build_inputs_payload_basic() -> None:
     assert payload["session_id"] == "thr_basic"
     assert payload["metadata"] == {"key": "value"}
     assert "documents" not in payload
+    assert "model" not in payload
+
+
+def test_build_inputs_payload_includes_selected_model() -> None:
+    """Selected ChatKit model should be forwarded into workflow inputs."""
+    thread = ThreadMetadata(
+        id="thr_model",
+        created_at=datetime.now(UTC),
+        metadata={"key": "value"},
+    )
+    user_item = UserMessageItem(
+        id="msg_model",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        inference_options=InferenceOptions(model="openai:gpt-5"),
+    )
+
+    payload = build_inputs_payload(thread, "Hello", [], user_item)
+
+    assert payload["model"] == "openai:gpt-5"
+
+
+def test_sync_thread_inference_metadata_records_selected_model() -> None:
+    """Selected ChatKit model should be persisted on the thread metadata."""
+    thread = ThreadMetadata(
+        id="thr_sync",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf-123"},
+    )
+    user_item = UserMessageItem(
+        id="msg_sync",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        inference_options=InferenceOptions(model="openai:gpt-5-mini"),
+    )
+
+    sync_thread_inference_metadata(thread, user_item)
+
+    assert thread.metadata["chatkit_model"] == "openai:gpt-5-mini"
+
+
+def test_sync_thread_inference_metadata_clears_selected_model() -> None:
+    """ChatKit model metadata should be removed when no override is active."""
+    thread = ThreadMetadata(
+        id="thr_sync_clear",
+        created_at=datetime.now(UTC),
+        metadata={
+            "workflow_id": "wf-123",
+            "chatkit_model": "openai:gpt-5-mini",
+        },
+    )
+
+    sync_thread_inference_metadata(thread, selected_model=None)
+
+    assert thread.metadata == {"workflow_id": "wf-123"}
+
+
+def test_selected_model_from_user_item_complains_on_missing_model() -> None:
+    user_item = UserMessageItem(
+        id="msg_model",
+        thread_id="thread",
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Echo")],
+        inference_options=InferenceOptions(model=None),
+    )
+
+    assert _selected_model_from_user_item(user_item) is None
 
 
 def test_build_inputs_payload_with_no_attachments_attribute() -> None:

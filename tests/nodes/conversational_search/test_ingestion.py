@@ -1685,6 +1685,46 @@ async def test_text_embedding_node_passes_model_kwargs_to_initializer(
 
 
 @pytest.mark.asyncio
+async def test_text_embedding_node_call_attaches_trace_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TextEmbeddingNode.__call__ should expose embedding model trace metadata."""
+    state = State(inputs={"text": "hello"}, results={}, structured_response=None)
+
+    class _TrackingEmbeddings:
+        model_name = "text-embedding-3-small"
+
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[float(len(text)), 0.0] for text in texts]
+
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    monkeypatch.setattr(
+        emb_mod,
+        "init_dense_embeddings",
+        lambda *args, **kwargs: _TrackingEmbeddings(),
+    )
+    node = TextEmbeddingNode(
+        name="text_embedding",
+        input_key="text",
+        embed_model="openai:text-embedding-3-small",
+        unwrap_single=True,
+    )
+
+    result = await node(state, {})
+
+    assert result["results"]["text_embedding"]["embeddings"].values == [
+        float(len("hello")),
+        0.0,
+    ]
+    assert result["__trace"]["ai"]["kind"] == "embedding"
+    assert result["__trace"]["ai"]["requested_model"] == "openai:text-embedding-3-small"
+    assert result["__trace"]["ai"]["actual_model"] == "text-embedding-3-small"
+    assert result["__trace"]["ai"]["operation"] == "documents"
+    assert result["__trace"]["ai"]["vector_size"] == 2
+
+
+@pytest.mark.asyncio
 async def test_text_embedding_node_empty_payload_with_keys() -> None:
     """Covers _empty_payload with dense_output_key and text_output_key (single)."""
     state = State(inputs={"text": "   "}, results={}, structured_response=None)

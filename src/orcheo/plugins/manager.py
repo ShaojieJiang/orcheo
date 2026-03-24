@@ -251,18 +251,27 @@ def _rebuild_environment(
     target_dir: Path,
     wheels_dir: Path,
     manifests_dir: Path,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[list[PluginManifest], list[LockedPluginRecord]]:
     """Build a plugin venv for ``refs`` and return the resolved lock state."""
     if target_dir.exists():
         shutil.rmtree(target_dir)
     if wheels_dir.exists():
         shutil.rmtree(wheels_dir)
+    if progress is not None:
+        progress("Creating isolated plugin environment")
     _ensure_venv(target_dir)
     wheels_dir.mkdir(parents=True, exist_ok=True)
+    if refs and progress is not None:
+        progress("Installing plugin packages into the isolated environment")
     _install_refs_into_venv(target_dir, refs)
     site_packages = _site_packages(target_dir)
+    if progress is not None:
+        progress("Inspecting installed plugin manifests")
     manifests_with_hashes = _load_plugin_manifests(site_packages)
     manifests = [manifest for manifest, _ in manifests_with_hashes]
+    if progress is not None:
+        progress("Validating plugin compatibility")
     issues = _validate_manifests(manifests)
     if issues:
         details = "; ".join(
@@ -270,6 +279,8 @@ def _rebuild_environment(
             for name, problem_list in issues.items()
         )
         raise PluginError(details)
+    if progress is not None:
+        progress("Caching plugin manifests")
     _write_manifest_cache(manifests_dir, manifests_with_hashes)
     locked_records: list[LockedPluginRecord] = []
     for manifest, manifest_hash in manifests_with_hashes:
@@ -397,6 +408,7 @@ class PluginManager:
         desired_records: list[DesiredPluginRecord],
         validate: Callable[[list[PluginManifest]], None] | None = None,
         activate: bool = True,
+        progress: Callable[[str], None] | None = None,
     ) -> tuple[list[PluginManifest], list[LockedPluginRecord]]:
         desired_refs = [record.source for record in desired_records]
         self.plugin_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -413,15 +425,20 @@ class PluginManager:
                     target_dir=temp_venv,
                     wheels_dir=temp_wheels,
                     manifests_dir=temp_manifests,
+                    progress=progress,
                 )
             else:
                 manifests = []
                 locked_records = []
+                if progress is not None:
+                    progress("Creating isolated plugin environment")
                 _ensure_venv(temp_venv)
             if validate is not None:
                 validate(manifests)
             if not activate:
                 return manifests, locked_records
+            if progress is not None:
+                progress("Activating rebuilt plugin environment")
             self.plugin_dir.mkdir(parents=True, exist_ok=True)
             if self.wheels_dir.exists():
                 shutil.rmtree(self.wheels_dir)
@@ -436,7 +453,12 @@ class PluginManager:
             shutil.rmtree(temp_root, ignore_errors=True)
         return manifests, locked_records
 
-    def install(self, ref: str) -> dict[str, Any]:
+    def install(
+        self,
+        ref: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
         """Install a plugin from a package, wheel, path, or git reference."""
         desired_records = load_desired_state(self.state_file)
         existing_names = {record.name for record in desired_records}
@@ -459,6 +481,7 @@ class PluginManager:
                 DesiredPluginRecord(name=f"pending:{ref}", source=ref, enabled=True),
             ],
             validate=_validate_single_new_plugin,
+            progress=progress,
         )
         new_plugins = [
             manifest for manifest in manifests if manifest.name not in existing_names
@@ -488,13 +511,19 @@ class PluginManager:
             "impact": impact,
         }
 
-    def update(self, name: str) -> dict[str, Any]:
+    def update(
+        self,
+        name: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
         """Rebuild the plugin environment using the stored source for ``name``."""
         impact = self.preview_update(name)
         desired = self._desired_by_name()
         desired_records = list(desired.values())
         _manifests, locked_records = self._activate_build(
-            desired_records=desired_records
+            desired_records=desired_records,
+            progress=progress,
         )
         self._reconcile_desired_and_lock(desired_records, locked_records)
         return {
@@ -524,13 +553,18 @@ class PluginManager:
             operation="update",
         )
 
-    def update_all(self) -> list[dict[str, Any]]:
+    def update_all(
+        self,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> list[dict[str, Any]]:
         """Rebuild all desired plugins and return per-plugin impact summaries."""
         preview = self.preview_update_all()
         desired = self._desired_by_name()
         desired_records = list(desired.values())
         manifests, locked_records = self._activate_build(
-            desired_records=desired_records
+            desired_records=desired_records,
+            progress=progress,
         )
         manifests_by_name = {manifest.name: manifest for manifest in manifests}
         self._reconcile_desired_and_lock(desired_records, locked_records)

@@ -1,5 +1,6 @@
 """Tests for evaluation metric nodes."""
 
+from unittest.mock import MagicMock
 import pytest
 from orcheo.graph.state import State
 from orcheo.nodes.evaluation.metrics import (
@@ -211,6 +212,39 @@ async def test_semantic_similarity_node_computes_scores(
     assert result["per_item"][0] == pytest.approx(1.0)
     assert result["per_item"][1] == pytest.approx(0.0)
     assert result["corpus_score"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_semantic_similarity_node_records_trace_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    class FakeEmbeddings:
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0] for _ in texts]
+
+    monkeypatch.setattr(
+        emb_mod, "init_dense_embeddings", lambda *args, **kwargs: FakeEmbeddings()
+    )
+    monkeypatch.setattr(
+        "orcheo.nodes.evaluation.metrics.infer_model_name_from_instance",
+        lambda instance: "inferred-model",
+    )
+
+    node = SemanticSimilarityMetricsNode(
+        name="similarity-trace", embed_model="test:fake", model_kwargs={}
+    )
+    node._set_trace_metadata_for_run = MagicMock()
+
+    state = State(
+        inputs={"predictions": ["text"], "references": ["text"]},
+    )
+    await node.run(state, {})
+
+    node._set_trace_metadata_for_run.assert_called_once()
+    trace_payload = node._set_trace_metadata_for_run.call_args[0][0]
+    assert trace_payload["ai"]["actual_model"] == "inferred-model"
 
 
 @pytest.mark.asyncio

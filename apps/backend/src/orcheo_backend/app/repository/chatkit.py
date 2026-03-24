@@ -1,0 +1,95 @@
+"""Shared workflow ChatKit metadata mutation helpers."""
+
+from __future__ import annotations
+from typing import Any
+from orcheo.models.workflow import (
+    ChatKitStartScreenPrompt,
+    ChatKitSupportedModel,
+    Workflow,
+)
+
+
+def apply_chatkit_start_screen_prompts_update(
+    workflow: Workflow,
+    metadata: dict[str, Any],
+    *,
+    chatkit_start_screen_prompts: list[ChatKitStartScreenPrompt] | None = None,
+    clear_chatkit_start_screen_prompts: bool = False,
+) -> None:
+    """Apply ChatKit starter-prompt changes to a workflow and audit metadata."""
+    if clear_chatkit_start_screen_prompts:
+        if workflow.chatkit_start_screen_prompts is not None:  # pragma: no branch
+            metadata["chatkit_start_screen_prompts"] = {
+                "from": [
+                    prompt.model_dump(mode="json")
+                    for prompt in workflow.chatkit_start_screen_prompts
+                ],
+                "to": None,
+            }
+            workflow.chatkit_start_screen_prompts = None
+        return
+
+    if chatkit_start_screen_prompts is None:
+        return
+
+    current_prompts = workflow.chatkit_start_screen_prompts
+    current_payload = (
+        [prompt.model_dump(mode="json") for prompt in current_prompts]
+        if current_prompts is not None
+        else None
+    )
+    next_payload = [
+        prompt.model_dump(mode="json") for prompt in chatkit_start_screen_prompts
+    ]
+    if next_payload == current_payload:
+        return
+
+    metadata["chatkit_start_screen_prompts"] = {
+        "from": current_payload,
+        "to": next_payload,
+    }
+    workflow.chatkit_start_screen_prompts = [
+        prompt.model_copy(deep=True) for prompt in chatkit_start_screen_prompts
+    ]
+
+
+def apply_chatkit_supported_models_update(
+    workflow: Workflow,
+    metadata: dict[str, Any],
+    *,
+    chatkit_supported_models: list[ChatKitSupportedModel] | None = None,
+    clear_chatkit_supported_models: bool = False,
+) -> None:
+    """Apply ChatKit supported-model changes to a workflow and audit metadata."""
+    if clear_chatkit_supported_models:
+        if workflow.chatkit_supported_models is not None:  # pragma: no branch
+            metadata["chatkit_supported_models"] = {
+                "from": [
+                    model.model_dump(mode="json")
+                    for model in workflow.chatkit_supported_models
+                ],
+                "to": None,
+            }
+            workflow.chatkit_supported_models = None
+        return
+
+    if chatkit_supported_models is None:
+        return
+
+    current_models = workflow.chatkit_supported_models
+    current_payload = (
+        [model.model_dump(mode="json") for model in current_models]
+        if current_models is not None
+        else None
+    )
+    next_payload = [model.model_dump(mode="json") for model in chatkit_supported_models]
+    if next_payload == current_payload:
+        return
+
+    metadata["chatkit_supported_models"] = {
+        "from": current_payload,
+        "to": next_payload,
+    }
+    workflow.chatkit_supported_models = [
+        model.model_copy(deep=True) for model in chatkit_supported_models
+    ]

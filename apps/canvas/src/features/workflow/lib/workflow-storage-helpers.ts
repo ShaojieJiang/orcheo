@@ -281,5 +281,7 @@ export const toStoredWorkflow = (
     isArchived: workflow.is_archived,
     isPublic: workflow.is_public,
     shareUrl: workflow.share_url ?? null,
+    chatkitStartScreenPrompts: workflow.chatkit?.start_screen_prompts ?? null,
+    chatkitSupportedModels: workflow.chatkit?.supported_models ?? null,
   };
 };

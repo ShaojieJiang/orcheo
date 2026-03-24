@@ -39,6 +39,14 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
                     "prompts": ["Hello"],
                     "responses": ["World"],
                     "artifacts": [{"id": "artifact-1"}],
+                    "__trace": {
+                        "ai": {
+                            "kind": "llm",
+                            "requested_model": "openai:gpt-4o-mini",
+                            "actual_model": "gpt-4o-mini-2024-07-18",
+                            "provider": "openai",
+                        }
+                    },
                 }
             },
         )
@@ -66,6 +74,8 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
     node_span = spans[1]
     assert node_span["parent_span_id"] == root_span["span_id"]
     assert node_span["attributes"]["orcheo.node.kind"] == "ai_model"
+    assert node_span["attributes"]["orcheo.ai.model.requested"] == "openai:gpt-4o-mini"
+    assert node_span["attributes"]["orcheo.ai.model.actual"] == "gpt-4o-mini-2024-07-18"
     assert node_span["attributes"]["orcheo.token.input"] == 5
     assert node_span["attributes"]["orcheo.artifact.ids"] == ["artifact-1"]
     event_names = {event["name"] for event in node_span["events"]}

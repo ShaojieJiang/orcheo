@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 horcheo = "orcheo_sdk.cli.main:run_human"
 orcheo = "orcheo_sdk.cli.main:run"
+orcheo-skill = "orcheo_sdk.cli.orcheo_skill:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orcheo_sdk"]

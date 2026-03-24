@@ -184,6 +184,9 @@ def build_action_inputs_payload(
         "session_id": thread.id,
         "metadata": dict(thread.metadata),
     }
+    selected_model = thread.metadata.get("chatkit_model")
+    if isinstance(selected_model, str) and selected_model.strip():
+        payload["model"] = selected_model.strip()
     payload["action"] = _dump_action(action)
     if widget_item is not None:  # pragma: no branch
         payload["widget_item_id"] = widget_item.id

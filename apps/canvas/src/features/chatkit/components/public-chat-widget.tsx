@@ -1,9 +1,12 @@
 import { useMemo } from "react";
-import type { StartScreenPrompt } from "@openai/chatkit";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { ColorScheme } from "@/hooks/use-color-scheme";
+import type {
+  ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt,
+  ChatKitSupportedModel as WorkflowChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
@@ -11,6 +14,10 @@ import {
 } from "@features/chatkit/lib/chatkit-client";
 import { ChatKitSurface } from "@features/chatkit/components/chatkit-surface";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
+import {
+  buildModelOptions,
+  buildStartScreenPrompts,
+} from "@features/chatkit/components/public-chat-config";
 
 interface PublicChatWidgetProps {
   workflowId: string;
@@ -21,30 +28,9 @@ interface PublicChatWidgetProps {
   onLog?: (payload: Record<string, unknown>) => void;
   colorScheme?: ColorScheme;
   onThemeRequest?: (scheme: ColorScheme) => Promise<void> | void;
+  startScreenPrompts?: WorkflowChatKitStartScreenPrompt[] | null;
+  supportedModels?: WorkflowChatKitSupportedModel[] | null;
 }
-
-const buildStartScreenPrompts = (workflowName: string): StartScreenPrompt[] => [
-  {
-    label: "What can you do?",
-    prompt: `What can ${workflowName} help with?`,
-    icon: "circle-question",
-  },
-  {
-    label: "Introduce yourself",
-    prompt: "My name is ...",
-    icon: "book-open",
-  },
-  {
-    label: "Latest results",
-    prompt: `Summarize the latest run for ${workflowName}.`,
-    icon: "search",
-  },
-  {
-    label: "Switch theme",
-    prompt: "Change the theme to dark mode",
-    icon: "sparkle",
-  },
-];
 
 const buildGreeting = (workflowName: string): string =>
   `Welcome to the ${workflowName} public chat.`;
@@ -61,6 +47,8 @@ export function PublicChatWidget({
   onLog,
   colorScheme = "light",
   onThemeRequest,
+  startScreenPrompts,
+  supportedModels,
 }: PublicChatWidgetProps) {
   const options = useMemo<UseChatKitOptions>(() => {
     const domainKey = getChatKitDomainKey();
@@ -68,6 +56,7 @@ export function PublicChatWidget({
       "/api/chatkit/upload",
       backendBaseUrl,
     );
+    const modelOptions = buildModelOptions(supportedModels);
 
     return {
       api: {
@@ -93,18 +82,11 @@ export function PublicChatWidget({
       theme: buildChatTheme(colorScheme),
       startScreen: {
         greeting: buildGreeting(workflowName),
-        prompts: buildStartScreenPrompts(workflowName),
+        prompts: buildStartScreenPrompts(workflowName, startScreenPrompts),
       },
       composer: {
         placeholder: buildComposerPlaceholder(workflowName),
-        models: [
-          {
-            id: "gpt-5",
-            label: "gpt-5",
-            description: "Balanced intelligence",
-            default: true,
-          },
-        ],
+        ...(modelOptions ? { models: modelOptions } : {}),
         tools: [
           {
             id: "search_docs",
@@ -155,6 +137,8 @@ export function PublicChatWidget({
     onLog,
     onReady,
     onThemeRequest,
+    startScreenPrompts,
+    supportedModels,
     workflowId,
     workflowName,
   ]);

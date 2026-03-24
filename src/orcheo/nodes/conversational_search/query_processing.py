@@ -12,6 +12,10 @@ from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_model_name_from_instance,
+)
 
 
 def _normalize_messages(history: list[Any]) -> list[str]:
@@ -99,6 +103,15 @@ class QueryRewriteNode(AgentNode):
             ),
         ]
         response = await model.ainvoke(llm_messages)  # type: ignore[arg-type]
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="llm",
+                    requested_model=self.ai_model,
+                    actual_model=infer_model_name_from_instance(model),
+                )
+            }
+        )
         rewritten = str(getattr(response, "content", response)).strip()
         if not rewritten:
             rewritten = query.strip()
@@ -392,6 +405,15 @@ class ContextCompressorNode(TaskNode):
             HumanMessage(content=prompt),
         ]
         response = await model.ainvoke(messages)  # type: ignore[arg-type]
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="llm",
+                    requested_model=self.ai_model,
+                    actual_model=infer_model_name_from_instance(model),
+                )
+            }
+        )
         content = getattr(response, "content", response)
         text = str(content).strip()
         if not text:

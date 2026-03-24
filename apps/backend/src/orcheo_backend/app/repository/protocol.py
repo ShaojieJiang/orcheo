@@ -13,6 +13,8 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
 )
 from orcheo.models.workflow import (
+    ChatKitStartScreenPrompt,
+    ChatKitSupportedModel,
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
@@ -72,6 +74,10 @@ class WorkflowRepository(Protocol):
         handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
+        chatkit_start_screen_prompts: list[ChatKitStartScreenPrompt] | None = None,
+        chatkit_supported_models: list[ChatKitSupportedModel] | None = None,
+        clear_chatkit_start_screen_prompts: bool = False,
+        clear_chatkit_supported_models: bool = False,
         draft_access: WorkflowDraftAccess | None = None,
         is_archived: bool | None,
         actor: str,

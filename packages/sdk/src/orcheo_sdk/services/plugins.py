@@ -1,6 +1,7 @@
 """Plugin lifecycle service operations."""
 
 from __future__ import annotations
+from collections.abc import Callable
 from typing import Any
 from orcheo.plugins import PluginManager, invalidate_plugin_loader
 
@@ -15,16 +16,24 @@ def show_plugin_data(name: str) -> dict[str, Any]:
     return PluginManager().show_plugin(name)
 
 
-def install_plugin_data(ref: str) -> dict[str, Any]:
+def install_plugin_data(
+    ref: str,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
     """Install a plugin from ``ref``."""
-    result = PluginManager().install(ref)
+    result = PluginManager().install(ref, progress=progress)
     invalidate_plugin_loader()
     return result
 
 
-def update_plugin_data(name: str) -> dict[str, Any]:
+def update_plugin_data(
+    name: str,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
     """Update a single plugin using its stored source ref."""
-    result = PluginManager().update(name)
+    result = PluginManager().update(name, progress=progress)
     invalidate_plugin_loader()
     return result
 
@@ -35,9 +44,12 @@ def preview_update_plugin_data(name: str) -> dict[str, Any]:
     return {"name": name, "impact": impact}
 
 
-def update_all_plugins_data() -> list[dict[str, Any]]:
+def update_all_plugins_data(
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> list[dict[str, Any]]:
     """Update all configured plugins."""
-    result = PluginManager().update_all()
+    result = PluginManager().update_all(progress=progress)
     invalidate_plugin_loader()
     return result
 

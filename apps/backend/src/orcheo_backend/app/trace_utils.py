@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from hashlib import blake2b
 from typing import Any, TypedDict
 from orcheo.tracing import workflow as tracing_workflow
+from orcheo.tracing.model_metadata import (
+    TRACE_METADATA_KEY,
+    extract_ai_trace_attributes,
+)
 from orcheo_backend.app.history import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import (
     TraceExecutionMetadata,
@@ -27,6 +31,32 @@ _STATE_REDACTED_MARKER = "[REDACTED]"
 _STATE_TRUNCATED_MARKER = "[TRUNCATED]"
 _SENSITIVE_STATE_KEY_PATTERN = re.compile(
     r"(?i)(password|secret|token|api[_-]?key|authorization|cookie|credential|private[_-]?key)"
+)
+_NON_SENSITIVE_STATE_KEYS = frozenset(
+    {
+        "token_usage",
+        "usage",
+        "usage_metadata",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+        "input_token_details",
+        "output_token_details",
+        "input_tokens",
+        "output_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "cached_tokens",
+        "audio_tokens",
+        "reasoning_tokens",
+        "accepted_prediction_tokens",
+        "rejected_prediction_tokens",
+        "cache_read",
+        "cache_write",
+        "audio",
+        "text",
+        "reasoning",
+    }
 )
 
 
@@ -292,6 +322,8 @@ def _merge_workflow_state(
     merged = _clone_json_like(current_state)
     for key, value in payload.items():
         key_str = str(key)
+        if key_str == TRACE_METADATA_KEY:
+            continue
         existing = merged.get(key_str)
         if isinstance(existing, Mapping) and isinstance(value, Mapping):
             merged[key_str] = _merge_workflow_state(existing, value)
@@ -360,7 +392,7 @@ def _sanitize_mapping_value(
             break
 
         key = str(raw_key)
-        if _SENSITIVE_STATE_KEY_PATTERN.search(key):
+        if _is_sensitive_state_key(key):
             sanitized[key] = _STATE_REDACTED_MARKER
             redacted = True
             continue
@@ -374,6 +406,14 @@ def _sanitize_mapping_value(
         truncated = truncated or child_truncated
 
     return sanitized, redacted, truncated
+
+
+def _is_sensitive_state_key(key: str) -> bool:
+    """Return whether a state snapshot key should be redacted."""
+    return (
+        key.strip().lower() not in _NON_SENSITIVE_STATE_KEYS
+        and _SENSITIVE_STATE_KEY_PATTERN.search(key) is not None
+    )
 
 
 def _sanitize_sequence_value(
@@ -423,6 +463,7 @@ def _node_attributes(node_key: str, payload: Mapping[str, Any]) -> dict[str, Any
     latency = _extract_latency(payload)
     if latency is not None:
         attributes["orcheo.node.latency_ms"] = latency
+    attributes.update(extract_ai_trace_attributes(payload))
     return attributes
 
 

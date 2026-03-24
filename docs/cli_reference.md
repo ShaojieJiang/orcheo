@@ -80,9 +80,10 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo workflow show <workflow> [--version <num>]` | Print workflow summary, publish status/details, Mermaid graph, and runs. Use `--version` to show a specific version instead of the latest. |
 | `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow execution. Streaming is enabled by default. |
 | `orcheo workflow evaluate <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--evaluation <json> \| --evaluation-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow evaluation run (requires streaming mode). |
+| `orcheo workflow update <workflow> [--name <name>] [--description <text>] [--handle <handle>] [--chatkit-prompts <json> \| --chatkit-prompts-file <path> \| --clear-chatkit-prompts]` | Update workflow metadata, including per-workflow public ChatKit starter prompts. |
 | `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from a Python LangGraph script (`.py`). |
 | `orcheo workflow save-config <workflow> [--version <num>] (--config <json> \| --config-file <path> \| --clear)` | Save version `runnable_config` without creating a new version. |
-| `orcheo workflow download <workflow> [-o <file>] [--version <num>]` | Download workflow source as Python only. Use `--version` to download a specific version. |
+| `orcheo workflow download <workflow> [-o <file>] [--config-out <file>] [--version <num>]` | Download workflow source as Python only. Use `--config-out` to write stored runnable config JSON when present, and `--version` to download a specific version. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
 | `orcheo workflow schedule <workflow>` | Activate cron scheduling based on the workflow's cron trigger (no-op if none). |
 | `orcheo workflow unschedule <workflow>` | Remove cron scheduling for the workflow. |
@@ -252,7 +253,7 @@ orcheo workflow unpublish my-workflow
 
 ### Workflow Configuration
 
-Upload-time defaults can be stored on a workflow version with `orcheo workflow upload ... --config` or `--config-file`. You can update config later without creating a version via `orcheo workflow save-config ...`. Stored config is merged with per-run overrides (run config wins). Avoid putting secrets in runnable config; use environment variables or credential vaults instead.
+Upload-time defaults can be stored on a workflow version with `orcheo workflow upload ... --config` or `--config-file`. You can update config later without creating a version via `orcheo workflow save-config ...`. Stored config is merged with per-run overrides (run config wins). `orcheo workflow download --config-out <file>` writes that stored runnable config as companion JSON when present. Avoid putting secrets in runnable config; use environment variables or credential vaults instead.
 
 ## Offline Mode
 

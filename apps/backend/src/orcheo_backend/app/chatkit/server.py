@@ -51,6 +51,7 @@ from orcheo_backend.app.chatkit.message_utils import (
     build_action_inputs_payload,
     collect_text_from_user_content,
 )
+from orcheo_backend.app.chatkit.model_selection import resolve_chatkit_selected_model
 from orcheo_backend.app.chatkit.messages import (
     build_assistant_item,
     build_history,
@@ -58,12 +59,14 @@ from orcheo_backend.app.chatkit.messages import (
     record_run_metadata,
     require_workflow_id,
     resolve_user_item,
+    sync_thread_inference_metadata,
 )
 from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
 from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
 from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
 from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.repository import (
+    Workflow,
     WorkflowNotFoundError,
     WorkflowRepository,
     WorkflowRun,
@@ -424,15 +427,26 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Delegate to the user item helper."""
         return await resolve_user_item(self.store, thread, item, context)
 
-    @staticmethod
     def _build_inputs_payload(
+        self,
+        workflow: Workflow,
         thread: ThreadMetadata,
         message_text: str,
         history: list[dict[str, str]],
         user_item: UserMessageItem | None = None,
     ) -> dict[str, Any]:
         """Delegate to the payload helper."""
-        return build_inputs_payload(thread, message_text, history, user_item)
+        selected_model = resolve_chatkit_selected_model(
+            workflow,
+            getattr(getattr(user_item, "inference_options", None), "model", None),
+        )
+        return build_inputs_payload(
+            thread,
+            message_text,
+            history,
+            user_item,
+            selected_model=selected_model,
+        )
 
     @staticmethod
     def _record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:
@@ -554,10 +568,25 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         """Execute the workflow and yield assistant events."""
         self._ensure_workflow_metadata(thread, context)
         workflow_id = self._require_workflow_id(thread)
+        try:
+            workflow = await self._repository.get_workflow(workflow_id)
+        except WorkflowNotFoundError as exc:
+            raise CustomStreamError(str(exc), allow_retry=False) from exc
         user_item = await self._resolve_user_item(thread, item, context)
+        selected_model = resolve_chatkit_selected_model(
+            workflow,
+            getattr(getattr(user_item, "inference_options", None), "model", None),
+        )
+        sync_thread_inference_metadata(thread, user_item, selected_model=selected_model)
         message_text = collect_text_from_user_content(user_item.content)
         history = await self._history(thread, context)
-        inputs = self._build_inputs_payload(thread, message_text, history, user_item)
+        inputs = self._build_inputs_payload(
+            workflow,
+            thread,
+            message_text,
+            history,
+            user_item,
+        )
 
         actor = str(context.get("actor") or "chatkit")
         progress_queue: asyncio.Queue[ThreadStreamEvent | None] = asyncio.Queue()

@@ -1,7 +1,12 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models.workflow import (
+    ChatKitStartScreenPrompt,
+    ChatKitSupportedModel,
+    WorkflowChatKitConfig,
+    WorkflowDraftAccess,
+)
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
@@ -179,6 +184,109 @@ async def test_update_workflow_changes_draft_access(
     )
 
     assert updated.draft_access is WorkflowDraftAccess.AUTHENTICATED
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_chatkit_start_screen_prompts(
+    repository: WorkflowRepository,
+) -> None:
+    """Updating a workflow can set and clear public ChatKit starter prompts."""
+
+    created = await repository.create_workflow(
+        name="ChatKit Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+
+    prompts = [
+        ChatKitStartScreenPrompt(
+            label="Summarize today's metrics",
+            prompt="Summarize today's metrics for me.",
+            icon="chart-column",
+        ),
+        ChatKitStartScreenPrompt(
+            label="What changed?",
+            prompt="What changed since yesterday?",
+        ),
+    ]
+    updated = await repository.update_workflow(
+        created.id,
+        name=None,
+        description=None,
+        tags=None,
+        chatkit_start_screen_prompts=prompts,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert updated.chatkit == WorkflowChatKitConfig(start_screen_prompts=prompts)
+
+    cleared = await repository.update_workflow(
+        created.id,
+        name=None,
+        description=None,
+        tags=None,
+        clear_chatkit_start_screen_prompts=True,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert cleared.chatkit is None
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_chatkit_supported_models(
+    repository: WorkflowRepository,
+) -> None:
+    """Updating a workflow can set and clear public ChatKit supported models."""
+
+    created = await repository.create_workflow(
+        name="ChatKit Models",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+
+    models = [
+        ChatKitSupportedModel(
+            id="openai:gpt-5",
+            label="GPT-5",
+            description="Best quality",
+            default=True,
+        ),
+        ChatKitSupportedModel(
+            id="openai:gpt-5-mini",
+            label="GPT-5 Mini",
+        ),
+    ]
+    updated = await repository.update_workflow(
+        created.id,
+        name=None,
+        description=None,
+        tags=None,
+        chatkit_supported_models=models,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert updated.chatkit == WorkflowChatKitConfig(supported_models=models)
+
+    cleared = await repository.update_workflow(
+        created.id,
+        name=None,
+        description=None,
+        tags=None,
+        clear_chatkit_supported_models=True,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert cleared.chatkit is None
 
 
 @pytest.mark.asyncio()

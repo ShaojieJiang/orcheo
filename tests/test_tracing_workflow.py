@@ -52,6 +52,14 @@ def test_record_workflow_step_creates_child_span() -> None:
             "prompts": ["hello"],
             "responses": ["world"],
             "artifacts": ["artifact-1"],
+            "__trace": {
+                "ai": {
+                    "kind": "llm",
+                    "requested_model": "openai:gpt-4o-mini",
+                    "actual_model": "gpt-4o-mini-2024-07-18",
+                    "provider": "openai",
+                }
+            },
         }
     }
 
@@ -64,6 +72,9 @@ def test_record_workflow_step_creates_child_span() -> None:
     assert child.attributes["orcheo.node.display_name"] == "AI Model Node"
     assert child.attributes["orcheo.token.input"] == 42
     assert child.attributes["orcheo.token.output"] == 10
+    assert child.attributes["orcheo.ai.kind"] == "llm"
+    assert child.attributes["orcheo.ai.model.requested"] == "openai:gpt-4o-mini"
+    assert child.attributes["orcheo.ai.model.actual"] == "gpt-4o-mini-2024-07-18"
     assert child.attributes["orcheo.artifact.ids"] == ("artifact-1",)
     event_names = {event.name for event in child.events}
     assert "prompt" in event_names

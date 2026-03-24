@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
@@ -16,6 +16,7 @@ import type {
 } from "@features/workflow/data/workflow-data";
 import {
   getVersionSnapshot,
+  saveWorkflowMetadata,
   saveWorkflow as persistWorkflow,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
@@ -48,11 +49,13 @@ interface WorkflowSaverOptions {
 }
 
 interface WorkflowSaverHandlers {
+  handleSaveWorkflowDetails: () => Promise<void>;
   handleSaveWorkflowConfig: (
     runnableConfig: WorkflowRunnableConfig | null,
   ) => Promise<void>;
   handleTagsChange: (value: string) => void;
   handleRestoreVersion: (versionId: string) => Promise<void>;
+  isSavingWorkflowDetails: boolean;
 }
 
 export function useWorkflowSaver(
@@ -75,6 +78,7 @@ export function useWorkflowSaver(
     navigate,
     applySnapshot,
   } = options;
+  const [isSavingWorkflowDetails, setIsSavingWorkflowDetails] = useState(false);
 
   const persistCurrentWorkflow = useCallback(
     async ({
@@ -172,6 +176,56 @@ export function useWorkflowSaver(
     [persistCurrentWorkflow],
   );
 
+  const handleSaveWorkflowDetails = useCallback(async () => {
+    if (!currentWorkflowId) {
+      toast({
+        title: "Save required",
+        description: "Save this workflow before updating its details.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingWorkflowDetails(true);
+    try {
+      const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
+      const saved = await saveWorkflowMetadata({
+        id: currentWorkflowId,
+        name: workflowName.trim() || "Untitled Workflow",
+        description: workflowDescription.trim(),
+        tags: tagsToPersist,
+      });
+
+      setWorkflowName(saved.name);
+      setWorkflowDescription(saved.description ?? "");
+      setWorkflowTags(saved.tags ?? tagsToPersist);
+      setWorkflowVersions(saved.versions ?? []);
+
+      toast({
+        title: "Workflow details saved",
+        description: `Saved details for "${saved.name}".`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to save workflow details",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingWorkflowDetails(false);
+    }
+  }, [
+    currentWorkflowId,
+    setWorkflowDescription,
+    setWorkflowName,
+    setWorkflowTags,
+    setWorkflowVersions,
+    workflowDescription,
+    workflowName,
+    workflowTags,
+  ]);
+
   const handleTagsChange = useCallback(
     (value: string) => {
       const tags = value
@@ -237,8 +291,10 @@ export function useWorkflowSaver(
   );
 
   return {
+    handleSaveWorkflowDetails,
     handleSaveWorkflowConfig,
     handleTagsChange,
     handleRestoreVersion,
+    isSavingWorkflowDetails,
   };
 }

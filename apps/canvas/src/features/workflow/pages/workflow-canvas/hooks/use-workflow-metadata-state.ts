@@ -1,6 +1,10 @@
 import { useState } from "react";
 
 import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 
 export function useWorkflowMetadataState() {
   const [workflowName, setWorkflowName] = useState("New Workflow");
@@ -18,6 +22,12 @@ export function useWorkflowMetadataState() {
   );
   const [isWorkflowPublic, setIsWorkflowPublic] = useState(false);
   const [workflowShareUrl, setWorkflowShareUrl] = useState<string | null>(null);
+  const [chatkitStartScreenPrompts, setChatkitStartScreenPrompts] = useState<
+    ChatKitStartScreenPrompt[] | null
+  >(null);
+  const [chatkitSupportedModels, setChatkitSupportedModels] = useState<
+    ChatKitSupportedModel[] | null
+  >(null);
 
   return {
     workflowName,
@@ -38,5 +48,9 @@ export function useWorkflowMetadataState() {
     setIsWorkflowPublic,
     workflowShareUrl,
     setWorkflowShareUrl,
+    chatkitStartScreenPrompts,
+    setChatkitStartScreenPrompts,
+    chatkitSupportedModels,
+    setChatkitSupportedModels,
   };
 }

@@ -1,6 +1,7 @@
 """Tests for DeepAgentNode."""
 
 from __future__ import annotations
+import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -521,6 +522,54 @@ async def test_run_passes_model_string_without_kwargs(tmp_path: Path) -> None:
         mock_init.assert_not_called()
         # Model string passed directly to create_deep_agent
         assert mock_create.call_args[0][0] == "openai:gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_run_infers_model_name_from_instance_for_trace(
+    tmp_path: Path,
+) -> None:
+    """run() falls back to infer_model_name_from_instance when metadata missing."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+
+    fake_model = MagicMock()
+
+    with (
+        patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch("orcheo.nodes.deep_agent.init_chat_model", return_value=fake_model),
+        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch(
+            "orcheo.nodes.deep_agent.tool_execution_context",
+            side_effect=lambda config: contextlib.nullcontext(),
+        ),
+        patch(
+            "orcheo.nodes.deep_agent.infer_chat_result_model_name",
+            return_value=None,
+        ),
+        patch(
+            "orcheo.nodes.deep_agent.infer_model_name_from_instance",
+            return_value="fallback-model",
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(
+            name="test",
+            ai_model="openai:gpt-4o",
+            model_kwargs={"temperature": 0.1},
+            skills=[],
+        )
+        node._set_trace_metadata_for_run = MagicMock()
+
+        result = await node.run(State({"inputs": {"query": "trace"}}), RunnableConfig())
+
+    assert result == {"messages": []}
+    node._set_trace_metadata_for_run.assert_called_once()
+    trace_payload = node._set_trace_metadata_for_run.call_args[0][0]
+    assert trace_payload["ai"]["actual_model"] == "fallback-model"
 
 
 @pytest.mark.asyncio

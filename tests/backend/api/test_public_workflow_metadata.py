@@ -28,6 +28,38 @@ def test_public_workflow_metadata_returns_published_workflow(
     api_client: TestClient,
 ) -> None:
     workflow_id = _create_workflow(api_client)
+    update_response = api_client.put(
+        f"/api/workflows/{workflow_id}",
+        json={
+            "chatkit": {
+                "start_screen_prompts": [
+                    {
+                        "label": "Summarize the latest run",
+                        "prompt": "Summarize the latest run for me.",
+                        "icon": "search",
+                    },
+                    {
+                        "label": "What can you help with?",
+                        "prompt": "What can you help with?",
+                    },
+                ],
+                "supported_models": [
+                    {
+                        "id": "openai:gpt-5",
+                        "label": "GPT-5",
+                        "default": True,
+                    },
+                    {
+                        "id": "openai:gpt-5-mini",
+                        "label": "GPT-5 Mini",
+                    },
+                ],
+            },
+            "actor": "tester",
+        },
+    )
+    assert update_response.status_code == 200
+
     publish_response = api_client.post(
         f"/api/workflows/{workflow_id}/publish",
         json={"require_login": True, "actor": "publisher"},
@@ -41,6 +73,36 @@ def test_public_workflow_metadata_returns_published_workflow(
     assert payload["id"] == str(workflow_id)
     assert payload["is_public"] is True
     assert payload["require_login"] is True
+    assert payload["chatkit"] == {
+        "start_screen_prompts": [
+            {
+                "label": "Summarize the latest run",
+                "prompt": "Summarize the latest run for me.",
+                "icon": "search",
+            },
+            {
+                "label": "What can you help with?",
+                "prompt": "What can you help with?",
+                "icon": None,
+            },
+        ],
+        "supported_models": [
+            {
+                "id": "openai:gpt-5",
+                "label": "GPT-5",
+                "description": None,
+                "disabled": False,
+                "default": True,
+            },
+            {
+                "id": "openai:gpt-5-mini",
+                "label": "GPT-5 Mini",
+                "description": None,
+                "disabled": False,
+                "default": False,
+            },
+        ],
+    }
 
 
 def test_public_workflow_metadata_rejects_archived_workflow(

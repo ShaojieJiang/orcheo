@@ -16,6 +16,8 @@ const baseProps = {
   onWorkflowNameChange: vi.fn(),
   onWorkflowDescriptionChange: vi.fn(),
   onTagsChange: vi.fn(),
+  onSaveWorkflowDetails: vi.fn(async () => undefined),
+  isSavingWorkflowDetails: false,
   workflowVersions: [],
   onRestoreVersion: vi.fn(),
   listeners: [
@@ -85,6 +87,25 @@ describe("SettingsTabContent listener controls", () => {
     );
 
     expect(screen.getByText(/save the workflow first/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /save details/i }),
+    ).toBeDisabled();
+  });
+
+  it("forwards the explicit workflow-details save action", async () => {
+    const user = userEvent.setup();
+    const onSaveWorkflowDetails = vi.fn(async () => undefined);
+
+    render(
+      <SettingsTabContent
+        {...baseProps}
+        onSaveWorkflowDetails={onSaveWorkflowDetails}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /save details/i }));
+
+    expect(onSaveWorkflowDetails).toHaveBeenCalledTimes(1);
   });
 
   it("renders listener actions and forwards pause/resume callbacks", async () => {

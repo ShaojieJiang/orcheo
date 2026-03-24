@@ -310,6 +310,12 @@ export default function PublicChatPage() {
                   key={workflowState.workflow.id}
                   workflowId={workflowState.workflow.id}
                   workflowName={workflowState.workflow.name}
+                  startScreenPrompts={
+                    workflowState.workflow.chatkit?.start_screen_prompts
+                  }
+                  supportedModels={
+                    workflowState.workflow.chatkit?.supported_models
+                  }
                   backendBaseUrl={backendBaseUrl}
                   onHttpError={handleChatHttpError}
                   onReady={() => setIsChatReady(true)}

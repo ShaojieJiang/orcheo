@@ -1,6 +1,7 @@
 """Upload workflow command tests for cron sync branches in managing.py."""
 
 from __future__ import annotations
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
@@ -303,3 +304,95 @@ def test_download_workflow_human_mode_output_path_prints_success(
 
     assert output_file.read_text(encoding="utf-8") == "print('hello')"
     assert any("Workflow downloaded to" in msg for msg in state.console.messages)
+
+
+def test_download_workflow_machine_mode_with_config_out_writes_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Machine download can write a companion config file on demand."""
+
+    monkeypatch.setattr(
+        managing,
+        "load_with_cache",
+        lambda *_args, **_kwargs: (
+            {
+                "content": "print('hello')",
+                "format": "python",
+                "runnable_config": {"tags": ["stored"]},
+            },
+            False,
+            False,
+        ),
+    )
+    printed: list[dict[str, object]] = []
+    monkeypatch.setattr(managing, "print_json", lambda data: printed.append(data))
+
+    state = _make_state(human=False)
+    ctx = _context(state)
+    config_file = tmp_path / "wf.config.json"
+    managing.download_workflow(ctx, "wf-1", config_output_path=config_file)
+
+    assert json.loads(config_file.read_text(encoding="utf-8")) == {"tags": ["stored"]}
+    assert printed == [
+        {
+            "content": "print('hello')",
+            "format": "python",
+            "config_written": True,
+            "config_path": str(config_file),
+        }
+    ]
+
+
+def test_download_workflow_human_mode_config_out_without_stored_config_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Human download warns instead of creating a config file when absent."""
+
+    monkeypatch.setattr(
+        managing,
+        "load_with_cache",
+        lambda *_args, **_kwargs: (
+            {"content": "print('hello')", "format": "python", "runnable_config": None},
+            False,
+            False,
+        ),
+    )
+
+    state = _make_state(human=True)
+    ctx = _context(state)
+    config_file = tmp_path / "wf.config.json"
+    managing.download_workflow(ctx, "wf-1", config_output_path=config_file)
+
+    assert not config_file.exists()
+    assert any("skipped config download" in msg for msg in state.console.messages)
+
+
+def test_download_workflow_rejects_same_output_and_config_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Download should reject reusing the same file path for script and config."""
+
+    monkeypatch.setattr(
+        managing,
+        "load_with_cache",
+        lambda *_args, **_kwargs: (
+            {"content": "print('hello')", "format": "python"},
+            False,
+            False,
+        ),
+    )
+
+    state = _make_state(human=True)
+    ctx = _context(state)
+    output_file = tmp_path / "wf.py"
+
+    with pytest.raises(CLIError, match="must be different"):
+        managing.download_workflow(
+            ctx,
+            "wf-1",
+            output_path=output_file,
+            config_output_path=output_file,
+        )

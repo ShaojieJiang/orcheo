@@ -425,6 +425,48 @@ async def test_grounded_generator_handles_direct_string_result(
     assert "Direct string response" in result["reply"]
 
 
+@pytest.mark.asyncio
+@patch("orcheo.nodes.conversational_search.generation.create_agent")
+@patch("orcheo.nodes.conversational_search.generation.init_chat_model")
+@patch(
+    "orcheo.nodes.conversational_search.generation.infer_chat_result_model_name",
+    return_value=None,
+)
+@patch(
+    "orcheo.nodes.conversational_search.generation.infer_model_name_from_instance",
+    return_value="fallback-model",
+)
+async def test_grounded_generator_records_trace_metadata_without_model_name(
+    mock_infer_model,
+    mock_infer_chat,
+    mock_init,
+    mock_create_agent,
+) -> None:
+    """Ensure trace metadata falls back to the instantiated model name."""
+    fake_model = MagicMock()
+
+    async def fake_invoke(payload):
+        return {"messages": [MagicMock(content="Response with citation [1]")]}
+
+    mock_agent = MagicMock()
+    mock_agent.ainvoke = fake_invoke
+    mock_create_agent.return_value = mock_agent
+    mock_init.return_value = fake_model
+
+    node = GroundedGeneratorNode(
+        name="generator", ai_model="gpt-4", model_kwargs={"temperature": 0.1}
+    )
+    node._set_trace_metadata_for_run = MagicMock()
+    state = _state_with_context("fallback")
+
+    result = await node.run(state, {})
+
+    assert "Response with citation" in result["reply"]
+    node._set_trace_metadata_for_run.assert_called_once()
+    trace_payload = node._set_trace_metadata_for_run.call_args[0][0]
+    assert trace_payload["ai"]["actual_model"] == "fallback-model"
+
+
 def test_estimate_tokens_static_method() -> None:
     """Test the static _estimate_tokens method."""
     # "hello" + "world" -> "helloworld" -> 1 token

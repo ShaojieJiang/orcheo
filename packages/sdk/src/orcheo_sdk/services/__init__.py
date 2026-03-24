@@ -21,6 +21,11 @@ from orcheo_sdk.services.credentials import (
 )
 from orcheo_sdk.services.edges import list_edges_data, show_edge_data
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
+from orcheo_sdk.services.orcheo_skill import (
+    install_orcheo_skill_data,
+    uninstall_orcheo_skill_data,
+    update_orcheo_skill_data,
+)
 from orcheo_sdk.services.plugins import (
     disable_plugin_data,
     doctor_plugins_data,
@@ -96,6 +101,10 @@ __all__ = [
     # Nodes
     "list_nodes_data",
     "show_node_data",
+    # Official Orcheo skill
+    "install_orcheo_skill_data",
+    "update_orcheo_skill_data",
+    "uninstall_orcheo_skill_data",
     # Edges
     "list_edges_data",
     "show_edge_data",

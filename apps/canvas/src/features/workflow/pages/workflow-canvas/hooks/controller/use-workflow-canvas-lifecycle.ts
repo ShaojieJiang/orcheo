@@ -19,6 +19,8 @@ export function useWorkflowCanvasLifecycle(
     setWorkflowDescription: core.metadata.setWorkflowDescription,
     setWorkflowTags: core.metadata.setWorkflowTags,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
+    setChatkitStartScreenPrompts: core.metadata.setChatkitStartScreenPrompts,
+    setChatkitSupportedModels: core.metadata.setChatkitSupportedModels,
     setIsWorkflowPublic: core.metadata.setIsWorkflowPublic,
     setWorkflowShareUrl: core.metadata.setWorkflowShareUrl,
     setIsWorkflowLoading: core.metadata.setIsWorkflowLoading,
@@ -32,8 +34,12 @@ export function useWorkflowCanvasLifecycle(
 
   useWorkflowStorageListener({
     currentWorkflowId: core.metadata.currentWorkflowId,
+    setWorkflowName: core.metadata.setWorkflowName,
+    setWorkflowDescription: core.metadata.setWorkflowDescription,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
     setWorkflowTags: core.metadata.setWorkflowTags,
+    setChatkitStartScreenPrompts: core.metadata.setChatkitStartScreenPrompts,
+    setChatkitSupportedModels: core.metadata.setChatkitSupportedModels,
   });
 
   useInitialFitView(core.reactFlowInstance);

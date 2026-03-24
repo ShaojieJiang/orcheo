@@ -5,8 +5,17 @@ from collections.abc import Iterable
 from inspect import isawaitable
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models.workflow import (
+    ChatKitStartScreenPrompt,
+    ChatKitSupportedModel,
+    Workflow,
+    WorkflowDraftAccess,
+)
 from orcheo.models.workflow_refs import normalize_workflow_handle
+from orcheo_backend.app.repository.chatkit import (
+    apply_chatkit_start_screen_prompts_update,
+    apply_chatkit_supported_models_update,
+)
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -108,6 +117,10 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
+        chatkit_start_screen_prompts: list[ChatKitStartScreenPrompt] | None = None,
+        chatkit_supported_models: list[ChatKitSupportedModel] | None = None,
+        clear_chatkit_start_screen_prompts: bool = False,
+        clear_chatkit_supported_models: bool = False,
         draft_access: WorkflowDraftAccess | None = None,
         is_archived: bool | None,
         actor: str,
@@ -156,6 +169,19 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                         "to": normalized_tags,
                     }
                     workflow.tags = normalized_tags
+
+            apply_chatkit_start_screen_prompts_update(
+                workflow,
+                metadata,
+                chatkit_start_screen_prompts=chatkit_start_screen_prompts,
+                clear_chatkit_start_screen_prompts=clear_chatkit_start_screen_prompts,
+            )
+            apply_chatkit_supported_models_update(
+                workflow,
+                metadata,
+                chatkit_supported_models=chatkit_supported_models,
+                clear_chatkit_supported_models=clear_chatkit_supported_models,
+            )
 
             if draft_access is not None and draft_access != workflow.draft_access:
                 metadata["draft_access"] = {

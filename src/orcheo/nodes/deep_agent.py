@@ -19,6 +19,11 @@ from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.skills.manager import SkillManager
 from orcheo.skills.paths import get_skills_dir
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_chat_result_model_name,
+    infer_model_name_from_instance,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -210,6 +215,7 @@ class DeepAgentNode(AINode):
         Returns:
             Agent execution result with messages.
         """
+        self._clear_trace_metadata_for_run()
         tools = await self._prepare_tools()
 
         response_format_strategy: ProviderStrategy | None = None
@@ -244,6 +250,19 @@ class DeepAgentNode(AINode):
                     **(config or {}),
                     "recursion_limit": self.max_iterations,
                 },
+            )
+        if isinstance(result, dict):  # pragma: no branch
+            actual_model = infer_chat_result_model_name(result)
+            if actual_model is None and not isinstance(model, str):
+                actual_model = infer_model_name_from_instance(model)
+            self._set_trace_metadata_for_run(
+                {
+                    "ai": build_ai_trace_metadata(
+                        kind="llm",
+                        requested_model=self.ai_model,
+                        actual_model=actual_model,
+                    )
+                }
             )
 
         return result

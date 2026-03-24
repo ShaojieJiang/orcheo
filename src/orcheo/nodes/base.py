@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any, Self, cast
+from typing import Any, ClassVar, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
@@ -14,6 +14,11 @@ from orcheo.runtime.credentials import (
     CredentialResolverUnavailableError,
     get_active_credential_resolver,
     parse_credential_reference,
+)
+from orcheo.tracing.model_metadata import (
+    TRACE_METADATA_KEY,
+    build_ai_trace_metadata,
+    infer_chat_result_model_name,
 )
 
 
@@ -29,6 +34,8 @@ class BaseRunnable(BaseModel):
     and state management. Does not include tool execution methods, which are
     specific to nodes.
     """
+
+    _CHATKIT_MODEL_CONFIG_KEY: ClassVar[str] = "chatkit_model"
 
     name: str
     """Unique name of the runnable."""
@@ -207,8 +214,8 @@ class BaseRunnable(BaseModel):
         config: Mapping[str, Any] | None = None,
     ) -> None:
         """Decode the variables in attributes of the runnable."""
-        del config
         self.__dict__.update(self._decoded_updates(state))
+        self.__dict__.update(self._runtime_run_updates(config))
 
     def _compute_run_updates(self, state: State) -> dict[str, Any]:
         """Return only the fields whose values changed during resolution.
@@ -234,11 +241,39 @@ class BaseRunnable(BaseModel):
         Uses copy-on-write: avoids the ``model_copy()`` allocation when no
         field values actually changed during template resolution.
         """
-        del config
         changed = self._compute_run_updates(state)
+        changed.update(self._runtime_run_updates(config))
         if not changed:
             return self
         return cast(Self, self.model_copy(update=changed))
+
+    def _runtime_run_updates(
+        self,
+        config: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Return per-run updates sourced from runtime config."""
+        if "ai_model" not in self.__dict__:
+            return {}
+        selected_model = self._chatkit_selected_model(config)
+        if not selected_model:
+            return {}
+        if self.__dict__.get("ai_model") == selected_model:
+            return {}
+        return {"ai_model": selected_model}
+
+    @classmethod
+    def _chatkit_selected_model(cls, config: Mapping[str, Any] | None) -> str | None:
+        """Return the ChatKit-selected model override from runnable config."""
+        if not isinstance(config, Mapping):
+            return None
+        configurable = config.get("configurable")
+        if not isinstance(configurable, Mapping):
+            return None
+        selected_model = configurable.get(cls._CHATKIT_MODEL_CONFIG_KEY)
+        if not isinstance(selected_model, str):
+            return None
+        normalized = selected_model.strip()
+        return normalized or None
 
 
 class BaseNode(BaseRunnable):
@@ -280,6 +315,77 @@ class BaseNode(BaseRunnable):
             return [self._serialize_result(item) for item in value]
         return value
 
+    def _set_trace_metadata_for_run(self, metadata: Mapping[str, Any] | None) -> None:
+        """Store trace metadata to attach to this node's next emitted payload."""
+        if not metadata:
+            self.__dict__.pop("_trace_metadata_for_run", None)
+            return
+        self.__dict__["_trace_metadata_for_run"] = self._serialize_result(
+            dict(metadata)
+        )
+
+    def _clear_trace_metadata_for_run(self) -> None:
+        """Clear any pending trace metadata for the current invocation."""
+        self.__dict__.pop("_trace_metadata_for_run", None)
+
+    def _trace_metadata_for_result(self, result: Any) -> dict[str, Any]:
+        """Infer trace metadata from node configuration and serialized result."""
+        metadata: dict[str, Any] = {}
+        ai_model = self.__dict__.get("ai_model")
+        if isinstance(ai_model, str) and ai_model.strip():
+            ai_trace = build_ai_trace_metadata(
+                kind="llm",
+                requested_model=ai_model.strip(),
+                actual_model=(
+                    infer_chat_result_model_name(result)
+                    if isinstance(result, Mapping)
+                    else None
+                ),
+            )
+            metadata["ai"] = ai_trace
+        return metadata
+
+    def _attach_trace_metadata(self, result: Any) -> Any:
+        """Attach trace metadata to the emitted node payload."""
+        if not isinstance(result, Mapping):
+            self._clear_trace_metadata_for_run()
+            return result
+
+        metadata = self._trace_metadata_for_result(result)
+        explicit = self.__dict__.pop("_trace_metadata_for_run", None)
+        if isinstance(explicit, Mapping):
+            for key, value in explicit.items():
+                if (
+                    key in metadata
+                    and isinstance(metadata[key], Mapping)
+                    and isinstance(value, Mapping)
+                ):
+                    metadata[key] = {**dict(metadata[key]), **dict(value)}
+                else:
+                    metadata[key] = value
+
+        if not metadata:
+            return result
+
+        merged = dict(result)
+        existing = merged.get(TRACE_METADATA_KEY)
+        if isinstance(existing, Mapping):
+            combined = dict(existing)
+            for key, value in metadata.items():
+                if (
+                    key in combined
+                    and isinstance(combined[key], Mapping)
+                    and isinstance(value, Mapping)
+                ):
+                    combined[key] = {**dict(combined[key]), **dict(value)}
+                else:
+                    combined[key] = value
+            merged[TRACE_METADATA_KEY] = combined
+            return merged
+
+        merged[TRACE_METADATA_KEY] = metadata
+        return merged
+
 
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
@@ -287,8 +393,14 @@ class AINode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
         runnable = self.resolved_for_run(state, config=config)
-        result = await runnable.run(state, config)
-        return runnable._serialize_result(result)
+        runnable._clear_trace_metadata_for_run()
+        try:
+            result = await runnable.run(state, config)
+        except Exception:
+            runnable._clear_trace_metadata_for_run()
+            raise
+        serialized = runnable._serialize_result(result)
+        return cast(dict[str, Any], runnable._attach_trace_metadata(serialized))
 
     @abstractmethod
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -302,9 +414,15 @@ class TaskNode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
         runnable = self.resolved_for_run(state, config=config)
-        result = await runnable.run(state, config)
+        runnable._clear_trace_metadata_for_run()
+        try:
+            result = await runnable.run(state, config)
+        except Exception:
+            runnable._clear_trace_metadata_for_run()
+            raise
         serialized_result = runnable._serialize_result(result)
-        return {"results": {self.name: serialized_result}}
+        output: dict[str, Any] = {"results": {self.name: serialized_result}}
+        return cast(dict[str, Any], runnable._attach_trace_metadata(output))
 
     @abstractmethod
     async def run(

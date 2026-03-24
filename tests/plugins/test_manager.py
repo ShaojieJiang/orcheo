@@ -237,6 +237,40 @@ def test_install_refs_into_venv_error_raises(tmp_path: Path) -> None:
             _install_refs_into_venv(venv_dir, ["foo==1.0.0"])
 
 
+def test_manager_install_passes_progress_callback(tmp_path: Path) -> None:
+    """PluginManager.install forwards progress callbacks to the build step."""
+    manager = _make_manager(tmp_path)
+    progress = MagicMock()
+
+    with patch.object(
+        manager,
+        "_activate_build",
+        return_value=(
+            [
+                PluginManifest(
+                    name="plugin-a",
+                    version="1.0.0",
+                    description="desc",
+                    author="author",
+                    plugin_api_version=PLUGIN_API_VERSION,
+                    orcheo_version=">=0.0.0",
+                    exports=["nodes"],
+                )
+            ],
+            [_make_locked("plugin-a")],
+        ),
+    ) as mocked_activate:
+        with patch.object(manager, "_reconcile_desired_and_lock"):
+            with patch.object(
+                manager,
+                "show_plugin",
+                return_value={"name": "plugin-a"},
+            ):
+                manager.install("plugin-a", progress=progress)
+
+    assert mocked_activate.call_args.kwargs["progress"] is progress
+
+
 # ---------------------------------------------------------------------------
 # _replace_directory (line 298)
 # ---------------------------------------------------------------------------
@@ -1446,9 +1480,15 @@ def test_activate_build_copies_and_replaces_existing_dirs(tmp_path: Path) -> Non
     mock_locked = _make_locked("p1")
 
     def rebuild_side_effect(
-        *, refs: list[str], target_dir: Path, wheels_dir: Path, manifests_dir: Path
+        *,
+        refs: list[str],
+        target_dir: Path,
+        wheels_dir: Path,
+        manifests_dir: Path,
+        progress: object | None = None,
     ) -> tuple[list[PluginManifest], list[LockedPluginRecord]]:
         # Create the temp wheels and manifests dirs so copytree branches trigger
+        del progress
         wheels_dir.mkdir(parents=True, exist_ok=True)
         manifests_dir.mkdir(parents=True, exist_ok=True)
         return [mock_manifest], [mock_locked]
@@ -1463,6 +1503,32 @@ def test_activate_build_copies_and_replaces_existing_dirs(tmp_path: Path) -> Non
             )
 
     assert manifests == [mock_manifest]
+
+
+def test_activate_build_creates_isolated_environment(tmp_path: Path) -> None:
+    """_activate_build handles empty desired records by creating a venv."""
+    manager = _make_manager(tmp_path)
+    progress: list[str] = []
+
+    def record_progress(message: str) -> None:
+        progress.append(message)
+
+    with (
+        patch("orcheo.plugins.manager._ensure_venv") as mock_ensure,
+        patch("orcheo.plugins.manager._replace_directory"),
+    ):
+        mock_ensure.side_effect = lambda path: path.mkdir(parents=True, exist_ok=True)
+        manifests, locked = manager._activate_build(
+            desired_records=[], progress=record_progress
+        )
+
+    assert manifests == []
+    assert locked == []
+    assert progress == [
+        "Creating isolated plugin environment",
+        "Activating rebuilt plugin environment",
+    ]
+    mock_ensure.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

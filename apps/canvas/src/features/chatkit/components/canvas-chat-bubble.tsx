@@ -18,6 +18,14 @@ import type { ChatSessionStatus } from "@features/workflow/pages/workflow-canvas
 import { recordChatTelemetry } from "@features/chatkit/lib/telemetry";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
+import {
+  buildModelOptions,
+  buildStartScreenPrompts,
+} from "@features/chatkit/components/public-chat-config";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 
 const ChatKitSurfaceLazy = lazy(() =>
   import("@features/chatkit/components/chatkit-surface").then((module) => ({
@@ -36,6 +44,8 @@ interface CanvasChatBubbleProps {
   workflowId: string | null;
   sessionPayload?: Record<string, unknown>;
   backendBaseUrl?: string | null;
+  startScreenPrompts?: ChatKitStartScreenPrompt[] | null;
+  supportedModels?: ChatKitSupportedModel[] | null;
   getClientSecret: (currentSecret: string | null) => Promise<string>;
   sessionStatus: ChatSessionStatus;
   sessionError: string | null;
@@ -58,6 +68,8 @@ export function CanvasChatBubble({
   workflowId,
   sessionPayload,
   backendBaseUrl,
+  startScreenPrompts,
+  supportedModels,
   getClientSecret,
   sessionStatus,
   sessionError,
@@ -74,6 +86,14 @@ export function CanvasChatBubble({
   const [isRetrying, setIsRetrying] = useState(false);
   const [floatingOffset, setFloatingOffset] = useState(DEFAULT_FLOATING_OFFSET);
   const colorScheme = useColorScheme();
+  const modelOptions = useMemo(
+    () => buildModelOptions(supportedModels),
+    [supportedModels],
+  );
+  const prompts = useMemo(
+    () => buildStartScreenPrompts(title, startScreenPrompts),
+    [startScreenPrompts, title],
+  );
 
   useEffect(() => {
     if (isExternallyOpen) {
@@ -194,6 +214,11 @@ export function CanvasChatBubble({
       },
       composer: {
         placeholder: `Ask ${title} a question`,
+        ...(modelOptions ? { models: modelOptions } : {}),
+      },
+      startScreen: {
+        greeting: `You're chatting with ${title}.`,
+        prompts,
       },
       onClientTool,
       theme: buildChatTheme(colorScheme),

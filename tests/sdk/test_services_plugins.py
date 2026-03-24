@@ -84,7 +84,7 @@ def test_install_plugin_data_invalidates_loader() -> None:
         with patch("orcheo_sdk.services.plugins.invalidate_plugin_loader") as mock_inv:
             result = install_plugin_data("./p1")
 
-    mock_manager.install.assert_called_once_with("./p1")
+    mock_manager.install.assert_called_once_with("./p1", progress=None)
     mock_inv.assert_called_once()
     assert result is expected
 
@@ -99,7 +99,7 @@ def test_update_plugin_data_invalidates_loader() -> None:
         with patch("orcheo_sdk.services.plugins.invalidate_plugin_loader") as mock_inv:
             result = update_plugin_data("p1")
 
-    mock_manager.update.assert_called_once_with("p1")
+    mock_manager.update.assert_called_once_with("p1", progress=None)
     mock_inv.assert_called_once()
     assert result is expected
 

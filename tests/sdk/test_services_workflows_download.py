@@ -31,6 +31,36 @@ def test_download_workflow_data_rejects_unsupported_format() -> None:
         )
 
 
+def test_download_workflow_data_omits_runnable_config_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Download helper should preserve the existing default payload shape."""
+    workflow = {"id": "wf-1"}
+    selected_version = {
+        "id": "ver-2",
+        "version": 2,
+        "graph": {"nodes": []},
+        "runnable_config": {"tags": ["x"]},
+    }
+
+    def fake_get(path: str) -> object:
+        if path == "/api/workflows/wf-1":
+            return workflow
+        if path == "/api/workflows/wf-1/versions":
+            return [selected_version]
+        return selected_version
+
+    client = SimpleNamespace(get=fake_get)
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._format_workflow_as_python",
+        lambda *_args, **_kwargs: "print('hello')\n",
+    )
+
+    result = download.download_workflow_data(client, "wf-1")
+
+    assert "runnable_config" not in result
+
+
 def test_download_workflow_data_wraps_output_write_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -97,4 +127,43 @@ def test_download_workflow_data_writes_output_file_and_returns_success(
         "status": "success",
         "message": f"Workflow downloaded to '{output_file}'",
         "format": "python",
+    }
+
+
+def test_download_workflow_data_includes_runnable_config_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Download helper can include stored runnable config when requested."""
+    workflow = {"id": "wf-1"}
+    selected_version = {
+        "id": "ver-3",
+        "version": 3,
+        "graph": {"nodes": []},
+        "runnable_config": {"tags": ["default"], "max_concurrency": 4},
+    }
+
+    def fake_get(path: str) -> object:
+        if path == "/api/workflows/wf-1":
+            return workflow
+        if path == "/api/workflows/wf-1/versions":
+            return [selected_version]
+        return selected_version
+
+    client = SimpleNamespace(get=fake_get)
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.workflow._format_workflow_as_python",
+        lambda *_args, **_kwargs: "print('hello')\n",
+    )
+
+    result = download.download_workflow_data(
+        client,
+        "wf-1",
+        include_runnable_config=True,
+    )
+
+    assert result == {
+        "content": "print('hello')\n",
+        "format": "python",
+        "runnable_config": {"tags": ["default"], "max_concurrency": 4},
     }

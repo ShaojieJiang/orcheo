@@ -128,7 +128,34 @@ def _serialize_public_workflow(
         is_public=workflow.is_public,
         require_login=workflow.require_login,
         share_url=workflow.share_url,
+        chatkit=workflow.chatkit,
     )
+
+
+def _chatkit_update_kwargs(request: WorkflowUpdateRequest) -> dict[str, Any]:
+    """Return repository update kwargs derived from ChatKit request fields."""
+    update_kwargs: dict[str, Any] = {}
+    if request.chatkit is not None:
+        chatkit_fields = request.chatkit.model_fields_set
+        if "start_screen_prompts" in chatkit_fields:
+            if request.chatkit.start_screen_prompts is None:
+                update_kwargs["clear_chatkit_start_screen_prompts"] = True
+            else:
+                update_kwargs["chatkit_start_screen_prompts"] = (
+                    request.chatkit.start_screen_prompts
+                )
+        if "supported_models" in chatkit_fields:
+            if request.chatkit.supported_models is None:
+                update_kwargs["clear_chatkit_supported_models"] = True
+            else:
+                update_kwargs["chatkit_supported_models"] = (
+                    request.chatkit.supported_models
+                )
+    if request.clear_chatkit_start_screen_prompts:
+        update_kwargs["clear_chatkit_start_screen_prompts"] = True
+    if request.clear_chatkit_supported_models:
+        update_kwargs["clear_chatkit_supported_models"] = True
+    return update_kwargs
 
 
 def _attach_mermaid(version: WorkflowVersion) -> WorkflowVersion:
@@ -405,6 +432,7 @@ async def update_workflow(
             "draft_access": draft_access,
             "is_archived": request.is_archived,
             "actor": actor,
+            **_chatkit_update_kwargs(request),
         }
         if request.handle is not None:
             update_kwargs["handle"] = request.handle

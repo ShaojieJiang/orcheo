@@ -12,6 +12,7 @@ from chatkit.types import (
 )
 from langchain_core.messages import AIMessage, HumanMessage
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.models.workflow import Workflow, WorkflowChatKitConfig
 from orcheo_backend.app.chatkit import message_utils as message_utils_module
 from orcheo_backend.app.chatkit.message_utils import (
     build_action_inputs_payload,
@@ -20,6 +21,10 @@ from orcheo_backend.app.chatkit.message_utils import (
     collect_text_from_user_content,
     extract_reply_from_state,
     stringify_langchain_message,
+)
+from orcheo_backend.app.chatkit.model_selection import (
+    apply_chatkit_selected_model,
+    resolve_chatkit_selected_model,
 )
 
 
@@ -298,7 +303,7 @@ def test_build_action_inputs_payload_includes_widget_and_metadata() -> None:
     thread = ThreadMetadata(
         id="thread",
         created_at=datetime.now(UTC),
-        metadata={"workflow_id": "wf"},
+        metadata={"workflow_id": "wf", "chatkit_model": "openai:gpt-5"},
     )
     history = [{"role": "assistant", "content": "hello"}]
     widget_item = WidgetItemStub(id="widget-id", widget=WidgetWithDump())
@@ -308,7 +313,11 @@ def test_build_action_inputs_payload_includes_widget_and_metadata() -> None:
     assert result["thread_id"] == "thread"
     assert result["session_id"] == "thread"
     assert result["history"] == history
-    assert result["metadata"] == {"workflow_id": "wf"}
+    assert result["metadata"] == {
+        "workflow_id": "wf",
+        "chatkit_model": "openai:gpt-5",
+    }
+    assert result["model"] == "openai:gpt-5"
     assert result["action"]["type"] == "attribute"
     assert result["widget_item_id"] == "widget-id"
     assert result["widget"] == {"type": "Card", "title": "widget"}
@@ -325,3 +334,80 @@ def test_dump_action_handles_non_mapping_model_dump() -> None:
     result = message_utils_module._dump_action(SequenceModelAction())
     assert result["type"] == "sequence"
     assert result["payload"] == {"value": 1}
+
+
+def test_apply_chatkit_selected_model_ignores_unconfigured_model() -> None:
+    workflow = Workflow(name="No picker")
+    inputs = {"message": "hello", "model": "openai:gpt-5"}
+
+    selected_model = apply_chatkit_selected_model(inputs, workflow)
+
+    assert selected_model is None
+    assert inputs == {"message": "hello"}
+
+
+def test_apply_chatkit_selected_model_enforces_workflow_allowlist() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "label": "GPT-5"},
+            ]
+        ),
+    )
+    inputs = {"message": "hello", "model": "openai:gpt-5"}
+
+    selected_model = apply_chatkit_selected_model(inputs, workflow)
+
+    assert selected_model == "openai:gpt-5"
+    assert inputs["model"] == "openai:gpt-5"
+
+
+def test_apply_chatkit_selected_model_defaults_to_configured_model() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5-mini", "label": "GPT-5 Mini"},
+                {"id": "openai:gpt-5", "label": "GPT-5", "default": True},
+            ]
+        ),
+    )
+    inputs = {"message": "hello"}
+
+    selected_model = apply_chatkit_selected_model(inputs, workflow)
+
+    assert selected_model == "openai:gpt-5"
+    assert inputs["model"] == "openai:gpt-5"
+
+
+def test_resolve_chatkit_selected_model_uses_default_when_candidate_blank() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "label": "GPT-5", "default": True},
+                {"id": "openai:gpt-5-mini", "label": "GPT-5 Mini"},
+            ]
+        ),
+    )
+
+    result = resolve_chatkit_selected_model(workflow, "   ")
+
+    assert result == "openai:gpt-5"
+
+
+def test_resolve_chatkit_selected_model_rejects_unknown_candidate() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "label": "GPT-5", "default": True},
+                {"id": "openai:gpt-5-mini", "label": "GPT-5 Mini"},
+            ]
+        ),
+    )
+
+    result = resolve_chatkit_selected_model(workflow, "openai:gpt-6")
+
+    assert result == "openai:gpt-5"

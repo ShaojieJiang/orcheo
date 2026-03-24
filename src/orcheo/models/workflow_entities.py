@@ -10,11 +10,14 @@ from enum import Enum
 from typing import Any, NotRequired, TypedDict
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
-from orcheo.models.base import TimestampedAuditModel, _utcnow
+from orcheo.models.base import OrcheoBaseModel, TimestampedAuditModel, _utcnow
 from orcheo.models.workflow_refs import normalize_workflow_handle
 
 
 __all__ = [
+    "WorkflowChatKitConfig",
+    "ChatKitSupportedModel",
+    "ChatKitStartScreenPrompt",
     "WorkflowDraftAccess",
     "Workflow",
     "WorkflowRun",
@@ -64,6 +67,65 @@ class WorkflowDraftAccess(str, Enum):
     WORKSPACE = "workspace"
 
 
+class ChatKitStartScreenPrompt(OrcheoBaseModel):
+    """Configurable prompt shown on the public ChatKit start screen."""
+
+    label: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=2000)
+    icon: str | None = Field(default=None, max_length=64)
+
+    @field_validator("label", "prompt", mode="before")
+    @classmethod
+    def _normalize_required_text(cls, value: object) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            msg = "ChatKit prompt fields must not be empty."
+            raise ValueError(msg)
+        return candidate
+
+    @field_validator("icon", mode="before")
+    @classmethod
+    def _normalize_icon(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        return candidate or None
+
+
+class ChatKitSupportedModel(OrcheoBaseModel):
+    """Configurable model option shown in the ChatKit composer."""
+
+    id: str = Field(min_length=1, max_length=200)
+    label: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=240)
+    disabled: bool = False
+    default: bool = False
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _normalize_id(cls, value: object) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            msg = "ChatKit model id must not be empty."
+            raise ValueError(msg)
+        return candidate
+
+    @field_validator("label", "description", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        return candidate or None
+
+
+class WorkflowChatKitConfig(OrcheoBaseModel):
+    """Typed configuration for the published ChatKit surface."""
+
+    start_screen_prompts: list[ChatKitStartScreenPrompt] | None = None
+    supported_models: list[ChatKitSupportedModel] | None = None
+
+
 class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
@@ -79,6 +141,7 @@ class Workflow(TimestampedAuditModel):
     published_by: str | None = None
     require_login: bool = False
     share_url: str | None = None
+    chatkit: WorkflowChatKitConfig | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -97,6 +160,32 @@ class Workflow(TimestampedAuditModel):
         ):
             return {**data, "draft_access": WorkflowDraftAccess.WORKSPACE}
         return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _backfill_chatkit_config(cls, data: object) -> object:
+        """Fold legacy top-level ChatKit fields into the typed config object."""
+        if not isinstance(data, Mapping):
+            return data
+        normalized = dict(data)
+        if normalized.get("chatkit") is not None:
+            normalized.pop("chatkit_start_screen_prompts", None)
+            normalized.pop("chatkit_supported_models", None)
+            return normalized
+
+        chatkit_payload: dict[str, Any] = {}
+        if "chatkit_start_screen_prompts" in normalized:
+            chatkit_payload["start_screen_prompts"] = normalized.pop(
+                "chatkit_start_screen_prompts"
+            )
+        if "chatkit_supported_models" in normalized:
+            chatkit_payload["supported_models"] = normalized.pop(
+                "chatkit_supported_models"
+            )
+        if not chatkit_payload:
+            return normalized
+        normalized["chatkit"] = chatkit_payload
+        return normalized
 
     @field_validator("name", mode="before")
     @classmethod
@@ -143,6 +232,53 @@ class Workflow(TimestampedAuditModel):
             raise ValueError(msg)
         object.__setattr__(self, "slug", _slugify(slug_source))
         return self
+
+    @property
+    def chatkit_start_screen_prompts(self) -> list[ChatKitStartScreenPrompt] | None:
+        """Compatibility accessor for the typed ChatKit config."""
+        if self.chatkit is None:
+            return None
+        return self.chatkit.start_screen_prompts
+
+    @chatkit_start_screen_prompts.setter
+    def chatkit_start_screen_prompts(
+        self,
+        value: list[ChatKitStartScreenPrompt] | None,
+    ) -> None:
+        """Compatibility setter for ChatKit starter prompts."""
+        self._set_chatkit_field("start_screen_prompts", value)
+
+    @property
+    def chatkit_supported_models(self) -> list[ChatKitSupportedModel] | None:
+        """Compatibility accessor for the typed ChatKit config."""
+        if self.chatkit is None:
+            return None
+        return self.chatkit.supported_models
+
+    @chatkit_supported_models.setter
+    def chatkit_supported_models(
+        self,
+        value: list[ChatKitSupportedModel] | None,
+    ) -> None:
+        """Compatibility setter for ChatKit supported models."""
+        self._set_chatkit_field("supported_models", value)
+
+    def _set_chatkit_field(
+        self,
+        field_name: str,
+        value: list[ChatKitStartScreenPrompt] | list[ChatKitSupportedModel] | None,
+    ) -> None:
+        """Assign a single ChatKit field while collapsing empty config objects."""
+        chatkit = self.chatkit
+        if chatkit is None:
+            if value is None:
+                return
+            chatkit = WorkflowChatKitConfig()
+            object.__setattr__(self, "chatkit", chatkit)
+
+        setattr(chatkit, field_name, value)
+        if chatkit.start_screen_prompts is None and chatkit.supported_models is None:
+            object.__setattr__(self, "chatkit", None)
 
     # -- Publish management -------------------------------------------------
     def publish(

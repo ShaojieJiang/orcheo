@@ -11,6 +11,10 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_model_name_from_instance,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -352,6 +356,20 @@ class SemanticSimilarityMetricsNode(TaskNode):
         all_texts = str_predictions + str_references
         model = init_dense_embeddings(self.embed_model, self.model_kwargs)
         all_embeddings = await model.aembed_documents(all_texts)
+        if all_embeddings:  # pragma: no branch
+            self._set_trace_metadata_for_run(
+                {
+                    "ai": build_ai_trace_metadata(
+                        kind="embedding",
+                        requested_model=self.embed_model,
+                        actual_model=(
+                            infer_model_name_from_instance(model) or self.embed_model
+                        ),
+                        operation="documents",
+                        vector_size=len(all_embeddings[0]),
+                    )
+                }
+            )
 
         n = len(str_predictions)
         pred_embeddings = all_embeddings[:n]

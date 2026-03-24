@@ -54,6 +54,9 @@ orcheo workflow show <workflow-id>
 # Download the workflow script
 orcheo workflow download <workflow-id>
 
+# Download the script plus stored runnable config defaults
+orcheo workflow download <workflow-id> --config-out workflow.config.json
+
 # Upload an updated script
 orcheo workflow upload --id <workflow-id> updated_script.py
 

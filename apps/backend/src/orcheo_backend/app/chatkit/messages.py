@@ -11,6 +11,7 @@ from chatkit.types import (
     AssistantMessageContent,
     AssistantMessageItem,
     AttachmentBase,
+    InferenceOptions,
     ThreadMetadata,
     UserMessageItem,
 )
@@ -21,6 +22,9 @@ from orcheo_backend.app.chatkit.message_utils import (
     collect_text_from_user_content,
 )
 from orcheo_backend.app.repository import WorkflowRun
+
+
+_UNSET = object()
 
 
 async def build_history(
@@ -100,6 +104,8 @@ def build_inputs_payload(
     message_text: str,
     history: list[dict[str, str]],
     user_item: UserMessageItem | None = None,
+    *,
+    selected_model: str | None | object = _UNSET,
 ) -> dict[str, Any]:
     """Construct the workflow input payload with optional file attachments.
 
@@ -108,6 +114,7 @@ def build_inputs_payload(
         message_text: The user's message text
         history: Conversation history
         user_item: The user message item containing potential attachments
+        selected_model: Validated ChatKit model override for this request
 
     Returns:
         Input payload for the workflow, including documents if attachments present
@@ -119,6 +126,11 @@ def build_inputs_payload(
         "session_id": thread.id,
         "metadata": dict(thread.metadata),
     }
+    resolved_model = selected_model
+    if resolved_model is _UNSET:
+        resolved_model = _selected_model_from_user_item(user_item)
+    if resolved_model:
+        payload["model"] = resolved_model
 
     # Extract file attachments and convert to documents format
     if user_item is not None and hasattr(user_item, "attachments"):
@@ -155,6 +167,31 @@ def build_inputs_payload(
                 payload["documents"] = documents
 
     return payload
+
+
+def sync_thread_inference_metadata(
+    thread: ThreadMetadata,
+    user_item: UserMessageItem | None = None,
+    *,
+    selected_model: str | None | object = _UNSET,
+) -> None:
+    """Persist selected inference options on thread metadata for follow-up actions."""
+    resolved_model = selected_model
+    if resolved_model is _UNSET:
+        resolved_model = _selected_model_from_user_item(user_item)
+    if not resolved_model:
+        if "chatkit_model" not in thread.metadata:
+            return
+        thread.metadata = {
+            key: value
+            for key, value in thread.metadata.items()
+            if key != "chatkit_model"
+        }
+        return
+    thread.metadata = {
+        **thread.metadata,
+        "chatkit_model": resolved_model,
+    }
 
 
 def _chatkit_storage_base() -> Path:
@@ -206,4 +243,19 @@ __all__ = [
     "record_run_metadata",
     "require_workflow_id",
     "resolve_user_item",
+    "sync_thread_inference_metadata",
 ]
+
+
+def _selected_model_from_user_item(user_item: UserMessageItem | None) -> str | None:
+    """Return the selected ChatKit model from a user message when present."""
+    if user_item is None:
+        return None
+    inference_options = getattr(user_item, "inference_options", None)
+    if not isinstance(inference_options, InferenceOptions):
+        return None
+    model = inference_options.model
+    if not isinstance(model, str):
+        return None
+    normalized = model.strip()
+    return normalized or None

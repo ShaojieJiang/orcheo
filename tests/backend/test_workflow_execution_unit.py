@@ -433,6 +433,30 @@ async def test_safe_send_json_propagates_other_errors() -> None:
         await workflow_execution._safe_send_json(websocket, {})
 
 
+def test_sanitize_public_step_payload_strips_trace_metadata() -> None:
+    """Workflow websocket payloads should omit trace-only metadata."""
+
+    payload = {
+        "draft": {
+            "messages": [{"role": "assistant", "content": "done"}],
+            "__trace": {
+                "ai": {
+                    "kind": "llm",
+                    "requested_model": "openai:gpt-4o-mini",
+                }
+            },
+        }
+    }
+
+    sanitized = workflow_execution._sanitize_public_step_payload(payload)
+
+    assert sanitized == {
+        "draft": {
+            "messages": [{"role": "assistant", "content": "done"}],
+        }
+    }
+
+
 def _patch_graph_and_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyGraph:
         def compile(

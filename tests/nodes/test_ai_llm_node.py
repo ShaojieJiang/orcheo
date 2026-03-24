@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.ai import LLMNode
 
@@ -130,3 +131,44 @@ async def test_llmnode_run_with_response_format(
     result = await node.run(state, {})
     assert result == {"messages": [AIMessage(content="done")]}
     assert captured["response_format"] is not None
+
+
+@pytest.mark.asyncio
+async def test_llmnode_call_attaches_actual_model_trace_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLMNode.__call__ should expose requested and actual model metadata."""
+
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {
+        "messages": [
+            AIMessage(
+                content="done",
+                response_metadata={"model_name": "gpt-4o-mini-2024-07-18"},
+                usage_metadata={
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
+            )
+        ]
+    }
+
+    async def fake_prepare_tools(self: LLMNode):  # type: ignore[unused-argument]
+        return []
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", lambda *args, **kwargs: "m")
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.create_agent", lambda *args, **kwargs: fake_agent
+    )
+    monkeypatch.setattr(LLMNode, "_prepare_tools", fake_prepare_tools)
+
+    node = LLMNode(name="llm", ai_model="openai:gpt-4o-mini", input_text="hello")
+    state = State(inputs={}, results={}, structured_response=None)
+
+    result = await node(state, RunnableConfig())
+
+    assert result["__trace"]["ai"]["kind"] == "llm"
+    assert result["__trace"]["ai"]["requested_model"] == "openai:gpt-4o-mini"
+    assert result["__trace"]["ai"]["actual_model"] == "gpt-4o-mini-2024-07-18"
+    assert result["__trace"]["ai"]["provider"] == "openai"

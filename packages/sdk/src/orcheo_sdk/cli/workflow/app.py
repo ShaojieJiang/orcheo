@@ -34,6 +34,34 @@ RunnableConfigFileOption = Annotated[
     str | None,
     typer.Option("--config-file", help="Path to JSON file with runnable config."),
 ]
+ChatKitPromptsOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-prompts",
+        help="JSON array of ChatKit start-screen prompts.",
+    ),
+]
+ChatKitPromptsFileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-prompts-file",
+        help="Path to JSON file with ChatKit start-screen prompts.",
+    ),
+]
+ChatKitModelsOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-models",
+        help="JSON array of ChatKit supported models.",
+    ),
+]
+ChatKitModelsFileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-models-file",
+        help="Path to JSON file with ChatKit supported models.",
+    ),
+]
 EvaluationOption = Annotated[
     str | None,
     typer.Option(
@@ -85,6 +113,13 @@ OutputPathOption = Annotated[
     str | None,
     typer.Option("--output", "-o", help="Output file path (default: stdout)."),
 ]
+ConfigOutputPathOption = Annotated[
+    str | None,
+    typer.Option(
+        "--config-out",
+        help="Path to write stored runnable config JSON, if present.",
+    ),
+]
 VersionOption = Annotated[
     int | None,
     typer.Option("--version", "-v", help="Specific version number to use."),
@@ -101,6 +136,10 @@ __all__ = [
     "listeners_app",
     "WorkflowIdArgument",
     "ActorOption",
+    "ChatKitPromptsFileOption",
+    "ChatKitPromptsOption",
+    "ChatKitModelsFileOption",
+    "ChatKitModelsOption",
     "InputsOption",
     "InputsFileOption",
     "RunnableConfigOption",
@@ -113,6 +152,7 @@ __all__ = [
     "EntrypointOption",
     "WorkflowNameOption",
     "OutputPathOption",
+    "ConfigOutputPathOption",
     "VersionOption",
     "_state",
 ]

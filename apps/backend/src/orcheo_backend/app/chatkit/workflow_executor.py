@@ -1,6 +1,7 @@
 """Workflow execution helpers for the ChatKit server."""
 
 from __future__ import annotations
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
@@ -21,6 +22,10 @@ from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.message_utils import (
     build_initial_state,
     extract_reply_from_state,
+)
+from orcheo_backend.app.chatkit.model_selection import (
+    CHATKIT_MODEL_CONFIG_KEY,
+    apply_chatkit_selected_model,
 )
 from orcheo_backend.app.dependencies import get_history_store
 from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
@@ -131,20 +136,36 @@ class WorkflowExecutor:
         progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Execute the workflow and return the reply, state view, and run."""
-        version = await self._repository.get_latest_version(workflow_id)
+        workflow, version = await asyncio.gather(
+            self._repository.get_workflow(workflow_id),
+            self._repository.get_latest_version(workflow_id),
+        )
+        normalized_inputs = dict(inputs)
+        selected_model = apply_chatkit_selected_model(normalized_inputs, workflow)
         history_store = get_history_store()
-        run = await self._create_run_record(workflow_id, version.id, actor, inputs)
+        run = await self._create_run_record(
+            workflow_id,
+            version.id,
+            actor,
+            normalized_inputs,
+        )
         execution_id = self._resolve_execution_id(run)
         runtime_thread_id = self._resolve_runtime_thread_id(inputs, execution_id)
         merged_config = merge_runnable_configs(version.runnable_config, None)
         config = cast(
             RunnableConfig,
-            _with_thread_id(
-                merged_config.to_runnable_config(execution_id), runtime_thread_id
+            _with_chatkit_model(
+                _with_thread_id(
+                    merged_config.to_runnable_config(execution_id), runtime_thread_id
+                ),
+                selected_model,
             ),
         )
-        state_config = _with_thread_id(
-            merged_config.to_state_config(execution_id), runtime_thread_id
+        state_config = _with_chatkit_model(
+            _with_thread_id(
+                merged_config.to_state_config(execution_id), runtime_thread_id
+            ),
+            selected_model,
         )
 
         await _start_chatkit_history(
@@ -152,7 +173,7 @@ class WorkflowExecutor:
             workflow_id=workflow_id,
             execution_id=execution_id,
             runtime_thread_id=runtime_thread_id,
-            inputs=inputs,
+            inputs=normalized_inputs,
             merged_config=merged_config,
         )
 
@@ -167,7 +188,7 @@ class WorkflowExecutor:
             final_state = await self._execute_graph(
                 workflow_id=workflow_id,
                 graph_config=version.graph,
-                inputs=inputs,
+                inputs=normalized_inputs,
                 config=config,
                 state_config=state_config,
                 step_callback=step_callback,
@@ -394,5 +415,24 @@ def _with_thread_id(config: Mapping[str, Any], thread_id: str) -> dict[str, Any]
     else:
         configurable_payload = {}
     configurable_payload["thread_id"] = thread_id
+    normalized["configurable"] = configurable_payload
+    return normalized
+
+
+def _with_chatkit_model(
+    config: Mapping[str, Any],
+    selected_model: str | None,
+) -> dict[str, Any]:
+    """Return a config mapping with the ChatKit-selected model when present."""
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    if isinstance(configurable, Mapping):
+        configurable_payload = dict(configurable)
+    else:
+        configurable_payload = {}
+    if selected_model:
+        configurable_payload[CHATKIT_MODEL_CONFIG_KEY] = selected_model
+    else:
+        configurable_payload.pop(CHATKIT_MODEL_CONFIG_KEY, None)
     normalized["configurable"] = configurable_payload
     return normalized
