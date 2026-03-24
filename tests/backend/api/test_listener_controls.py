@@ -11,6 +11,7 @@ from orcheo.listeners import (
     ListenerPlatform,
     ListenerSubscriptionStatus,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.dependencies import (
     get_listener_runtime_store,
     get_repository,
@@ -26,6 +27,7 @@ async def _create_listener_workflow(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     version = await repository.create_version(
@@ -197,6 +199,7 @@ def test_list_workflow_listeners_workflow_not_found(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
     )
@@ -221,6 +224,7 @@ def test_get_metrics_workflow_not_found(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
     )

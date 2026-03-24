@@ -16,7 +16,7 @@ from orcheo.listeners import (
     ListenerSubscription,
     ListenerSubscriptionStatus,
 )
-from orcheo.models.workflow import WorkflowRunStatus
+from orcheo.models.workflow import WorkflowDraftAccess, WorkflowRunStatus
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
@@ -351,6 +351,7 @@ async def test_postgres_repository_create_workflow(
         slug="test-slug",
         description="Test description",
         tags=["tag1", "tag2"],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -431,6 +432,44 @@ async def test_postgres_repository_update_workflow_handle(
     assert workflow.handle == "renamed-handle"
     assert any(
         event.metadata.get("handle", {}).get("to") == "renamed-handle"
+        for event in workflow.audit_log
+    )
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_update_workflow_draft_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Updating draft access emits metadata and persists the new mode."""
+
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _workflow_payload(
+                    workflow_id,
+                    draft_access=WorkflowDraftAccess.PERSONAL,
+                )
+            }
+        },
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.update_workflow(
+        workflow_id,
+        name=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+        is_archived=None,
+        actor="updater",
+    )
+
+    assert workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED
+    assert any(
+        event.metadata.get("draft_access", {}).get("to")
+        == WorkflowDraftAccess.AUTHENTICATED.value
         for event in workflow.audit_log
     )
 

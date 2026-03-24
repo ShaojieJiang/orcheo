@@ -7,6 +7,7 @@ import pytest
 from chatkit.errors import CustomStreamError
 from chatkit.types import ThreadMetadata
 from pydantic import BaseModel
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.chatkit import OrcheoChatKitServer
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from tests.backend.chatkit_test_utils import (
@@ -23,6 +24,7 @@ async def test_chatkit_server_run_workflow_end_to_end() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -70,6 +72,7 @@ async def test_chatkit_server_run_workflow_without_reply() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 

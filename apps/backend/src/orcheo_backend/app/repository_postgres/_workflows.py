@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from inspect import isawaitable
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import Workflow
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
@@ -67,6 +67,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         slug: str | None,
         description: str | None,
         tags: Iterable[str] | None,
+        draft_access: WorkflowDraftAccess,
         actor: str,
     ) -> Workflow:
         await self._ensure_initialized()
@@ -83,6 +84,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
+                draft_access=draft_access,
             )
             workflow.record_event(actor=actor, action="workflow_created")
             async with self._connection() as conn:
@@ -135,6 +137,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
+        draft_access: WorkflowDraftAccess | None = None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:
@@ -180,6 +183,13 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         "to": normalized_tags,
                     }
                     workflow.tags = normalized_tags
+
+            if draft_access is not None and draft_access != workflow.draft_access:
+                metadata["draft_access"] = {
+                    "from": workflow.draft_access.value,
+                    "to": draft_access.value,
+                }
+                workflow.draft_access = draft_access
 
             if is_archived is not None and is_archived != workflow.is_archived:
                 if is_archived and workflow.is_public:
@@ -227,6 +237,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             handle=None,
             description=None,
             tags=None,
+            draft_access=None,
             is_archived=True,
             actor=actor,
         )

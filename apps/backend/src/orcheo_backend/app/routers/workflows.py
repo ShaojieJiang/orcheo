@@ -10,6 +10,7 @@ from orcheo.config import get_settings
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models.workflow import (
     Workflow,
+    WorkflowDraftAccess,
     WorkflowVersion,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
@@ -313,6 +314,7 @@ async def create_workflow(
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context)
+    draft_access = _resolve_draft_access(request.draft_access, tags, context)
 
     try:
         create_kwargs: dict[str, Any] = {
@@ -320,6 +322,7 @@ async def create_workflow(
             "slug": request.slug,
             "description": request.description,
             "tags": tags,
+            "draft_access": draft_access,
             "actor": actor,
         }
         if request.handle is not None:
@@ -381,12 +384,25 @@ async def update_workflow(
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context, preserve_none=True)
+    draft_access_tags = tags
+    if request.draft_access is not None and draft_access_tags is None:
+        try:
+            existing_workflow = await repository.get_workflow(workflow_id)
+        except WorkflowNotFoundError as exc:
+            raise_not_found("Workflow not found", exc)
+        draft_access_tags = existing_workflow.tags
+    draft_access = (
+        _resolve_draft_access(request.draft_access, draft_access_tags, context)
+        if request.draft_access is not None
+        else None
+    )
 
     try:
         update_kwargs: dict[str, Any] = {
             "name": request.name,
             "description": request.description,
             "tags": tags,
+            "draft_access": draft_access,
             "is_archived": request.is_archived,
             "actor": actor,
         }
@@ -672,6 +688,103 @@ def _extract_workflow_workspace_ids(workflow: Workflow) -> frozenset[str]:
     return frozenset(workspaces)
 
 
+def _resolve_draft_access(
+    requested_draft_access: WorkflowDraftAccess | None,
+    tags: list[str] | None,
+    context: RequestContext | None,
+) -> WorkflowDraftAccess:
+    """Resolve draft access from explicit input, tags, and auth context."""
+    has_workspace_tags = bool(
+        tags
+        and any(tag.lower().startswith("workspace:") and ":" in tag for tag in tags)
+    )
+    if requested_draft_access is not None:
+        if (
+            requested_draft_access is WorkflowDraftAccess.PERSONAL
+            and has_workspace_tags
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": (
+                        "Personal draft workflows cannot include workspace tags."
+                    ),
+                    "code": "workflow.draft_access.conflict",
+                },
+            )
+        if (
+            requested_draft_access is WorkflowDraftAccess.WORKSPACE
+            and not has_workspace_tags
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": (
+                        "Workspace draft workflows require at least one workspace tag."
+                    ),
+                    "code": "workflow.draft_access.workspace_required",
+                },
+            )
+        return requested_draft_access
+
+    if context is not None and context.identity_type == "user":
+        return WorkflowDraftAccess.AUTHENTICATED
+    if has_workspace_tags:
+        return WorkflowDraftAccess.WORKSPACE
+    if context is not None and context.workspace_ids:
+        return WorkflowDraftAccess.WORKSPACE
+    return WorkflowDraftAccess.PERSONAL
+
+
+def _authorize_draft_workflow_access(
+    workflow: Workflow,
+    context: RequestContext,
+) -> None:
+    """Authorize access to an unpublished workflow draft."""
+    workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+    request_workspaces = frozenset(
+        _normalize_workspace_id(workspace_id)
+        for workspace_id in context.workspace_ids
+        if workspace_id
+    )
+    if workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED:
+        return
+    if workflow.draft_access is WorkflowDraftAccess.WORKSPACE:
+        if not workflow_workspaces:
+            raise AuthorizationError(
+                "Workspace access denied for workflow.",
+                code="auth.workspace_forbidden",
+            )
+        if not request_workspaces:
+            raise AuthorizationError(
+                "Workspace access required for workflow.",
+                code="auth.workspace_forbidden",
+            )
+        if not workflow_workspaces.intersection(request_workspaces):
+            raise AuthorizationError(
+                "Workspace access denied for workflow.",
+                code="auth.workspace_forbidden",
+            )
+        return
+
+    owner = _resolve_workflow_owner(workflow)
+    if owner is not None and owner != context.subject:
+        if context.identity_type == "developer":
+            logger.debug(
+                "Bypassing workflow owner check for developer context",
+                extra={
+                    "workflow_id": str(workflow.id),
+                    "owner": owner,
+                    "subject": context.subject,
+                },
+            )
+            return
+        raise AuthorizationError(
+            "Workflow access denied for caller.",
+            code="auth.forbidden",
+        )
+
+
 def _resolve_workflow_owner(workflow: Workflow) -> str | None:
     """Return the actor associated with the workflow's creation event."""
     if not workflow.audit_log:
@@ -751,40 +864,7 @@ async def create_workflow_chatkit_session(
         raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     if auth_enforced:
-        workflow_workspaces = _extract_workflow_workspace_ids(workflow)
-        request_workspaces = frozenset(
-            _normalize_workspace_id(workspace_id)
-            for workspace_id in context.workspace_ids
-            if workspace_id
-        )
-        if workflow_workspaces:
-            if not request_workspaces:
-                raise AuthorizationError(
-                    "Workspace access required for workflow.",
-                    code="auth.workspace_forbidden",
-                )
-            if not workflow_workspaces.intersection(request_workspaces):
-                raise AuthorizationError(
-                    "Workspace access denied for workflow.",
-                    code="auth.workspace_forbidden",
-                )
-        else:
-            owner = _resolve_workflow_owner(workflow)
-            if owner is not None and owner != context.subject:
-                if context.identity_type == "developer":
-                    logger.debug(
-                        "Bypassing workflow owner check for developer context",
-                        extra={
-                            "workflow_id": str(workflow.id),
-                            "owner": owner,
-                            "subject": context.subject,
-                        },
-                    )
-                else:
-                    raise AuthorizationError(
-                        "Workflow access denied for caller.",
-                        code="auth.forbidden",
-                    )
+        _authorize_draft_workflow_access(workflow, context)
 
     metadata = {
         "workflow_id": str(workflow.id),

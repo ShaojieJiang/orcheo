@@ -12,7 +12,12 @@ from orcheo.listeners import (
     ListenerSubscription,
     ListenerSubscriptionStatus,
 )
-from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models.workflow import (
+    Workflow,
+    WorkflowDraftAccess,
+    WorkflowRun,
+    WorkflowVersion,
+)
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.retry import RetryDecision, RetryPolicyConfig
@@ -43,6 +48,7 @@ class WorkflowRepository(Protocol):
         slug: str | None,
         description: str | None,
         tags: Iterable[str] | None,
+        draft_access: WorkflowDraftAccess,
         actor: str,
     ) -> Workflow:
         """Persist and return a new workflow definition."""
@@ -66,6 +72,7 @@ class WorkflowRepository(Protocol):
         handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
+        draft_access: WorkflowDraftAccess | None = None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:

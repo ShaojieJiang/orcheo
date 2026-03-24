@@ -24,6 +24,7 @@ from orcheo.models.secret_governance import (
 )
 from orcheo.models.workflow_entities import (
     Workflow,
+    WorkflowDraftAccess,
     WorkflowRun,
     WorkflowRunStatus,
     WorkflowVersion,
@@ -52,6 +53,7 @@ __all__ = [
     "SecretGovernanceAlertSeverity",
     "TimestampedAuditModel",
     "Workflow",
+    "WorkflowDraftAccess",
     "WorkflowRun",
     "WorkflowRunStatus",
     "WorkflowVersion",

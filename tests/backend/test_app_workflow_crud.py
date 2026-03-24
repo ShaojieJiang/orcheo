@@ -119,13 +119,16 @@ async def test_create_workflow_returns_new_workflow() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def create_workflow(self, name, slug, description, tags, actor):
+        async def create_workflow(
+            self, name, slug, description, tags, draft_access, actor
+        ):
             return Workflow(
                 id=workflow_id,
                 name=name,
                 slug=slug,
                 description=description,
                 tags=tags,
+                draft_access=draft_access,
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
             )
@@ -151,9 +154,16 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
 
     class Repository:
         async def create_workflow(
-            self, name, slug, description, tags, actor, handle=None
+            self,
+            name,
+            slug,
+            description,
+            tags,
+            draft_access,
+            actor,
+            handle=None,
         ):
-            del name, slug, description, tags, actor, handle
+            del name, slug, description, tags, draft_access, actor, handle
             raise WorkflowHandleConflictError(
                 "Workflow handle 'demo' is already in use."
             )
@@ -271,7 +281,7 @@ async def test_update_workflow_returns_updated() -> None:
             return workflow_id
 
         async def update_workflow(
-            self, wf_id, name, description, tags, is_archived, actor
+            self, wf_id, name, description, tags, draft_access, is_archived, actor
         ):
             return Workflow(
                 id=wf_id,
@@ -279,6 +289,7 @@ async def test_update_workflow_returns_updated() -> None:
                 slug="test-workflow",
                 description=description,
                 tags=tags or [],
+                draft_access=draft_access or "personal",
                 is_archived=is_archived,
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
@@ -309,8 +320,9 @@ async def test_update_workflow_not_found() -> None:
             return workflow_id
 
         async def update_workflow(
-            self, wf_id, name, description, tags, is_archived, actor
+            self, wf_id, name, description, tags, draft_access, is_archived, actor
         ):
+            del draft_access
             raise WorkflowNotFoundError("not found")
 
     request = WorkflowUpdateRequest(
@@ -336,9 +348,17 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
             return workflow_id
 
         async def update_workflow(
-            self, wf_id, name, description, tags, is_archived, actor, handle=None
+            self,
+            wf_id,
+            name,
+            description,
+            tags,
+            draft_access,
+            is_archived,
+            actor,
+            handle=None,
         ):
-            del wf_id, name, description, tags, is_archived, actor, handle
+            del wf_id, name, description, tags, draft_access, is_archived, actor, handle
             raise WorkflowHandleConflictError(
                 "Workflow handle 'demo' is already in use."
             )

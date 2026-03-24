@@ -9,6 +9,7 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
 )
 from orcheo.models.base import _utcnow
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
@@ -36,7 +37,12 @@ async def test_inmemory_latest_version_missing_instance() -> None:
     repository = InMemoryWorkflowRepository()
 
     workflow = await repository.create_workflow(
-        name="Latest", slug=None, description=None, tags=None, actor="tester"
+        name="Latest",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
     version = await repository.create_version(
         workflow.id,
@@ -59,7 +65,12 @@ async def test_inmemory_handle_webhook_missing_version_object() -> None:
     repository = InMemoryWorkflowRepository()
 
     workflow = await repository.create_workflow(
-        name="Webhook", slug=None, description=None, tags=None, actor="tester"
+        name="Webhook",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
     version = await repository.create_version(
         workflow.id,
@@ -92,7 +103,12 @@ async def test_inmemory_cron_dispatch_skips_missing_versions() -> None:
     repository = InMemoryWorkflowRepository()
 
     workflow = await repository.create_workflow(
-        name="Cron", slug=None, description=None, tags=None, actor="owner"
+        name="Cron",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="owner",
     )
     version = await repository.create_version(
         workflow.id,
@@ -133,7 +149,12 @@ async def test_inmemory_publish_workflow_translates_value_errors() -> None:
 
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
-        name="Publish Twice", slug=None, description=None, tags=None, actor="tester"
+        name="Publish Twice",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
     await repository.publish_workflow(
         workflow.id,
@@ -169,6 +190,7 @@ async def test_inmemory_revoke_publish_requires_published_state() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -216,6 +238,7 @@ async def test_inmemory_disable_listeners_skips_missing_and_disabled() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.create_version(
@@ -258,6 +281,7 @@ async def test_inmemory_dispatch_listener_event_raises_when_version_missing() ->
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     version = await repository.create_version(
@@ -298,6 +322,7 @@ async def test_inmemory_dispatch_listener_event_prunes_expired_dedupe() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.create_version(

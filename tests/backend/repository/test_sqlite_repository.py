@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 import aiosqlite
 import pytest
-from orcheo.models.workflow import Workflow
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -39,6 +39,7 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.create_version(
@@ -253,6 +254,7 @@ async def test_sqlite_dispatch_due_cron_runs_persists_last_dispatched(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="owner",
         )
         await repository.create_version(
@@ -299,6 +301,7 @@ async def test_sqlite_cron_dispatch_reflects_external_unschedule(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await api_repository.create_version(
@@ -347,6 +350,7 @@ async def test_sqlite_refresh_cron_triggers_hydrates_missing_state(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await api_repository.configure_cron_trigger(
@@ -383,6 +387,7 @@ async def test_sqlite_refresh_cron_triggers_updates_changed_configs(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await primary_repository.create_version(
@@ -427,6 +432,7 @@ async def test_sqlite_refresh_cron_triggers_updates_last_dispatched_at(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await api_repository.create_version(
@@ -514,6 +520,7 @@ async def test_sqlite_persistence_ensure_handle_available_locked_rejects_conflic
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
 
@@ -559,6 +566,7 @@ async def test_sqlite_handle_webhook_trigger_success(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.create_version(
@@ -623,6 +631,7 @@ async def test_sqlite_publish_revoke_workflow_lifecycle(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         published = await repository.publish_workflow(
@@ -656,6 +665,7 @@ async def test_sqlite_archive_workflow_revokes_publish(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.publish_workflow(
@@ -691,6 +701,7 @@ async def test_sqlite_publish_workflow_translates_value_error(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.publish_workflow(
@@ -724,6 +735,7 @@ async def test_sqlite_publish_archived_workflow_raises_not_found(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.archive_workflow(workflow.id, actor="author")
@@ -753,6 +765,7 @@ async def test_sqlite_revoke_requires_published_state(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
 
@@ -777,6 +790,7 @@ async def test_sqlite_revoke_archived_workflow_raises_not_found(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.archive_workflow(workflow.id, actor="author")
@@ -807,6 +821,7 @@ async def test_sqlite_hydrate_cron_overlap_logs_warning(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         version = await repository.create_version(
@@ -894,6 +909,7 @@ async def test_sqlite_disable_listener_subscriptions_locked_without_conn(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.create_version(

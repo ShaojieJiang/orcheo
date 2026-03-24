@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -37,7 +38,12 @@ async def test_webhook_configuration_roundtrip(
     """Webhook configuration persists and returns deep copies."""
 
     workflow = await repository.create_workflow(
-        name="Webhook", slug=None, description=None, tags=None, actor="tester"
+        name="Webhook",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
     config = WebhookTriggerConfig(allowed_methods={"POST", "GET"})
 
@@ -65,7 +71,12 @@ async def test_handle_webhook_trigger_missing_resources(
         )
 
     workflow = await repository.create_workflow(
-        name="Webhook Flow", slug=None, description=None, tags=None, actor="tester"
+        name="Webhook Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
 
     with pytest.raises(WorkflowVersionNotFoundError):

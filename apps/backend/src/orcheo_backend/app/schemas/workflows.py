@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
-from orcheo.models.workflow import Workflow, WorkflowVersion
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo.runtime.runnable_config import RunnableConfigModel
 
@@ -19,6 +19,7 @@ class WorkflowCreateRequest(BaseModel):
     slug: str | None = None
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
+    draft_access: WorkflowDraftAccess | None = None
     actor: str = Field(default="system")
 
     @field_validator("handle", mode="before")
@@ -36,6 +37,7 @@ class WorkflowUpdateRequest(BaseModel):
     handle: str | None = None
     description: str | None = None
     tags: list[str] | None = None
+    draft_access: WorkflowDraftAccess | None = None
     is_archived: bool | None = None
     actor: str = Field(default="system")
 

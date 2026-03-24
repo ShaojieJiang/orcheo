@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 import pytest
 from starlette.requests import Request
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
 from tests.backend.api.shared import backend_app
 
@@ -45,6 +46,7 @@ async def test_authenticate_chatkit_invocation_with_jwt(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -78,6 +80,7 @@ async def test_authenticate_chatkit_invocation_with_public_access(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -109,6 +112,7 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 

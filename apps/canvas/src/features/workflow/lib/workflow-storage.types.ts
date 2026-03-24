@@ -11,6 +11,7 @@ export interface ApiWorkflow {
   name: string;
   slug: string;
   description: string | null;
+  draft_access?: "personal" | "authenticated" | "workspace";
   tags: string[];
   is_archived: boolean;
   is_public: boolean;
@@ -208,6 +209,7 @@ export interface WorkflowVersionRecord {
 
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];
+  draftAccess?: "personal" | "authenticated" | "workspace";
   isArchived?: boolean;
   isPublic?: boolean;
   shareUrl?: string | null;

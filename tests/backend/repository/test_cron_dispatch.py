@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo_backend.app.repository import WorkflowRepository
 from .helpers import _remove_version
@@ -18,6 +19,7 @@ async def test_cron_trigger_overlap_guard(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(
@@ -70,6 +72,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.configure_cron_trigger(
@@ -82,6 +85,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     orphaned_version = await repository.create_version(
@@ -102,6 +106,7 @@ async def test_dispatch_due_cron_runs_handles_edge_cases(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(
@@ -145,6 +150,7 @@ async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import jwt
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import Workflow
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     AuthorizationError,
@@ -316,7 +316,11 @@ async def test_create_workflow_chatkit_session_falls_back_to_owner() -> None:
 async def test_create_workflow_chatkit_session_requires_workspace_access_for_tagged_workflows() -> (  # noqa: E501
     None
 ):
-    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-1"])
+    workflow = Workflow(
+        name="Canvas Workflow",
+        tags=["workspace:ws-1"],
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(
         RequestContext(
@@ -339,8 +343,78 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_allows_authenticated_scope_without_tags() -> (  # noqa: E501
+    None
+):
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+    )
+    workflow.record_event(actor="canvas-owner", action="workflow_created")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="another-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        str(workflow.id),
+        repo,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_rejects_workspace_scope_without_tags() -> (  # noqa: E501
+    None
+):
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    workflow.record_event(actor="canvas-owner", action="workflow_created")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="another-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(AuthorizationError) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            str(workflow.id),
+            repo,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.code == "auth.workspace_forbidden"
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_denies_when_owner_mismatch() -> None:
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.PERSONAL,
+    )
     workflow.record_event(actor="canvas-owner", action="workflow_created")
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(
@@ -367,7 +441,10 @@ async def test_create_workflow_chatkit_session_denies_when_owner_mismatch() -> N
 async def test_create_workflow_chatkit_session_allows_developer_owner_mismatch() -> (
     None
 ):
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.PERSONAL,
+    )
     workflow.record_event(actor="cli", action="workflow_created")
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(
@@ -399,7 +476,10 @@ async def test_create_workflow_chatkit_session_allows_developer_owner_mismatch()
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_allows_ownerless_workflow() -> None:
-    workflow = Workflow(name="Canvas Workflow")
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.PERSONAL,
+    )
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(
         RequestContext(

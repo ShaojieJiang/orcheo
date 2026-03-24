@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -21,6 +22,7 @@ async def test_configure_retry_policy_and_schedule_decision(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     version = await repository.create_version(
@@ -94,6 +96,7 @@ async def test_retry_policy_round_trip(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="qa",
     )
     config = RetryPolicyConfig(max_attempts=4, initial_delay_seconds=12.5)

@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app import create_app, ingest_workflow_version
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import (
@@ -27,7 +28,12 @@ def test_ingest_workflow_version_endpoint_creates_version(
     repository = InMemoryWorkflowRepository()
     workflow = asyncio.run(
         repository.create_workflow(
-            name="LangGraph", slug=None, description=None, tags=[], actor="tester"
+            name="LangGraph",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
         )
     )
 
@@ -80,7 +86,12 @@ def test_ingest_workflow_version_invalid_script_returns_400(
     repository = InMemoryWorkflowRepository()
     workflow = asyncio.run(
         repository.create_workflow(
-            name="Bad Script", slug=None, description=None, tags=[], actor="tester"
+            name="Bad Script",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
         )
     )
 

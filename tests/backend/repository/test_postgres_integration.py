@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import WorkflowRunStatus
+from orcheo.models.workflow import WorkflowDraftAccess, WorkflowRunStatus
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -221,6 +221,7 @@ async def test_postgres_workflow_full_lifecycle(
         slug="full-lifecycle",
         description="Testing complete lifecycle",
         tags=["test", "lifecycle"],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     assert workflow.name == "Full Lifecycle"

@@ -2,7 +2,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import CredentialHealthStatus
+from orcheo.models.workflow import (
+    CredentialHealthStatus,
+    WorkflowDraftAccess,
+)
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.vault.oauth import CredentialHealthReport, CredentialHealthResult
 from orcheo_backend.app.repository import (
@@ -74,6 +77,7 @@ async def test_cron_dispatch_skips_unhealthy_workflows(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="owner",
         )
         healthy = await repository.create_workflow(
@@ -81,6 +85,7 @@ async def test_cron_dispatch_skips_unhealthy_workflows(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="owner",
         )
 

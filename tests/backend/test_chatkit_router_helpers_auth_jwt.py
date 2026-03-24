@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -62,6 +63,7 @@ async def test_authenticate_jwt_request_requires_claims(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     monkeypatch.setattr(chatkit, "_decode_chatkit_jwt", lambda token: {})  # type: ignore[attr-defined]
@@ -87,6 +89,7 @@ async def test_authenticate_jwt_request_validates_workflow_claim(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     monkeypatch.setattr(
@@ -116,6 +119,7 @@ async def test_authenticate_jwt_request_detects_workflow_mismatch(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     claimed_id = uuid4()
@@ -169,6 +173,7 @@ async def test_authenticate_jwt_request_rejects_archived_workflow(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.archive_workflow(workflow.id, actor="tester")
