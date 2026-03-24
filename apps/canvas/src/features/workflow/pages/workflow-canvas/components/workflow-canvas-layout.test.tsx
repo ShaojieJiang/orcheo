@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 
 import { WorkflowCanvasLayout } from "./workflow-canvas-layout";
+
+const canvasChatBubbleMock = vi.fn(() => <div data-testid="chat-bubble" />);
 
 vi.mock("@features/shared/components/top-navigation", () => ({
   default: () => <div data-testid="top-navigation" />,
@@ -12,7 +14,7 @@ vi.mock("@features/workflow/components/panels/workflow-tabs", () => ({
 }));
 
 vi.mock("@features/chatkit/components/canvas-chat-bubble", () => ({
-  CanvasChatBubble: () => <div data-testid="chat-bubble" />,
+  CanvasChatBubble: (props: unknown) => canvasChatBubbleMock(props),
 }));
 
 vi.mock(
@@ -44,6 +46,77 @@ vi.mock(
 );
 
 describe("WorkflowCanvasLayout", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("passes workflow chatkit prompts and models to the canvas chat bubble", () => {
+    render(
+      <WorkflowCanvasLayout
+        topNavigationProps={
+          {
+            currentWorkflow: { name: "Workflow", id: "wf-1" },
+          } as never
+        }
+        tabsProps={{
+          activeTab: "workflow",
+          onTabChange: vi.fn(),
+          readinessAlertCount: 0,
+        }}
+        workflowProps={{} as never}
+        traceProps={{} as never}
+        readinessProps={{} as never}
+        settingsProps={{} as never}
+        chat={
+          {
+            isChatOpen: true,
+            chatTitle: "Workflow",
+            user: { id: "user-1", name: "User", avatar: "" },
+            ai: { id: "ai-1", name: "AI", avatar: "" },
+            activeChatNodeId: "chat-node-1",
+            workflowId: "wf-1",
+            backendBaseUrl: "http://localhost:8000",
+            startScreenPrompts: [
+              {
+                label: "Summarize",
+                prompt: "Summarize the latest run.",
+                icon: "search",
+              },
+            ],
+            supportedModels: [
+              { id: "openai:gpt-5", label: "GPT-5", default: true },
+            ],
+            handleChatResponseStart: vi.fn(),
+            handleChatResponseEnd: vi.fn(),
+            handleChatClientTool: vi.fn(),
+            getClientSecret: vi.fn(),
+            refreshSession: vi.fn(),
+            sessionStatus: "ready",
+            sessionError: null,
+            handleCloseChat: vi.fn(),
+            setIsChatOpen: vi.fn(),
+          } as never
+        }
+      />,
+    );
+
+    expect(screen.getByTestId("chat-bubble")).toBeInTheDocument();
+    expect(canvasChatBubbleMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startScreenPrompts: [
+          {
+            label: "Summarize",
+            prompt: "Summarize the latest run.",
+            icon: "search",
+          },
+        ],
+        supportedModels: [
+          { id: "openai:gpt-5", label: "GPT-5", default: true },
+        ],
+      }),
+    );
+  });
+
   it("keeps the workflow tab mounted but hidden when trace is active", () => {
     render(
       <WorkflowCanvasLayout

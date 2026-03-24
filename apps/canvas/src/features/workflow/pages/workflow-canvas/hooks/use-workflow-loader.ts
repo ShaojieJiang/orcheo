@@ -19,6 +19,10 @@ import {
   getWorkflowById,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 import { loadWorkflowExecutions } from "@features/workflow/lib/workflow-execution-storage";
 import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
@@ -30,6 +34,12 @@ interface UseWorkflowLoaderParams<TNode, TEdge> {
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
+  setChatkitStartScreenPrompts: Dispatch<
+    SetStateAction<ChatKitStartScreenPrompt[] | null>
+  >;
+  setChatkitSupportedModels: Dispatch<
+    SetStateAction<ChatKitSupportedModel[] | null>
+  >;
   setIsWorkflowPublic: Dispatch<SetStateAction<boolean>>;
   setWorkflowShareUrl: Dispatch<SetStateAction<string | null>>;
   setIsWorkflowLoading: Dispatch<SetStateAction<boolean>>;
@@ -52,6 +62,8 @@ export function useWorkflowLoader<TNode, TEdge>({
   setWorkflowDescription,
   setWorkflowTags,
   setWorkflowVersions,
+  setChatkitStartScreenPrompts,
+  setChatkitSupportedModels,
   setIsWorkflowPublic,
   setWorkflowShareUrl,
   setIsWorkflowLoading,
@@ -75,6 +87,8 @@ export function useWorkflowLoader<TNode, TEdge>({
       setWorkflowDescription("");
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
+      setChatkitStartScreenPrompts(null);
+      setChatkitSupportedModels(null);
       setIsWorkflowPublic(false);
       setWorkflowShareUrl(null);
       setExecutions([]);
@@ -88,6 +102,8 @@ export function useWorkflowLoader<TNode, TEdge>({
         loadedHistoryWorkflowIdRef.current = null;
         setExecutions([]);
         setActiveExecutionId(null);
+        setChatkitStartScreenPrompts(null);
+        setChatkitSupportedModels(null);
         setIsWorkflowLoading(false);
         setWorkflowLoadError(null);
         return;
@@ -105,6 +121,10 @@ export function useWorkflowLoader<TNode, TEdge>({
           setWorkflowDescription(persisted.description ?? "");
           setWorkflowTags(persisted.tags ?? ["draft"]);
           setWorkflowVersions(persisted.versions ?? []);
+          setChatkitStartScreenPrompts(
+            persisted.chatkitStartScreenPrompts ?? null,
+          );
+          setChatkitSupportedModels(persisted.chatkitSupportedModels ?? null);
           setIsWorkflowPublic(persisted.isPublic ?? false);
           setWorkflowShareUrl(persisted.shareUrl ?? null);
           setExecutions([]);
@@ -156,6 +176,8 @@ export function useWorkflowLoader<TNode, TEdge>({
           setWorkflowLoadError(
             error instanceof Error ? error.message : "Unknown error occurred",
           );
+          setChatkitStartScreenPrompts(null);
+          setChatkitSupportedModels(null);
           setIsWorkflowPublic(false);
           setWorkflowShareUrl(null);
           setExecutions([]);
@@ -182,6 +204,8 @@ export function useWorkflowLoader<TNode, TEdge>({
         setWorkflowDescription(template.description ?? "");
         setWorkflowTags(template.tags.filter((tag) => tag !== "template"));
         setWorkflowVersions([]);
+        setChatkitStartScreenPrompts(null);
+        setChatkitSupportedModels(null);
         setIsWorkflowPublic(false);
         setWorkflowShareUrl(null);
         setExecutions([]);
@@ -230,6 +254,8 @@ export function useWorkflowLoader<TNode, TEdge>({
     setExecutions,
     setActiveExecutionId,
     setWorkflowDescription,
+    setChatkitStartScreenPrompts,
+    setChatkitSupportedModels,
     setIsWorkflowPublic,
     setWorkflowName,
     setIsWorkflowLoading,

@@ -234,6 +234,7 @@ export interface StoredWorkflow extends Workflow {
   isArchived?: boolean;
   isPublic?: boolean;
   shareUrl?: string | null;
+  chatkitStartScreenPrompts?: ChatKitStartScreenPrompt[] | null;
   chatkitSupportedModels?: ChatKitSupportedModel[] | null;
 }
 

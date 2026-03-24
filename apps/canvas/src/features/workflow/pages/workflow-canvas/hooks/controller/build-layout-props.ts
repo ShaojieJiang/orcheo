@@ -2,6 +2,10 @@ import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 import type { TraceTabContentProps } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
@@ -56,6 +60,8 @@ export interface WorkflowLayoutProps {
     activeChatNodeId: string | null;
     workflowId: string | null;
     backendBaseUrl: string | null;
+    startScreenPrompts: ChatKitStartScreenPrompt[] | null;
+    supportedModels: ChatKitSupportedModel[] | null;
     handleChatResponseStart: () => void;
     handleChatResponseEnd: () => void;
     handleChatClientTool: (tool: unknown) => void;
@@ -164,6 +170,8 @@ export function buildWorkflowLayoutProps(
       activeChatNodeId: core.chat.activeChatNodeId,
       workflowId: core.chat.workflowId,
       backendBaseUrl: core.chat.backendBaseUrl,
+      startScreenPrompts: core.metadata.chatkitStartScreenPrompts,
+      supportedModels: core.metadata.chatkitSupportedModels,
       handleChatResponseStart: core.chat.handleChatResponseStart,
       handleChatResponseEnd: core.chat.handleChatResponseEnd,
       handleChatClientTool: core.chat.handleChatClientTool,

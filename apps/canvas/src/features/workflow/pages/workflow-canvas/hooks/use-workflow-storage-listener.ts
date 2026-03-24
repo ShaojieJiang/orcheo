@@ -6,6 +6,10 @@ import {
   getWorkflowById,
 } from "@features/workflow/lib/workflow-storage";
 import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 
 interface UseWorkflowStorageListenerParams {
   currentWorkflowId: string | null;
@@ -13,6 +17,12 @@ interface UseWorkflowStorageListenerParams {
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
+  setChatkitStartScreenPrompts: Dispatch<
+    SetStateAction<ChatKitStartScreenPrompt[] | null>
+  >;
+  setChatkitSupportedModels: Dispatch<
+    SetStateAction<ChatKitSupportedModel[] | null>
+  >;
 }
 
 export function useWorkflowStorageListener({
@@ -21,6 +31,8 @@ export function useWorkflowStorageListener({
   setWorkflowDescription,
   setWorkflowVersions,
   setWorkflowTags,
+  setChatkitStartScreenPrompts,
+  setChatkitSupportedModels,
 }: UseWorkflowStorageListenerParams) {
   useEffect(() => {
     if (!currentWorkflowId) {
@@ -40,6 +52,10 @@ export function useWorkflowStorageListener({
           setWorkflowDescription(updated.description ?? "");
           setWorkflowVersions(updated.versions ?? []);
           setWorkflowTags(updated.tags ?? ["draft"]);
+          setChatkitStartScreenPrompts(
+            updated.chatkitStartScreenPrompts ?? null,
+          );
+          setChatkitSupportedModels(updated.chatkitSupportedModels ?? null);
         }
       } catch (error) {
         console.error("Failed to reload workflow", error);
@@ -56,6 +72,8 @@ export function useWorkflowStorageListener({
   }, [
     currentWorkflowId,
     setWorkflowDescription,
+    setChatkitStartScreenPrompts,
+    setChatkitSupportedModels,
     setWorkflowName,
     setWorkflowTags,
     setWorkflowVersions,

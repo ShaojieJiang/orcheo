@@ -12,6 +12,10 @@ import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/compon
 import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 import { WorkflowTabContent } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
+import type {
+  ChatKitStartScreenPrompt,
+  ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 
 interface ChatState {
   isChatOpen: boolean;
@@ -29,6 +33,8 @@ interface ChatState {
   activeChatNodeId: string | null;
   workflowId: string | null;
   backendBaseUrl: string | null;
+  startScreenPrompts: ChatKitStartScreenPrompt[] | null;
+  supportedModels: ChatKitSupportedModel[] | null;
   handleChatResponseStart: () => void;
   handleChatResponseEnd: () => void;
   handleChatClientTool: (tool: unknown) => void;
@@ -125,6 +131,8 @@ export function WorkflowCanvasLayout({
             chatNodeId: chat.activeChatNodeId,
           }}
           backendBaseUrl={chat.backendBaseUrl}
+          startScreenPrompts={chat.startScreenPrompts}
+          supportedModels={chat.supportedModels}
           getClientSecret={chat.getClientSecret}
           sessionStatus={chat.sessionStatus}
           sessionError={chat.sessionError}
