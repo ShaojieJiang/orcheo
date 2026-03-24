@@ -80,8 +80,23 @@ def _validate_orcheo_skill(source_dir: Path) -> None:
 
 
 def _extract_downloaded_skill(archive_path: Path, destination_root: Path) -> Path:
+    destination_root_resolved = destination_root.resolve()
     with tarfile.open(archive_path, mode="r:gz") as archive:
-        archive.extractall(destination_root)
+        members = archive.getmembers()
+        for member in members:
+            member_path = (destination_root / member.name).resolve()
+            if destination_root_resolved not in member_path.parents and (
+                member_path != destination_root_resolved
+            ):
+                raise SkillError(
+                    "Downloaded Orcheo skill archive contains an invalid path."
+                )
+            if member.issym() or member.islnk():
+                raise SkillError(
+                    "Downloaded Orcheo skill archive contains unsupported links."
+                )
+
+        archive.extractall(destination_root, members=members)
 
     extracted_dirs = [path for path in destination_root.iterdir() if path.is_dir()]
     if len(extracted_dirs) != 1:

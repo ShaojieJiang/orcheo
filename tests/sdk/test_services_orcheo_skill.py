@@ -1,10 +1,13 @@
 """Tests for official Orcheo skill service operations."""
 
 from __future__ import annotations
+import io
 from pathlib import Path
+import tarfile
 import pytest
 from orcheo.skills.manager import SkillError
 from orcheo_sdk.services.orcheo_skill import (
+    _extract_downloaded_skill,
     install_orcheo_skill_data,
     uninstall_orcheo_skill_data,
     update_orcheo_skill_data,
@@ -81,3 +84,26 @@ def test_uninstall_orcheo_skill_data_handles_missing_targets(tmp_path: Path) -> 
         },
     ]
     assert not (tmp_path / ".codex" / "skills" / "orcheo").exists()
+
+
+def test_extract_downloaded_skill_rejects_path_traversal(tmp_path: Path) -> None:
+    archive_path = tmp_path / "skill.tar.gz"
+    with tarfile.open(archive_path, mode="w:gz") as archive:
+        info = tarfile.TarInfo(name="../escape.txt")
+        info.size = len(b"unsafe")
+        archive.addfile(info, fileobj=io.BytesIO(b"unsafe"))
+
+    with pytest.raises(SkillError, match="invalid path"):
+        _extract_downloaded_skill(archive_path, tmp_path / "extract")
+
+
+def test_extract_downloaded_skill_rejects_symlinks(tmp_path: Path) -> None:
+    archive_path = tmp_path / "skill.tar.gz"
+    with tarfile.open(archive_path, mode="w:gz") as archive:
+        info = tarfile.TarInfo(name="orcheo/link")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "/tmp/escape"
+        archive.addfile(info)
+
+    with pytest.raises(SkillError, match="unsupported links"):
+        _extract_downloaded_skill(archive_path, tmp_path / "extract")

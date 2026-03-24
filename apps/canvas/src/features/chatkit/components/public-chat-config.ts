@@ -47,15 +47,22 @@ export const buildModelOptions = (
     return undefined;
   }
 
-  const hasExplicitDefault = configuredModels.some((model) => model.default);
-  const normalized = configuredModels.map((model, index) => ({
-    id: model.id,
-    label: model.label?.trim() || model.id,
-    ...(model.description ? { description: model.description } : {}),
-    ...(model.disabled ? { disabled: true } : {}),
-    ...(model.default || (!hasExplicitDefault && index === 0)
-      ? { default: true }
-      : {}),
-  }));
+  const enabledModels = configuredModels.filter((model) => !model.disabled);
+  const hasExplicitDefault = enabledModels.some((model) => model.default);
+  let assignedFallbackDefault = false;
+  const normalized = configuredModels.map((model) => {
+    const shouldAssignFallbackDefault =
+      !hasExplicitDefault && !model.disabled && !assignedFallbackDefault;
+    if (shouldAssignFallbackDefault) {
+      assignedFallbackDefault = true;
+    }
+    return {
+      id: model.id,
+      label: model.label?.trim() || model.id,
+      ...(model.description ? { description: model.description } : {}),
+      ...(model.disabled ? { disabled: true } : {}),
+      ...(model.default || shouldAssignFallbackDefault ? { default: true } : {}),
+    };
+  });
   return normalized.length > 0 ? normalized : undefined;
 };

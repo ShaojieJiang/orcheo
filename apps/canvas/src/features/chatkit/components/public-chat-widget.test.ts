@@ -91,4 +91,33 @@ describe("buildStartScreenPrompts", () => {
   it("hides the model picker when the configured model list is empty", () => {
     expect(buildModelOptions([])).toBeUndefined();
   });
+
+  it("ignores disabled defaults when assigning fallback default", () => {
+    expect(
+      buildModelOptions([
+        {
+          id: "openai:gpt-5",
+          label: "GPT-5",
+          default: true,
+          disabled: true,
+        },
+        {
+          id: "openai:gpt-5-mini",
+          label: "GPT-5 Mini",
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "openai:gpt-5",
+        label: "GPT-5",
+        disabled: true,
+        default: true,
+      },
+      {
+        id: "openai:gpt-5-mini",
+        label: "GPT-5 Mini",
+        default: true,
+      },
+    ]);
+  });
 });
