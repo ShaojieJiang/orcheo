@@ -13,6 +13,7 @@ def download_workflow_data(
     output_path: str | Path | None = None,
     format_type: str = "python",
     target_version: int | None = None,
+    include_runnable_config: bool = False,
 ) -> dict[str, Any]:
     """Download a workflow definition in Python form.
 
@@ -23,6 +24,8 @@ def download_workflow_data(
         format_type: Output format ('python' only).
         target_version: Specific version number to download. If None,
             downloads the latest version.
+        include_runnable_config: Include stored runnable config in the
+            returned payload.
 
     Returns:
         Dictionary with content and format, or status message if output_path given.
@@ -64,7 +67,13 @@ def download_workflow_data(
             "format": resolved_format,
         }
 
-    return {
+    result: dict[str, Any] = {
         "content": output_content,
         "format": resolved_format,
     }
+    if include_runnable_config:
+        runnable_raw = selected_version.get("runnable_config")
+        result["runnable_config"] = (
+            dict(runnable_raw) if isinstance(runnable_raw, dict) else None
+        )
+    return result

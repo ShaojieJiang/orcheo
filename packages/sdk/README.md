@@ -123,7 +123,7 @@ Available on all commands:
 | `orcheo workflow delete <id>` | Delete a workflow | `--force` - Skip confirmation prompt |
 | `orcheo workflow upload <file>` | Upload workflow from Python LangGraph script (`.py`) | `--id` - Workflow ID (for updates)<br>`--config` - JSON runnable config payload<br>`--config-file` - JSON runnable config file |
 | `orcheo workflow save-config <id>` | Update version `runnable_config` without creating a version | `--config` / `--config-file` - Runnable config payload<br>`--version` - Target version (latest by default)<br>`--clear` - Clear stored runnable config |
-| `orcheo workflow download <id>` | Download workflow source as Python | `-o, --output` - Output file path |
+| `orcheo workflow download <id>` | Download workflow source as Python | `-o, --output` - Output file path<br>`--config-out` - Companion runnable config JSON path |
 
 **Examples:**
 
@@ -152,6 +152,9 @@ orcheo workflow save-config my-workflow-id --config '{"tags": ["support"]}'
 
 # Download workflow source as Python
 orcheo workflow download my-workflow-id -o workflow.py
+
+# Download workflow source plus stored runnable config defaults
+orcheo workflow download my-workflow-id -o workflow.py --config-out workflow.config.json
 
 # Delete a workflow
 orcheo workflow delete my-workflow-id --force

@@ -99,6 +99,13 @@ OutputPathOption = Annotated[
     str | None,
     typer.Option("--output", "-o", help="Output file path (default: stdout)."),
 ]
+ConfigOutputPathOption = Annotated[
+    str | None,
+    typer.Option(
+        "--config-out",
+        help="Path to write stored runnable config JSON, if present.",
+    ),
+]
 VersionOption = Annotated[
     int | None,
     typer.Option("--version", "-v", help="Specific version number to use."),
@@ -129,6 +136,7 @@ __all__ = [
     "EntrypointOption",
     "WorkflowNameOption",
     "OutputPathOption",
+    "ConfigOutputPathOption",
     "VersionOption",
     "_state",
 ]

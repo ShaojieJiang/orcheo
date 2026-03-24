@@ -11,6 +11,7 @@ import pytest
 import typer
 from rich.console import Console
 from typer.testing import CliRunner
+from orcheo.plugins.models import PluginImpactSummary
 from orcheo_sdk.cli import plugin as plugin_module
 from orcheo_sdk.cli.main import app
 from orcheo_sdk.cli.state import CLIState
@@ -248,6 +249,40 @@ def test_plugin_install_machine_mode_returns_json(
     edge_list_result = runner.invoke(app, ["edge", "list"], env=machine_env)
     assert edge_list_result.exit_code == 0
     assert "FixturePluginEdge" in edge_list_result.stdout
+
+
+def test_plugin_install_human_mode_emits_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _make_cli_state(human=True)
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: False)
+    monkeypatch.setattr(
+        plugin_module,
+        "install_plugin_data",
+        lambda ref, *, progress=None: (
+            progress("Creating isolated plugin environment")
+            if progress is not None
+            else None
+        )
+        or {
+            "plugin": {"name": "example"},
+            "impact": PluginImpactSummary(
+                change_type="install",
+                affected_component_kinds=[],
+                affected_component_ids=[],
+                activation_mode="silent_hot_reload",
+                prompt_required=False,
+                restart_required=False,
+            ),
+        },
+    )
+
+    plugin_module.install_plugin(None, "example-ref", runtime="auto")
+
+    output = state.console.export_text()
+    assert "Installing plugin from 'example-ref'" in output
+    assert "Creating isolated plugin environment" in output
 
 
 def test_plugin_install_targets_stack_and_restarts_running_services(

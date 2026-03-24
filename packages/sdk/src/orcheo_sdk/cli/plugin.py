@@ -322,6 +322,11 @@ def _render_impact(console_state: CLIState, impact: PluginImpactSummary) -> None
         render_json(console_state.console, _impact_to_dict(impact), title="Impact")
 
 
+def _emit_plugin_progress(state: CLIState, message: str) -> None:
+    if state.human:
+        state.console.print(f"[dim]• {message}[/dim]")
+
+
 def _maybe_confirm(
     *,
     impact: PluginImpactSummary,
@@ -421,7 +426,10 @@ def _update_all_plugins_locally(*, state: CLIState, force: bool) -> None:
             force=force,
         )
     try:
-        payload = update_all_plugins_data()
+        _emit_plugin_progress(state, "Rebuilding plugin environment")
+        payload = update_all_plugins_data(
+            progress=lambda step: _emit_plugin_progress(state, step)
+        )
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     _render_update_all_payload(state, payload)
@@ -443,7 +451,11 @@ def _update_plugin_locally(*, state: CLIState, name: str, force: bool) -> None:
         force=force,
     )
     try:
-        payload = update_plugin_data(name)
+        _emit_plugin_progress(state, f"Updating plugin '{name}'")
+        payload = update_plugin_data(
+            name,
+            progress=lambda step: _emit_plugin_progress(state, step),
+        )
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     _render_update_single_payload(state, payload)
@@ -516,6 +528,7 @@ def install_plugin(
         stack_ref = (
             _copy_local_plugin_ref_into_stack(ref) if _is_local_plugin_ref(ref) else ref
         )
+        _emit_plugin_progress(state, "Installing plugin inside the stack backend")
         payload = _run_stack_plugin_json(["install", stack_ref])
         if _payload_requires_restart(payload):  # pragma: no branch
             _restart_running_stack_services(state)
@@ -529,7 +542,11 @@ def install_plugin(
         )
         return
     try:
-        payload = install_plugin_data(ref)
+        _emit_plugin_progress(state, f"Installing plugin from '{ref}'")
+        payload = install_plugin_data(
+            ref,
+            progress=lambda step: _emit_plugin_progress(state, step),
+        )
     except PluginError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not state.human:

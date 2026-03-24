@@ -32,6 +32,8 @@ export function useWorkflowCanvasLifecycle(
 
   useWorkflowStorageListener({
     currentWorkflowId: core.metadata.currentWorkflowId,
+    setWorkflowName: core.metadata.setWorkflowName,
+    setWorkflowDescription: core.metadata.setWorkflowDescription,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
     setWorkflowTags: core.metadata.setWorkflowTags,
   });

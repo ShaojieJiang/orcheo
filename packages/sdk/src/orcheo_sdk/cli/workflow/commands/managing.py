@@ -1,6 +1,7 @@
 """Management commands for workflows."""
 
 from __future__ import annotations
+import json
 from typing import Any
 import typer
 from rich.markup import escape
@@ -11,6 +12,7 @@ from orcheo_sdk.cli.workflow.app import (
     ActorOption,
     ChatKitPromptsFileOption,
     ChatKitPromptsOption,
+    ConfigOutputPathOption,
     EntrypointOption,
     FilePathArgument,
     ForceOption,
@@ -53,6 +55,111 @@ def _print_workflow_vault_reminder(
     if reminder is None:
         return
     console.print(f"[dim]Vault reminder: {escape(reminder)}[/dim]")
+
+
+def _resolve_download_paths(
+    output_path: str | None,
+    config_output_path: str | None,
+) -> tuple[Any | None, Any | None]:
+    """Resolve and validate workflow download output paths."""
+    output_file = None
+    if output_path:
+        output_file = _validate_local_path(
+            output_path,
+            description="output",
+            must_exist=False,
+            require_file=True,
+        )
+
+    config_file = None
+    if config_output_path:
+        config_file = _validate_local_path(
+            config_output_path,
+            description="config output",
+            must_exist=False,
+            require_file=True,
+        )
+
+    if output_file and config_file and output_file == config_file:
+        raise CLIError("Output path and config output path must be different.")
+    return output_file, config_file
+
+
+def _write_downloaded_runnable_config(
+    payload: dict[str, Any],
+    *,
+    config_file: Any | None,
+    config_output_path: str | None,
+) -> bool:
+    """Write stored runnable config to disk when requested and available."""
+    if config_file is None:
+        return False
+
+    runnable_raw = payload.get("runnable_config")
+    if not isinstance(runnable_raw, dict):
+        return False
+
+    try:
+        config_file.write_text(
+            f"{json.dumps(runnable_raw, indent=2)}\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:  # pragma: no cover - filesystem errors
+        raise CLIError(
+            f"Failed to write workflow config output to '{config_output_path}'."
+        ) from exc
+    return True
+
+
+def _emit_machine_download_stdout(
+    payload: dict[str, Any],
+    *,
+    config_output_path: str | None,
+    config_written: bool,
+) -> bool:
+    """Emit machine-readable stdout download output when applicable."""
+    if config_output_path is None:
+        print_json(payload)
+        return True
+
+    machine_payload = dict(payload)
+    machine_payload.pop("runnable_config", None)
+    machine_payload["config_written"] = config_written
+    machine_payload["config_path"] = str(config_output_path) if config_written else None
+    print_json(machine_payload)
+    return True
+
+
+def _build_machine_download_file_result(
+    *,
+    output_path: str,
+    config_output_path: str | None,
+    config_written: bool,
+) -> dict[str, object]:
+    """Build machine-readable download result for file output mode."""
+    response: dict[str, object] = {"status": "success", "path": str(output_path)}
+    if config_output_path is not None:
+        response["config_written"] = config_written
+        response["config_path"] = str(config_output_path) if config_written else None
+    return response
+
+
+def _print_downloaded_config_notice(
+    console: Any,
+    *,
+    config_output_path: str,
+    config_written: bool,
+) -> None:
+    """Render the human-readable companion-config download notice."""
+    if config_written:
+        console.print(
+            f"[green]Workflow config downloaded to '{config_output_path}'.[/green]"
+        )
+        return
+    console.print(
+        "[yellow]Workflow has no stored runnable config; "
+        "skipped config download.[/yellow]"
+    )
 
 
 @workflow_app.command("delete")
@@ -258,46 +365,70 @@ def download_workflow(
     ctx: typer.Context,
     workflow_id: WorkflowIdArgument,
     output_path: OutputPathOption = None,
+    config_output_path: ConfigOutputPathOption = None,
     version: VersionOption = None,
 ) -> None:
     """Download a workflow configuration to a file or stdout."""
     state = _state(ctx)
     format_type = "python"
     version_suffix = f":{version}" if version else ""
+    config_suffix = ":with-config" if config_output_path else ""
     payload, from_cache, stale = load_with_cache(
         state,
-        f"workflow:{workflow_id}:download:{format_type}{version_suffix}",
+        f"workflow:{workflow_id}:download:{format_type}{version_suffix}{config_suffix}",
         lambda: download_workflow_data(
             state.client,
             workflow_id,
             output_path=None,
             format_type=format_type,
             target_version=version,
+            include_runnable_config=config_output_path is not None,
         ),
     )
     if from_cache:
         _cache_notice(state, f"workflow {workflow_id}", stale)
 
     content = payload["content"]
+    output_file, config_file = _resolve_download_paths(output_path, config_output_path)
+    config_written = _write_downloaded_runnable_config(
+        payload,
+        config_file=config_file,
+        config_output_path=config_output_path,
+    )
 
-    if not state.human and not output_path:
-        print_json(payload)
+    if (
+        not state.human
+        and output_path is None
+        and _emit_machine_download_stdout(
+            payload,
+            config_output_path=config_output_path,
+            config_written=config_written,
+        )
+    ):
         return
 
-    if output_path:
-        output_file = _validate_local_path(
-            output_path,
-            description="output",
-            must_exist=False,
-            require_file=True,
-        )
+    if output_file:
         output_file.write_text(content, encoding="utf-8")
         if not state.human:
-            print_json({"status": "success", "path": str(output_path)})
+            print_json(
+                _build_machine_download_file_result(
+                    output_path=str(output_path),
+                    config_output_path=config_output_path,
+                    config_written=config_written,
+                )
+            )
             return
         state.console.print(f"[green]Workflow downloaded to '{output_path}'.[/green]")
     else:
         state.console.print(content)
+
+    if config_output_path is None:
+        return
+    _print_downloaded_config_notice(
+        state.console,
+        config_output_path=config_output_path,
+        config_written=config_written,
+    )
 
 
 __all__ = [

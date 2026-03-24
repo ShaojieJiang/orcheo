@@ -118,6 +118,8 @@ export function buildWorkflowLayoutProps(
     onWorkflowNameChange: core.metadata.setWorkflowName,
     onWorkflowDescriptionChange: core.metadata.setWorkflowDescription,
     onTagsChange: resources.saver.handleTagsChange,
+    onSaveWorkflowDetails: resources.saver.handleSaveWorkflowDetails,
+    isSavingWorkflowDetails: resources.saver.isSavingWorkflowDetails,
     workflowVersions: core.metadata.workflowVersions ?? [],
     onRestoreVersion: resources.saver.handleRestoreVersion,
     listeners: resources.listeners.listeners,

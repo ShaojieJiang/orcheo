@@ -183,6 +183,36 @@ export const saveWorkflow = async (
   return stored;
 };
 
+export const saveWorkflowMetadata = async (
+  input: Pick<SaveWorkflowInput, "id" | "name" | "description" | "tags">,
+  options?: Pick<SaveWorkflowOptions, "actor">,
+): Promise<StoredWorkflow> => {
+  if (!input.id) {
+    throw new Error("Workflow id is required to save workflow metadata.");
+  }
+
+  const actor = resolveActor(options?.actor);
+  await upsertWorkflow(
+    {
+      id: input.id,
+      name: input.name,
+      description: input.description,
+      tags: input.tags,
+    },
+    actor,
+  );
+
+  const stored = await ensureWorkflow(input.id);
+  if (!stored) {
+    throw new Error("Failed to load persisted workflow metadata");
+  }
+
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
+};
+
 export const createWorkflowFromTemplate = async (
   templateId: string,
   overrides?: Partial<Omit<SaveWorkflowInput, "nodes" | "edges">>,

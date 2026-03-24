@@ -26,6 +26,8 @@ export interface SettingsTabContentProps {
   onWorkflowNameChange: (value: string) => void;
   onWorkflowDescriptionChange: (value: string) => void;
   onTagsChange: (value: string) => void;
+  onSaveWorkflowDetails: () => Promise<void>;
+  isSavingWorkflowDetails: boolean;
   workflowVersions: Array<{ version: string; createdAt: string }>;
   onRestoreVersion: (version: { version: string; createdAt: string }) => void;
   listeners: WorkflowListenerHealth[];
@@ -148,6 +150,8 @@ export function SettingsTabContent({
   onWorkflowNameChange,
   onWorkflowDescriptionChange,
   onTagsChange,
+  onSaveWorkflowDetails,
+  isSavingWorkflowDetails,
   workflowVersions,
   onRestoreVersion,
   listeners,
@@ -162,7 +166,21 @@ export function SettingsTabContent({
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h2 className="mb-4 text-xl font-bold">Workflow Settings</h2>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-xl font-bold">Workflow Settings</h2>
+            <p className="text-sm text-muted-foreground">
+              Edit the workflow name, description, and tags locally, then save
+              them explicitly.
+            </p>
+          </div>
+          <Button
+            onClick={() => void onSaveWorkflowDetails()}
+            disabled={!workflowId || isSavingWorkflowDetails}
+          >
+            {isSavingWorkflowDetails ? "Saving..." : "Save details"}
+          </Button>
+        </div>
         <div className="space-y-4">
           <div className="grid gap-2">
             <label className="text-sm font-medium">Workflow Name</label>

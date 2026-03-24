@@ -9,12 +9,16 @@ import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage";
 
 interface UseWorkflowStorageListenerParams {
   currentWorkflowId: string | null;
+  setWorkflowName: Dispatch<SetStateAction<string>>;
+  setWorkflowDescription: Dispatch<SetStateAction<string>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
 }
 
 export function useWorkflowStorageListener({
   currentWorkflowId,
+  setWorkflowName,
+  setWorkflowDescription,
   setWorkflowVersions,
   setWorkflowTags,
 }: UseWorkflowStorageListenerParams) {
@@ -32,6 +36,8 @@ export function useWorkflowStorageListener({
       try {
         const updated = await getWorkflowById(currentWorkflowId);
         if (updated) {
+          setWorkflowName(updated.name);
+          setWorkflowDescription(updated.description ?? "");
           setWorkflowVersions(updated.versions ?? []);
           setWorkflowTags(updated.tags ?? ["draft"]);
         }
@@ -47,5 +53,11 @@ export function useWorkflowStorageListener({
         handleStorageUpdate,
       );
     };
-  }, [currentWorkflowId, setWorkflowTags, setWorkflowVersions]);
+  }, [
+    currentWorkflowId,
+    setWorkflowDescription,
+    setWorkflowName,
+    setWorkflowTags,
+    setWorkflowVersions,
+  ]);
 }
