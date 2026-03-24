@@ -15,6 +15,7 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
     _start_chatkit_history,
+    _with_chatkit_model,
     _with_thread_id,
 )
 from orcheo_backend.app.history import RunHistoryError
@@ -406,6 +407,28 @@ def test_resolve_runtime_thread_id_prefers_thread_and_session_fallback() -> None
 def test_with_thread_id_replaces_non_mapping_configurable() -> None:
     updated = _with_thread_id({"configurable": "invalid"}, "thr-override")
     assert updated["configurable"] == {"thread_id": "thr-override"}
+
+
+def test_with_chatkit_model_adds_selected_model() -> None:
+    config = {"configurable": {"thread_id": "thr"}}
+    updated = _with_chatkit_model(config, "openai:gpt-5")
+
+    assert updated["configurable"]["chatkit_model"] == "openai:gpt-5"
+    assert updated["configurable"]["thread_id"] == "thr"
+
+
+def test_with_chatkit_model_removes_selected_model_when_none() -> None:
+    config = {"configurable": {"thread_id": "thr", "chatkit_model": "old"}}
+    updated = _with_chatkit_model(config, None)
+
+    assert "chatkit_model" not in updated["configurable"]
+    assert updated["configurable"]["thread_id"] == "thr"
+
+
+def test_with_chatkit_model_handles_non_mapping_configurable() -> None:
+    updated = _with_chatkit_model({"configurable": "invalid"}, "openai:gpt-5")
+
+    assert updated["configurable"]["chatkit_model"] == "openai:gpt-5"
 
 
 @pytest.mark.asyncio

@@ -193,6 +193,46 @@ async def test_incremental_indexer_persists_dense_embeddings() -> None:
 
 
 @pytest.mark.asyncio
+async def test_incremental_indexer_records_trace_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = DocumentChunk(
+        id="chunk-trace",
+        document_id="doc-trace",
+        index=0,
+        content="trace",
+        metadata={},
+    )
+
+    fake_model = MagicMock()
+
+    async def fake_embed(texts: list[str]) -> list[list[float]]:
+        return [[float(len(texts[0]))]]
+
+    fake_model.aembed_documents = fake_embed
+
+    import orcheo.nodes.conversational_search.embeddings as emb_mod
+
+    monkeypatch.setattr(
+        emb_mod, "init_dense_embeddings", lambda *args, **kwargs: fake_model
+    )
+
+    node = IncrementalIndexerNode(
+        name="indexer-trace",
+        vector_store=InMemoryVectorStore(),
+        embed_model="test:fake",
+        skip_unchanged=False,
+        batch_size=1,
+    )
+    node._set_trace_metadata_for_run = MagicMock()
+    state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
+
+    await node.run(state, {})
+
+    node._set_trace_metadata_for_run.assert_called_once()
+
+
+@pytest.mark.asyncio
 @patch("orcheo.nodes.conversational_search.generation.create_agent")
 async def test_streaming_generator_truncates_and_chunks_tokens(
     mock_create_agent,

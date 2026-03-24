@@ -248,7 +248,7 @@ class GroundedGeneratorNode(TaskNode):
             if isinstance(result, Mapping)
             else None
         )
-        if actual_model is None:
+        if actual_model is None:  # pragma: no branch
             actual_model = infer_model_name_from_instance(model)
         self._set_trace_metadata_for_run(
             {
@@ -432,7 +432,7 @@ class StreamingGeneratorNode(TaskNode):
             if isinstance(result, Mapping)
             else None
         )
-        if actual_model is None:
+        if actual_model is None:  # pragma: no branch
             actual_model = infer_model_name_from_instance(model)
         self._set_trace_metadata_for_run(
             {

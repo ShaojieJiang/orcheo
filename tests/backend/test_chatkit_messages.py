@@ -23,6 +23,7 @@ from starlette.datastructures import Headers
 from orcheo_backend.app.chatkit import messages as chatkit_messages
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.messages import (
+    _selected_model_from_user_item,
     build_assistant_item,
     build_history,
     build_inputs_payload,
@@ -286,6 +287,18 @@ def test_sync_thread_inference_metadata_clears_selected_model() -> None:
     sync_thread_inference_metadata(thread, selected_model=None)
 
     assert thread.metadata == {"workflow_id": "wf-123"}
+
+
+def test_selected_model_from_user_item_complains_on_missing_model() -> None:
+    user_item = UserMessageItem(
+        id="msg_model",
+        thread_id="thread",
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Echo")],
+        inference_options=InferenceOptions(model=None),
+    )
+
+    assert _selected_model_from_user_item(user_item) is None
 
 
 def test_build_inputs_payload_with_no_attachments_attribute() -> None:

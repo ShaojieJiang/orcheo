@@ -22,7 +22,10 @@ from orcheo_backend.app.chatkit.message_utils import (
     extract_reply_from_state,
     stringify_langchain_message,
 )
-from orcheo_backend.app.chatkit.model_selection import apply_chatkit_selected_model
+from orcheo_backend.app.chatkit.model_selection import (
+    apply_chatkit_selected_model,
+    resolve_chatkit_selected_model,
+)
 
 
 def teststringify_langchain_message_with_base_message() -> None:
@@ -376,3 +379,35 @@ def test_apply_chatkit_selected_model_defaults_to_configured_model() -> None:
 
     assert selected_model == "openai:gpt-5"
     assert inputs["model"] == "openai:gpt-5"
+
+
+def test_resolve_chatkit_selected_model_uses_default_when_candidate_blank() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "label": "GPT-5", "default": True},
+                {"id": "openai:gpt-5-mini", "label": "GPT-5 Mini"},
+            ]
+        ),
+    )
+
+    result = resolve_chatkit_selected_model(workflow, "   ")
+
+    assert result == "openai:gpt-5"
+
+
+def test_resolve_chatkit_selected_model_rejects_unknown_candidate() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "label": "GPT-5", "default": True},
+                {"id": "openai:gpt-5-mini", "label": "GPT-5 Mini"},
+            ]
+        ),
+    )
+
+    result = resolve_chatkit_selected_model(workflow, "openai:gpt-6")
+
+    assert result == "openai:gpt-5"

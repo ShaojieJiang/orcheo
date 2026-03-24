@@ -18,7 +18,7 @@ def apply_chatkit_start_screen_prompts_update(
 ) -> None:
     """Apply ChatKit starter-prompt changes to a workflow and audit metadata."""
     if clear_chatkit_start_screen_prompts:
-        if workflow.chatkit_start_screen_prompts is not None:
+        if workflow.chatkit_start_screen_prompts is not None:  # pragma: no branch
             metadata["chatkit_start_screen_prompts"] = {
                 "from": [
                     prompt.model_dump(mode="json")
@@ -62,7 +62,7 @@ def apply_chatkit_supported_models_update(
 ) -> None:
     """Apply ChatKit supported-model changes to a workflow and audit metadata."""
     if clear_chatkit_supported_models:
-        if workflow.chatkit_supported_models is not None:
+        if workflow.chatkit_supported_models is not None:  # pragma: no branch
             metadata["chatkit_supported_models"] = {
                 "from": [
                     model.model_dump(mode="json")

@@ -106,6 +106,15 @@ async def test_llm_judge_uses_model_response(monkeypatch: pytest.MonkeyPatch) ->
     assert result["verdicts"][0]["flags"] == ["low_confidence"]
 
 
+@pytest.mark.asyncio
+async def test_llm_judge_requires_model_for_model_scoring() -> None:
+    node = LLMJudgeNode(name="judge")
+    with pytest.raises(
+        ValueError, match="LLMJudgeNode requires ai_model for model-based judging"
+    ):
+        await node._judge_with_model([{"id": "q1", "answer": "text"}], 0.5)
+
+
 def test_llm_judge_parse_model_response_variations() -> None:
     node = LLMJudgeNode(name="judge")
     json_response = types.SimpleNamespace(

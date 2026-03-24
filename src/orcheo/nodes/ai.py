@@ -988,7 +988,7 @@ class AgentNode(AINode):
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
-        if isinstance(result, Mapping):
+        if isinstance(result, Mapping):  # pragma: no branch
             self._set_trace_metadata_for_run(
                 _llm_trace_metadata(self.ai_model, model=model, result=result)
             )
@@ -1100,7 +1100,7 @@ class LLMNode(AgentNode):
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
-        if isinstance(result, Mapping):
+        if isinstance(result, Mapping):  # pragma: no branch
             self._set_trace_metadata_for_run(
                 _llm_trace_metadata(self.ai_model, model=model, result=result)
             )

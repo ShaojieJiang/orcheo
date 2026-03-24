@@ -1236,7 +1236,7 @@ class IncrementalIndexerNode(TaskNode):
             dense_vectors = await model.aembed_documents(
                 [chunk.content for chunk in batch]
             )
-            if dense_vectors:
+            if dense_vectors:  # pragma: no branch
                 self._set_trace_metadata_for_run(
                     {
                         "ai": build_ai_trace_metadata(

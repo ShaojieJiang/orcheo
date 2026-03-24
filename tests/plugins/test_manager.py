@@ -1505,6 +1505,32 @@ def test_activate_build_copies_and_replaces_existing_dirs(tmp_path: Path) -> Non
     assert manifests == [mock_manifest]
 
 
+def test_activate_build_creates_isolated_environment(tmp_path: Path) -> None:
+    """_activate_build handles empty desired records by creating a venv."""
+    manager = _make_manager(tmp_path)
+    progress: list[str] = []
+
+    def record_progress(message: str) -> None:
+        progress.append(message)
+
+    with (
+        patch("orcheo.plugins.manager._ensure_venv") as mock_ensure,
+        patch("orcheo.plugins.manager._replace_directory"),
+    ):
+        mock_ensure.side_effect = lambda path: path.mkdir(parents=True, exist_ok=True)
+        manifests, locked = manager._activate_build(
+            desired_records=[], progress=record_progress
+        )
+
+    assert manifests == []
+    assert locked == []
+    assert progress == [
+        "Creating isolated plugin environment",
+        "Activating rebuilt plugin environment",
+    ]
+    mock_ensure.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # _validate_single_new_plugin body (lines 446-452)
 # ---------------------------------------------------------------------------

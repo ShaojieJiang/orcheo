@@ -96,7 +96,7 @@ def _extract_downloaded_skill(archive_path: Path, destination_root: Path) -> Pat
                     "Downloaded Orcheo skill archive contains unsupported links."
                 )
 
-        archive.extractall(destination_root, members=members)
+        archive.extractall(destination_root, members=members, filter="data")
 
     extracted_dirs = [path for path in destination_root.iterdir() if path.is_dir()]
     if len(extracted_dirs) != 1:

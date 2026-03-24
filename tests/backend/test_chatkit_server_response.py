@@ -15,7 +15,10 @@ from chatkit.types import (
     UserMessageTextContent,
 )
 from orcheo_backend.app.chatkit import ChatKitRequestContext
-from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.repository import (
+    InMemoryWorkflowRepository,
+    WorkflowNotFoundError,
+)
 from tests.backend.chatkit_test_utils import (
     create_chatkit_test_server,
     create_workflow_with_graph,
@@ -162,6 +165,28 @@ async def test_chatkit_server_invalid_workflow_id() -> None:
     await server.store.add_thread_item(thread.id, user_item, context)
 
     with pytest.raises(CustomStreamError, match="invalid"):
+        _ = [event async for event in server.respond(thread, user_item, context)]
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_translates_workflow_not_found() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+    server._run_workflow = AsyncMock(
+        side_effect=WorkflowNotFoundError("missing"),  # type: ignore[attr-defined]
+    )
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Ping")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    with pytest.raises(CustomStreamError, match="missing"):
         _ = [event async for event in server.respond(thread, user_item, context)]
 
 

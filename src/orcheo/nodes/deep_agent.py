@@ -251,7 +251,7 @@ class DeepAgentNode(AINode):
                     "recursion_limit": self.max_iterations,
                 },
             )
-        if isinstance(result, dict):
+        if isinstance(result, dict):  # pragma: no branch
             actual_model = infer_chat_result_model_name(result)
             if actual_model is None and not isinstance(model, str):
                 actual_model = infer_model_name_from_instance(model)

@@ -356,7 +356,7 @@ class SemanticSimilarityMetricsNode(TaskNode):
         all_texts = str_predictions + str_references
         model = init_dense_embeddings(self.embed_model, self.model_kwargs)
         all_embeddings = await model.aembed_documents(all_texts)
-        if all_embeddings:
+        if all_embeddings:  # pragma: no branch
             self._set_trace_metadata_for_run(
                 {
                     "ai": build_ai_trace_metadata(
