@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.models import AesGcmCredentialCipher, CredentialScope
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app import create_app
@@ -80,6 +81,7 @@ def test_listener_runtime_starts_and_resolves_telegram_credentials(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
     )
@@ -182,6 +184,7 @@ def test_listener_runtime_blocks_missing_telegram_credentials_without_crashing(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
     )

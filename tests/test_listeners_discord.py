@@ -32,6 +32,7 @@ from orcheo.listeners.discord import (
     _string_or_none,
     _with_gateway_params,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -147,6 +148,7 @@ async def _create_discord_subscription(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(

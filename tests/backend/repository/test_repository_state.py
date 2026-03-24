@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     RepositoryError,
     WorkflowNotFoundError,
@@ -21,6 +22,7 @@ async def test_reset_clears_internal_state(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="actor",
     )
     version = await repository.create_version(

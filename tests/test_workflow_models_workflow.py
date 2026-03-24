@@ -104,6 +104,18 @@ def test_workflow_draft_access_supports_authenticated_scope() -> None:
     assert workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED
 
 
+def test_backfill_validator_ignores_non_mapping_inputs() -> None:
+    sentinel = "workspace string"
+
+    assert Workflow._backfill_draft_access(sentinel) is sentinel
+
+
+def test_backfill_validator_requires_list_tags() -> None:
+    payload = {"name": "Simple Flow", "tags": "workspace:team-b"}
+
+    assert Workflow._backfill_draft_access(payload) is payload
+
+
 def test_workflow_version_checksum_is_deterministic() -> None:
     graph_definition = {"nodes": [{"id": "1", "type": "start"}], "edges": []}
     version = WorkflowVersion(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     VersionDiff,
     WorkflowNotFoundError,
@@ -19,6 +20,7 @@ async def test_version_management(repository: WorkflowRepository) -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
 
@@ -86,7 +88,12 @@ async def test_get_latest_version_validation(
     """Latest version retrieval enforces workflow and version existence."""
 
     workflow = await repository.create_workflow(
-        name="Latest", slug=None, description=None, tags=None, actor="tester"
+        name="Latest",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
     )
 
     with pytest.raises(WorkflowVersionNotFoundError):
@@ -121,6 +128,7 @@ async def test_update_version_runnable_config_finds_requested_version(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -160,6 +168,7 @@ async def test_update_version_runnable_config_validation_errors(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(

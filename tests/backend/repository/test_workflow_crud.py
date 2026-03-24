@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
@@ -17,6 +18,7 @@ async def test_create_and_list_workflows(repository: WorkflowRepository) -> None
         slug=None,
         description="Example workflow",
         tags=["alpha"],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -42,6 +44,7 @@ async def test_list_workflows_excludes_archived_by_default(
         slug=None,
         description="Active workflow",
         tags=[],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -50,6 +53,7 @@ async def test_list_workflows_excludes_archived_by_default(
         slug=None,
         description="Archived workflow",
         tags=[],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -72,6 +76,7 @@ async def test_list_workflows_includes_archived_when_requested(
         slug=None,
         description="Active workflow",
         tags=[],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -80,6 +85,7 @@ async def test_list_workflows_includes_archived_when_requested(
         slug=None,
         description="Archived workflow",
         tags=[],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -114,6 +120,7 @@ async def test_update_and_archive_workflow(
         slug="custom-slug",
         description="Desc",
         tags=["a"],
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
 
@@ -147,6 +154,34 @@ async def test_update_and_archive_workflow(
 
 
 @pytest.mark.asyncio()
+async def test_update_workflow_changes_draft_access(
+    repository: WorkflowRepository,
+) -> None:
+    """Updating a workflow can switch the draft access state."""
+
+    created = await repository.create_workflow(
+        name="Original",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+
+    updated = await repository.update_workflow(
+        created.id,
+        name=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+        is_archived=None,
+        actor="tester",
+    )
+
+    assert updated.draft_access is WorkflowDraftAccess.AUTHENTICATED
+
+
+@pytest.mark.asyncio()
 async def test_update_missing_workflow(repository: WorkflowRepository) -> None:
     """Updating a missing workflow raises an explicit error."""
 
@@ -174,6 +209,7 @@ async def test_create_workflow_rejects_uuid_like_handle(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
 
@@ -189,6 +225,7 @@ async def test_update_workflow_rejects_uuid_like_handle(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -216,6 +253,7 @@ async def test_resolve_workflow_ref_finds_archived_handle_when_requested(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.archive_workflow(archived.id, actor="tester")
@@ -242,6 +280,7 @@ async def test_update_workflow_updates_handle_and_resolves_new_ref(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -271,6 +310,7 @@ async def test_update_workflow_rejects_duplicate_active_handle(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     created = await repository.create_workflow(
@@ -278,6 +318,7 @@ async def test_update_workflow_rejects_duplicate_active_handle(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -305,6 +346,7 @@ async def test_update_workflow_allows_reusing_handle_for_archived_workflows(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.archive_workflow(first.id, actor="tester")
@@ -314,6 +356,7 @@ async def test_update_workflow_allows_reusing_handle_for_archived_workflows(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 

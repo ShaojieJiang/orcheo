@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -20,6 +21,7 @@ async def test_create_run_with_cron_source_tracks_overlap(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="cron",
     )
     version = await repository.create_version(
@@ -54,6 +56,7 @@ async def test_cron_trigger_configuration_and_dispatch(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(
@@ -98,6 +101,7 @@ async def test_cron_trigger_deletion_removes_schedule(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(
@@ -154,6 +158,7 @@ async def test_cron_trigger_timezone_alignment(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.create_version(

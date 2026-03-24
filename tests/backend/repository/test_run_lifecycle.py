@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRepository,
@@ -18,6 +19,7 @@ async def test_run_lifecycle(repository: WorkflowRepository) -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     version = await repository.create_version(
@@ -88,6 +90,7 @@ async def test_run_error_paths(repository: WorkflowRepository) -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     _ = await repository.create_version(
@@ -111,6 +114,7 @@ async def test_run_error_paths(repository: WorkflowRepository) -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     mismatched_version = await repository.create_version(
@@ -155,6 +159,7 @@ async def test_create_run_rejects_archived_workflow(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     await repository.archive_workflow(workflow.id, actor="owner")
@@ -178,6 +183,7 @@ async def test_run_merges_version_runnable_config(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="owner",
     )
     version = await repository.create_version(

@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.repository_sqlite._versions import WorkflowVersionMixin
 from orcheo_backend.app.repository_sqlite._workflows import WorkflowRepositoryMixin
@@ -44,6 +45,7 @@ async def test_create_version_without_listener_mixin_skips_subscription_sync(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
         version = await repo.create_version(
@@ -75,6 +77,7 @@ async def test_update_workflow_name_only_hits_early_return(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
         updated = await repo.update_workflow(
@@ -116,6 +119,7 @@ async def test_archive_workflow_with_sync_disable_hook_covers_non_awaitable_bran
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="tester",
         )
 

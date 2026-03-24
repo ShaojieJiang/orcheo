@@ -21,6 +21,7 @@ from orcheo.listeners import (
     normalize_qq_event,
     qq_intents_bitmask,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -116,6 +117,7 @@ async def _create_qq_subscription(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(

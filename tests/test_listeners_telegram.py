@@ -7,6 +7,7 @@ from orcheo.listeners import (
     TelegramPollingAdapter,
     normalize_telegram_update,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
@@ -48,6 +49,7 @@ async def test_normalize_telegram_update_matches_parser_shape() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -97,6 +99,7 @@ async def test_telegram_polling_adapter_persists_offset_and_dedupes() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -159,6 +162,7 @@ async def test_telegram_polling_adapter_respects_saved_offset() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -197,6 +201,7 @@ async def test_telegram_polling_adapter_two_independent_configs() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     workflow_two = await repository.create_workflow(
@@ -204,6 +209,7 @@ async def test_telegram_polling_adapter_two_independent_configs() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(

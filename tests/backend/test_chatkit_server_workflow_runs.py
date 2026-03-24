@@ -12,6 +12,7 @@ from chatkit.types import (
     UserMessageItem,
     UserMessageTextContent,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from tests.backend.chatkit_test_utils import (
@@ -100,6 +101,7 @@ async def test_chatkit_server_workflow_version_not_found() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 

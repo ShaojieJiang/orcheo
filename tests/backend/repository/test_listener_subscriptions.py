@@ -7,6 +7,7 @@ from orcheo.listeners import (
     ListenerDispatchPayload,
     ListenerSubscriptionStatus,
 )
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRepository,
@@ -30,6 +31,7 @@ async def test_create_version_syncs_listener_subscriptions(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
 
@@ -67,6 +69,7 @@ async def test_dispatch_listener_event_creates_listener_run(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     version = await repository.create_version(
@@ -126,6 +129,7 @@ async def test_listener_cursor_round_trip(repository: WorkflowRepository) -> Non
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -164,6 +168,7 @@ async def test_archive_workflow_disables_listener_subscriptions(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -202,10 +207,20 @@ async def test_list_listener_subscriptions_without_workflow_id_filter(
         {"node_name": "listener", "platform": "telegram", "token": "[[tok]]"}
     )
     workflow1 = await repository.create_workflow(
-        name="Flow 1", slug=None, description=None, tags=None, actor="author"
+        name="Flow 1",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     workflow2 = await repository.create_workflow(
-        name="Flow 2", slug=None, description=None, tags=None, actor="author"
+        name="Flow 2",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow1.id, graph=graph, metadata={}, notes=None, created_by="author"
@@ -248,7 +263,12 @@ async def test_claim_listener_subscription_inactive_status(
 ) -> None:
     """claim_listener_subscription returns None when subscription is not ACTIVE."""
     workflow = await repository.create_workflow(
-        name="Claim Inactive", slug=None, description=None, tags=None, actor="author"
+        name="Claim Inactive",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -278,7 +298,12 @@ async def test_claim_listener_subscription_leased_by_other_runtime(
     """claim_listener_subscription returns None when another runtime holds a
     valid lease."""
     workflow = await repository.create_workflow(
-        name="Claim Lease", slug=None, description=None, tags=None, actor="author"
+        name="Claim Lease",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -310,7 +335,12 @@ async def test_claim_and_release_listener_subscription(
 ) -> None:
     """Claim then release a subscription, verifying state transitions."""
     workflow = await repository.create_workflow(
-        name="Claim Release", slug=None, description=None, tags=None, actor="author"
+        name="Claim Release",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -345,7 +375,12 @@ async def test_claim_listener_subscription_renewal_skips_duplicate_audit_entries
 ) -> None:
     """Renewing a lease for the same runtime should not grow the audit log."""
     workflow = await repository.create_workflow(
-        name="Claim Renewal", slug=None, description=None, tags=None, actor="author"
+        name="Claim Renewal",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -389,7 +424,12 @@ async def test_release_listener_subscription_wrong_runtime(
 ) -> None:
     """release_listener_subscription returns None when runtime_id does not match."""
     workflow = await repository.create_workflow(
-        name="Release Wrong", slug=None, description=None, tags=None, actor="author"
+        name="Release Wrong",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -449,7 +489,12 @@ async def test_dispatch_listener_event_subscription_not_active(
 ) -> None:
     """dispatch_listener_event returns None when the subscription is not ACTIVE."""
     workflow = await repository.create_workflow(
-        name="Dispatch Inactive", slug=None, description=None, tags=None, actor="author"
+        name="Dispatch Inactive",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -505,7 +550,12 @@ async def test_update_listener_subscription_status_to_active_clears_error(
 ) -> None:
     """Setting status to ACTIVE clears the last_error field."""
     workflow = await repository.create_workflow(
-        name="Status Active", slug=None, description=None, tags=None, actor="author"
+        name="Status Active",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -542,7 +592,12 @@ async def test_update_listener_subscription_status_to_disabled(
 ) -> None:
     """Setting status to DISABLED does not alter last_error when already None."""
     workflow = await repository.create_workflow(
-        name="Status Disabled", slug=None, description=None, tags=None, actor="author"
+        name="Status Disabled",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -573,7 +628,12 @@ async def test_update_listener_subscription_status_to_blocked_sets_error(
 ) -> None:
     """Setting status to BLOCKED stores the blocking reason."""
     workflow = await repository.create_workflow(
-        name="Status Blocked", slug=None, description=None, tags=None, actor="author"
+        name="Status Blocked",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     await repository.create_version(
         workflow.id,
@@ -604,7 +664,12 @@ async def test_sync_listener_subscriptions_for_version(
 ) -> None:
     """sync_listener_subscriptions_for_version compiles and replaces subscriptions."""
     workflow = await repository.create_workflow(
-        name="Sync Version", slug=None, description=None, tags=None, actor="author"
+        name="Sync Version",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
     )
     version = await repository.create_version(
         workflow.id,

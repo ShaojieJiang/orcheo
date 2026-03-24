@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from orcheo.listeners import ListenerHealthSnapshot, ListenerSupervisor
 from orcheo.listeners.models import ListenerSubscriptionStatus
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
@@ -39,6 +40,7 @@ async def test_listener_supervisor_claims_and_releases_subscriptions() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -82,6 +84,7 @@ async def test_listener_supervisor_retries_blocked_listeners_and_recovers() -> N
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(
@@ -143,6 +146,7 @@ async def test_listener_supervisor_tracks_consecutive_adapter_failures() -> None
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     await repository.create_version(

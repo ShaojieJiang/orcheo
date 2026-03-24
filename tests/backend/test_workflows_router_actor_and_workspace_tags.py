@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
@@ -67,6 +68,22 @@ class _Repository:
     async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
         del include_archived
         return UUID(str(workflow_ref))
+
+
+class _RepositoryWithExistingWorkflow(_Repository):
+    def __init__(self, workflow: Workflow) -> None:
+        super().__init__()
+        self._existing_workflow = workflow
+        self.last_get_workflow_id: UUID | None = None
+
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        self.last_get_workflow_id = workflow_id
+        return self._existing_workflow
+
+
+class _RepositoryMissingWorkflow(_Repository):
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        raise WorkflowNotFoundError(str(workflow_id))
 
 
 @pytest.mark.asyncio()
@@ -394,3 +411,77 @@ async def test_update_workflow_does_not_recompute_draft_access_from_tag_changes(
 
     assert repository.last_tags == ["shared"]
     assert repository.last_draft_access is None
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_reuses_existing_tags_for_draft_access_when_tags_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    existing = Workflow(
+        name="Existing",
+        tags=["workspace:team-x"],
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    repository = _RepositoryWithExistingWorkflow(existing)
+    request = WorkflowUpdateRequest(
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="service-token-7",
+            identity_type="service",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    await workflows.update_workflow(
+        str(existing.id),
+        request,
+        repository,
+        policy=policy,
+    )
+
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
+    assert repository.last_get_workflow_id == existing.id
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_raises_not_found_when_existing_workflow_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _RepositoryMissingWorkflow()
+    request = WorkflowUpdateRequest(
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="service-token-8",
+            identity_type="service",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.update_workflow(
+            str(uuid4()),
+            request,
+            repository,
+            policy=policy,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Workflow not found"

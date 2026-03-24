@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -47,6 +48,7 @@ async def test_authenticate_publish_request_requires_published_state() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
 
@@ -69,6 +71,7 @@ async def test_authenticate_publish_request_allows_public_workflow() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.publish_workflow(
@@ -96,6 +99,7 @@ async def test_authenticate_publish_request_requires_oauth_when_flag_enabled() -
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.publish_workflow(
@@ -123,6 +127,7 @@ async def test_authenticate_publish_request_accepts_oauth_session() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.publish_workflow(
@@ -149,6 +154,7 @@ async def test_authenticate_publish_request_rejects_archived_workflow() -> None:
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.publish_workflow(

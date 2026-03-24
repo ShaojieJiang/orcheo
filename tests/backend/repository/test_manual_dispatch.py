@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
+from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
@@ -21,6 +22,7 @@ async def test_manual_dispatch_defaults_to_latest_version(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     _ = await repository.create_version(
@@ -66,6 +68,7 @@ async def test_manual_dispatch_supports_batch_runs(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     first_version = await repository.create_version(
@@ -118,6 +121,7 @@ async def test_manual_dispatch_rejects_unknown_versions(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
 
@@ -144,6 +148,7 @@ async def test_manual_dispatch_rejects_unknown_versions(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="author",
     )
     foreign_version = await repository.create_version(
@@ -183,6 +188,7 @@ async def test_sqlite_manual_dispatch_rejects_foreign_versions(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         await repository.create_version(
@@ -197,6 +203,7 @@ async def test_sqlite_manual_dispatch_rejects_foreign_versions(
             slug=None,
             description=None,
             tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
             actor="author",
         )
         other_version = await repository.create_version(

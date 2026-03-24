@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
-from orcheo.models.workflow import Workflow
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
 from orcheo_backend.app.chatkit import (
     InMemoryChatKitStore,
@@ -47,6 +47,7 @@ async def create_workflow_with_graph(
         slug=None,
         description=None,
         tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
     )
     await repository.create_version(

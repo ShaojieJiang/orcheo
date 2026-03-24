@@ -137,7 +137,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         handle: str | None = None,
         description: str | None,
         tags: Iterable[str] | None,
-        draft_access: WorkflowDraftAccess | None,
+        draft_access: WorkflowDraftAccess | None = None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:
