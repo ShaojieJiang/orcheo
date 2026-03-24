@@ -11,6 +11,11 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_chat_result_model_name,
+    infer_model_name_from_instance,
+)
 
 
 def _truncate_snippet(text: str, limit: int = 160) -> str:
@@ -238,6 +243,22 @@ class GroundedGeneratorNode(TaskNode):
         # Create and invoke agent
         agent: Runnable = create_agent(model, tools=[], system_prompt="")
         result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+        actual_model = (
+            infer_chat_result_model_name(result)
+            if isinstance(result, Mapping)
+            else None
+        )
+        if actual_model is None:
+            actual_model = infer_model_name_from_instance(model)
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="llm",
+                    requested_model=self.ai_model,
+                    actual_model=actual_model,
+                )
+            }
+        )
 
         # Extract and validate response
         text = self._extract_response_text(result)
@@ -406,6 +427,22 @@ class StreamingGeneratorNode(TaskNode):
         # Create and invoke agent
         agent: Runnable = create_agent(model, tools=[], system_prompt="")
         result = await agent.ainvoke({"messages": messages})  # type: ignore[arg-type]
+        actual_model = (
+            infer_chat_result_model_name(result)
+            if isinstance(result, Mapping)
+            else None
+        )
+        if actual_model is None:
+            actual_model = infer_model_name_from_instance(model)
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="llm",
+                    requested_model=self.ai_model,
+                    actual_model=actual_model,
+                )
+            }
+        )
 
         # Extract text from the last message
         if isinstance(result, dict) and "messages" in result:

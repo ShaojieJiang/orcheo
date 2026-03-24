@@ -25,6 +25,10 @@ from orcheo.runtime.credentials import (
     get_active_credential_resolver,
     parse_credential_reference,
 )
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_model_name_from_instance,
+)
 
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
@@ -122,7 +126,21 @@ class DenseSearchNode(TaskNode):
         )
 
         model = init_dense_embeddings(self.embed_model, self.model_kwargs)
-        return await model.aembed_query(text)
+        embedding = await model.aembed_query(text)
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="embedding",
+                    requested_model=self.embed_model,
+                    actual_model=(
+                        infer_model_name_from_instance(model) or self.embed_model
+                    ),
+                    operation="query",
+                    vector_size=len(embedding),
+                )
+            }
+        )
+        return embedding
 
 
 @registry.register(
@@ -294,6 +312,16 @@ class SparseSearchNode(TaskNode):
             self._validate_sparse_query_configuration()
             encoder = init_sparse_embeddings(self.sparse_model, self.sparse_kwargs)
             sparse_query = sparse_embed_query(encoder, query)
+            self._set_trace_metadata_for_run(
+                {
+                    "ai": build_ai_trace_metadata(
+                        kind="sparse_embedding",
+                        requested_model=self.sparse_model,
+                        actual_model=self.sparse_model,
+                        operation="query",
+                    )
+                }
+            )
             return EmbeddingVector(values=[], sparse_values=sparse_query)
 
         if not self.embed_model:
@@ -304,7 +332,21 @@ class SparseSearchNode(TaskNode):
             raise ValueError(msg)
 
         model = init_dense_embeddings(self.embed_model, self.model_kwargs)
-        return await model.aembed_query(query)
+        embedding = await model.aembed_query(query)
+        self._set_trace_metadata_for_run(
+            {
+                "ai": build_ai_trace_metadata(
+                    kind="embedding",
+                    requested_model=self.embed_model,
+                    actual_model=(
+                        infer_model_name_from_instance(model) or self.embed_model
+                    ),
+                    operation="query",
+                    vector_size=len(embedding),
+                )
+            }
+        )
+        return embedding
 
     def _validate_sparse_query_configuration(self) -> None:
         """Validate sparse query encoder settings for vector-store retrieval."""

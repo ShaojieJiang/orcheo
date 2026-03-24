@@ -10,6 +10,7 @@ from typing import Any
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 from orcheo.config import get_settings
 from orcheo.runtime.runnable_config import RunnableConfigModel
+from orcheo.tracing.model_metadata import extract_ai_trace_attributes
 
 
 _DEFAULT_MAX_PREVIEW_LENGTH = 512
@@ -145,6 +146,7 @@ def _node_attributes(node_name: str, payload: Mapping[str, Any]) -> dict[str, An
     latency = _extract_latency(payload)
     if latency is not None:
         attributes["orcheo.node.latency_ms"] = latency
+    attributes.update(extract_ai_trace_attributes(payload))
     return attributes
 
 

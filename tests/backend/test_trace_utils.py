@@ -42,6 +42,14 @@ def test_build_trace_response_emits_span_metadata() -> None:
                     {"role": "assistant", "content": "Hi there"},
                     "plain message",
                 ],
+                "__trace": {
+                    "ai": {
+                        "kind": "llm",
+                        "requested_model": "openai:gpt-4o-mini",
+                        "actual_model": "gpt-4o-mini-2024-07-18",
+                        "provider": "openai",
+                    }
+                },
             },
             "status": "ignored",
         },
@@ -61,12 +69,16 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert root_span.attributes["orcheo.execution.thread_id"] == "thread-123"
     assert len(node_span.events) == 4  # prompt, response, two message events
     assert node_span.attributes["orcheo.node.kind"] == "ai_model"
+    assert node_span.attributes["orcheo.ai.kind"] == "llm"
+    assert node_span.attributes["orcheo.ai.model.requested"] == "openai:gpt-4o-mini"
+    assert node_span.attributes["orcheo.ai.model.actual"] == "gpt-4o-mini-2024-07-18"
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
     assert "orcheo.workflow.state.before" in node_span.attributes
     assert "orcheo.workflow.state.after" in node_span.attributes
     assert node_span.attributes["orcheo.workflow.state.before"]["inputs"] == {}
     assert node_span.attributes["orcheo.workflow.state.after"]["id"] == "node-1"
+    assert "__trace" not in node_span.attributes["orcheo.workflow.state.after"]
     assert node_span.status.code == "OK"
 
 
@@ -432,6 +444,35 @@ def test_merge_workflow_state_recursively_merges_nested_mappings() -> None:
     merged = trace_utils._merge_workflow_state(current_state, payload)
 
     assert merged["nested"] == {"a": 1, "b": 3, "c": 4}
+
+
+def test_sanitize_mapping_value_preserves_token_usage_metrics() -> None:
+    """Operational token usage keys should not be redacted as secrets."""
+
+    value = {
+        "token_usage": {"input": 5, "output": 7},
+        "usage_metadata": {"prompt_tokens": 5, "total_tokens": 12},
+        "prompt_tokens_details": {"cached_tokens": 4, "audio_tokens": 0},
+        "completion_tokens_details": {"reasoning_tokens": 3},
+        "input_token_details": {"cache_read": 4, "audio": 0},
+        "output_token_details": {"reasoning": 3, "text": 9},
+        "session_token": "secret-token",
+    }
+
+    sanitized, redacted, truncated = trace_utils._sanitize_mapping_value(value, depth=0)
+
+    assert sanitized["token_usage"] == {"input": 5, "output": 7}
+    assert sanitized["usage_metadata"] == {"prompt_tokens": 5, "total_tokens": 12}
+    assert sanitized["prompt_tokens_details"] == {
+        "cached_tokens": 4,
+        "audio_tokens": 0,
+    }
+    assert sanitized["completion_tokens_details"] == {"reasoning_tokens": 3}
+    assert sanitized["input_token_details"] == {"cache_read": 4, "audio": 0}
+    assert sanitized["output_token_details"] == {"reasoning": 3, "text": 9}
+    assert sanitized["session_token"] == "[REDACTED]"
+    assert redacted is True
+    assert truncated is False
 
 
 def test_clone_json_like_decodes_bytes_values() -> None:

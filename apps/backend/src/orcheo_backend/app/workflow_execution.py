@@ -29,6 +29,7 @@ from orcheo.tracing import (
     record_workflow_step,
     workflow_span,
 )
+from orcheo.tracing.model_metadata import strip_trace_metadata
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_checkpoint_store,
@@ -90,6 +91,12 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
 
 
+def _sanitize_public_step_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip trace-only metadata before sending workflow updates to clients."""
+    sanitized = strip_trace_metadata(payload)
+    return sanitized if isinstance(sanitized, dict) else dict(payload)
+
+
 async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
     """Send JSON only while the websocket is open."""
     try:
@@ -148,7 +155,7 @@ async def _stream_workflow_updates(
         record_workflow_step(tracer, step)
         history_step = await history_store.append_step(execution_id, step)
         try:
-            await _safe_send_json(websocket, step)
+            await _safe_send_json(websocket, _sanitize_public_step_payload(step))
         except Exception as exc:  # pragma: no cover
             logger.error("Error processing messages: %s", exc)
             raise
@@ -434,7 +441,7 @@ async def _run_evaluation_node(
     async def on_progress(payload: Mapping[str, Any]) -> None:
         record_workflow_step(tracer, payload)
         history_step = await history_store.append_step(execution_id, payload)
-        await _safe_send_json(websocket, payload)
+        await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
         await _emit_trace_update(
             history_store,
             websocket,
@@ -551,7 +558,7 @@ async def _run_training_node(
     async def on_progress(payload: Mapping[str, Any]) -> None:
         record_workflow_step(tracer, payload)
         history_step = await history_store.append_step(execution_id, payload)
-        await _safe_send_json(websocket, payload)
+        await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
         await _emit_trace_update(
             history_store,
             websocket,

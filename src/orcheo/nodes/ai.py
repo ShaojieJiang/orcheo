@@ -28,9 +28,35 @@ from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import get_graph_store as _get_graph_store_fn
+from orcheo.tracing.model_metadata import (
+    build_ai_trace_metadata,
+    infer_chat_result_model_name,
+    infer_model_name_from_instance,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _llm_trace_metadata(
+    requested_model: str,
+    *,
+    model: Any | None = None,
+    result: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build normalized trace metadata for a chat-model invocation."""
+    actual_model = None
+    if result is not None:
+        actual_model = infer_chat_result_model_name(result)
+    if actual_model is None and model is not None:
+        actual_model = infer_model_name_from_instance(model)
+    return {
+        "ai": build_ai_trace_metadata(
+            kind="llm",
+            requested_model=requested_model,
+            actual_model=actual_model,
+        )
+    }
 
 
 async def _run_tool_graph(
@@ -897,6 +923,7 @@ class AgentNode(AINode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
+        self._clear_trace_metadata_for_run()
         tools = await self._prepare_tools()
 
         response_format_strategy = None
@@ -961,6 +988,10 @@ class AgentNode(AINode):
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
+        if isinstance(result, Mapping):
+            self._set_trace_metadata_for_run(
+                _llm_trace_metadata(self.ai_model, model=model, result=result)
+            )
 
         if (
             self.use_graph_chat_history
@@ -1047,6 +1078,7 @@ class LLMNode(AgentNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the LLM with a single text input."""
+        self._clear_trace_metadata_for_run()
         messages = self._build_messages(state)
         if not messages:
             return {"messages": []}
@@ -1068,6 +1100,10 @@ class LLMNode(AgentNode):
         payload: dict[str, Any] = {"messages": messages}
         with tool_execution_context(config):
             result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
+        if isinstance(result, Mapping):
+            self._set_trace_metadata_for_run(
+                _llm_trace_metadata(self.ai_model, model=model, result=result)
+            )
         return result
 
     def _build_messages(

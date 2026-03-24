@@ -15,6 +15,11 @@ from orcheo.runtime.credentials import (
     get_active_credential_resolver,
     parse_credential_reference,
 )
+from orcheo.tracing.model_metadata import (
+    TRACE_METADATA_KEY,
+    build_ai_trace_metadata,
+    infer_chat_result_model_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -310,6 +315,77 @@ class BaseNode(BaseRunnable):
             return [self._serialize_result(item) for item in value]
         return value
 
+    def _set_trace_metadata_for_run(self, metadata: Mapping[str, Any] | None) -> None:
+        """Store trace metadata to attach to this node's next emitted payload."""
+        if not metadata:
+            self.__dict__.pop("_trace_metadata_for_run", None)
+            return
+        self.__dict__["_trace_metadata_for_run"] = self._serialize_result(
+            dict(metadata)
+        )
+
+    def _clear_trace_metadata_for_run(self) -> None:
+        """Clear any pending trace metadata for the current invocation."""
+        self.__dict__.pop("_trace_metadata_for_run", None)
+
+    def _trace_metadata_for_result(self, result: Any) -> dict[str, Any]:
+        """Infer trace metadata from node configuration and serialized result."""
+        metadata: dict[str, Any] = {}
+        ai_model = self.__dict__.get("ai_model")
+        if isinstance(ai_model, str) and ai_model.strip():
+            ai_trace = build_ai_trace_metadata(
+                kind="llm",
+                requested_model=ai_model.strip(),
+                actual_model=(
+                    infer_chat_result_model_name(result)
+                    if isinstance(result, Mapping)
+                    else None
+                ),
+            )
+            metadata["ai"] = ai_trace
+        return metadata
+
+    def _attach_trace_metadata(self, result: Any) -> Any:
+        """Attach trace metadata to the emitted node payload."""
+        if not isinstance(result, Mapping):
+            self._clear_trace_metadata_for_run()
+            return result
+
+        metadata = self._trace_metadata_for_result(result)
+        explicit = self.__dict__.pop("_trace_metadata_for_run", None)
+        if isinstance(explicit, Mapping):
+            for key, value in explicit.items():
+                if (
+                    key in metadata
+                    and isinstance(metadata[key], Mapping)
+                    and isinstance(value, Mapping)
+                ):
+                    metadata[key] = {**dict(metadata[key]), **dict(value)}
+                else:
+                    metadata[key] = value
+
+        if not metadata:
+            return result
+
+        merged = dict(result)
+        existing = merged.get(TRACE_METADATA_KEY)
+        if isinstance(existing, Mapping):
+            combined = dict(existing)
+            for key, value in metadata.items():
+                if (
+                    key in combined
+                    and isinstance(combined[key], Mapping)
+                    and isinstance(value, Mapping)
+                ):
+                    combined[key] = {**dict(combined[key]), **dict(value)}
+                else:
+                    combined[key] = value
+            merged[TRACE_METADATA_KEY] = combined
+            return merged
+
+        merged[TRACE_METADATA_KEY] = metadata
+        return merged
+
 
 class AINode(BaseNode):
     """Base class for all AI nodes in the flow."""
@@ -317,8 +393,14 @@ class AINode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
         runnable = self.resolved_for_run(state, config=config)
-        result = await runnable.run(state, config)
-        return runnable._serialize_result(result)
+        runnable._clear_trace_metadata_for_run()
+        try:
+            result = await runnable.run(state, config)
+        except Exception:
+            runnable._clear_trace_metadata_for_run()
+            raise
+        serialized = runnable._serialize_result(result)
+        return cast(dict[str, Any], runnable._attach_trace_metadata(serialized))
 
     @abstractmethod
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -332,9 +414,15 @@ class TaskNode(BaseNode):
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
         runnable = self.resolved_for_run(state, config=config)
-        result = await runnable.run(state, config)
+        runnable._clear_trace_metadata_for_run()
+        try:
+            result = await runnable.run(state, config)
+        except Exception:
+            runnable._clear_trace_metadata_for_run()
+            raise
         serialized_result = runnable._serialize_result(result)
-        return {"results": {self.name: serialized_result}}
+        output: dict[str, Any] = {"results": {self.name: serialized_result}}
+        return cast(dict[str, Any], runnable._attach_trace_metadata(output))
 
     @abstractmethod
     async def run(

@@ -67,5 +67,8 @@ async def test_ai_node_call_applies_chatkit_model_override_per_run() -> None:
         RunnableConfig(configurable={"chatkit_model": "openai:gpt-5"}),
     )
 
-    assert result == {"messages": {"model": "openai:gpt-5"}}
+    assert result["messages"] == {"model": "openai:gpt-5"}
+    assert result["__trace"]["ai"]["kind"] == "llm"
+    assert result["__trace"]["ai"]["requested_model"] == "openai:gpt-5"
+    assert result["__trace"]["ai"]["provider"] == "openai"
     assert node.ai_model == "openai:gpt-4o-mini"
