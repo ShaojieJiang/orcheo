@@ -4,7 +4,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from uuid import UUID
 import pytest
-from orcheo.models.workflow import Workflow
+from fastapi import HTTPException
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
 from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.schemas.workflows import (
@@ -17,6 +18,7 @@ class _Repository:
     def __init__(self) -> None:
         self.last_actor: str | None = None
         self.last_tags: list[str] | None = None
+        self.last_draft_access: WorkflowDraftAccess | None = None
 
     async def create_workflow(
         self,
@@ -25,12 +27,18 @@ class _Repository:
         slug: str | None,
         description: str | None,
         tags: list[str] | None,
+        draft_access: WorkflowDraftAccess,
         actor: str,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags or [])
+        self.last_draft_access = draft_access
         return Workflow(
-            name=name, slug=slug or "", description=description, tags=tags or []
+            name=name,
+            slug=slug or "",
+            description=description,
+            tags=tags or [],
+            draft_access=draft_access,
         )
 
     async def update_workflow(
@@ -40,16 +48,19 @@ class _Repository:
         name: str | None,
         description: str | None,
         tags: list[str] | None,
+        draft_access: WorkflowDraftAccess | None,
         is_archived: bool | None,
         actor: str,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags) if tags is not None else None
+        self.last_draft_access = draft_access
         return Workflow(
             id=workflow_id,
             name=name or "Workflow",
             description=description,
             tags=tags or [],
+            draft_access=draft_access or WorkflowDraftAccess.PERSONAL,
             is_archived=bool(is_archived),
         )
 
@@ -89,6 +100,7 @@ async def test_create_workflow_uses_authenticated_subject_and_workspace_tags(
     assert "langgraph" in repository.last_tags
     assert "cli-upload" in repository.last_tags
     assert "workspace:team-a" in repository.last_tags
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
 
 
 @pytest.mark.asyncio()
@@ -104,6 +116,7 @@ async def test_create_workflow_keeps_request_actor_when_context_unavailable() ->
 
     assert repository.last_actor == "cli"
     assert repository.last_tags == ["legacy"]
+    assert repository.last_draft_access is WorkflowDraftAccess.PERSONAL
 
 
 @pytest.mark.asyncio()
@@ -133,6 +146,38 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
 
     assert repository.last_actor == "service-token-2"
     assert repository.last_tags == ["workspace:team-x"]
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_defaults_authenticated_users_to_workspace_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _Repository()
+    request = WorkflowCreateRequest(
+        name="Shared draft workflow",
+        tags=["shared"],
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="auth0|user-456",
+            identity_type="user",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    await workflows.create_workflow(request, repository, policy=policy)
+
+    assert repository.last_actor == "auth0|user-456"
+    assert repository.last_tags == ["shared"]
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
 
 
 @pytest.mark.asyncio()
@@ -162,6 +207,7 @@ async def test_create_workflow_normalizes_workspace_tag_casing(
 
     assert repository.last_actor == "service-token-4"
     assert repository.last_tags == ["workspace:team-x"]
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
 
 
 @pytest.mark.asyncio()
@@ -194,6 +240,7 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     assert "cli-upload" in repository.last_tags
     assert "workspace:ws-1" in repository.last_tags
     assert "workspace:ws-2" in repository.last_tags
+    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
 
 
 def test_append_workspace_tags_returns_list_when_tags_none() -> None:
@@ -250,3 +297,36 @@ async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
 
     assert repository.last_actor == "service-token-3"
     assert repository.last_tags is None
+    assert repository.last_draft_access is None
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_rejects_personal_scope_with_workspace_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _Repository()
+    request = WorkflowCreateRequest(
+        name="Conflicting workflow",
+        tags=["workspace:team-a"],
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="auth0|user-123",
+            identity_type="user",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset({"team-a"}),
+        )
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.create_workflow(request, repository, policy=policy)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "workflow.draft_access.conflict"

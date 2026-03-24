@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from orcheo.models import (
     Workflow,
+    WorkflowDraftAccess,
     WorkflowRun,
     WorkflowRunStatus,
     WorkflowVersion,
@@ -78,6 +79,20 @@ def test_workflow_tag_normalization() -> None:
     workflow = Workflow(name="Tagged", tags=["alpha", " Alpha ", "beta", ""])
 
     assert workflow.tags == ["alpha", "beta"]
+
+
+def test_workflow_draft_access_defaults_to_personal() -> None:
+    workflow = Workflow(name="Draft Flow")
+
+    assert workflow.draft_access is WorkflowDraftAccess.PERSONAL
+
+
+def test_workflow_draft_access_backfills_legacy_workspace_tags() -> None:
+    workflow = Workflow.model_validate(
+        {"name": "Workspace Flow", "tags": ["workspace:team-a"]}
+    )
+
+    assert workflow.draft_access is WorkflowDraftAccess.WORKSPACE
 
 
 def test_workflow_version_checksum_is_deterministic() -> None:

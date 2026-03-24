@@ -268,6 +268,7 @@ export const toStoredWorkflow = (
     handle: workflow.handle ?? undefined,
     name: workflow.name,
     description: workflow.description ?? undefined,
+    draftAccess: workflow.draft_access,
     createdAt: workflow.created_at,
     updatedAt: workflow.updated_at,
     owner: toAuthor(undefined),

@@ -15,6 +15,7 @@ from orcheo.models.workflow_refs import normalize_workflow_handle
 
 
 __all__ = [
+    "WorkflowDraftAccess",
     "Workflow",
     "WorkflowRun",
     "WorkflowRunStatus",
@@ -55,6 +56,13 @@ class WorkflowRunCancelledMetadata(TypedDict, total=False):
     reason: NotRequired[str]
 
 
+class WorkflowDraftAccess(str, Enum):
+    """Draft-access modes for unpublished workflows."""
+
+    PERSONAL = "personal"
+    WORKSPACE = "workspace"
+
+
 class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
@@ -64,11 +72,30 @@ class Workflow(TimestampedAuditModel):
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     is_archived: bool = False
+    draft_access: WorkflowDraftAccess = WorkflowDraftAccess.PERSONAL
     is_public: bool = False
     published_at: datetime | None = None
     published_by: str | None = None
     require_login: bool = False
     share_url: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _backfill_draft_access(cls, data: object) -> object:
+        """Infer legacy draft access from workspace tags when absent."""
+        if not isinstance(data, Mapping):
+            return data
+        if data.get("draft_access") is not None:
+            return data
+        tags = data.get("tags")
+        if not isinstance(tags, list):
+            return data
+        if any(
+            isinstance(tag, str) and tag.lower().startswith("workspace:") and ":" in tag
+            for tag in tags
+        ):
+            return {**data, "draft_access": WorkflowDraftAccess.WORKSPACE}
+        return data
 
     @field_validator("name", mode="before")
     @classmethod
