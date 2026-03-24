@@ -100,7 +100,7 @@ async def test_create_workflow_uses_authenticated_subject_and_workspace_tags(
     assert "langgraph" in repository.last_tags
     assert "cli-upload" in repository.last_tags
     assert "workspace:team-a" in repository.last_tags
-    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
+    assert repository.last_draft_access is WorkflowDraftAccess.AUTHENTICATED
 
 
 @pytest.mark.asyncio()
@@ -150,7 +150,7 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
 
 
 @pytest.mark.asyncio()
-async def test_create_workflow_defaults_authenticated_users_to_workspace_scope(
+async def test_create_workflow_defaults_authenticated_users_to_authenticated_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -177,7 +177,7 @@ async def test_create_workflow_defaults_authenticated_users_to_workspace_scope(
 
     assert repository.last_actor == "auth0|user-456"
     assert repository.last_tags == ["shared"]
-    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
+    assert repository.last_draft_access is WorkflowDraftAccess.AUTHENTICATED
 
 
 @pytest.mark.asyncio()
@@ -240,7 +240,7 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     assert "cli-upload" in repository.last_tags
     assert "workspace:ws-1" in repository.last_tags
     assert "workspace:ws-2" in repository.last_tags
-    assert repository.last_draft_access is WorkflowDraftAccess.WORKSPACE
+    assert repository.last_draft_access is None
 
 
 def test_append_workspace_tags_returns_list_when_tags_none() -> None:
@@ -330,3 +330,67 @@ async def test_create_workflow_rejects_personal_scope_with_workspace_tags(
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "workflow.draft_access.conflict"
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_rejects_workspace_scope_without_workspace_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _Repository()
+    request = WorkflowCreateRequest(
+        name="Conflicting workflow",
+        tags=["shared"],
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+        actor="cli",
+    )
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="auth0|user-123",
+            identity_type="user",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.create_workflow(request, repository, policy=policy)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "workflow.draft_access.workspace_required"
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_does_not_recompute_draft_access_from_tag_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflows,
+        "load_auth_settings",
+        lambda: SimpleNamespace(enforce=True),
+    )
+    repository = _Repository()
+    workflow = Workflow(
+        name="Workflow",
+        draft_access=WorkflowDraftAccess.PERSONAL,
+    )
+    request = WorkflowUpdateRequest(tags=["shared"], actor="cli")
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="auth0|user-789",
+            identity_type="user",
+            scopes=frozenset({"workflows:write"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    await workflows.update_workflow(
+        str(workflow.id), request, repository, policy=policy
+    )
+
+    assert repository.last_tags == ["shared"]
+    assert repository.last_draft_access is None

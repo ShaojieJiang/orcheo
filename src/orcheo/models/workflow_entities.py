@@ -60,6 +60,7 @@ class WorkflowDraftAccess(str, Enum):
     """Draft-access modes for unpublished workflows."""
 
     PERSONAL = "personal"
+    AUTHENTICATED = "authenticated"
     WORKSPACE = "workspace"
 
 

@@ -343,12 +343,12 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
 
 
 @pytest.mark.asyncio()
-async def test_create_workflow_chatkit_session_allows_shared_workspace_scope_without_tags() -> (  # noqa: E501
+async def test_create_workflow_chatkit_session_allows_authenticated_scope_without_tags() -> (  # noqa: E501
     None
 ):
     workflow = Workflow(
         name="Canvas Workflow",
-        draft_access=WorkflowDraftAccess.WORKSPACE,
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
     )
     workflow.record_event(actor="canvas-owner", action="workflow_created")
     repo = _WorkflowRepo(workflow)
@@ -377,6 +377,36 @@ async def test_create_workflow_chatkit_session_allows_shared_workspace_scope_wit
     )
 
     assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_rejects_workspace_scope_without_tags() -> (  # noqa: E501
+    None
+):
+    workflow = Workflow(
+        name="Canvas Workflow",
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    workflow.record_event(actor="canvas-owner", action="workflow_created")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="another-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(AuthorizationError) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            str(workflow.id),
+            repo,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.code == "auth.workspace_forbidden"
 
 
 @pytest.mark.asyncio()

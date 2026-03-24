@@ -393,7 +393,7 @@ async def update_workflow(
         draft_access_tags = existing_workflow.tags
     draft_access = (
         _resolve_draft_access(request.draft_access, draft_access_tags, context)
-        if request.draft_access is not None or tags is not None
+        if request.draft_access is not None
         else None
     )
 
@@ -712,11 +712,24 @@ def _resolve_draft_access(
                     "code": "workflow.draft_access.conflict",
                 },
             )
+        if (
+            requested_draft_access is WorkflowDraftAccess.WORKSPACE
+            and not has_workspace_tags
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": (
+                        "Workspace draft workflows require at least one workspace tag."
+                    ),
+                    "code": "workflow.draft_access.workspace_required",
+                },
+            )
         return requested_draft_access
 
-    if has_workspace_tags:
-        return WorkflowDraftAccess.WORKSPACE
     if context is not None and context.identity_type == "user":
+        return WorkflowDraftAccess.AUTHENTICATED
+    if has_workspace_tags:
         return WorkflowDraftAccess.WORKSPACE
     if context is not None and context.workspace_ids:
         return WorkflowDraftAccess.WORKSPACE
@@ -734,9 +747,14 @@ def _authorize_draft_workflow_access(
         for workspace_id in context.workspace_ids
         if workspace_id
     )
+    if workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED:
+        return
     if workflow.draft_access is WorkflowDraftAccess.WORKSPACE:
         if not workflow_workspaces:
-            return
+            raise AuthorizationError(
+                "Workspace access denied for workflow.",
+                code="auth.workspace_forbidden",
+            )
         if not request_workspaces:
             raise AuthorizationError(
                 "Workspace access required for workflow.",

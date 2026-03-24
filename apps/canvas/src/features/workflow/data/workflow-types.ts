@@ -35,7 +35,7 @@ export interface Workflow {
   handle?: string;
   name: string;
   description?: string;
-  draftAccess?: "personal" | "workspace";
+  draftAccess?: "personal" | "authenticated" | "workspace";
   createdAt: string;
   updatedAt: string;
   sourceExample?: string;

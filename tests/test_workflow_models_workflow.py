@@ -95,6 +95,15 @@ def test_workflow_draft_access_backfills_legacy_workspace_tags() -> None:
     assert workflow.draft_access is WorkflowDraftAccess.WORKSPACE
 
 
+def test_workflow_draft_access_supports_authenticated_scope() -> None:
+    workflow = Workflow(
+        name="Shared Flow",
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+    )
+
+    assert workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED
+
+
 def test_workflow_version_checksum_is_deterministic() -> None:
     graph_definition = {"nodes": [{"id": "1", "type": "start"}], "edges": []}
     version = WorkflowVersion(
