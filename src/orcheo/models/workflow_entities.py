@@ -10,11 +10,12 @@ from enum import Enum
 from typing import Any, NotRequired, TypedDict
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
-from orcheo.models.base import TimestampedAuditModel, _utcnow
+from orcheo.models.base import OrcheoBaseModel, TimestampedAuditModel, _utcnow
 from orcheo.models.workflow_refs import normalize_workflow_handle
 
 
 __all__ = [
+    "ChatKitStartScreenPrompt",
     "WorkflowDraftAccess",
     "Workflow",
     "WorkflowRun",
@@ -64,6 +65,31 @@ class WorkflowDraftAccess(str, Enum):
     WORKSPACE = "workspace"
 
 
+class ChatKitStartScreenPrompt(OrcheoBaseModel):
+    """Configurable prompt shown on the public ChatKit start screen."""
+
+    label: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=2000)
+    icon: str | None = Field(default=None, max_length=64)
+
+    @field_validator("label", "prompt", mode="before")
+    @classmethod
+    def _normalize_required_text(cls, value: object) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            msg = "ChatKit prompt fields must not be empty."
+            raise ValueError(msg)
+        return candidate
+
+    @field_validator("icon", mode="before")
+    @classmethod
+    def _normalize_icon(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        return candidate or None
+
+
 class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
@@ -79,6 +105,7 @@ class Workflow(TimestampedAuditModel):
     published_by: str | None = None
     require_login: bool = False
     share_url: str | None = None
+    chatkit_start_screen_prompts: list[ChatKitStartScreenPrompt] | None = None
 
     @model_validator(mode="before")
     @classmethod

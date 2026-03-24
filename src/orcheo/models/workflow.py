@@ -23,6 +23,7 @@ from orcheo.models.secret_governance import (
     SecretGovernanceAlertSeverity,
 )
 from orcheo.models.workflow_entities import (
+    ChatKitStartScreenPrompt,
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
@@ -34,6 +35,7 @@ from orcheo.models.workflow_entities import (
 __all__ = [
     "AesGcmCredentialCipher",
     "AuditRecord",
+    "ChatKitStartScreenPrompt",
     "CredentialAccessContext",
     "CredentialCipher",
     "CredentialHealth",

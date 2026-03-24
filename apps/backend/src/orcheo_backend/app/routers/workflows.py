@@ -128,6 +128,7 @@ def _serialize_public_workflow(
         is_public=workflow.is_public,
         require_login=workflow.require_login,
         share_url=workflow.share_url,
+        chatkit_start_screen_prompts=workflow.chatkit_start_screen_prompts,
     )
 
 
@@ -408,6 +409,12 @@ async def update_workflow(
         }
         if request.handle is not None:
             update_kwargs["handle"] = request.handle
+        if request.chatkit_start_screen_prompts is not None:
+            update_kwargs["chatkit_start_screen_prompts"] = (
+                request.chatkit_start_screen_prompts
+            )
+        if request.clear_chatkit_start_screen_prompts:
+            update_kwargs["clear_chatkit_start_screen_prompts"] = True
         workflow = await repository.update_workflow(
             workflow_id,
             **update_kwargs,

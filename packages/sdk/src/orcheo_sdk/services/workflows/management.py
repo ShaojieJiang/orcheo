@@ -26,6 +26,8 @@ def update_workflow_data(
     name: str | None = None,
     handle: str | None = None,
     description: str | None = None,
+    chatkit_start_screen_prompts: list[dict[str, Any]] | None = None,
+    clear_chatkit_start_screen_prompts: bool = False,
     actor: str = "cli",
 ) -> dict[str, Any]:
     """Update workflow metadata and return the backend payload."""
@@ -36,4 +38,8 @@ def update_workflow_data(
         payload["handle"] = handle
     if description is not None:
         payload["description"] = description
+    if chatkit_start_screen_prompts is not None:
+        payload["chatkit_start_screen_prompts"] = chatkit_start_screen_prompts
+    if clear_chatkit_start_screen_prompts:
+        payload["clear_chatkit_start_screen_prompts"] = True
     return client.put(f"/api/workflows/{workflow_id}", json_body=payload)

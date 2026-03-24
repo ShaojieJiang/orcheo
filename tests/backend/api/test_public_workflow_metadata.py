@@ -28,6 +28,25 @@ def test_public_workflow_metadata_returns_published_workflow(
     api_client: TestClient,
 ) -> None:
     workflow_id = _create_workflow(api_client)
+    update_response = api_client.put(
+        f"/api/workflows/{workflow_id}",
+        json={
+            "chatkit_start_screen_prompts": [
+                {
+                    "label": "Summarize the latest run",
+                    "prompt": "Summarize the latest run for me.",
+                    "icon": "search",
+                },
+                {
+                    "label": "What can you help with?",
+                    "prompt": "What can you help with?",
+                },
+            ],
+            "actor": "tester",
+        },
+    )
+    assert update_response.status_code == 200
+
     publish_response = api_client.post(
         f"/api/workflows/{workflow_id}/publish",
         json={"require_login": True, "actor": "publisher"},
@@ -41,6 +60,18 @@ def test_public_workflow_metadata_returns_published_workflow(
     assert payload["id"] == str(workflow_id)
     assert payload["is_public"] is True
     assert payload["require_login"] is True
+    assert payload["chatkit_start_screen_prompts"] == [
+        {
+            "label": "Summarize the latest run",
+            "prompt": "Summarize the latest run for me.",
+            "icon": "search",
+        },
+        {
+            "label": "What can you help with?",
+            "prompt": "What can you help with?",
+            "icon": None,
+        },
+    ]
 
 
 def test_public_workflow_metadata_rejects_archived_workflow(

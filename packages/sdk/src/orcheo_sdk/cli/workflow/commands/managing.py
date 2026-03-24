@@ -9,6 +9,8 @@ from orcheo_sdk.cli.output import print_json, render_json
 from orcheo_sdk.cli.utils import load_with_cache
 from orcheo_sdk.cli.workflow.app import (
     ActorOption,
+    ChatKitPromptsFileOption,
+    ChatKitPromptsOption,
     EntrypointOption,
     FilePathArgument,
     ForceOption,
@@ -24,6 +26,7 @@ from orcheo_sdk.cli.workflow.app import (
 )
 from orcheo_sdk.cli.workflow.inputs import (
     _cache_notice,
+    _resolve_chatkit_start_screen_prompts,
     _resolve_runnable_config,
     _validate_local_path,
 )
@@ -151,13 +154,39 @@ def update_workflow(
         "--description",
         help="Update the workflow description.",
     ),
+    chatkit_prompts: ChatKitPromptsOption = None,
+    chatkit_prompts_file: ChatKitPromptsFileOption = None,
+    clear_chatkit_prompts: bool = typer.Option(
+        False,
+        "--clear-chatkit-prompts",
+        help="Reset ChatKit start-screen prompts to the built-in defaults.",
+    ),
     actor: ActorOption = "cli",
 ) -> None:
     """Update workflow metadata."""
     state = _state(ctx)
     if state.settings.offline:
         raise CLIError("Updating workflows requires network connectivity.")
-    if workflow_name is None and handle is None and description is None:
+    if clear_chatkit_prompts and (
+        chatkit_prompts is not None or chatkit_prompts_file is not None
+    ):
+        raise CLIError(
+            "Use either --clear-chatkit-prompts or "
+            "--chatkit-prompts/--chatkit-prompts-file, not both."
+        )
+
+    resolved_chatkit_prompts = _resolve_chatkit_start_screen_prompts(
+        chatkit_prompts,
+        chatkit_prompts_file,
+    )
+
+    if (
+        workflow_name is None
+        and handle is None
+        and description is None
+        and resolved_chatkit_prompts is None
+        and not clear_chatkit_prompts
+    ):
         raise CLIError("Provide at least one field to update.")
 
     result = update_workflow_data(
@@ -166,6 +195,8 @@ def update_workflow(
         name=workflow_name,
         handle=handle,
         description=description,
+        chatkit_start_screen_prompts=resolved_chatkit_prompts,
+        clear_chatkit_start_screen_prompts=clear_chatkit_prompts,
         actor=actor,
     )
     if not state.human:

@@ -21,8 +21,15 @@ export interface ApiWorkflow {
   created_at: string;
   updated_at: string;
   share_url?: string | null;
+  chatkit_start_screen_prompts?: ChatKitStartScreenPrompt[] | null;
   latest_version?: ApiWorkflowVersion | null;
   is_scheduled?: boolean;
+}
+
+export interface ChatKitStartScreenPrompt {
+  label: string;
+  prompt: string;
+  icon?: string | null;
 }
 
 export interface ApiWorkflowVersionSummary {
@@ -53,6 +60,7 @@ export interface PublicWorkflowMetadata {
   is_public: boolean;
   require_login: boolean;
   share_url: string | null;
+  chatkit_start_screen_prompts?: ChatKitStartScreenPrompt[] | null;
 }
 
 export interface WorkflowRunnableConfig {

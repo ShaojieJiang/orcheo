@@ -34,6 +34,20 @@ RunnableConfigFileOption = Annotated[
     str | None,
     typer.Option("--config-file", help="Path to JSON file with runnable config."),
 ]
+ChatKitPromptsOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-prompts",
+        help="JSON array of ChatKit start-screen prompts.",
+    ),
+]
+ChatKitPromptsFileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--chatkit-prompts-file",
+        help="Path to JSON file with ChatKit start-screen prompts.",
+    ),
+]
 EvaluationOption = Annotated[
     str | None,
     typer.Option(
@@ -101,6 +115,8 @@ __all__ = [
     "listeners_app",
     "WorkflowIdArgument",
     "ActorOption",
+    "ChatKitPromptsFileOption",
+    "ChatKitPromptsOption",
     "InputsOption",
     "InputsFileOption",
     "RunnableConfigOption",
