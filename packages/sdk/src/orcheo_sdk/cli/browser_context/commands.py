@@ -133,6 +133,7 @@ def context_sessions(
             "workflow_name",
             "focused",
             "staleness_seconds",
+            "origin",
         ]
         rows = [[session.get(col, "") for col in columns] for session in data]
         render_table(

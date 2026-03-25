@@ -89,30 +89,11 @@ def test_get_sessions(context_server: tuple[str, HTTPServer]) -> None:
     assert len(sessions) == 3
 
 
-def test_cors_headers_without_origin(context_server: tuple[str, HTTPServer]) -> None:
-    """Requests without an Origin header get an empty CORS origin."""
+def test_cors_headers_allow_all(context_server: tuple[str, HTTPServer]) -> None:
+    """All responses include Access-Control-Allow-Origin: *."""
     base_url, _ = context_server
     resp = httpx.get(f"{base_url}/context")
-    assert resp.headers["access-control-allow-origin"] == ""
-
-
-def test_cors_headers_with_localhost_origin(
-    context_server: tuple[str, HTTPServer],
-) -> None:
-    """Requests from a localhost origin are reflected back."""
-    base_url, _ = context_server
-    origin = "http://localhost:5173"
-    resp = httpx.get(f"{base_url}/context", headers={"Origin": origin})
-    assert resp.headers["access-control-allow-origin"] == origin
-
-
-def test_cors_headers_rejects_non_localhost(
-    context_server: tuple[str, HTTPServer],
-) -> None:
-    """Requests from non-localhost origins get an empty CORS origin."""
-    base_url, _ = context_server
-    resp = httpx.get(f"{base_url}/context", headers={"Origin": "http://evil.com"})
-    assert resp.headers["access-control-allow-origin"] == ""
+    assert resp.headers["access-control-allow-origin"] == "*"
 
 
 def test_options_preflight(context_server: tuple[str, HTTPServer]) -> None:
@@ -120,7 +101,8 @@ def test_options_preflight(context_server: tuple[str, HTTPServer]) -> None:
     base_url, _ = context_server
     resp = httpx.options(f"{base_url}/context")
     assert resp.status_code == 204
-    assert "access-control-allow-origin" in resp.headers
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-methods" in resp.headers
 
 
 def test_post_missing_fields(context_server: tuple[str, HTTPServer]) -> None:
@@ -168,11 +150,12 @@ def test_post_unknown_path(context_server: tuple[str, HTTPServer]) -> None:
     assert resp.status_code == 404
 
 
-def test_cors_headers_urlparse_exception() -> None:
-    """_cors_headers returns empty origin when urlparse raises."""
-    with patch("urllib.parse.urlparse", side_effect=Exception("bad parse")):
-        headers = _cors_headers("http://localhost:5173")
-    assert headers["Access-Control-Allow-Origin"] == ""
+def test_cors_headers_returns_wildcard() -> None:
+    """_cors_headers always returns Access-Control-Allow-Origin: *."""
+    headers = _cors_headers()
+    assert headers["Access-Control-Allow-Origin"] == "*"
+    assert "Access-Control-Allow-Methods" in headers
+    assert "Access-Control-Allow-Headers" in headers
 
 
 def test_resolve_timestamp_invalid() -> None:

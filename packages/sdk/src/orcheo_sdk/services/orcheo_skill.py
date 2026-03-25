@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import httpx
-from orcheo.skills.manager import SkillError, SkillManager
+from orcheo.skills.manager import SkillError
+from orcheo.skills.parser import parse_skill_md
 
 
 OFFICIAL_ORCHEO_SKILL_NAME = "orcheo"
@@ -66,7 +67,8 @@ def resolve_orcheo_skill_targets(
 
 
 def _validate_orcheo_skill(source_dir: Path) -> None:
-    validation = SkillManager().validate(str(source_dir))
+    skill_md = source_dir / "SKILL.md"
+    validation = parse_skill_md(skill_md)
     if not validation.valid or validation.skill_metadata is None:
         messages = "; ".join(
             f"{error.field}: {error.message}" for error in validation.errors

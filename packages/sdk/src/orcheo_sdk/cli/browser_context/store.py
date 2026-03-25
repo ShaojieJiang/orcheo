@@ -17,6 +17,7 @@ class BrowserContextEntry:
     focused: bool
     last_seen: datetime
     last_focused_at: datetime | None = None
+    origin: str | None = None
 
 
 class BrowserContextStore:
@@ -44,6 +45,7 @@ class BrowserContextStore:
         workflow_name: str | None,
         focused: bool,
         timestamp: datetime | None = None,
+        origin: str | None = None,
     ) -> None:
         """Insert or update a session entry. Resets the TTL."""
         now = timestamp or datetime.now(UTC)
@@ -60,6 +62,7 @@ class BrowserContextStore:
                 focused=focused,
                 last_seen=now,
                 last_focused_at=last_focused_at,
+                origin=origin,
             )
 
     def _start_periodic_cleanup(self) -> None:
@@ -105,6 +108,7 @@ class BrowserContextStore:
                     "last_focused_at": None,
                     "staleness_seconds": 0,
                     "total_sessions": 0,
+                    "origin": None,
                 }
 
             total = len(self._sessions)
@@ -133,6 +137,7 @@ class BrowserContextStore:
                 ),
                 "staleness_seconds": int(staleness),
                 "total_sessions": total,
+                "origin": best.origin,
             }
 
     def get_all_sessions(self) -> list[dict[str, object]]:
@@ -159,6 +164,7 @@ class BrowserContextStore:
                             else None
                         ),
                         "staleness_seconds": int(staleness),
+                        "origin": entry.origin,
                     }
                 )
             return results
