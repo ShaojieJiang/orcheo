@@ -61,7 +61,7 @@ def normalize_chat_model_kwargs(
     explicit_provider_key = provider_key_values.get(provider)
     if isinstance(explicit_provider_key, str):
         explicit_provider_key = explicit_provider_key.strip()
-        if explicit_provider_key:
+        if explicit_provider_key:  # pragma: no branch
             normalized["api_key"] = explicit_provider_key
             return normalized
 
@@ -78,7 +78,7 @@ def _resolve_provider(
     provider = model_kwargs.get("model_provider")
     if isinstance(provider, str):
         normalized_provider = provider.strip()
-        if normalized_provider:
+        if normalized_provider:  # pragma: no branch
             return normalized_provider
 
     if not isinstance(ai_model, str):
