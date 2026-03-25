@@ -12,6 +12,7 @@ from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.runtime.chat_models import normalize_chat_model_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_model_name_from_instance,
@@ -94,7 +95,10 @@ class QueryRewriteNode(AgentNode):
                 "context": "",
             }
 
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, self.model_kwargs),
+        )
         prompt = self._system_prompt_text
         llm_messages = [
             SystemMessage(content=prompt),
@@ -387,7 +391,10 @@ class ContextCompressorNode(TaskNode):
             msg = "AI model identifier is required for model-based summarization"
             raise ValueError(msg)
         kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
-        model = init_chat_model(self.ai_model, **kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, kwargs),
+        )
 
         prompt = (
             "User Query: {query}\n\nRetrieved Context:\n{context}\n\n"

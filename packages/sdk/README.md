@@ -205,6 +205,10 @@ orcheo credential create my-api-key \
   --secret sk-xxx \
   --access private
 
+# Provider-specific credentials used for model switching
+orcheo credential create openai_api_key --provider openai --secret sk-openai
+orcheo credential create deepseek_api_key --provider deepseek --secret sk-deepseek
+
 # Delete a credential
 orcheo credential delete cred-id --force
 ```

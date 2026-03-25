@@ -39,6 +39,7 @@ dependencies = [
   "uvicorn>=0.24.0",
   "pydantic>=2.4.2",
   "langchain-community>=0.0.10",
+  "langchain-deepseek>=1.0.1",
   "langchain-openai>=0.0.5",
   "python-dotenv>=1.0.0",
   "websockets>=12.0",

@@ -11,6 +11,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.evaluation.metrics import _tokenize
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.runtime.chat_models import normalize_chat_model_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_model_name_from_instance,
@@ -69,7 +70,10 @@ class LLMJudgeNode(TaskNode):
             msg = "LLMJudgeNode requires ai_model for model-based judging"
             raise ValueError(msg)
         kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
-        model = init_chat_model(self.ai_model, **kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, kwargs),
+        )
         self._set_trace_metadata_for_run(
             {
                 "ai": build_ai_trace_metadata(
