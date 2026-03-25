@@ -652,6 +652,45 @@ async def test_run_model_kwargs_uses_init_chat_model(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_uses_inferred_provider_api_key_when_available(
+    tmp_path: Path,
+) -> None:
+    """run() initializes the model when provider key inference supplies kwargs."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+
+    with (
+        patch(
+            "orcheo.nodes.deep_agent.normalize_chat_model_kwargs",
+            return_value={"api_key": "resolved-key"},
+        ),
+        patch("orcheo.nodes.deep_agent.init_chat_model") as mock_init,
+        patch(
+            "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
+        ) as mock_create,
+        patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+    ):
+        mock_model = MagicMock()
+        mock_init.return_value = mock_model
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(
+            name="t",
+            ai_model="deepseek:deepseek-chat",
+            input_query="Test.",
+        )
+        await node.run(State({}), RunnableConfig())
+
+        mock_init.assert_called_once_with(
+            "deepseek:deepseek-chat", api_key="resolved-key"
+        )
+        assert mock_create.call_args[0][0] is mock_model
+
+
+@pytest.mark.asyncio
 async def test_run_passes_skills_and_memory() -> None:
     """run() passes skills and memory to create_deep_agent."""
     mock_agent = AsyncMock()

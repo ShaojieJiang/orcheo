@@ -11,6 +11,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.conversational_search.models import SearchResult
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.runtime.chat_models import normalize_chat_model_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_chat_result_model_name,
@@ -227,7 +228,10 @@ class GroundedGeneratorNode(TaskNode):
 
         # Initialize chat model
         kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
-        model = init_chat_model(self.ai_model, **kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, kwargs),
+        )
 
         # Build messages list
         messages: list[Any] = []
@@ -419,7 +423,10 @@ class StreamingGeneratorNode(TaskNode):
 
         # Initialize chat model
         kwargs = self.model_kwargs if isinstance(self.model_kwargs, dict) else {}
-        model = init_chat_model(self.ai_model, **kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, kwargs),
+        )
 
         # Build messages list
         messages = self._build_streaming_messages(query, history)

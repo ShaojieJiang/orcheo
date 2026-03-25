@@ -76,6 +76,40 @@ def orcheo_workflow() -> StateGraph:
     assert placeholders["telegram_token"] == {"[[telegram_token]]"}
 
 
+def test_collect_workflow_credential_placeholders_scans_provider_specific_aliases() -> (
+    None
+):
+    source = """
+from langgraph.graph import END, START, StateGraph
+from orcheo.graph.state import State
+from orcheo.nodes.ai import AgentNode
+
+def orcheo_workflow() -> StateGraph:
+    graph = StateGraph(State)
+    agent = AgentNode(
+        name="agent",
+        ai_model="{{config.configurable.ai_model}}",
+        model_kwargs={
+            "openai_api_key": "[[openai_primary_key]]",
+            "deepseek_api_key": "[[deepseek_team_key]]",
+        },
+    )
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    graph.add_edge("agent", END)
+    return graph
+"""
+
+    placeholders = collect_workflow_credential_placeholders(
+        {"source": source, "entrypoint": None},
+        {"configurable": {"ai_model": "deepseek:deepseek-chat"}},
+    )
+
+    assert sorted(placeholders) == ["deepseek_team_key", "openai_primary_key"]
+    assert placeholders["openai_primary_key"] == {"[[openai_primary_key]]"}
+    assert placeholders["deepseek_team_key"] == {"[[deepseek_team_key]]"}
+
+
 def test_collect_workflow_credential_placeholders_falls_back_when_source_fails() -> (
     None
 ):

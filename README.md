@@ -117,6 +117,10 @@ orcheo credential create openai_api_key --secret sk-your-key
 python examples/conversational_search/demo_2_basic_rag/demo_2.py
 ```
 
+Provider-aware chat models use provider-specific credential names in the active
+vault by default. For example, `openai:gpt-4.1` looks for `openai_api_key`,
+while `deepseek:deepseek-chat` looks for `deepseek_api_key`.
+
 ## Reference
 
 - **[SDK Reference](https://orcheo.readthedocs.io/en/latest/sdk_reference/)** — Python SDK for programmatic workflow execution

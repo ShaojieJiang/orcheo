@@ -17,6 +17,7 @@ from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.runtime.chat_models import normalize_chat_model_kwargs
 from orcheo.skills.manager import SkillManager
 from orcheo.skills.paths import get_skills_dir
 from orcheo.tracing.model_metadata import (
@@ -222,9 +223,12 @@ class DeepAgentNode(AINode):
         if self.response_format is not None:
             response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
-        model_kwargs = self.model_kwargs
+        model_kwargs = normalize_chat_model_kwargs(self.ai_model, self.model_kwargs)
         if model_kwargs:
-            model = init_chat_model(self.ai_model, **model_kwargs)
+            model = init_chat_model(
+                self.ai_model,
+                **model_kwargs,
+            )
         else:
             model = self.ai_model  # type: ignore[assignment]
 

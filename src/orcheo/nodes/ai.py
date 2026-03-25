@@ -28,6 +28,7 @@ from orcheo.nodes.agent_tools.registry import tool_registry
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import get_graph_store as _get_graph_store_fn
+from orcheo.runtime.chat_models import normalize_chat_model_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_chat_result_model_name,
@@ -931,7 +932,10 @@ class AgentNode(AINode):
             response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
         # Initialize chat model with model_kwargs
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, self.model_kwargs),
+        )
         agent = create_agent(
             model,
             tools=tools,
@@ -1089,7 +1093,10 @@ class LLMNode(AgentNode):
         if self.response_format is not None:
             response_format_strategy = ProviderStrategy(self.response_format)  # type: ignore[arg-type]
 
-        model = init_chat_model(self.ai_model, **self.model_kwargs)
+        model = init_chat_model(
+            self.ai_model,
+            **normalize_chat_model_kwargs(self.ai_model, self.model_kwargs),
+        )
         agent = create_agent(
             model,
             tools=tools,
