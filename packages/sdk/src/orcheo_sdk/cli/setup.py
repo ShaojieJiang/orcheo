@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import tarfile
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -880,7 +881,7 @@ def _install_orcheo_skill(*, console: Console) -> None:
                 name = target.get("target", "unknown")
                 status = target.get("status", "unknown")
                 console.print(f"  [green]{name}[/green]: {status}")
-    except (SkillError, OSError) as exc:
+    except (SkillError, OSError, tarfile.TarError) as exc:
         console.print(
             f"[yellow]Orcheo skill installation failed: {exc}. "
             "You can install it later with: orcheo-skill install -t all[/yellow]"
