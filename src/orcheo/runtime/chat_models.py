@@ -47,16 +47,17 @@ def normalize_chat_model_kwargs(
 ) -> dict[str, Any]:
     """Return chat-model kwargs with provider-specific auth normalized."""
     normalized = dict(model_kwargs or {})
-    provider_key_values = _pop_provider_key_aliases(normalized)
 
     api_key = normalized.get("api_key")
     if isinstance(api_key, str) and api_key.strip():
+        _pop_provider_key_aliases(normalized)
         return normalized
 
     provider = _resolve_provider(ai_model, normalized)
     if provider is None:
         return normalized
 
+    provider_key_values = _pop_provider_key_aliases(normalized)
     explicit_provider_key = provider_key_values.get(provider)
     if isinstance(explicit_provider_key, str):
         explicit_provider_key = explicit_provider_key.strip()

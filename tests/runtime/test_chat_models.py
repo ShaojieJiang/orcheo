@@ -78,3 +78,13 @@ def test_normalize_chat_model_kwargs_infers_openai_provider_from_model_name(
     result = normalize_chat_model_kwargs("gpt-4.1")
 
     assert result["api_key"] == "resolved-openai-key"
+
+
+def test_normalize_chat_model_kwargs_preserves_aliases_when_provider_unknown() -> None:
+    result = normalize_chat_model_kwargs(
+        "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        {"fireworks_api_key": "fireworks-secret"},
+    )
+
+    assert result["fireworks_api_key"] == "fireworks-secret"
+    assert "api_key" not in result
