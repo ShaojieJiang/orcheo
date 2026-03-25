@@ -117,6 +117,7 @@ def _setup_config() -> SetupConfig:
         chatkit_domain_key=None,
         start_stack=True,
         install_docker_if_missing=True,
+        install_orcheo_skill=True,
     )
 
 
@@ -285,6 +286,7 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default(
         chatkit_domain_key=None,
         start_stack=None,
         install_docker=None,
+        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -309,6 +311,7 @@ def test_run_setup_upgrade_honors_explicit_api_key(
         chatkit_domain_key=None,
         start_stack=None,
         install_docker=None,
+        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -340,6 +343,7 @@ def test_run_setup_install_preserves_existing_env_by_default(
         chatkit_domain_key=None,
         start_stack=False,
         install_docker=False,
+        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=console,
@@ -1047,6 +1051,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         chatkit_domain_key="domain_pk_live",
         start_stack=False,
         install_docker_if_missing=True,
+        install_orcheo_skill=True,
     )
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
@@ -1151,6 +1156,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         chatkit_domain_key=None,
         start_stack=None,
         install_docker=None,
+        install_orcheo_skill=None,
         yes=False,
         manual_secrets=False,
         console=console,
@@ -1166,6 +1172,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         chatkit_domain_key=None,
         start_stack=False,
         install_docker=False,
+        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=oauth_console,

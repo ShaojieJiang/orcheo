@@ -53,6 +53,7 @@ class SetupConfig:
     chatkit_domain_key: str | None
     start_stack: bool
     install_docker_if_missing: bool
+    install_orcheo_skill: bool
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
@@ -654,6 +655,7 @@ def run_setup(
     chatkit_domain_key: str | None,
     start_stack: bool | None,
     install_docker: bool | None,
+    install_orcheo_skill: bool | None,
     yes: bool,
     manual_secrets: bool,
     console: Console,
@@ -686,6 +688,12 @@ def run_setup(
         install_docker,
         yes_default=yes,
         prompt="Install Docker when missing?",
+        default=True,
+    )
+    resolved_install_orcheo_skill = _resolve_bool(
+        install_orcheo_skill,
+        yes_default=yes,
+        prompt="Install Orcheo skill for AI coding agents (Claude, Codex)?",
         default=True,
     )
 
@@ -727,6 +735,7 @@ def run_setup(
         chatkit_domain_key=resolved_chatkit_domain_key,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
+        install_orcheo_skill=resolved_install_orcheo_skill,
         preserve_existing_backend_url=preserve_existing_backend_url,
     )
 
@@ -852,6 +861,30 @@ def execute_setup(
                 "Check service logs with:[/yellow]\n"
                 f"  docker compose -f {compose_file} logs"
             )
+
+    if config.install_orcheo_skill:
+        _install_orcheo_skill(console=console)
+
+
+def _install_orcheo_skill(*, console: Console) -> None:
+    """Install or update the official Orcheo skill for all agent targets."""
+    from orcheo.skills.manager import SkillError
+    from orcheo_sdk.services.orcheo_skill import update_orcheo_skill_data
+
+    console.print("[cyan]Installing Orcheo skill for AI coding agents...[/cyan]")
+    try:
+        payload = update_orcheo_skill_data(targets=["all"])
+        targets = payload.get("targets", [])
+        for target in targets:
+            if isinstance(target, dict):
+                name = target.get("target", "unknown")
+                status = target.get("status", "unknown")
+                console.print(f"  [green]{name}[/green]: {status}")
+    except (SkillError, OSError) as exc:
+        console.print(
+            f"[yellow]Orcheo skill installation failed: {exc}. "
+            "You can install it later with: orcheo-skill install -t all[/yellow]"
+        )
 
 
 def print_summary(config: SetupConfig, *, console: Console) -> None:

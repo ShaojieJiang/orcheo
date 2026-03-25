@@ -24,6 +24,7 @@ def test_install_command_non_interactive_defaults(
             chatkit_domain_key=None,
             start_stack=True,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         )
 
     monkeypatch.setattr("orcheo_sdk.cli.main.run_setup", _run_setup)
@@ -68,6 +69,7 @@ def test_install_command_respects_no_update_check(
             chatkit_domain_key=None,
             start_stack=True,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         ),
     )
     monkeypatch.setattr(
@@ -101,6 +103,7 @@ def test_install_upgrade_subcommand_forces_upgrade(
             chatkit_domain_key=None,
             start_stack=True,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         )
 
     monkeypatch.setattr("orcheo_sdk.cli.main.run_setup", _run_setup)
@@ -134,6 +137,7 @@ def test_install_command_passes_chatkit_domain_key(
             chatkit_domain_key="domain_pk_test",
             start_stack=False,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         )
 
     monkeypatch.setattr("orcheo_sdk.cli.main.run_setup", _run_setup)
@@ -178,6 +182,7 @@ def test_install_command_passes_stack_version(
             chatkit_domain_key=None,
             start_stack=False,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         ),
     )
     monkeypatch.setattr("orcheo_sdk.cli.main.execute_setup", _execute_setup)
@@ -216,6 +221,7 @@ def test_install_upgrade_command_passes_stack_version(
             chatkit_domain_key=None,
             start_stack=False,
             install_docker_if_missing=True,
+            install_orcheo_skill=True,
         ),
     )
     monkeypatch.setattr("orcheo_sdk.cli.main.execute_setup", _execute_setup)
