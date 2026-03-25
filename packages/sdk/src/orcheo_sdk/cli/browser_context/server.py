@@ -17,24 +17,13 @@ logger = logging.getLogger(__name__)
 _REQUIRED_POST_FIELDS = {"session_id", "page", "focused"}
 
 
-def _cors_headers(origin: str | None = None) -> dict[str, str]:
-    """Return CORS headers restricted to localhost origins."""
-    allowed_origin = ""
-    if origin:
-        # Allow any localhost origin (any port, http only).
-        try:
-            from urllib.parse import urlparse
+def _cors_headers() -> dict[str, str]:
+    """Return permissive CORS headers.
 
-            parsed = urlparse(origin)
-            if (
-                parsed.hostname in ("localhost", "127.0.0.1")
-                and parsed.scheme == "http"
-            ):
-                allowed_origin = origin
-        except Exception:  # noqa: BLE001
-            pass
+    The browser-context server only binds to localhost so all origins are allowed.
+    """
     return {
-        "Access-Control-Allow-Origin": allowed_origin,
+        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
     }
@@ -75,15 +64,11 @@ class ContextRequestHandler(BaseHTTPRequestHandler):
 
     store: ClassVar[BrowserContextStore]
 
-    def _origin(self) -> str | None:
-        """Return the Origin header from the request."""
-        return self.headers.get("Origin")
-
     def _send_json(self, status: int, data: Any) -> None:
         """Send a JSON response with CORS headers."""
         body = json.dumps(data, default=str).encode()
         self.send_response(status)
-        for key, value in _cors_headers(self._origin()).items():
+        for key, value in _cors_headers().items():
             self.send_header(key, value)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -93,7 +78,7 @@ class ContextRequestHandler(BaseHTTPRequestHandler):
     def _send_no_content(self) -> None:
         """Send a 204 No Content response with CORS headers."""
         self.send_response(204)
-        for key, value in _cors_headers(self._origin()).items():
+        for key, value in _cors_headers().items():
             self.send_header(key, value)
         self.end_headers()
 
@@ -133,6 +118,7 @@ class ContextRequestHandler(BaseHTTPRequestHandler):
             workflow_name=result.get("workflow_name"),
             focused=bool(result["focused"]),
             timestamp=_resolve_timestamp(result),
+            origin=self.headers.get("Origin"),
         )
         self._send_no_content()
 

@@ -95,12 +95,12 @@ def test_resolve_orcheo_skill_targets_rejects_unknown(
 def test_validate_orcheo_skill_reports_invalid(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    class FakeManager:
-        def validate(self, ref: str) -> SkillValidationResult:
-            return _fake_validation(valid=False)
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text("name: orcheo", encoding="utf-8")
 
     monkeypatch.setattr(
-        "orcheo_sdk.services.orcheo_skill.SkillManager", lambda: FakeManager()
+        "orcheo_sdk.services.orcheo_skill.parse_skill_md",
+        lambda path: _fake_validation(valid=False),
     )
 
     with pytest.raises(SkillError, match="Official Orcheo skill is invalid"):
@@ -110,12 +110,12 @@ def test_validate_orcheo_skill_reports_invalid(
 def test_validate_orcheo_skill_rejects_non_official_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    class FakeManager:
-        def validate(self, ref: str) -> SkillValidationResult:
-            return _fake_validation(valid=True, name="other-skill")
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text("name: other-skill", encoding="utf-8")
 
     monkeypatch.setattr(
-        "orcheo_sdk.services.orcheo_skill.SkillManager", lambda: FakeManager()
+        "orcheo_sdk.services.orcheo_skill.parse_skill_md",
+        lambda path: _fake_validation(valid=True, name="other-skill"),
     )
 
     with pytest.raises(SkillError, match="unexpected name"):
@@ -231,13 +231,12 @@ def test_validate_orcheo_skill_succeeds_with_correct_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """_validate_orcheo_skill returns normally when name matches (line 75 false branch)."""  # noqa: E501
-
-    class FakeManager:
-        def validate(self, ref: str) -> SkillValidationResult:
-            return _fake_validation(valid=True, name="orcheo")
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text("name: orcheo", encoding="utf-8")
 
     monkeypatch.setattr(
-        "orcheo_sdk.services.orcheo_skill.SkillManager", lambda: FakeManager()
+        "orcheo_sdk.services.orcheo_skill.parse_skill_md",
+        lambda path: _fake_validation(valid=True, name="orcheo"),
     )
 
     _validate_orcheo_skill(tmp_path)  # must not raise
