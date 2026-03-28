@@ -17,7 +17,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 - **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
-- **Backend-first**: Run headless in production; the UI is optional.
+- **CLI-first**: Manage everything via the `orcheo` CLI (or `horcheo` for human-readable output) — install, configure, deploy, and run workflows from the terminal. The GUI is optional.
 
 ## Quick Start
 
@@ -91,7 +91,7 @@ That's it! Your agent handles the complexity while you focus on describing what 
 ## Guides
 
 - **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
-- **[Canvas](canvas.md)** — Visual workflow designer
+- **[Canvas](canvas.md)** — Workflow monitor, default-config editor, and Credential Vault manager
 - **[Auth0 IdP Setup](auth0_idp_setup.md)** — Configure Auth0 OAuth/OIDC for the Docker stack
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Conversational Search](examples/conversational_search.md)** — Step-by-step demos from basic RAG to production-ready search
