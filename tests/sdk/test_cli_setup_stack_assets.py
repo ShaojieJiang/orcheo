@@ -86,8 +86,8 @@ class _Response:
     def __exit__(self, *args: object) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self._buffer.read()
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
 
 
 _ENV_EXAMPLE = (
@@ -140,6 +140,10 @@ def _patch_common(
     monkeypatch.setattr(
         "orcheo_sdk.cli.setup._has_binary",
         lambda name: has_docker and name in {"docker"},
+    )
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.setup._docker_command",
+        lambda: ["docker"] if has_docker else None,
     )
 
     def _run_command(command: list[str], *, console: Console) -> None:
@@ -633,6 +637,11 @@ def test_execute_setup_autoinstalls_docker_then_starts_stack(
         "_has_binary",
         lambda name: docker_state["installed"] and name == "docker",
     )
+    monkeypatch.setattr(
+        setup_mod,
+        "_docker_command",
+        lambda: ["docker"] if docker_state["installed"] else None,
+    )
 
     def _autoinstall(*, console: Console) -> bool:
         del console
@@ -665,6 +674,11 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         setup_mod,
         "_has_binary",
         lambda name: (docker_state["installed"] and name == "docker") or name == "sudo",
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_docker_command",
+        lambda: ["docker"] if docker_state["installed"] else None,
     )
 
     def _autoinstall(*, console: Console) -> bool:
@@ -950,6 +964,7 @@ def test_attempt_docker_autoinstall_paths(
 ) -> None:
     from orcheo_sdk.cli import setup as setup_mod
 
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         setup_mod, "_is_supported_docker_autoinstall_linux", lambda: False
     )
@@ -996,6 +1011,117 @@ def test_attempt_docker_autoinstall_paths(
         ),
     )
     assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is False
+
+
+def test_attempt_macos_docker_desktop_install_runs_installer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(setup_mod, "_normalized_machine", lambda: "arm64")
+    monkeypatch.setattr(setup_mod, "_current_username", lambda: "alice")
+
+    downloads: list[tuple[str, Path]] = []
+
+    def _download(download_url: str, destination: Path, *, console: Console) -> None:
+        del console
+        downloads.append((download_url, destination))
+        destination.write_bytes(b"dmg")
+
+    commands: list[list[str]] = []
+    monkeypatch.setattr(setup_mod, "_download_binary_asset", _download)
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: commands.append(command),
+    )
+    monkeypatch.setattr(
+        setup_mod, "_start_docker_desktop", lambda *, console: commands.append(["open"])
+    )
+    monkeypatch.setattr(setup_mod, "_wait_for_docker_access", lambda *, console: True)
+    monkeypatch.setattr(
+        setup_mod, "_refresh_docker_cli_path_for_current_process", lambda: None
+    )
+
+    assert setup_mod._attempt_macos_docker_desktop_install(console=Console(record=True))
+    assert downloads[0][0] == setup_mod._MACOS_DOCKER_DESKTOP_DOWNLOADS["arm64"]
+    assert commands == [
+        ["hdiutil", "attach", str(downloads[0][1]), "-nobrowse"],
+        [
+            "/Volumes/Docker/Docker.app/Contents/MacOS/install",
+            "--accept-license",
+            "--user=alice",
+        ],
+        ["hdiutil", "detach", "/Volumes/Docker"],
+        ["open"],
+    ]
+
+
+def test_attempt_windows_docker_desktop_install_runs_installer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(setup_mod, "_normalized_machine", lambda: "x86_64")
+    monkeypatch.setattr(setup_mod, "_ensure_windows_wsl", lambda *, console: True)
+
+    downloads: list[tuple[str, Path]] = []
+
+    def _download(download_url: str, destination: Path, *, console: Console) -> None:
+        del console
+        downloads.append((download_url, destination))
+        destination.write_bytes(b"exe")
+
+    commands: list[list[str]] = []
+    monkeypatch.setattr(setup_mod, "_download_binary_asset", _download)
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_windows_elevated_command",
+        lambda command, *, console: commands.append(command),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_start_docker_desktop",
+        lambda *, console: commands.append(["start"]),
+    )
+    monkeypatch.setattr(setup_mod, "_wait_for_docker_access", lambda *, console: True)
+    monkeypatch.setattr(
+        setup_mod, "_refresh_docker_cli_path_for_current_process", lambda: None
+    )
+
+    assert setup_mod._attempt_windows_docker_desktop_install(
+        console=Console(record=True)
+    )
+    assert downloads[0][0] == setup_mod._WINDOWS_DOCKER_DESKTOP_DOWNLOADS["x86_64"]
+    assert commands == [
+        [
+            str(downloads[0][1]),
+            "install",
+            "--accept-license",
+            "--backend=wsl-2",
+            "--quiet",
+        ],
+        ["start"],
+    ]
+
+
+def test_attempt_windows_docker_desktop_install_stops_when_wsl_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(setup_mod, "_normalized_machine", lambda: "x86_64")
+    monkeypatch.setattr(setup_mod, "_ensure_windows_wsl", lambda *, console: False)
+
+    assert (
+        setup_mod._attempt_windows_docker_desktop_install(console=Console(record=True))
+        is False
+    )
 
 
 def test_resolve_backend_url_install_yes_uses_default() -> None:

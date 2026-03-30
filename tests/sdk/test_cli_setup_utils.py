@@ -66,14 +66,14 @@ def test_run_privileged_command_prefixes_with_sudo_when_needed(
 def test_current_shell_has_docker_access_false_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: False)
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: None)
     assert not setup_mod._current_shell_has_docker_access()
 
 
 def test_current_shell_has_docker_access_true_when_docker_info_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: True)
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
 
     class _Result:
         returncode = 0
@@ -86,9 +86,30 @@ def test_current_shell_has_docker_access_true_when_docker_info_succeeds(
     assert setup_mod._current_shell_has_docker_access()
 
 
+def test_attempt_docker_autoinstall_delegates_to_platform_installers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_macos_docker_desktop_install",
+        lambda *, console: True,
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is True
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_windows_docker_desktop_install",
+        lambda *, console: True,
+    )
+    assert setup_mod._attempt_docker_autoinstall(console=Console(record=True)) is True
+
+
 def test_attempt_docker_autoinstall_runs_commands_when_supported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
     )
@@ -117,6 +138,7 @@ def test_attempt_docker_autoinstall_runs_commands_when_supported(
 def test_attempt_docker_autoinstall_handles_privileged_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
     )
@@ -132,6 +154,7 @@ def test_attempt_docker_autoinstall_handles_privileged_error(
 def test_attempt_docker_autoinstall_returns_false_when_docker_still_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
     )

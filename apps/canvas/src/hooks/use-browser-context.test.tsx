@@ -14,9 +14,11 @@ import {
 import { useBrowserContext } from "./use-browser-context";
 
 let fetchSpy: MockInstance;
+let warnSpy: MockInstance;
 
 beforeEach(() => {
   fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   sessionStorage.clear();
 });
 
@@ -114,15 +116,30 @@ describe("useBrowserContext", () => {
     expect(fetchSpy).toHaveBeenCalled();
   });
 
-  it("silently handles fetch failure", async () => {
+  it("warns once and disables sync after repeated fetch failure", async () => {
+    vi.useFakeTimers();
     fetchSpy.mockRejectedValue(new Error("Connection refused"));
 
     render(<HookHarness />);
 
-    // Should not throw
     await act(async () => {
       screen.getByTestId("set-gallery").click();
     });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      screen.getByTestId("set-canvas").click();
+      window.dispatchEvent(new Event("focus"));
+      vi.advanceTimersByTime(5_000);
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it("includes focused flag based on document.hasFocus", async () => {

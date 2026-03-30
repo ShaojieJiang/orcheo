@@ -61,7 +61,9 @@ export const buildModelOptions = (
       label: model.label?.trim() || model.id,
       ...(model.description ? { description: model.description } : {}),
       ...(model.disabled ? { disabled: true } : {}),
-      ...(model.default || shouldAssignFallbackDefault ? { default: true } : {}),
+      ...(model.default || shouldAssignFallbackDefault
+        ? { default: true }
+        : {}),
     };
   });
   return normalized.length > 0 ? normalized : undefined;

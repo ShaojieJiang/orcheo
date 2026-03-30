@@ -12,8 +12,10 @@ import { useCallback, useEffect, useRef } from "react";
 const CONTEXT_URL = "http://localhost:3333/context";
 const HEARTBEAT_ACTIVE_MS = 5_000;
 const HEARTBEAT_IDLE_MS = 30_000;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 500;
+const BRIDGE_UNAVAILABLE_WARNING =
+  "Browser context bridge is unavailable. Start `orcheo browser-aware` and refresh the page to reconnect.";
 
 interface PageContext {
   page: "gallery" | "canvas" | "other";
@@ -35,7 +37,7 @@ async function postContext(
   sessionId: string,
   ctx: PageContext,
   focused: boolean,
-): Promise<void> {
+): Promise<boolean> {
   const body = JSON.stringify({
     session_id: sessionId,
     page: ctx.page,
@@ -52,7 +54,7 @@ async function postContext(
         headers: { "Content-Type": "application/json" },
         body,
       });
-      if (res.ok || res.status < 500) return;
+      if (res.ok || res.status < 500) return true;
     } catch {
       // Network error — retry with backoff if attempts remain.
     }
@@ -62,30 +64,16 @@ async function postContext(
       );
     }
   }
+
+  return false;
 }
 
 export function useBrowserContext() {
   const sessionIdRef = useRef<string>(getOrCreateSessionId());
   const contextRef = useRef<PageContext>({ page: "other" });
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const startHeartbeat = useCallback(() => {
-    if (heartbeatRef.current) return;
-
-    const tick = () => {
-      postContext(
-        sessionIdRef.current,
-        contextRef.current,
-        document.hasFocus(),
-      );
-      // Reduce frequency when the tab is not focused.
-      const interval = document.hasFocus()
-        ? HEARTBEAT_ACTIVE_MS
-        : HEARTBEAT_IDLE_MS;
-      heartbeatRef.current = setTimeout(tick, interval);
-    };
-    heartbeatRef.current = setTimeout(tick, HEARTBEAT_ACTIVE_MS);
-  }, []);
+  const disabledRef = useRef(false);
+  const warningShownRef = useRef(false);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
@@ -94,16 +82,58 @@ export function useBrowserContext() {
     }
   }, []);
 
+  const disableBridge = useCallback(() => {
+    if (disabledRef.current) return;
+
+    disabledRef.current = true;
+    stopHeartbeat();
+    if (!warningShownRef.current) {
+      console.warn(BRIDGE_UNAVAILABLE_WARNING);
+      warningShownRef.current = true;
+    }
+  }, [stopHeartbeat]);
+
+  const sendContext = useCallback(
+    async (ctx: PageContext, focused: boolean) => {
+      if (disabledRef.current) return;
+
+      const ok = await postContext(sessionIdRef.current, ctx, focused);
+      if (!ok) {
+        disableBridge();
+      }
+    },
+    [disableBridge],
+  );
+
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatRef.current || disabledRef.current) return;
+
+    const tick = async () => {
+      await sendContext(contextRef.current, document.hasFocus());
+      if (disabledRef.current) {
+        heartbeatRef.current = null;
+        return;
+      }
+
+      // Reduce frequency when the tab is not focused.
+      const interval = document.hasFocus()
+        ? HEARTBEAT_ACTIVE_MS
+        : HEARTBEAT_IDLE_MS;
+      heartbeatRef.current = setTimeout(() => {
+        void tick();
+      }, interval);
+    };
+    heartbeatRef.current = setTimeout(() => {
+      void tick();
+    }, HEARTBEAT_ACTIVE_MS);
+  }, [sendContext]);
+
   // Visibility / focus listeners — start/stop heartbeat.
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         // Fire immediately on becoming visible, then start heartbeat.
-        postContext(
-          sessionIdRef.current,
-          contextRef.current,
-          document.hasFocus(),
-        );
+        void sendContext(contextRef.current, document.hasFocus());
         startHeartbeat();
       } else {
         stopHeartbeat();
@@ -111,11 +141,11 @@ export function useBrowserContext() {
     };
 
     const handleFocus = () => {
-      postContext(sessionIdRef.current, contextRef.current, true);
+      void sendContext(contextRef.current, true);
     };
 
     const handleBlur = () => {
-      postContext(sessionIdRef.current, contextRef.current, false);
+      void sendContext(contextRef.current, false);
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
@@ -133,13 +163,16 @@ export function useBrowserContext() {
       window.removeEventListener("blur", handleBlur);
       stopHeartbeat();
     };
-  }, [startHeartbeat, stopHeartbeat]);
+  }, [sendContext, startHeartbeat, stopHeartbeat]);
 
-  const setPageContext = useCallback((ctx: PageContext) => {
-    contextRef.current = ctx;
-    // Fire immediately on context change.
-    postContext(sessionIdRef.current, ctx, document.hasFocus());
-  }, []);
+  const setPageContext = useCallback(
+    (ctx: PageContext) => {
+      contextRef.current = ctx;
+      // Fire immediately on context change.
+      void sendContext(ctx, document.hasFocus());
+    },
+    [sendContext],
+  );
 
   return { setPageContext };
 }

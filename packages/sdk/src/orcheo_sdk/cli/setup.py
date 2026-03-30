@@ -10,6 +10,7 @@ import secrets
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -41,6 +42,16 @@ _STACK_ASSET_FILES = (
 )
 _CHATKIT_DOMAIN_KEY_PLACEHOLDER = "domain_pk_replace_me"
 _OS_RELEASE_KEY_PATTERN = re.compile(r"^[A-Z0-9_]+$")
+_MACOS_DOCKER_DESKTOP_DOWNLOADS = {
+    "arm64": "https://desktop.docker.com/mac/main/arm64/Docker.dmg",
+    "x86_64": "https://desktop.docker.com/mac/main/amd64/Docker.dmg",
+}
+_WINDOWS_DOCKER_DESKTOP_DOWNLOADS = {
+    "arm64": "https://desktop.docker.com/win/main/arm64/Docker%20Desktop%20Installer.exe",
+    "x86_64": "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe",
+}
+_DOCKER_READY_POLL_INTERVAL_SECONDS = 5
+_DEFAULT_DOCKER_READY_TIMEOUT_SECONDS = 180
 
 
 @dataclass(slots=True)
@@ -71,7 +82,61 @@ def _run_command(command: list[str], *, console: Console) -> None:
 
 
 def _has_binary(name: str) -> bool:
+    if name == "docker":
+        _refresh_docker_cli_path_for_current_process()
     return shutil.which(name) is not None
+
+
+def _normalized_machine() -> str:
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "arm64"
+    return machine
+
+
+def _docker_cli_path_candidates() -> list[Path]:
+    system = platform.system()
+    if system == "Darwin":
+        return [
+            Path("/usr/local/bin/docker"),
+            Path("/opt/homebrew/bin/docker"),
+            Path.home() / ".docker" / "bin" / "docker",
+            Path("/Applications/Docker.app/Contents/Resources/bin/docker"),
+        ]
+    if system == "Windows":
+        program_files = Path(os.getenv("ProgramFiles", r"C:\Program Files"))
+        return [
+            program_files / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
+        ]
+    return []
+
+
+def _refresh_docker_cli_path_for_current_process() -> None:
+    current_path = os.environ.get("PATH", "")
+    known_entries = set(filter(None, current_path.split(os.pathsep)))
+    updated_entries = list(filter(None, current_path.split(os.pathsep)))
+
+    for candidate in _docker_cli_path_candidates():
+        if not candidate.exists():
+            continue
+        candidate_dir = str(candidate.parent)
+        if candidate_dir in known_entries:
+            continue
+        updated_entries.insert(0, candidate_dir)
+        known_entries.add(candidate_dir)
+
+    if updated_entries:
+        os.environ["PATH"] = os.pathsep.join(updated_entries)
+
+
+def _docker_command() -> list[str] | None:
+    _refresh_docker_cli_path_for_current_process()
+    docker_path = shutil.which("docker")
+    if docker_path is None:
+        return None
+    return [docker_path]
 
 
 def _read_os_release() -> dict[str, str]:
@@ -133,10 +198,11 @@ def _current_username() -> str | None:
 
 
 def _current_shell_has_docker_access() -> bool:
-    if not _has_binary("docker"):
+    docker_command = _docker_command()
+    if docker_command is None:
         return False
     result = subprocess.run(
-        ["docker", "info"],
+        [*docker_command, "info"],
         check=False,
         capture_output=True,
         text=True,
@@ -144,20 +210,263 @@ def _current_shell_has_docker_access() -> bool:
     return result.returncode == 0
 
 
-def _attempt_docker_autoinstall(*, console: Console) -> bool:
+def _powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _run_windows_elevated_command(command: list[str], *, console: Console) -> None:
+    argument_list = ", ".join(_powershell_literal(arg) for arg in command[1:])
+    powershell_command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        (
+            "$process = Start-Process "
+            f"-FilePath {_powershell_literal(command[0])} "
+            f"-ArgumentList @({argument_list}) "
+            "-Verb RunAs -Wait -PassThru; "
+            "exit $process.ExitCode"
+        ),
+    ]
+    _run_command(powershell_command, console=console)
+
+
+def _read_docker_ready_timeout_seconds() -> int:
+    raw = os.getenv("ORCHEO_SETUP_DOCKER_READY_TIMEOUT_SECONDS")
+    if not raw:
+        return _DEFAULT_DOCKER_READY_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_DOCKER_READY_TIMEOUT_SECONDS
+    if value < 0:
+        return _DEFAULT_DOCKER_READY_TIMEOUT_SECONDS
+    return value
+
+
+def _wait_for_docker_access(*, console: Console) -> bool:
+    timeout_seconds = _read_docker_ready_timeout_seconds()
+    console.print(
+        "[cyan]Waiting for Docker to become available "
+        f"(up to {timeout_seconds}s)...[/cyan]"
+    )
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if _current_shell_has_docker_access():
+            console.print("[green]Docker is ready.[/green]")
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(_DOCKER_READY_POLL_INTERVAL_SECONDS, remaining))
+    return False
+
+
+def _download_binary_asset(
+    download_url: str,
+    destination: Path,
+    *,
+    console: Console,
+) -> None:
+    console.print(f"[cyan]Downloading installer from {download_url}[/cyan]")
+    try:
+        with urlopen(download_url, timeout=60) as response:  # noqa: S310
+            with destination.open("wb") as file_handle:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    file_handle.write(chunk)
+    except OSError as exc:
+        raise typer.BadParameter(
+            f"Failed to download Docker installer from {download_url}: {exc}"
+        ) from exc
+
+
+def _start_docker_desktop(*, console: Console) -> None:
+    system = platform.system()
+    if system == "Darwin":
+        _run_command(["open", "-a", "Docker"], console=console)
+        return
+    if system == "Windows":
+        program_files = Path(os.getenv("ProgramFiles", r"C:\Program Files"))
+        docker_desktop = program_files / "Docker" / "Docker" / "Docker Desktop.exe"
+        if not docker_desktop.exists():
+            raise typer.BadParameter(
+                "Docker Desktop was installed but could not be found in Program Files."
+            )
+        _run_command(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                f"Start-Process -FilePath {_powershell_literal(str(docker_desktop))}",
+            ],
+            console=console,
+        )
+        return
+    raise typer.BadParameter(
+        f"Automatic Docker installation is not supported on {system}."
+    )
+
+
+def _current_windows_wsl_ready() -> bool:
+    if platform.system() != "Windows":
+        return True
+    result = subprocess.run(
+        ["wsl.exe", "--status"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _ensure_windows_wsl(*, console: Console) -> bool:
+    if platform.system() != "Windows":
+        return True
+    if _current_windows_wsl_ready():
+        return True
+
+    console.print(
+        "[cyan]WSL 2 is not ready. Attempting automatic installation before "
+        "Docker Desktop setup...[/cyan]"
+    )
+    try:
+        _run_windows_elevated_command(
+            ["wsl.exe", "--install", "--no-distribution", "--web-download"],
+            console=console,
+        )
+    except (typer.BadParameter, FileNotFoundError) as exc:
+        console.print(
+            "[yellow]Automatic WSL installation failed: "
+            f"{exc}. Docker Desktop may still require manual setup.[/yellow]"
+        )
+        return False
+
+    if _current_windows_wsl_ready():
+        return True
+
+    console.print(
+        "[yellow]WSL installation completed but is not ready yet. A Windows reboot "
+        "may be required before Docker Desktop can start.[/yellow]"
+    )
+    return False
+
+
+def _attempt_macos_docker_desktop_install(*, console: Console) -> bool:
+    machine = _normalized_machine()
+    download_url = _MACOS_DOCKER_DESKTOP_DOWNLOADS.get(machine)
+    if download_url is None:
+        console.print(
+            "[yellow]Automatic Docker installation is not supported on this macOS "
+            f"architecture ({machine}).[/yellow]"
+        )
+        return False
+
+    username = _current_username()
+    if username is None:
+        console.print(
+            "[yellow]Could not determine the current macOS username needed for "
+            "Docker Desktop setup.[/yellow]"
+        )
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="orcheo-docker-") as temp_dir:
+        dmg_path = Path(temp_dir) / "Docker.dmg"
+        _download_binary_asset(download_url, dmg_path, console=console)
+        attached = False
+        try:
+            _run_privileged_command(
+                ["hdiutil", "attach", str(dmg_path), "-nobrowse"],
+                console=console,
+            )
+            attached = True
+            _run_privileged_command(
+                [
+                    "/Volumes/Docker/Docker.app/Contents/MacOS/install",
+                    "--accept-license",
+                    f"--user={username}",
+                ],
+                console=console,
+            )
+        except (typer.BadParameter, FileNotFoundError) as exc:
+            console.print(
+                "[yellow]Automatic Docker Desktop installation failed on macOS: "
+                f"{exc}[/yellow]"
+            )
+            return False
+        finally:
+            if attached:
+                try:
+                    _run_privileged_command(
+                        ["hdiutil", "detach", "/Volumes/Docker"], console=console
+                    )
+                except typer.BadParameter:
+                    console.print(
+                        "[yellow]Docker installer volume is still mounted at "
+                        "/Volumes/Docker. You may need to detach it manually.[/yellow]"
+                    )
+
+    _refresh_docker_cli_path_for_current_process()
+    _start_docker_desktop(console=console)
+    return _wait_for_docker_access(console=console)
+
+
+def _attempt_windows_docker_desktop_install(*, console: Console) -> bool:
+    machine = _normalized_machine()
+    download_url = _WINDOWS_DOCKER_DESKTOP_DOWNLOADS.get(machine)
+    if download_url is None:
+        console.print(
+            "[yellow]Automatic Docker installation is not supported on this Windows "
+            f"architecture ({machine}).[/yellow]"
+        )
+        return False
+
+    if not _ensure_windows_wsl(console=console):
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="orcheo-docker-") as temp_dir:
+        installer_path = Path(temp_dir) / "Docker Desktop Installer.exe"
+        _download_binary_asset(download_url, installer_path, console=console)
+        try:
+            _run_windows_elevated_command(
+                [
+                    str(installer_path),
+                    "install",
+                    "--accept-license",
+                    "--backend=wsl-2",
+                    "--quiet",
+                ],
+                console=console,
+            )
+        except (typer.BadParameter, FileNotFoundError) as exc:
+            console.print(
+                "[yellow]Automatic Docker Desktop installation failed on Windows: "
+                f"{exc}[/yellow]"
+            )
+            return False
+
+    _refresh_docker_cli_path_for_current_process()
+    _start_docker_desktop(console=console)
+    return _wait_for_docker_access(console=console)
+
+
+def _attempt_linux_docker_autoinstall(*, console: Console) -> bool:
     if not _is_supported_docker_autoinstall_linux():
         return False
     if not _has_binary("apt-get"):
         console.print(
             "[yellow]Automatic Docker installation currently supports "
-            "apt-based Ubuntu/Debian systems.[/yellow]"
+            "apt-based Ubuntu/Debian systems on Linux.[/yellow]"
         )
         return False
 
-    console.print(
-        "[cyan]Docker is missing. Attempting automatic installation on "
-        "Ubuntu/Debian...[/cyan]"
-    )
     try:
         _run_privileged_command(["apt-get", "update"], console=console)
         _run_privileged_command(
@@ -187,6 +496,33 @@ def _attempt_docker_autoinstall(*, console: Console) -> bool:
         )
         return False
     return True
+
+
+def _attempt_docker_autoinstall(*, console: Console) -> bool:
+    installers = {
+        "Darwin": (
+            "[cyan]Docker is missing. Attempting automatic Docker Desktop "
+            "installation on macOS...[/cyan]",
+            _attempt_macos_docker_desktop_install,
+        ),
+        "Windows": (
+            "[cyan]Docker is missing. Attempting automatic Docker Desktop "
+            "installation on Windows...[/cyan]",
+            _attempt_windows_docker_desktop_install,
+        ),
+        "Linux": (
+            "[cyan]Docker is missing. Attempting automatic installation on "
+            "Ubuntu/Debian...[/cyan]",
+            _attempt_linux_docker_autoinstall,
+        ),
+    }
+    message_and_installer = installers.get(platform.system())
+    if message_and_installer is None:
+        return False
+
+    message, installer = message_and_installer
+    console.print(message)
+    return installer(console=console)
 
 
 def _resolve_mode(mode: SetupMode | None, *, yes: bool) -> SetupMode:
@@ -838,8 +1174,14 @@ def execute_setup(
             config.start_stack = False
 
     if config.start_stack and _has_binary("docker"):
+        docker_command = _docker_command()
+        if docker_command is None:
+            raise typer.BadParameter(
+                "Docker appears to be installed, but the docker CLI could not be "
+                "resolved in PATH."
+            )
         compose_args = [
-            "docker",
+            *docker_command,
             "compose",
             "-f",
             str(stack_dir / "docker-compose.yml"),
