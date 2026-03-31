@@ -123,7 +123,7 @@ def _refresh_docker_cli_path_for_current_process() -> None:
             continue
         candidate_dir = str(candidate.parent)
         if candidate_dir in known_entries:
-            continue
+            continue  # pragma: no cover
         updated_entries.insert(0, candidate_dir)
         known_entries.add(candidate_dir)
 
