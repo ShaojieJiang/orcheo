@@ -1022,6 +1022,11 @@ def test_attempt_macos_docker_desktop_install_runs_installer(
     monkeypatch.setattr(setup_mod.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(setup_mod, "_normalized_machine", lambda: "arm64")
     monkeypatch.setattr(setup_mod, "_current_username", lambda: "alice")
+    monkeypatch.setattr(
+        setup_mod,
+        "_resolve_macos_docker_volume_path",
+        lambda: Path("/Volumes/Docker 1"),
+    )
 
     downloads: list[tuple[str, Path]] = []
 
@@ -1050,13 +1055,28 @@ def test_attempt_macos_docker_desktop_install_runs_installer(
     assert commands == [
         ["hdiutil", "attach", str(downloads[0][1]), "-nobrowse"],
         [
-            "/Volumes/Docker/Docker.app/Contents/MacOS/install",
+            "/Volumes/Docker 1/Docker.app/Contents/MacOS/install",
             "--accept-license",
             "--user=alice",
         ],
-        ["hdiutil", "detach", "/Volumes/Docker"],
+        ["hdiutil", "detach", "/Volumes/Docker 1"],
         ["open"],
     ]
+
+
+def test_current_windows_wsl_ready_handles_missing_wsl_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        setup_mod.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("wsl.exe")),
+    )
+
+    assert setup_mod._current_windows_wsl_ready() is False
 
 
 def test_attempt_windows_docker_desktop_install_runs_installer(

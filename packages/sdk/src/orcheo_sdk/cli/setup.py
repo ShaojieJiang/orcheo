@@ -318,13 +318,31 @@ def _start_docker_desktop(*, console: Console) -> None:
 def _current_windows_wsl_ready() -> bool:
     if platform.system() != "Windows":
         return True
-    result = subprocess.run(
-        ["wsl.exe", "--status"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["wsl.exe", "--status"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return False
     return result.returncode == 0
+
+
+def _resolve_macos_docker_volume_path() -> Path | None:
+    candidates = sorted(
+        (
+            path
+            for path in Path("/Volumes").glob("Docker*")
+            if (path / "Docker.app" / "Contents" / "MacOS" / "install").exists()
+        ),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        return None
+    return candidates[0]
 
 
 def _ensure_windows_wsl(*, console: Console) -> bool:
@@ -381,15 +399,24 @@ def _attempt_macos_docker_desktop_install(*, console: Console) -> bool:
         dmg_path = Path(temp_dir) / "Docker.dmg"
         _download_binary_asset(download_url, dmg_path, console=console)
         attached = False
+        mounted_volume: Path | None = None
         try:
             _run_privileged_command(
                 ["hdiutil", "attach", str(dmg_path), "-nobrowse"],
                 console=console,
             )
             attached = True
+            mounted_volume = _resolve_macos_docker_volume_path()
+            if mounted_volume is None:
+                raise typer.BadParameter(
+                    "Docker Desktop installer volume was mounted but could not be "
+                    "located under /Volumes."
+                )
             _run_privileged_command(
                 [
-                    "/Volumes/Docker/Docker.app/Contents/MacOS/install",
+                    str(
+                        mounted_volume / "Docker.app" / "Contents" / "MacOS" / "install"
+                    ),
                     "--accept-license",
                     f"--user={username}",
                 ],
@@ -402,15 +429,16 @@ def _attempt_macos_docker_desktop_install(*, console: Console) -> bool:
             )
             return False
         finally:
-            if attached:
+            if attached and mounted_volume is not None:
                 try:
                     _run_privileged_command(
-                        ["hdiutil", "detach", "/Volumes/Docker"], console=console
+                        ["hdiutil", "detach", str(mounted_volume)], console=console
                     )
                 except typer.BadParameter:
                     console.print(
                         "[yellow]Docker installer volume is still mounted at "
-                        "/Volumes/Docker. You may need to detach it manually.[/yellow]"
+                        f"{mounted_volume}. You may need to detach it "
+                        "manually.[/yellow]"
                     )
 
     _refresh_docker_cli_path_for_current_process()
