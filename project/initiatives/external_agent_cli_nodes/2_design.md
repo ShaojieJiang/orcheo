@@ -28,6 +28,7 @@ The design avoids two classes of complexity in V1. First, it avoids SDK integrat
 - **Runtime Manifest Store (`src/orcheo/external_agents/manifest.py`)**
   - Stores per-provider metadata in the managed runtime directory.
   - Tracks installed version, install timestamp, last maintenance check timestamp, and last successful auth probe timestamp.
+  - Persists manifest updates atomically and under a provider-local lock so multiple workers cannot corrupt shared state.
 
 - **External Agent Base Node (`src/orcheo/nodes/external_agent.py`)**
   - Shared node logic for prompt resolution, workspace setup, timeout handling, result normalization, and trace metadata.
@@ -50,8 +51,8 @@ The design avoids two classes of complexity in V1. First, it avoids SDK integrat
    - `/data/agent-runtimes` if `/data` is present and writable.
    - Otherwise `~/.orcheo/agent-runtimes`.
 4. Runtime manager checks manifest and binary path for the provider.
-5. If missing, runtime manager installs the latest provider CLI into a versioned directory under the runtime root.
-6. Runtime manager updates the manifest with resolved version and timestamps.
+5. If missing, runtime manager acquires a provider-local install lock and installs the latest provider CLI into a versioned staging directory under the runtime root.
+6. Runtime manager verifies the staged binary, records resolved version metadata, and atomically updates the manifest pointer.
 7. Node continues to auth probe and invocation.
 
 ### Flow 2: Runtime present but login missing
@@ -79,9 +80,9 @@ The design avoids two classes of complexity in V1. First, it avoids SDK integrat
 
 1. A maintenance entrypoint or future scheduled job asks runtime manager to run provider maintenance.
 2. Runtime manager compares the current timestamp to the fixed maintenance cadence (7 days).
-3. If due, provider adapter checks for a newer available CLI version and upgrades the provider runtime in the managed runtime directory.
-4. Manifest is updated with the new resolved version and maintenance timestamp.
-5. Existing workflow runs are unaffected because upgrades are not performed mid-step.
+3. If due, provider adapter checks for a newer available CLI version and stages the upgrade into a new versioned directory while holding the provider-local maintenance lock.
+4. Manifest is updated only after the new runtime passes install verification and any required health checks. Failed checks leave the existing runtime active.
+5. Existing workflow runs are unaffected because upgrades are not performed mid-step and active runs keep the executable path they resolved at start.
 
 ## API Contracts
 
@@ -114,6 +115,7 @@ class ExternalAgentProvider(Protocol):
     name: str
 
     def install_latest(self, runtime_root: Path) -> ResolvedRuntime: ...
+    def verify_runtime(self, runtime: ResolvedRuntime) -> None: ...
     def probe_auth(self, runtime: ResolvedRuntime) -> AuthProbeResult: ...
     def build_command(
         self,
@@ -167,6 +169,36 @@ class ExternalAgentProvider(Protocol):
 | `stderr` | string | Captured stderr |
 | `message` | string \| null | User-facing summary or setup guidance |
 
+## Provider Operational Assumptions
+
+- **Codex**
+  - Install from the published `@openai/codex` package into a provider-owned prefix under the managed runtime root.
+  - Use `codex exec` as the non-interactive automation entrypoint.
+  - Auth probe should distinguish between saved CLI login and provider-native API-key usage for `codex exec` without requiring Orcheo-specific env vars.
+
+- **Claude Code**
+  - Install from the published `@anthropic-ai/claude-code` package into a provider-owned prefix under the managed runtime root.
+  - Use a non-interactive/task invocation path rather than the full-screen TUI.
+  - Auth guidance should point operators to the interactive `claude` login flow on the worker host when credentials are missing.
+
+## Failure Handling
+
+- **Install failure**
+  - If first-time install fails, the node returns `failed` with captured stdout/stderr and a message that identifies the failed provider command.
+  - The manifest is not updated until install and version verification succeed.
+
+- **Maintenance failure**
+  - Network errors, registry failures, or provider health-check failures during maintenance are recorded in logs/trace metadata, but they do not evict the current runtime.
+  - The next due maintenance window can retry from the still-working runtime.
+
+- **Invocation crash / non-zero exit**
+  - The node returns `failed`, preserving partial stdout/stderr and exit code when available.
+  - Provider-specific parsing may attach a concise failure reason, but raw command output remains available for debugging.
+
+- **Timeout**
+  - The node terminates the provider process group, captures partial output, and returns a normalized timeout failure.
+  - Timeout handling must include best-effort child-process cleanup so abandoned agent subprocesses do not accumulate on the worker.
+
 ## Security Considerations
 
 - V1 is self-hosted only. It is not designed for shared multi-tenant runtimes.
@@ -174,7 +206,23 @@ class ExternalAgentProvider(Protocol):
 - Provider login is still owned by the provider CLI. Orcheo does not copy or reinterpret provider OAuth tokens in V1.
 - Nodes execute with the same worker OS user already used by Orcheo.
 - Invocation must use non-interactive CLI modes suitable for automation.
-- Working-directory inputs must be validated to avoid accidental execution in unsafe paths.
+- Working-directory inputs are validated before execution:
+  - Resolve symlinks and require the final path to exist as a directory.
+  - Reject raw traversal attempts by validating the resolved path rather than trusting the original string.
+  - Reject `/`, the worker home directory, and the managed runtime root as execution targets.
+  - Require the resolved path to be a Git worktree root or a descendant inside a Git worktree.
+
+## Concurrency and State Management
+
+- Install, upgrade, and manifest mutation are serialized per provider using a filesystem lock in the shared runtime root so multiple worker processes cannot race.
+- Manifest writes use write-to-temp + atomic rename semantics.
+- Resolved runtimes are immutable once published. Maintenance writes a new version directory and flips the manifest only after verification, so active runs continue using the path they already resolved.
+
+## Resource Management
+
+- Runtime installs are versioned so maintenance can prune old versions without touching the active one.
+- V1 retains the current runtime and one previous known-good runtime per provider, then removes older superseded directories after a successful maintenance cycle.
+- Each node execution maps to one external agent process tree and relies on existing worker/container CPU and memory limits rather than introducing a second resource scheduler in V1.
 
 ## Performance Considerations
 
@@ -185,9 +233,9 @@ class ExternalAgentProvider(Protocol):
 
 ## Testing Strategy
 
-- **Unit tests**: Runtime-root resolution, manifest read/write, maintenance-due logic, provider command builders, auth-probe result parsing, node result normalization.
-- **Integration tests**: Install-missing flow, setup-needed flow, successful invocation flow, version recording, and runtime reuse across repeated runs.
-- **Manual QA checklist**: Authenticate Claude Code on a worker, authenticate Codex on a worker, run both nodes successfully, verify rerun guidance when logged out, verify maintenance does not upgrade inline.
+- **Unit tests**: Runtime-root resolution, manifest read/write, atomic manifest replacement, maintenance-due logic, provider command builders, auth-probe result parsing, working-directory validation, and node result normalization.
+- **Integration tests**: Install-missing flow, setup-needed flow, successful invocation flow, timeout handling, version recording, maintenance rollback on failure, and runtime reuse across repeated/concurrent runs.
+- **Manual QA checklist**: Authenticate Claude Code on a worker, authenticate Codex on a worker, run both nodes successfully, verify rerun guidance when logged out, verify maintenance does not upgrade inline, and verify the Canvas node catalog renders the new nodes once backend registration is enabled.
 
 ## Rollout Plan
 

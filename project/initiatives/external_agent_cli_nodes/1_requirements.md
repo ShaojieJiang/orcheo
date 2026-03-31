@@ -17,8 +17,9 @@
 | Execution Worker Initiative | `project/initiatives/execution_worker/1_requirements.md` | ShaojieJiang | Worker execution model |
 | Stack Runtime Image | `deploy/stack/Dockerfile.orcheo` | ShaojieJiang | Managed runtime image |
 | Stack Compose | `deploy/stack/docker-compose.yml` | ShaojieJiang | Backend/worker deployment topology |
-| Claude Code docs | https://code.claude.com/docs/en/overview | Anthropic | Claude Code overview |
-| Codex CLI docs | https://developers.openai.com/codex/cli | OpenAI | Codex CLI overview |
+| Claude Code quickstart | https://code.claude.com/docs/en/quickstart | Anthropic | Install and login flows |
+| Codex CLI docs | https://developers.openai.com/codex/cli | OpenAI | Install and login flows |
+| Codex non-interactive docs | https://developers.openai.com/codex/noninteractive | OpenAI | `codex exec` automation mode |
 
 ## PROBLEM DEFINITION
 
@@ -42,6 +43,9 @@ Enable Orcheo workflows to delegate code- and agent-style tasks to the actual Cl
 | Workflow author | Use sane defaults without understanding provider-specific package management | The feature works with minimal setup choices | P0 | Defaults cover install location, upgrade cadence, auth checks, and command invocation |
 | Platform team | Add more external agent providers later | The architecture does not fork per-provider logic repeatedly | P1 | Claude Code and Codex share a generic parent runtime and node contract |
 | Workflow author | Resume successful use after upgrading the CLI | I benefit from current provider capabilities without rebuilding Orcheo | P1 | Worker records the resolved CLI version used for each run |
+| Operator | Keep a working runtime available when maintenance or upgrades fail | Latest-channel updates do not break already-functioning workflows | P0 | New runtimes are staged side-by-side, manifests switch only after successful install + probe, and the last known-good runtime remains runnable until cleanup |
+| Operator | Bound disk and process growth from external agent runtimes | Worker hosts remain predictable under repeated installs and concurrent runs | P0 | V1 defines retention/cleanup behavior for superseded runtimes and does not create extra background fan-out beyond the worker’s existing run concurrency |
+| Canvas user | Add and configure these nodes in Canvas | Visual workflow authoring stays aligned with backend node support | P1 | Canvas exposes both nodes in the catalog and supports editing prompt, working directory, timeout, and provider-safe defaults |
 
 ### Context, Problems, Opportunities
 
@@ -84,17 +88,28 @@ The main challenge is not invoking a binary; it is owning the lifecycle around i
   - Otherwise use `~/.orcheo/agent-runtimes`.
 - V1 does not add a new user-facing environment variable for overriding this path.
 
+**P0: Provider bootstrap details**
+- V1 standardizes on provider-published CLI packages installed into provider-owned prefixes inside the managed runtime root rather than global system paths.
+- Codex uses the published `@openai/codex` CLI package and invokes `codex exec` for non-interactive automation.
+- Claude Code uses the published `@anthropic-ai/claude-code` CLI package and invokes a non-interactive/task mode rather than the full-screen TUI.
+- Orcheo-specific configuration remains default-driven; provider-native authentication methods are still allowed when the provider requires them.
+
 **P0: Install and maintenance policy**
 - If the requested provider runtime is missing, Orcheo installs the latest supported provider CLI into the managed runtime directory before invocation.
 - Orcheo keeps a local manifest per provider with installed version, install time, last maintenance check, and last successful auth probe.
 - Orcheo checks for updates on a fixed default cadence of 7 days.
 - Upgrade checks and upgrades happen outside the hot execution path when possible. Node execution may trigger a lightweight “maintenance due” signal, but it must not silently upgrade just before invoking the workflow step.
+- Installs and upgrades are staged side-by-side in versioned directories. Manifest pointers only move after the new runtime passes install verification and any required health probes.
+- Failed maintenance checks, failed upgrades, or network errors must leave the last known-good runtime active.
 
 **P0: Authentication handling**
 - Orcheo does not manage provider OAuth tokens directly in V1.
 - Each provider CLI uses its own native login flow and credential storage.
 - Before invocation, the runtime manager performs a cheap auth probe.
 - If auth is missing or invalid, the node returns a structured setup-needed failure that includes concrete commands for the operator to run on the worker host, then instructs the user to rerun the workflow.
+- Operator guidance must document the provider differences that matter in practice:
+  - Claude Code login is interactive and must be completed through the Claude CLI on the worker host.
+  - Codex supports saved CLI login and provider-native API-key auth for `codex exec`; Orcheo does not wrap or rename those provider credentials.
 
 **P0: Invocation model**
 - Node invocation uses each provider’s non-interactive/scriptable CLI mode rather than the full-screen TUI.
@@ -106,12 +121,28 @@ The main challenge is not invoking a binary; it is owning the lifecycle around i
   - exit code
   - resolved provider/runtime version
   - command metadata suitable for debugging
+- If a process exits non-zero, crashes, or times out, the node still returns partial stdout/stderr plus a normalized failure status and reason.
+
+**P0: Working-directory validation**
+- Working-directory inputs must resolve to an existing directory before invocation.
+- Raw inputs containing parent-directory traversal are never trusted directly; Orcheo validates the fully resolved path.
+- V1 rejects obviously unsafe targets such as `/`, the worker home directory, and the managed runtime root itself.
+- For coding-agent execution, the resolved directory must be a Git worktree root or a descendant inside a Git worktree.
 
 **P0: Security and operational defaults**
 - V1 is documented and positioned for self-hosted Orcheo only.
 - Runtime binaries are not installed with `npm i -g` into global system locations.
 - Runtime binaries execute under the existing worker OS user.
 - V1 adds no new public HTTP endpoints and no new user-facing environment variables.
+
+**P0: Concurrency and runtime integrity**
+- Runtime installation, manifest updates, and maintenance for a given provider must be serialized across worker processes that share the same runtime root.
+- Manifest writes must be atomic so concurrent workers never read partially written state.
+- In-flight node runs pin the executable path/version they resolved at start so background maintenance cannot swap binaries underneath an active execution.
+
+**P0: Resource guardrails**
+- V1 keeps the execution model simple: one node invocation maps to one external agent process tree, bounded by the node timeout and the worker’s existing OS/container limits.
+- Maintenance prunes superseded runtime directories after a successful upgrade, while retaining at least the current runtime and one previous known-good version for rollback/debugging.
 
 **P1: Shared maintenance support**
 - Add a worker-local maintenance service that can be called from startup hooks or a future scheduled job.
@@ -125,7 +156,7 @@ The main challenge is not invoking a binary; it is owning the lifecycle around i
 
 ### Other Teams Impacted
 - **Execution Worker:** Gains runtime-management responsibilities for external agent binaries.
-- **Canvas Frontend:** May need node catalog and inspector support for the new node types.
+- **Canvas Frontend:** Needs catalog entries and inspector form support for the new node types if they are to be first-class in visual authoring.
 - **Documentation:** Needs operator docs for login, maintenance behavior, and runtime expectations.
 
 ## TECHNICAL CONSIDERATIONS
@@ -139,6 +170,9 @@ This initiative fits into the existing worker-executed workflow architecture. Th
 - Keep the upgrade cadence and install root as code-level defaults in V1, not environment variables.
 - Ensure node execution is deterministic enough for debugging by recording the resolved runtime version and executable path.
 - Make failures actionable: every missing-auth or install failure must produce exact commands and enough stderr/stdout to diagnose the issue.
+- Serialize provider-local maintenance/install work with file- or directory-level locking that works across worker processes.
+- Use atomic manifest writes and side-by-side version directories so a failed upgrade cannot corrupt runtime state.
+- Capture partial process output on timeout/crash and classify failures consistently (`failed` vs `setup_needed`).
 
 ### AI/ML Considerations (if applicable)
 
@@ -181,9 +215,11 @@ Roll out behind an internal feature gate or documented “experimental/self-host
 
 **Risk:** Latest-channel upgrades may introduce breaking CLI behavior. **Risk mitigation:** Keep upgrades out of the execution hot path, record the resolved version per run, and document that V1 is self-hosted/experimental.
 
-**Risk:** Multi-worker deployments can drift if runtime state is stored globally or per-container. **Risk mitigation:** Store binaries and manifests in a managed persistent runtime directory and keep the V1 support target to self-hosted environments.
+**Risk:** Multi-worker deployments can drift if runtime state is stored globally or per-container. **Risk mitigation:** Store binaries and manifests in a managed persistent runtime directory, serialize provider-local maintenance/install work, and keep the V1 support target to self-hosted environments.
 
 **Risk:** Authentication failures may confuse operators. **Risk mitigation:** Always return explicit commands and rerun guidance instead of vague auth errors.
+
+**Risk:** Runtime directories can grow unbounded or lose the last working version during upgrades. **Risk mitigation:** Retain the current and previous known-good runtime per provider and prune only after successful maintenance.
 
 ## APPENDIX
 - Future extensions can add exact version pinning, env-var overrides, and provider-specific support matrices after V1 usage validates the defaults.

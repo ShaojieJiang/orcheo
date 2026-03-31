@@ -33,12 +33,16 @@ Implement a CLI-first external-agent runtime for Orcheo so workflows can invoke 
   - Dependencies: None
 - [ ] Task 1.3: Create manifest models and persistence helpers for installed runtimes
   - Dependencies: Task 1.2
+- [ ] Task 1.3a: Add provider-local filesystem locking and atomic manifest writes
+  - Dependencies: Tasks 1.2-1.3
 - [ ] Task 1.4: Implement maintenance-due logic with a fixed default interval of 7 days
   - Dependencies: Task 1.3
-- [ ] Task 1.5: Implement shared process execution helpers for non-interactive CLI invocation
+- [ ] Task 1.5: Implement shared process execution helpers for non-interactive CLI invocation, partial-output capture, timeout enforcement, and process-group cleanup
   - Dependencies: None
-- [ ] Task 1.6: Add unit tests for runtime root resolution, manifest persistence, and maintenance logic
-  - Dependencies: Tasks 1.2-1.4
+- [ ] Task 1.6: Add working-directory validation helpers for safe Git-worktree execution
+  - Dependencies: Task 1.2
+- [ ] Task 1.7: Add unit tests for runtime root resolution, manifest persistence, locking, validation, and maintenance logic
+  - Dependencies: Tasks 1.2-1.6
 
 ---
 
@@ -54,12 +58,14 @@ Implement a CLI-first external-agent runtime for Orcheo so workflows can invoke 
   - Dependencies: Task 2.1
 - [ ] Task 2.3: Implement Codex provider adapter
   - Dependencies: Task 2.1
-- [ ] Task 2.4: Add install-latest flow using provider-specific commands into versioned runtime directories
+- [ ] Task 2.4: Add install-latest flow using provider-specific commands into versioned runtime directories with post-install verification
   - Dependencies: Tasks 2.2-2.3
 - [ ] Task 2.5: Add auth probes and structured manual login instructions for both providers
   - Dependencies: Tasks 2.2-2.3
-- [ ] Task 2.6: Add unit tests for provider command builders, version parsing, and auth-probe handling
-  - Dependencies: Tasks 2.2-2.5
+- [ ] Task 2.6: Add maintenance rollback behavior so failed upgrades do not replace the last known-good runtime
+  - Dependencies: Tasks 2.4-2.5
+- [ ] Task 2.7: Add unit tests for provider command builders, version parsing, install verification, and auth-probe handling
+  - Dependencies: Tasks 2.2-2.6
 
 ---
 
@@ -79,8 +85,10 @@ Implement a CLI-first external-agent runtime for Orcheo so workflows can invoke 
   - Dependencies: Task 3.1
 - [ ] Task 3.5: Ensure missing-auth flows return structured setup-needed results with exact commands and rerun guidance
   - Dependencies: Tasks 3.2-3.3
-- [ ] Task 3.6: Add integration tests for missing-runtime install, missing-auth, and successful invocation flows
+- [ ] Task 3.6: Add failure normalization for non-zero exits, timeouts, and partial-output retention
   - Dependencies: Tasks 3.2-3.5
+- [ ] Task 3.7: Add integration tests for missing-runtime install, missing-auth, timeout, and successful invocation flows
+  - Dependencies: Tasks 3.2-3.6
 
 ---
 
@@ -94,11 +102,17 @@ Implement a CLI-first external-agent runtime for Orcheo so workflows can invoke 
   - Dependencies: Milestone 3
 - [ ] Task 4.2: Document the default maintenance behavior: latest installs, fixed 7-day checks, no inline upgrades
   - Dependencies: Milestone 3
-- [ ] Task 4.3: Add example workflows or snippets showing Claude Code and Codex node usage
+- [ ] Task 4.3: Document provider bootstrap details, including the supported install path and auth differences for Claude Code vs Codex
   - Dependencies: Milestone 3
-- [ ] Task 4.4: Validate that V1 introduces no new user-facing environment variables
+- [ ] Task 4.4: Add example workflows or snippets showing Claude Code and Codex node usage
   - Dependencies: Milestone 3
-- [ ] Task 4.5: Run `make format`, `make lint`, and the smallest relevant backend/node test targets
+- [ ] Task 4.5: Validate that V1 introduces no new user-facing environment variables and does not require new Orcheo env vars for install roots, cadence, or provider selection
+  - Dependencies: Milestone 3
+- [ ] Task 4.6: Define retention/cleanup behavior for superseded runtimes and verify it does not remove the current or previous known-good version
+  - Dependencies: Milestone 3
+- [ ] Task 4.7: Add Canvas node-catalog / inspector support requirements to the delivery checklist
+  - Dependencies: Milestone 3
+- [ ] Task 4.8: Run `make format`, `make lint`, and the smallest relevant backend/node test targets
   - Dependencies: Milestones 1-4
 
 ---
