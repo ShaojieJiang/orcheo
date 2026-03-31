@@ -16,6 +16,10 @@
     "url": "git+https://github.com/ShaojieJiang/orcheo.git",
     "directory": "apps/canvas"
   },
+  "homepage": "https://github.com/ShaojieJiang/orcheo/tree/main/apps/canvas",
+  "bugs": {
+    "url": "https://github.com/ShaojieJiang/orcheo/issues"
+  },
   "license": "MIT",
   "bin": {
     "orcheo-canvas": "./bin/orcheo-canvas.js"

@@ -1,6 +1,6 @@
 # Canvas
 
-Orcheo Canvas is the visual workflow designer for creating, visualizing, and managing workflows through a drag-and-drop interface.
+Orcheo Canvas is the visual interface for monitoring, configuring, and managing workflows. It provides a read-only graph view of workflow structure, a configuration panel for adjusting default node parameters, and a credentials manager for securely storing API keys and secrets via the Credential Vault.
 
 ## Installation
 
@@ -62,10 +62,10 @@ See [Manual Setup Guide](manual_setup.md#docker-compose-full-stack) for the comp
 
 ## Features
 
-- **Visual workflow builder**: Drag-and-drop nodes to create workflows
-- **Real-time execution**: Watch workflows execute with live status updates
-- **Node library**: Browse and add nodes from the built-in library
-- **Workflow management**: Create, edit, delete, and version workflows
+- **Workflow graph view**: Visualise the structure and node connections of any registered workflow (read-only; authoring is done in code or via your AI coding agent)
+- **Default config editor**: Adjust default parameters for each node without touching code
+- **Credential Vault manager**: Store, rotate, and delete encrypted credentials (API keys, tokens, passwords) that nodes can reference by name; secrets are visible only to human operators and never exposed to AI agents
+- **Real-time execution monitoring**: Watch workflow runs with live status updates per node
 - **ChatKit integration**: Test conversational workflows directly in Canvas
 - **Version awareness**: Top navigation shows Canvas + backend versions
 - **Update reminders**: Non-blocking reminder appears when updates are available (checked at most once every 24 hours per browser profile)

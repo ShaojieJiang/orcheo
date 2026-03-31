@@ -60,6 +60,57 @@ const emitUpdate = () => {
   window.dispatchEvent(new CustomEvent(WORKFLOW_STORAGE_EVENT));
 };
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const resolveTemplateWorkflowName = async (
+  baseName: string,
+): Promise<string> => {
+  const normalizedBaseName = baseName.trim();
+  if (!normalizedBaseName) {
+    return baseName;
+  }
+
+  const namePattern = new RegExp(
+    `^${escapeRegExp(normalizedBaseName)}\\s(\\d+)$`,
+  );
+  const workflows = await request<ApiWorkflow[]>(API_BASE);
+  const usedSuffixes = new Set<number>();
+
+  for (const workflow of workflows) {
+    if (workflow.is_archived) {
+      continue;
+    }
+
+    const workflowName = workflow.name.trim();
+    if (workflowName === normalizedBaseName) {
+      usedSuffixes.add(0);
+      continue;
+    }
+
+    const match = workflowName.match(namePattern);
+    if (!match) {
+      continue;
+    }
+
+    const suffix = Number.parseInt(match[1] ?? "", 10);
+    if (Number.isInteger(suffix) && suffix >= 1) {
+      usedSuffixes.add(suffix);
+    }
+  }
+
+  if (!usedSuffixes.has(0)) {
+    return normalizedBaseName;
+  }
+
+  let suffix = 1;
+  while (usedSuffixes.has(suffix)) {
+    suffix += 1;
+  }
+
+  return `${normalizedBaseName} ${suffix}`;
+};
+
 const buildTemplateCanvasMetadata = ({
   name,
   description,
@@ -228,7 +279,9 @@ export const createWorkflowFromTemplate = async (
 
   const actor = resolveActor();
   const templateWorkflow = templateDefinition.workflow;
-  const workflowName = overrides?.name ?? `${templateWorkflow.name} Copy`;
+  const workflowName =
+    overrides?.name ??
+    (await resolveTemplateWorkflowName(templateWorkflow.name));
   const workflowDescription =
     overrides?.description ?? templateWorkflow.description;
   const workflowTags =

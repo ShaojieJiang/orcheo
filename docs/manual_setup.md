@@ -118,7 +118,7 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 ## Next Steps
 
 - **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
-- **[Canvas](canvas.md)** — Visual workflow designer setup
+- **[Canvas](canvas.md)** — Workflow monitor, config editor, and Credential Vault manager
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Authentication Guide](authentication_guide.md)** — Detailed authentication configuration
 - **[Developer Guide](developer_guide.md)** — Contributing to Orcheo

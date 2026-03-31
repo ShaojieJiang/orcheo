@@ -29,6 +29,11 @@ dev = [
 [project.scripts]
 orcheo-backend = "orcheo_backend:create_app"
 
+[project.urls]
+Homepage = "https://github.com/ShaojieJiang/orcheo/tree/main/apps/backend"
+Issues = "https://github.com/ShaojieJiang/orcheo/issues"
+Source = "https://github.com/ShaojieJiang/orcheo/tree/main/apps/backend"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

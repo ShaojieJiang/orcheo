@@ -19,9 +19,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-1",
-        name: "Simple Agent Copy",
+        name: "Simple Agent",
         slug: "workflow-template-1",
         description: "A single-node agent workflow seeded from `agent.py`.",
         tags: ["python", "agent"],
@@ -51,7 +52,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-1",
-        name: "Simple Agent Copy",
+        name: "Simple Agent",
         slug: "workflow-template-1",
         description: "A single-node agent workflow seeded from `agent.py`.",
         tags: ["python", "agent"],
@@ -93,13 +94,13 @@ describe("workflow-storage API integration - template creation", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
 
-    expect(mockFetch).toHaveBeenCalledTimes(4);
-    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain(
       "/api/workflows/workflow-template-1/versions/ingest",
     );
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as { script?: string; metadata?: { source?: string } };
     expect(ingestBody.script).toContain(
       "from orcheo.nodes.ai import AgentNode",
@@ -107,14 +108,125 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.metadata?.source).toBe("canvas-template");
   });
 
+  it("starts numeric suffixes at 1 and ignores archived workflow names", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse([
+        {
+          id: "workflow-existing-base",
+          name: "Simple Agent",
+          slug: "workflow-existing-base",
+          description: "Existing active workflow.",
+          tags: ["python", "agent"],
+          is_archived: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+        {
+          id: "workflow-existing-two",
+          name: "Simple Agent 2",
+          slug: "workflow-existing-two",
+          description: "Existing active workflow with suffix.",
+          tags: ["python", "agent"],
+          is_archived: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+        {
+          id: "workflow-archived-one",
+          name: "Simple Agent 1",
+          slug: "workflow-archived-one",
+          description: "Archived workflow should not block suffix reuse.",
+          tags: ["python", "agent"],
+          is_archived: true,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+      jsonResponse({
+        id: "workflow-template-1b",
+        name: "Simple Agent 1",
+        slug: "workflow-template-1b",
+        description: "A single-node agent workflow seeded from `agent.py`.",
+        tags: ["python", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-1b-version-1",
+        workflow_id: "workflow-template-1b",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source:
+            "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
+          entrypoint: null,
+          index: { cron: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-python-agent",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-template-1b",
+        name: "Simple Agent 1",
+        slug: "workflow-template-1b",
+        description: "A single-node agent workflow seeded from `agent.py`.",
+        tags: ["python", "agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-template-1b-version-1",
+          workflow_id: "workflow-template-1b",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source:
+              "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
+            entrypoint: null,
+            index: { cron: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-python-agent",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    await createWorkflowFromTemplate("template-python-agent");
+
+    const createBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as { name?: string };
+
+    expect(createBody.name).toBe("Simple Agent 1");
+  });
+
   it("includes runnable config when template provides one", async () => {
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-2",
-        name: "MongoDB QA Agent Copy",
+        name: "MongoDB QA Agent",
         slug: "workflow-template-2",
         description: "MongoDB QA agent template.",
         tags: ["python", "agent", "mongodb"],
@@ -149,7 +261,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-2",
-        name: "MongoDB QA Agent Copy",
+        name: "MongoDB QA Agent",
         slug: "workflow-template-2",
         description: "MongoDB QA agent template.",
         tags: ["python", "agent", "mongodb"],
@@ -191,10 +303,10 @@ describe("workflow-storage API integration - template creation", () => {
     );
 
     expect(created?.id).toBe("workflow-template-2");
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as { runnable_config?: { configurable?: { database?: string } } };
     expect(ingestBody.runnable_config?.configurable?.database).toBe(
       "my_database",
@@ -206,9 +318,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-3",
-        name: "Telegram Agent Sender Copy",
+        name: "Telegram Agent Sender",
         slug: "workflow-template-3",
         description: "Telegram agent sender template.",
         tags: ["python", "agent", "telegram"],
@@ -242,7 +355,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-3",
-        name: "Telegram Agent Sender Copy",
+        name: "Telegram Agent Sender",
         slug: "workflow-template-3",
         description: "Telegram agent sender template.",
         tags: ["python", "agent", "telegram"],
@@ -281,10 +394,10 @@ describe("workflow-storage API integration - template creation", () => {
     const created = await createWorkflowFromTemplate("template-telegram-agent");
 
     expect(created?.id).toBe("workflow-template-3");
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       script?: string;
       runnable_config?: {
@@ -306,9 +419,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-4",
-        name: "Telegram Heartbeat Copy",
+        name: "Telegram Heartbeat",
         slug: "workflow-template-4",
         description: "Telegram heartbeat template.",
         tags: ["python", "telegram", "trigger"],
@@ -350,7 +464,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-4",
-        name: "Telegram Heartbeat Copy",
+        name: "Telegram Heartbeat",
         slug: "workflow-template-4",
         description: "Telegram heartbeat template.",
         tags: ["python", "telegram", "trigger"],
@@ -402,10 +516,10 @@ describe("workflow-storage API integration - template creation", () => {
     expect(created?.nodes.some((node) => node.id === "cron_trigger")).toBe(
       true,
     );
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       script?: string;
       metadata?: {
@@ -425,7 +539,7 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.script).toContain("* * * * *");
     expect(ingestBody.script).toContain("allow_overlapping=True");
     expect(ingestBody.metadata?.canvas?.snapshot?.name).toBe(
-      "Telegram Heartbeat Copy",
+      "Telegram Heartbeat",
     );
     expect(
       ingestBody.metadata?.canvas?.snapshot?.nodes?.some(
@@ -442,9 +556,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-5",
-        name: "Telegram Private Listener Copy",
+        name: "Telegram Private Listener",
         slug: "workflow-template-5",
         description: "Telegram private listener template.",
         tags: ["telegram", "listener", "agent"],
@@ -473,7 +588,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-5",
-        name: "Telegram Private Listener Copy",
+        name: "Telegram Private Listener",
         slug: "workflow-template-5",
         description: "Telegram private listener template.",
         tags: ["telegram", "listener", "agent"],
@@ -507,7 +622,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-telegram-private-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {
@@ -530,9 +645,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-6",
-        name: "Discord Private Listener Copy",
+        name: "Discord Private Listener",
         slug: "workflow-template-6",
         description: "Discord private listener template.",
         tags: ["discord", "listener", "agent"],
@@ -561,7 +677,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-6",
-        name: "Discord Private Listener Copy",
+        name: "Discord Private Listener",
         slug: "workflow-template-6",
         description: "Discord private listener template.",
         tags: ["discord", "listener", "agent"],
@@ -595,7 +711,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-discord-private-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {
@@ -619,9 +735,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-7",
-        name: "QQ Private Listener Copy",
+        name: "QQ Private Listener",
         slug: "workflow-template-7",
         description: "QQ private listener template.",
         tags: ["qq", "listener", "agent"],
@@ -650,7 +767,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-7",
-        name: "QQ Private Listener Copy",
+        name: "QQ Private Listener",
         slug: "workflow-template-7",
         description: "QQ private listener template.",
         tags: ["qq", "listener", "agent"],
@@ -684,7 +801,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-qq-private-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {
@@ -712,9 +829,10 @@ describe("workflow-storage API integration - template creation", () => {
     const timestamp = new Date().toISOString();
 
     queueResponses([
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-8",
-        name: "Private Bot Shared Listener Copy",
+        name: "Private Bot Shared Listener",
         slug: "workflow-template-8",
         description: "Shared private listener template.",
         tags: ["telegram", "discord", "qq", "listener", "agent"],
@@ -743,7 +861,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-8",
-        name: "Private Bot Shared Listener Copy",
+        name: "Private Bot Shared Listener",
         slug: "workflow-template-8",
         description: "Shared private listener template.",
         tags: ["telegram", "discord", "qq", "listener", "agent"],
@@ -777,7 +895,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-private-bot-shared-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {
@@ -829,9 +947,10 @@ describe("workflow-storage API integration - template creation", () => {
           },
         ],
       }),
+      jsonResponse([]),
       jsonResponse({
         id: "workflow-template-9",
-        name: "WeCom + Lark Shared Listener Copy",
+        name: "WeCom + Lark Shared Listener",
         slug: "workflow-template-9",
         description: "Shared WeCom and Lark listener template.",
         tags: ["wecom", "lark", "listener", "agent", "plugin"],
@@ -860,7 +979,7 @@ describe("workflow-storage API integration - template creation", () => {
       }),
       jsonResponse({
         id: "workflow-template-9",
-        name: "WeCom + Lark Shared Listener Copy",
+        name: "WeCom + Lark Shared Listener",
         slug: "workflow-template-9",
         description: "Shared WeCom and Lark listener template.",
         tags: ["wecom", "lark", "listener", "agent", "plugin"],
@@ -894,7 +1013,7 @@ describe("workflow-storage API integration - template creation", () => {
     await createWorkflowFromTemplate("template-wecom-lark-shared-listener");
 
     const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
+      String(mockFetch.mock.calls[3]?.[1]?.body ?? "{}"),
     ) as {
       metadata?: {
         template?: {

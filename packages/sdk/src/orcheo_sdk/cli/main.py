@@ -356,7 +356,10 @@ def install_command(
         bool | None,
         typer.Option(
             "--install-docker/--skip-docker-install",
-            help="Install Docker when missing, or skip docker-dependent steps.",
+            help=(
+                "Install Docker when missing. Uses Docker Desktop on macOS/Windows "
+                "and distro packages on supported Linux systems."
+            ),
         ),
     ] = None,
     install_orcheo_skill: Annotated[
@@ -377,7 +380,7 @@ def install_command(
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
         return
-    _run_install_flow(
+    _run_install_flow(  # pragma: no cover
         console=_resolve_install_console(ctx),
         yes=yes,
         mode=mode,
@@ -442,7 +445,10 @@ def install_upgrade_command(
         bool | None,
         typer.Option(
             "--install-docker/--skip-docker-install",
-            help="Install Docker when missing, or skip docker-dependent steps.",
+            help=(
+                "Install Docker when missing. Uses Docker Desktop on macOS/Windows "
+                "and distro packages on supported Linux systems."
+            ),
         ),
     ] = None,
     install_orcheo_skill: Annotated[
