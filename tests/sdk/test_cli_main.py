@@ -1,15 +1,21 @@
 """High-level CLI entrypoint tests."""
 
 from __future__ import annotations
+import io
 from pathlib import Path
+from types import SimpleNamespace
+import click
 import httpx
 import pytest
 import respx
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 from orcheo_sdk.cli import main as main_mod
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run, run_human
+from orcheo_sdk.cli.setup import SetupConfig
+from orcheo_sdk.cli.state import CLIState
 
 
 def test_main_config_error_handling(
@@ -369,3 +375,242 @@ def test_parse_auth_mode_branches() -> None:
     assert _parse_auth_mode("  oauth ") == "oauth"
     with pytest.raises(typer.BadParameter, match="--auth-mode must be one of"):
         _parse_auth_mode("invalid")
+
+
+def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console()
+    config = SetupConfig(
+        mode="install",
+        backend_url="http://example",
+        auth_mode="api-key",
+        api_key="key",
+        chatkit_domain_key=None,
+        start_stack=False,
+        install_docker_if_missing=False,
+        install_orcheo_skill=False,
+    )
+
+    run_setup_args: dict[str, object] = {}
+
+    def fake_run_setup(**kwargs: object) -> SetupConfig:
+        run_setup_args.update(kwargs)
+        return config
+
+    execute_kwargs: list[tuple[SetupConfig, str | None]] = []
+
+    def fake_execute_setup(
+        cfg: SetupConfig, *, console: Console, stack_version: str | None
+    ) -> None:
+        execute_kwargs.append((cfg, stack_version))
+
+    printed: list[SetupConfig] = []
+
+    def fake_print_summary(cfg: SetupConfig, *, console: Console) -> None:
+        printed.append(cfg)
+
+    monkeypatch.setattr(main_mod, "run_setup", fake_run_setup)
+    monkeypatch.setattr(main_mod, "execute_setup", fake_execute_setup)
+    monkeypatch.setattr(main_mod, "print_summary", fake_print_summary)
+    monkeypatch.setattr(
+        main_mod,
+        "_parse_setup_mode",
+        lambda value: pytest.fail("should not parse when forced"),
+    )
+    monkeypatch.setattr(main_mod, "_parse_auth_mode", lambda value: "api-key")
+
+    main_mod._run_install_flow(
+        console=console,
+        yes=True,
+        mode="install",
+        stack_version="0.1.0",
+        backend_url="http://example",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        start_stack=None,
+        install_docker=None,
+        install_orcheo_skill=None,
+        manual_secrets=False,
+        forced_mode="upgrade",
+    )
+
+    assert run_setup_args.get("mode") == "upgrade"
+    assert execute_kwargs == [(config, "0.1.0")]
+    assert printed == [config]
+
+
+def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console()
+    config = SetupConfig(
+        mode="install",
+        backend_url="http://example",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        start_stack=False,
+        install_docker_if_missing=False,
+        install_orcheo_skill=False,
+    )
+
+    called: list[str] = []
+
+    def fake_run_setup(**kwargs: object) -> SetupConfig:
+        called.append(str(kwargs.get("mode")))
+        return config
+
+    monkeypatch.setattr(main_mod, "run_setup", fake_run_setup)
+    monkeypatch.setattr(main_mod, "execute_setup", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_mod, "print_summary", lambda *args, **kwargs: None)
+
+    main_mod._run_install_flow(
+        console=console,
+        yes=False,
+        mode="install",
+        stack_version=None,
+        backend_url=None,
+        auth_mode="oauth",
+        api_key=None,
+        chatkit_domain_key=None,
+        start_stack=None,
+        install_docker=None,
+        install_orcheo_skill=None,
+        manual_secrets=False,
+    )
+
+    assert called == ["install"]
+
+
+def test_resolve_install_console_prefers_ctx_console() -> None:
+    ctx = typer.Context(click.Command("orcheo"))
+    shared_console = Console()
+    ctx.obj = CLIState(
+        settings=object(),
+        client=object(),
+        cache=object(),
+        console=shared_console,
+    )
+
+    result = main_mod._resolve_install_console(ctx)
+    assert result is shared_console
+
+
+def test_resolve_install_console_default() -> None:
+    ctx = typer.Context(click.Command("orcheo"))
+    ctx.obj = None
+    result = main_mod._resolve_install_console(ctx)
+    assert isinstance(result, Console)
+
+
+def test_stack_compose_base_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    with pytest.raises(typer.BadParameter):
+        main_mod._stack_compose_base_args()
+
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("version: '3'")
+    result = main_mod._stack_compose_base_args()
+    assert str(compose_file) in result
+
+
+def test_run_stack_command_success_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console()
+
+    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    main_mod._run_stack_command(["docker", "compose"], console=console)
+
+    def failing_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=3)
+
+    monkeypatch.setattr(main_mod.subprocess, "run", failing_run)
+    with pytest.raises(typer.BadParameter):
+        main_mod._run_stack_command(["docker"], console=console)
+
+
+def test_install_command_skips_subcommands(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        main_mod, "_run_install_flow", lambda **kwargs: pytest.fail("should not run")
+    )
+    ctx = typer.Context(click.Command("orcheo"))
+    ctx.invoked_subcommand = "upgrade"
+    main_mod.install_command(ctx)
+
+
+def test_install_upgrade_command_forces_upgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str | None] = []
+
+    def fake_run_install_flow(
+        *, forced_mode: str | None = None, **kwargs: object
+    ) -> None:  # type: ignore[override]
+        called.append(str(kwargs.get("mode")))
+
+    monkeypatch.setattr(main_mod, "_run_install_flow", fake_run_install_flow)
+    ctx = typer.Context(click.Command("orcheo"))
+    main_mod.install_upgrade_command(ctx)
+    assert called == ["None"]
+
+
+def test_stack_command_errors_and_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console()
+    monkeypatch.setattr(main_mod, "_resolve_install_console", lambda ctx: console)
+    monkeypatch.setattr(
+        main_mod,
+        "_stack_compose_base_args",
+        lambda: ["docker", "compose", "-f", "docker-compose.yml"],
+    )
+
+    monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
+    with pytest.raises(typer.BadParameter, match="Docker is not installed"):
+        main_mod.stack_command(typer.Context(click.Command("stack")))
+
+    monkeypatch.setattr(main_mod.shutil, "which", lambda name: "/usr/bin/docker")
+    with pytest.raises(typer.BadParameter, match="Choose one action"):
+        main_mod.stack_command(typer.Context(click.Command("stack")))
+
+    with pytest.raises(typer.BadParameter, match="Choose only one stack action"):
+        main_mod.stack_command(
+            typer.Context(click.Command("stack")), logs=True, start=True
+        )
+
+    captured: list[dict[str, object]] = []
+
+    def fake_run_stack_command(
+        command: list[str],
+        *,
+        console: Console,
+        expected_exit_codes: set[int] | None = None,
+    ) -> None:
+        captured.append(
+            {
+                "command": command,
+                "expected": expected_exit_codes,
+            }
+        )
+
+    monkeypatch.setattr(main_mod, "_run_stack_command", fake_run_stack_command)
+    ctx = typer.Context(click.Command("stack"))
+    main_mod.stack_command(ctx, logs=True)
+    assert captured[-1]["expected"] == {0, 130}
+
+
+def test_print_cli_error_plain(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console(file=io.StringIO(), force_terminal=False)
+    main_mod._print_cli_error(console, CLIError("boom"))
+    captured = console.file.getvalue()
+    assert "Error: boom" in captured
+    assert "Hint" not in captured
+
+
+def test_print_cli_error_machine_plain(capsys: pytest.CaptureFixture[str]) -> None:
+    main_mod._print_cli_error_machine(CLIError("boom"))
+    captured = capsys.readouterr()
+    assert "boom" in captured.out

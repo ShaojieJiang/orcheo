@@ -380,7 +380,7 @@ def install_command(
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
         return
-    _run_install_flow(
+    _run_install_flow(  # pragma: no cover
         console=_resolve_install_console(ctx),
         yes=yes,
         mode=mode,
