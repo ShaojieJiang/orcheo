@@ -30,6 +30,11 @@ horcheo = "orcheo_sdk.cli.main:run_human"
 orcheo = "orcheo_sdk.cli.main:run"
 orcheo-skill = "orcheo_sdk.cli.orcheo_skill:run"
 
+[project.urls]
+Homepage = "https://github.com/ShaojieJiang/orcheo/tree/main/packages/sdk"
+Issues = "https://github.com/ShaojieJiang/orcheo/issues"
+Source = "https://github.com/ShaojieJiang/orcheo/tree/main/packages/sdk"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/orcheo_sdk"]
 

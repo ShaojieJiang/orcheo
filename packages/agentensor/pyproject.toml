@@ -17,7 +17,6 @@ description = "Agent prompt tensors, modules, and optimizers for Orcheo workflow
 name = "agentensor"
 readme = "README.md"
 requires-python = ">=3.12"
-url = "https://github.com/ShaojieJiang/agentensor"
 version = "0.1.1"
 
 [project.optional-dependencies]
@@ -40,6 +39,11 @@ docs = [
   "mkdocs-material",
   "mkdocstrings[python]>=0.28.1"
 ]
+
+[project.urls]
+Homepage = "https://github.com/ShaojieJiang/agentensor"
+Issues = "https://github.com/ShaojieJiang/agentensor/issues"
+Source = "https://github.com/ShaojieJiang/agentensor"
 
 [tool.coverage.report]
 exclude_lines = [

@@ -81,7 +81,6 @@ description = "Add your description here"
 name = "orcheo"
 readme = "README.md"
 requires-python = ">=3.12"
-url = "https://github.com/AI-Colleagues/orcheo"
 version = "0.28.1"
 
 [project.scripts]
@@ -92,6 +91,11 @@ orcheo-format = "orcheo.tooling.commands:format_code"
 orcheo-lint = "orcheo.tooling.commands:lint"
 orcheo-seed-env = "orcheo.tooling.env:main"
 orcheo-test = "orcheo.tooling.commands:test"
+
+[project.urls]
+Homepage = "https://github.com/ShaojieJiang/orcheo"
+Issues = "https://github.com/ShaojieJiang/orcheo/issues"
+Source = "https://github.com/ShaojieJiang/orcheo"
 
 [tool.coverage.report]
 exclude_lines = [
