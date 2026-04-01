@@ -16,6 +16,13 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     yield from reset_auth_state(monkeypatch)
 
 
+@pytest.fixture(autouse=True)
+def _stub_celery_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent Celery from connecting to Redis during router tests."""
+    monkeypatch.setattr(system_router.celery_app, "send_task", Mock())
+    yield
+
+
 @pytest.fixture
 def runtime_store() -> ExternalAgentRuntimeStore:
     """Provide an isolated external agent runtime store for route tests."""
