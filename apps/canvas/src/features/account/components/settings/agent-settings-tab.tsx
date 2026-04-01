@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Badge } from "@/design-system/ui/badge";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -9,32 +12,200 @@ import {
   CardTitle,
 } from "@/design-system/ui/card";
 import { Separator } from "@/design-system/ui/separator";
+import {
+  getExternalAgentLoginSession,
+  getExternalAgents,
+  refreshExternalAgents,
+  startExternalAgentLogin,
+  type ExternalAgentLoginSession,
+  type ExternalAgentLoginSessionState,
+  type ExternalAgentProviderName,
+  type ExternalAgentProviderState,
+  type ExternalAgentProviderStatus,
+} from "@/lib/api";
 
 const CONTEXT_URL = "http://localhost:3333/context/sessions";
+const PROVIDER_ORDER: ExternalAgentProviderName[] = ["claude_code", "codex"];
+const SESSION_TERMINAL_STATES = new Set<ExternalAgentLoginSessionState>([
+  "authenticated",
+  "failed",
+  "timed_out",
+]);
 
-function useCopied() {
-  const [copied, setCopied] = useState(false);
+type ActiveSessions = Partial<Record<ExternalAgentProviderName, string>>;
+type SessionMap = Partial<
+  Record<ExternalAgentProviderName, ExternalAgentLoginSession>
+>;
+
+function useCopyFeedback() {
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+
   const copy = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedValue(text);
+    setTimeout(() => setCopiedValue(null), 2000);
   }, []);
-  return { copied, copy };
+
+  return { copiedValue, copy };
 }
+
+const badgeVariantForState = (
+  state: ExternalAgentProviderState,
+): "default" | "secondary" | "destructive" | "outline" => {
+  if (state === "ready") {
+    return "default";
+  }
+  if (state === "error") {
+    return "destructive";
+  }
+  if (state === "needs_login" || state === "not_installed") {
+    return "outline";
+  }
+  return "secondary";
+};
+
+const labelForProviderState = (state: ExternalAgentProviderState): string => {
+  switch (state) {
+    case "checking":
+      return "Checking";
+    case "installing":
+      return "Installing";
+    case "not_installed":
+      return "Not installed";
+    case "needs_login":
+      return "Needs login";
+    case "authenticating":
+      return "Connecting";
+    case "ready":
+      return "Connected";
+    case "error":
+      return "Error";
+    default:
+      return "Unknown";
+  }
+};
+
+const labelForSessionState = (
+  state: ExternalAgentLoginSessionState,
+): string => {
+  switch (state) {
+    case "installing":
+      return "Installing runtime";
+    case "awaiting_oauth":
+      return "Awaiting browser sign-in";
+    case "authenticated":
+      return "Authenticated";
+    case "failed":
+      return "Failed";
+    case "timed_out":
+      return "Timed out";
+    default:
+      return "Preparing";
+  }
+};
+
+const isTerminalSessionState = (
+  state: ExternalAgentLoginSessionState,
+): boolean => SESSION_TERMINAL_STATES.has(state);
+
+const formatTimestamp = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+};
+
+const sortStatuses = (
+  providers: ExternalAgentProviderStatus[],
+): ExternalAgentProviderStatus[] =>
+  [...providers].sort(
+    (left, right) =>
+      PROVIDER_ORDER.indexOf(left.provider) -
+      PROVIDER_ORDER.indexOf(right.provider),
+  );
 
 const AgentSettingsTab = () => {
   const [sessionCount, setSessionCount] = useState<number | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
-  const { copied: copiedLogin, copy: copyLogin } = useCopied();
-  const { copied: copiedStart, copy: copyStart } = useCopied();
+  const [providerStatuses, setProviderStatuses] = useState<
+    ExternalAgentProviderStatus[]
+  >([]);
+  const [loginSessions, setLoginSessions] = useState<SessionMap>({});
+  const [activeSessions, setActiveSessions] = useState<ActiveSessions>({});
+  const [isLoadingStatuses, setIsLoadingStatuses] = useState(true);
+  const [isRefreshingStatuses, setIsRefreshingStatuses] = useState(false);
+  const [pendingProvider, setPendingProvider] =
+    useState<ExternalAgentProviderName | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const { copiedValue, copy } = useCopyFeedback();
+
+  const syncActiveSessions = useCallback(
+    (providers: ExternalAgentProviderStatus[]) => {
+      setActiveSessions((current) => {
+        const next = { ...current };
+        for (const provider of providers) {
+          if (provider.active_session_id) {
+            next[provider.provider] = provider.active_session_id;
+          }
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const loadProviderStatuses = useCallback(async () => {
+    try {
+      const response = await getExternalAgents();
+      const providers = sortStatuses(response.providers);
+      setProviderStatuses(providers);
+      syncActiveSessions(providers);
+      setStatusError(null);
+    } catch (error) {
+      setStatusError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load external agent status.",
+      );
+    } finally {
+      setIsLoadingStatuses(false);
+    }
+  }, [syncActiveSessions]);
+
+  const queueStatusRefresh = useCallback(async () => {
+    setIsRefreshingStatuses(true);
+    try {
+      const response = await refreshExternalAgents();
+      const providers = sortStatuses(response.providers);
+      setProviderStatuses(providers);
+      syncActiveSessions(providers);
+      setStatusError(null);
+    } catch (error) {
+      setStatusError(
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh external agent status.",
+      );
+    } finally {
+      setIsRefreshingStatuses(false);
+    }
+  }, [syncActiveSessions]);
 
   useEffect(() => {
     let cancelled = false;
-    const poll = async () => {
+
+    const pollContextBridge = async () => {
       try {
-        const res = await fetch(CONTEXT_URL);
+        const response = await fetch(CONTEXT_URL);
         if (!cancelled) {
-          const sessions = await res.json();
+          const sessions = await response.json();
           setSessionCount(Array.isArray(sessions) ? sessions.length : 0);
           setServerRunning(true);
         }
@@ -45,22 +216,307 @@ const AgentSettingsTab = () => {
         }
       }
     };
-    poll();
-    const interval = setInterval(poll, 10_000);
+
+    void pollContextBridge();
+    const interval = setInterval(pollContextBridge, 10_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
   }, []);
 
+  useEffect(() => {
+    void loadProviderStatuses();
+    void queueStatusRefresh();
+  }, [loadProviderStatuses, queueStatusRefresh]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void loadProviderStatuses();
+    }, 4_000);
+    return () => clearInterval(interval);
+  }, [loadProviderStatuses]);
+
+  useEffect(() => {
+    const entries = Object.entries(activeSessions) as Array<
+      [ExternalAgentProviderName, string]
+    >;
+    if (entries.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollSessions = async () => {
+      for (const [provider, sessionId] of entries) {
+        try {
+          const session = await getExternalAgentLoginSession(sessionId);
+          if (cancelled) {
+            return;
+          }
+          setLoginSessions((current) => ({
+            ...current,
+            [provider]: session,
+          }));
+          if (isTerminalSessionState(session.state)) {
+            setActiveSessions((current) => {
+              const next = { ...current };
+              delete next[provider];
+              return next;
+            });
+            void loadProviderStatuses();
+          }
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          setStatusError(
+            error instanceof Error
+              ? error.message
+              : "Failed to poll external agent login session.",
+          );
+          setActiveSessions((current) => {
+            const next = { ...current };
+            delete next[provider];
+            return next;
+          });
+        }
+      }
+    };
+
+    void pollSessions();
+    const interval = setInterval(() => {
+      void pollSessions();
+    }, 1_500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeSessions, loadProviderStatuses]);
+
+  const handleConnect = useCallback(
+    async (provider: ExternalAgentProviderName) => {
+      setPendingProvider(provider);
+      try {
+        const session = await startExternalAgentLogin(provider);
+        setLoginSessions((current) => ({
+          ...current,
+          [provider]: session,
+        }));
+        setActiveSessions((current) => ({
+          ...current,
+          [provider]: session.session_id,
+        }));
+        setStatusError(null);
+        void loadProviderStatuses();
+      } catch (error) {
+        setStatusError(
+          error instanceof Error
+            ? error.message
+            : "Failed to start the worker login flow.",
+        );
+      } finally {
+        setPendingProvider(null);
+      }
+    },
+    [loadProviderStatuses],
+  );
+
+  const providerCards = useMemo(
+    () =>
+      providerStatuses.map((provider) => {
+        const session =
+          loginSessions[provider.provider] &&
+          loginSessions[provider.provider]?.session_id ===
+            provider.active_session_id
+            ? loginSessions[provider.provider]
+            : loginSessions[provider.provider];
+        const checkedAt = formatTimestamp(provider.checked_at);
+        const lastAuthAt = formatTimestamp(provider.last_auth_ok_at);
+        const isBusy =
+          pendingProvider === provider.provider ||
+          provider.state === "checking" ||
+          provider.state === "installing" ||
+          provider.state === "authenticating";
+        const connectLabel =
+          provider.state === "not_installed"
+            ? "Install and connect"
+            : provider.state === "ready"
+              ? "Reconnect"
+              : "Connect";
+
+        return (
+          <Card key={provider.provider} className="border-border/80">
+            <CardHeader className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">
+                    {provider.display_name}
+                  </CardTitle>
+                  <CardDescription>
+                    Worker-scoped OAuth and runtime status for{" "}
+                    {provider.display_name}.
+                  </CardDescription>
+                </div>
+                <Badge variant={badgeVariantForState(provider.state)}>
+                  {labelForProviderState(provider.state)}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <span>
+                  Version: {provider.resolved_version ?? "Not installed"}
+                </span>
+                {checkedAt && <span>Checked: {checkedAt}</span>}
+                {lastAuthAt && <span>Last auth: {lastAuthAt}</span>}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {provider.detail ??
+                  "Canvas will manage the worker-side runtime and OAuth flow."}
+              </p>
+
+              {session && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">
+                      {labelForSessionState(session.state)}
+                    </Badge>
+                    {session.resolved_version && (
+                      <span className="text-muted-foreground">
+                        Runtime {session.resolved_version}
+                      </span>
+                    )}
+                  </div>
+                  {session.detail && (
+                    <p className="mt-2 text-muted-foreground">
+                      {session.detail}
+                    </p>
+                  )}
+                  {session.auth_url && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-background px-2 py-1 text-xs">
+                        {session.auth_url}
+                      </code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          window.open(session.auth_url ?? "", "_blank")
+                        }
+                      >
+                        <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                        Open sign-in
+                      </Button>
+                    </div>
+                  )}
+                  {session.device_code && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-background px-2 py-1 text-xs">
+                        {session.device_code}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copy(session.device_code ?? "")}
+                      >
+                        {copiedValue === session.device_code
+                          ? "Copied!"
+                          : "Copy code"}
+                      </Button>
+                    </div>
+                  )}
+                  {session.recent_output && (
+                    <pre className="mt-3 max-h-40 overflow-auto rounded bg-background p-3 text-xs text-muted-foreground">
+                      {session.recent_output}
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => {
+                    void handleConnect(provider.provider);
+                  }}
+                  disabled={isBusy}
+                >
+                  {isBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {connectLabel}
+                </Button>
+                {provider.executable_path && (
+                  <code className="rounded bg-muted px-2 py-1 text-xs">
+                    {provider.executable_path}
+                  </code>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      }),
+    [
+      copiedValue,
+      copy,
+      handleConnect,
+      loginSessions,
+      pendingProvider,
+      providerStatuses,
+    ],
+  );
+
   return (
     <div className="space-y-4">
+      {statusError && (
+        <Alert variant="destructive">
+          <AlertTitle>External agent status failed</AlertTitle>
+          <AlertDescription>{statusError}</AlertDescription>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Connect your agent</CardTitle>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <CardTitle>External Agents</CardTitle>
+              <CardDescription>
+                Connect Claude Code and Codex once per worker from Canvas. OAuth
+                happens on the execution worker, not on individual workflow
+                nodes.
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void queueStatusRefresh();
+              }}
+              disabled={isRefreshingStatuses}
+            >
+              {isRefreshingStatuses ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoadingStatuses && providerStatuses.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Loading worker runtime status...
+            </p>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">{providerCards}</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Local Agent Context Bridge</CardTitle>
           <CardDescription>
-            Use Claude Code, Cursor, or any CLI-capable coding agent to read and
-            modify your Orcheo workflows directly from the terminal.
+            Use the browser-aware CLI bridge when you want a local terminal
+            agent to understand the workflow currently open in Canvas.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -77,9 +533,9 @@ const AgentSettingsTab = () => {
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    onClick={() => copyLogin("orcheo auth login")}
+                    onClick={() => copy("orcheo auth login")}
                   >
-                    {copiedLogin ? "Copied!" : "Copy"}
+                    {copiedValue === "orcheo auth login" ? "Copied!" : "Copy"}
                   </Button>
                 </div>
               </li>
@@ -93,15 +549,17 @@ const AgentSettingsTab = () => {
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    onClick={() => copyStart("orcheo browser-aware")}
+                    onClick={() => copy("orcheo browser-aware")}
                   >
-                    {copiedStart ? "Copied!" : "Copy"}
+                    {copiedValue === "orcheo browser-aware"
+                      ? "Copied!"
+                      : "Copy"}
                   </Button>
                 </div>
               </li>
               <li>
-                Open a workflow in Canvas — your agent will automatically know
-                what you&apos;re looking at.
+                Open a workflow in Canvas. Your local agent can then inspect the
+                active workflow context from the terminal.
               </li>
             </ol>
           </div>
@@ -109,7 +567,7 @@ const AgentSettingsTab = () => {
           <Separator />
 
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Connection status</h3>
+            <h3 className="text-sm font-medium">Bridge status</h3>
             <div className="flex items-center gap-2">
               <Badge variant={serverRunning ? "default" : "secondary"}>
                 {serverRunning ? "Connected" : "Not connected"}

@@ -43,7 +43,7 @@ export default function Settings() {
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="application">Application</TabsTrigger>
             <TabsTrigger value="teams">Teams & Billing</TabsTrigger>
-            <TabsTrigger value="agent">Connect Agent</TabsTrigger>
+            <TabsTrigger value="agent">Agents</TabsTrigger>
           </TabsList>
           <TabsContent value="appearance" className="space-y-4">
             <AppearanceSettingsTab />

@@ -1,0 +1,144 @@
+"""Tests for worker-scoped external agent system routes."""
+
+from __future__ import annotations
+from unittest.mock import Mock
+import pytest
+from orcheo_backend.app import dependencies
+from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
+from orcheo_backend.app.routers import system as system_router
+from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disable auth and reset global state between tests."""
+    yield from reset_auth_state(monkeypatch)
+
+
+@pytest.fixture
+def runtime_store() -> ExternalAgentRuntimeStore:
+    """Provide an isolated external agent runtime store for route tests."""
+    original = dependencies.get_external_agent_runtime_store()
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    dependencies.set_external_agent_runtime_store(store)
+    try:
+        yield store
+    finally:
+        dependencies.set_external_agent_runtime_store(original)
+
+
+def test_list_external_agents_returns_known_providers(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Listing external agents returns both worker-scoped provider entries."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    response = client.get("/api/system/external-agents")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["provider"] for item in payload["providers"]] == [
+        "claude_code",
+        "codex",
+    ]
+    assert payload["providers"][0]["state"] == "unknown"
+
+
+def test_refresh_external_agents_queues_worker_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Refreshing external agents queues a worker status probe for each provider."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    send_task = Mock()
+    monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
+
+    client = create_test_client()
+    response = client.post("/api/system/external-agents/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert all(item["state"] == "checking" for item in payload["providers"])
+    assert send_task.call_count == 2
+    send_task.assert_any_call(
+        "orcheo_backend.worker.tasks.refresh_external_agent_status",
+        args=["claude_code"],
+    )
+    send_task.assert_any_call(
+        "orcheo_backend.worker.tasks.refresh_external_agent_status",
+        args=["codex"],
+    )
+
+
+def test_start_external_agent_login_creates_session_and_queues_worker_task(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Starting a login flow returns the session and marks the provider active."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    send_task = Mock()
+    monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
+
+    client = create_test_client()
+    response = client.post("/api/system/external-agents/codex/login")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "codex"
+    assert payload["state"] == "pending"
+    assert payload["session_id"]
+    send_task.assert_called_once_with(
+        "orcheo_backend.worker.tasks.start_external_agent_login",
+        args=["codex", payload["session_id"]],
+    )
+
+    status_response = client.get("/api/system/external-agents")
+    assert status_response.status_code == 200
+    statuses = {item["provider"]: item for item in status_response.json()["providers"]}
+    assert statuses["codex"]["state"] == "authenticating"
+    assert statuses["codex"]["active_session_id"] == payload["session_id"]
+
+
+def test_start_external_agent_login_retries_with_fresh_session(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Retrying login should create a fresh worker session instead of reusing stale state."""  # noqa: E501
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    send_task = Mock()
+    monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
+
+    client = create_test_client()
+    first = client.post("/api/system/external-agents/codex/login")
+    second = client.post("/api/system/external-agents/codex/login")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_session = first.json()["session_id"]
+    second_session = second.json()["session_id"]
+    assert first_session != second_session
+    assert send_task.call_count == 2
+
+
+def test_missing_external_agent_login_session_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Requesting an unknown login session returns 404."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    response = client.get("/api/system/external-agents/sessions/missing-session")
+
+    assert response.status_code == 404

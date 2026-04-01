@@ -431,6 +431,27 @@ async def _dispatch_cron_triggers_async() -> list[str]:
     return [str(run.id) for run in runs]
 
 
+async def _refresh_external_agent_status_async(provider_name: str) -> dict[str, str]:
+    """Refresh worker-scoped status for one external agent provider."""
+    from orcheo_backend.worker.external_agents import (
+        refresh_external_agent_status_async,
+    )
+
+    return await refresh_external_agent_status_async(provider_name)
+
+
+async def _start_external_agent_login_async(
+    provider_name: str,
+    session_id: str,
+) -> dict[str, str]:
+    """Run a worker-side external agent OAuth session."""
+    from orcheo_backend.worker.external_agents import (
+        start_external_agent_login_async,
+    )
+
+    return await start_external_agent_login_async(provider_name, session_id)
+
+
 @celery_app.task(bind=True)
 def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     """Dispatch due cron triggers by calling the cron dispatch endpoint.
@@ -450,4 +471,38 @@ def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     return {"dispatched_runs": run_ids}
 
 
-__all__ = ["execute_run", "dispatch_cron_triggers"]
+@celery_app.task(bind=True)
+def refresh_external_agent_status(
+    self: Task,  # noqa: ARG001
+    provider_name: str,
+) -> dict[str, str]:
+    """Refresh worker-scoped status for one external agent provider."""
+    logger.info("Refreshing external agent status for %s", provider_name)
+    loop = _get_event_loop()
+    return loop.run_until_complete(_refresh_external_agent_status_async(provider_name))
+
+
+@celery_app.task(bind=True)
+def start_external_agent_login(
+    self: Task,  # noqa: ARG001
+    provider_name: str,
+    session_id: str,
+) -> dict[str, str]:
+    """Run a worker-side external agent OAuth login session."""
+    logger.info(
+        "Starting external agent login for %s (session=%s)",
+        provider_name,
+        session_id,
+    )
+    loop = _get_event_loop()
+    return loop.run_until_complete(
+        _start_external_agent_login_async(provider_name, session_id)
+    )
+
+
+__all__ = [
+    "dispatch_cron_triggers",
+    "execute_run",
+    "refresh_external_agent_status",
+    "start_external_agent_login",
+]

@@ -5,6 +5,7 @@ from orcheo_backend.app import dependencies
 from orcheo_backend.app.agentensor.checkpoint_store import (
     InMemoryAgentensorCheckpointStore,
 )
+from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 
 
 def test_get_repository_initializes_when_missing(monkeypatch) -> None:
@@ -41,3 +42,18 @@ def test_set_checkpoint_store_overrides_and_resets() -> None:
         assert renewed is not store
     finally:
         dependencies._checkpoint_store_ref["store"] = original_store
+
+
+def test_set_external_agent_runtime_store_overrides_and_resets() -> None:
+    original_store = dependencies._external_agent_runtime_store_ref["store"]
+    try:
+        store = ExternalAgentRuntimeStore()
+        dependencies.set_external_agent_runtime_store(store)
+        assert dependencies.get_external_agent_runtime_store() is store
+
+        dependencies.set_external_agent_runtime_store(None)
+        renewed = dependencies.get_external_agent_runtime_store()
+        assert isinstance(renewed, ExternalAgentRuntimeStore)
+        assert renewed is not store
+    finally:
+        dependencies._external_agent_runtime_store_ref["store"] = original_store

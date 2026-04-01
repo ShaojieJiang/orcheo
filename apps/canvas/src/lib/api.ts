@@ -29,6 +29,61 @@ export interface SystemInfoResponse {
   checked_at: string;
 }
 
+export type ExternalAgentProviderName = "claude_code" | "codex";
+
+export type ExternalAgentProviderState =
+  | "unknown"
+  | "checking"
+  | "installing"
+  | "not_installed"
+  | "needs_login"
+  | "authenticating"
+  | "ready"
+  | "error";
+
+export type ExternalAgentLoginSessionState =
+  | "pending"
+  | "installing"
+  | "awaiting_oauth"
+  | "authenticated"
+  | "failed"
+  | "timed_out";
+
+export interface ExternalAgentProviderStatus {
+  provider: ExternalAgentProviderName;
+  display_name: string;
+  state: ExternalAgentProviderState;
+  installed: boolean;
+  authenticated: boolean;
+  supports_oauth: boolean;
+  resolved_version: string | null;
+  executable_path: string | null;
+  checked_at: string | null;
+  last_auth_ok_at: string | null;
+  detail: string | null;
+  active_session_id: string | null;
+}
+
+export interface ExternalAgentLoginSession {
+  session_id: string;
+  provider: ExternalAgentProviderName;
+  display_name: string;
+  state: ExternalAgentLoginSessionState;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  auth_url: string | null;
+  device_code: string | null;
+  detail: string | null;
+  recent_output: string | null;
+  resolved_version: string | null;
+  executable_path: string | null;
+}
+
+export interface ExternalAgentsResponse {
+  providers: ExternalAgentProviderStatus[];
+}
+
 /**
  * Execute a single node in isolation for testing/preview purposes.
  *
@@ -80,4 +135,70 @@ export async function getSystemInfo(
   }
 
   return response.json();
+}
+
+async function requestSystemJson<T>(
+  path: string,
+  init: RequestInit,
+  baseUrl?: string,
+): Promise<T> {
+  const url = buildBackendHttpUrl(path, baseUrl);
+  const response = await authFetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to complete request",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getExternalAgents(
+  baseUrl?: string,
+): Promise<ExternalAgentsResponse> {
+  return requestSystemJson<ExternalAgentsResponse>(
+    "/api/system/external-agents",
+    { method: "GET" },
+    baseUrl,
+  );
+}
+
+export async function refreshExternalAgents(
+  baseUrl?: string,
+): Promise<ExternalAgentsResponse> {
+  return requestSystemJson<ExternalAgentsResponse>(
+    "/api/system/external-agents/refresh",
+    { method: "POST" },
+    baseUrl,
+  );
+}
+
+export async function startExternalAgentLogin(
+  provider: ExternalAgentProviderName,
+  baseUrl?: string,
+): Promise<ExternalAgentLoginSession> {
+  return requestSystemJson<ExternalAgentLoginSession>(
+    `/api/system/external-agents/${provider}/login`,
+    { method: "POST" },
+    baseUrl,
+  );
+}
+
+export async function getExternalAgentLoginSession(
+  sessionId: string,
+  baseUrl?: string,
+): Promise<ExternalAgentLoginSession> {
+  return requestSystemJson<ExternalAgentLoginSession>(
+    `/api/system/external-agents/sessions/${sessionId}`,
+    { method: "GET" },
+    baseUrl,
+  );
 }

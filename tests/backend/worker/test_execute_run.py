@@ -199,3 +199,47 @@ class TestDispatchCronTriggers:
 
         assert "dispatched_runs" in result
         assert result["dispatched_runs"] == expected_run_ids
+
+
+class TestExternalAgentTasks:
+    """Tests for worker-side external agent helper tasks."""
+
+    def test_refresh_external_agent_status_runs_async_helper(self) -> None:
+        """The refresh task should delegate to the async helper via the event loop."""
+        from orcheo_backend.worker.tasks import refresh_external_agent_status
+
+        mock_result = {"status": "ready"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._refresh_external_agent_status_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = refresh_external_agent_status("codex")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
+
+    def test_start_external_agent_login_runs_async_helper(self) -> None:
+        """The login task should delegate to the async helper via the event loop."""
+        from orcheo_backend.worker.tasks import start_external_agent_login
+
+        mock_result = {"status": "authenticated"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._start_external_agent_login_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = start_external_agent_login("codex", "session-1")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
