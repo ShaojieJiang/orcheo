@@ -164,7 +164,63 @@ def test_submit_external_agent_login_input_updates_session(
     )
 
     assert response.status_code == 200
-    assert runtime_store.consume_login_input(session_id) == "ABCD-1234"
+    assert runtime_store.get_login_input(session_id) == "ABCD-1234"
+
+
+def test_submit_external_agent_login_input_passes_bare_code_through(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Submitting a plain Claude code should pass it through without transformation."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    start = client.post("/api/system/external-agents/claude_code/login")
+
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+    session = runtime_store.get_login_session(session_id)
+    assert session is not None
+    session.auth_url = (
+        "https://claude.com/cai/oauth/authorize?code=true&state=test-state"
+    )
+    runtime_store.save_login_session(session)
+
+    response = client.post(
+        f"/api/system/external-agents/sessions/{session_id}/input",
+        json={"input_text": "ABCD-1234"},
+    )
+
+    assert response.status_code == 200
+    assert runtime_store.get_login_input(session_id) == "ABCD-1234"
+
+
+def test_submit_external_agent_login_input_passes_callback_url_through(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Submitting a Claude callback URL should pass it through for the CLI to parse."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    start = client.post("/api/system/external-agents/claude_code/login")
+
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    callback_url = (
+        "https://platform.claude.com/oauth/code/callback"
+        "?code=ABCD-1234&state=test-state"
+    )
+    response = client.post(
+        f"/api/system/external-agents/sessions/{session_id}/input",
+        json={"input_text": callback_url},
+    )
+
+    assert response.status_code == 200
+    assert runtime_store.get_login_input(session_id) == callback_url
 
 
 def test_submit_external_agent_login_input_rejects_missing_session(

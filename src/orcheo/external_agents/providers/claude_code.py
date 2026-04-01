@@ -29,6 +29,7 @@ class ClaudeCodeProvider(NpmCliProvider):
             environ=environ,
             env_var_names=(
                 "ANTHROPIC_API_KEY",
+                "CLAUDE_CODE_OAUTH_TOKEN",
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
             ),
@@ -42,7 +43,8 @@ class ClaudeCodeProvider(NpmCliProvider):
             "workflow."
         )
         commands = [
-            f"{self.executable_name}",
+            f"{self.executable_name} setup-token",
+            "export CLAUDE_CODE_OAUTH_TOKEN=<oauth-token>",
             "export ANTHROPIC_API_KEY=<api-key>",
         ]
 
@@ -100,10 +102,11 @@ class ClaudeCodeProvider(NpmCliProvider):
     def render_login_instructions(self, runtime: ResolvedRuntime) -> list[str]:
         """Render manual Claude Code login commands for setup-needed failures."""
         return [
-            str(runtime.executable_path),
+            f"{runtime.executable_path} setup-token",
+            "export CLAUDE_CODE_OAUTH_TOKEN=<oauth-token>",
             "export ANTHROPIC_API_KEY=<api-key>",
         ]
 
     def oauth_login_command(self, runtime: ResolvedRuntime) -> list[str]:
         """Return the OAuth login command for Claude Code."""
-        return [str(runtime.executable_path), "auth", "login"]
+        return [str(runtime.executable_path), "setup-token"]

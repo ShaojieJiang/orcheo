@@ -378,6 +378,23 @@ def test_codex_provider_uses_device_auth_login() -> None:
     ]
 
 
+def test_claude_provider_uses_setup_token_login() -> None:
+    """Claude provider should use setup-token for worker login flows."""
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name=provider.package_name,
+    )
+
+    assert provider.oauth_login_command(runtime) == [
+        "/tmp/claude/bin/claude",
+        "setup-token",
+    ]
+
+
 def test_claude_provider_builds_expected_command() -> None:
     """Claude provider uses print mode with appended system instructions."""
     provider = ClaudeCodeProvider()
@@ -454,6 +471,12 @@ def test_provider_version_parsing_and_auth_probes(
     env_claude = claude.probe_auth(runtime, environ={"ANTHROPIC_API_KEY": "x"})
     assert env_claude.status == AuthStatus.AUTHENTICATED
 
+    oauth_token_claude = claude.probe_auth(
+        runtime,
+        environ={"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-test"},
+    )
+    assert oauth_token_claude.status == AuthStatus.AUTHENTICATED
+
     status_logged_in = Mock(
         return_value=subprocess.CompletedProcess(
             args=["claude", "auth", "status"],
@@ -465,3 +488,22 @@ def test_provider_version_parsing_and_auth_probes(
     monkeypatch.setattr(subprocess, "run", status_logged_in)
     oauth_claude = claude.probe_auth(runtime, environ={})
     assert oauth_claude.status == AuthStatus.AUTHENTICATED
+
+
+def test_runtime_manager_persists_provider_environment(tmp_path: Path) -> None:
+    """Provider-specific environment variables should persist across managers."""
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
+
+    manager.save_provider_environment(
+        "claude_code",
+        {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-test-token"},
+    )
+
+    first = manager.environment_for_provider("claude_code")
+    second = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        environ={},
+    ).environment_for_provider("claude_code")
+
+    assert first["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-test-token"
+    assert second["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-test-token"

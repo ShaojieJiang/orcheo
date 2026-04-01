@@ -57,6 +57,24 @@ describe("template compatibility", () => {
     expect(chatkitTemplate!.workflow.tags).toContain("chatkit");
   });
 
+  it("includes the Claude Code and Codex external-agent templates", () => {
+    const claudeTemplate = getWorkflowTemplateDefinition(
+      "template-claude-code-agent",
+    );
+    const codexTemplate = getWorkflowTemplateDefinition("template-codex-agent");
+
+    expect(claudeTemplate).toBeDefined();
+    expect(codexTemplate).toBeDefined();
+    expect(claudeTemplate!.workflow.name).toBe("Claude Code Agent");
+    expect(codexTemplate!.workflow.name).toBe("Codex Agent");
+    expect(claudeTemplate!.runnableConfig?.configurable).toEqual({
+      working_directory: "/app",
+    });
+    expect(codexTemplate!.runnableConfig?.configurable).toEqual({
+      working_directory: "/app",
+    });
+  });
+
   it("rejects templates when provider or reply-node contracts drift", () => {
     const staleTemplate: WorkflowTemplateDefinition = {
       workflow: {

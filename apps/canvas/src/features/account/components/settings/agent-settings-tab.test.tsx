@@ -191,7 +191,9 @@ describe("AgentSettingsTab", () => {
 
     render(<AgentSettingsTab />);
 
-    const input = await screen.findByPlaceholderText(/paste claude auth code/i);
+    const input = await screen.findByPlaceholderText(
+      /paste claude auth code or redirect url/i,
+    );
     await user.type(input, "ABCD-1234");
     await user.click(screen.getByRole("button", { name: /submit code/i }));
 
@@ -203,5 +205,93 @@ describe("AgentSettingsTab", () => {
         },
       );
     });
+  });
+
+  it("explains the accepted Claude auth input formats", async () => {
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
+      session_id: "session-claude",
+      provider: "claude_code",
+      display_name: "Claude Code",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:02Z",
+      completed_at: null,
+      auth_url: "https://claude.ai",
+      device_code: null,
+      detail: "Complete the browser sign-in.",
+      recent_output: "Paste the code back into Claude Code",
+      resolved_version: "2.1.89",
+      executable_path: "/data/claude/bin/claude",
+    });
+
+    render(<AgentSettingsTab />);
+
+    expect(
+      await screen.findByText(/accepts the final redirect url/i),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the raw Claude sign-in URL behind the action link", async () => {
+    const authUrl =
+      "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference";
+
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
+      session_id: "session-claude",
+      provider: "claude_code",
+      display_name: "Claude Code",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:02Z",
+      completed_at: null,
+      auth_url: authUrl,
+      device_code: null,
+      detail: "Complete the browser sign-in.",
+      recent_output: "Paste the code back into Claude Code",
+      resolved_version: "2.1.89",
+      executable_path: "/data/claude/bin/claude",
+    });
+
+    render(<AgentSettingsTab />);
+
+    expect(
+      await screen.findByRole("link", { name: /open sign-in/i }),
+    ).toHaveAttribute("href", authUrl);
+    expect(screen.queryByText(authUrl)).not.toBeInTheDocument();
   });
 });

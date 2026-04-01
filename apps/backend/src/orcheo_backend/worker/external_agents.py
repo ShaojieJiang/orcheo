@@ -1,21 +1,28 @@
 """Worker-side helpers for external agent status checks and OAuth sessions."""
 
 from __future__ import annotations
+import fcntl
 import os
 import pty
 import re
 import selectors
 import signal
+import struct
 import subprocess
+import termios
 import time
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from orcheo.external_agents import ExternalAgentRuntimeManager, RuntimeInstallError
 from orcheo.external_agents.models import ResolvedRuntime
 from orcheo_backend.app.dependencies import get_external_agent_runtime_store
 from orcheo_backend.app.external_agent_runtime_store import (
     default_external_agent_status,
+    is_terminal_login_state,
+    list_external_agent_providers,
 )
 from orcheo_backend.app.schemas.system import (
     ExternalAgentLoginSession,
@@ -28,9 +35,36 @@ from orcheo_backend.app.schemas.system import (
 
 LOGIN_TIMEOUT_SECONDS = 15 * 60
 MAX_RECENT_OUTPUT_CHARS = 4000
+LOGIN_INPUT_RESEND_SECONDS = 3.0
+LOGIN_HEARTBEAT_SECONDS = 2.0
+LOGIN_SESSION_STALE_SECONDS = 10.0
+LOGIN_PTY_ROWS = 60
+LOGIN_PTY_COLS = 240
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]")
 URL_PATTERN = re.compile(r"https?://[^\s]+")
+URL_CONTINUATION_PATTERN = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$")
 DEVICE_CODE_PATTERN = re.compile(r"\b[A-Z0-9]{4}(?:-[A-Z0-9]{4,})+\b")
+CLAUDE_OAUTH_TOKEN_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
+CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN = re.compile(
+    (
+        r"Your OAuth token \(valid for 1 year\):\s+"
+        r"(?P<token>.+?)\s+Store this token securely\."
+    ),
+    re.DOTALL,
+)
+CLAUDE_OAUTH_TOKEN_FUZZY_BLOCK_PATTERN = re.compile(
+    (
+        r"valid\s*for\s*1\s*year\):"
+        r"(?P<token>.*?)"
+        r"Store\s*this\s*token\s*securely\."
+    ),
+    re.DOTALL | re.IGNORECASE,
+)
+CLAUDE_OAUTH_TOKEN_EXPORT_PATTERN = re.compile(
+    r"CLAUDE_CODE_OAUTH_TOKEN=(?P<token>sk-ant-[A-Za-z0-9_-]+)"
+)
+CLAUDE_OAUTH_TOKEN_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
 
 @dataclass(slots=True)
@@ -42,10 +76,21 @@ class LoginCommandResult:
     output: str
     auth_url: str | None
     device_code: str | None
+    auth_token: str | None
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _worker_provider_environment(runtime_store: object) -> dict[str, str]:
+    """Return provider auth env persisted in the shared runtime store."""
+    merged: dict[str, str] = {}
+    for provider_name in list_external_agent_providers():
+        merged.update(
+            runtime_store.get_provider_environment(provider_name)  # type: ignore[attr-defined]
+        )
+    return merged
 
 
 def _trim_recent_output(output: str) -> str:
@@ -53,11 +98,71 @@ def _trim_recent_output(output: str) -> str:
 
 
 def _strip_ansi(text: str) -> str:
-    return ANSI_ESCAPE_PATTERN.sub("", text)
+    stripped = ANSI_ESCAPE_PATTERN.sub("", text)
+    stripped = stripped.replace("\r\n", "\n").replace("\r", "\n")
+    stripped = stripped.replace("\x1b", "")
+    return CONTROL_CHAR_PATTERN.sub(" ", stripped)
+
+
+def _set_pty_size(
+    fd: int, *, rows: int = LOGIN_PTY_ROWS, cols: int = LOGIN_PTY_COLS
+) -> None:
+    """Resize the worker PTY to reduce Claude TUI wrapping and truncation."""
+    winsize = struct.pack("HHHH", rows, cols, 0, 0)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+
+
+def _create_terminal_emulator() -> Any:
+    """Return a VT100 screen emulator for capturing visible login output."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="pexpect.screen and pexpect.ANSI are deprecated.*",
+            category=UserWarning,
+        )
+        from pexpect import ANSI
+
+    return ANSI.ANSI(LOGIN_PTY_ROWS, LOGIN_PTY_COLS, encoding="utf-8")
+
+
+def _render_terminal_screen(screen: Any) -> str:
+    """Render the current terminal screen as trimmed plain text."""
+    lines = [line.rstrip() for line in str(screen).splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _dewrap_terminal_segments(text: str) -> str:
+    """Join wrapped terminal lines for URLs and token-like values."""
+    return re.sub(
+        r"(?<=[A-Za-z0-9%&=_./:+?-])\s+(?=[A-Za-z0-9%&=_./:+?-])",
+        "",
+        text,
+    )
 
 
 def _extract_auth_url(output: str) -> str | None:
-    matches = URL_PATTERN.findall(output)
+    lines = output.splitlines()
+    matches: list[str] = []
+    for index, line in enumerate(lines):
+        match = URL_PATTERN.search(line)
+        if match is None:
+            continue
+        parts = [match.group(0)]
+        skipped_blank_line = False
+        for continuation in lines[index + 1 :]:
+            stripped = continuation.strip()
+            if not stripped:
+                if skipped_blank_line:
+                    break
+                skipped_blank_line = True
+                continue
+            if not URL_CONTINUATION_PATTERN.fullmatch(stripped):
+                break
+            parts.append(stripped)
+            skipped_blank_line = False
+        matches.append("".join(parts).rstrip(".,;"))
     if not matches:
         return None
     for candidate in matches:
@@ -69,6 +174,162 @@ def _extract_auth_url(output: str) -> str | None:
 def _extract_device_code(output: str) -> str | None:
     match = DEVICE_CODE_PATTERN.search(output)
     return match.group(0) if match is not None else None
+
+
+def _extract_auth_token(output: str) -> str | None:
+    line_block_token = _extract_claude_oauth_token_from_lines(output)
+    if line_block_token is not None:
+        return line_block_token
+
+    dewrapped = _dewrap_terminal_segments(output)
+    block_match = CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN.search(dewrapped)
+    if block_match is not None:
+        collapsed = re.sub(r"\s+", "", block_match.group("token"))
+        if collapsed.startswith("sk-ant-"):
+            return collapsed
+    fuzzy_match = CLAUDE_OAUTH_TOKEN_FUZZY_BLOCK_PATTERN.search(dewrapped)
+    if fuzzy_match is not None:
+        collapsed = re.sub(r"\s+", "", fuzzy_match.group("token"))
+        token_match = CLAUDE_OAUTH_TOKEN_PATTERN.search(collapsed)
+        if token_match is not None:
+            return token_match.group(0)
+    export_match = CLAUDE_OAUTH_TOKEN_EXPORT_PATTERN.search(dewrapped)
+    if export_match is not None:
+        return export_match.group("token")
+    return None
+
+
+def _extract_visible_auth_token(output: str) -> str | None:
+    """Return a token from rendered screen output when it does not look masked."""
+    block_match = CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN.search(output)
+    if block_match is not None and "*" in block_match.group("token"):
+        return None
+    fuzzy_match = CLAUDE_OAUTH_TOKEN_FUZZY_BLOCK_PATTERN.search(output)
+    if fuzzy_match is not None and "*" in fuzzy_match.group("token"):
+        return None
+    return _extract_auth_token(output)
+
+
+def _extract_worker_auth_token(raw_output: str, visible_output: str) -> str | None:
+    """Prefer raw PTY transcript for token extraction, then clean screen output."""
+    return _extract_auth_token(raw_output) or _extract_visible_auth_token(
+        visible_output
+    )
+
+
+def _normalize_terminal_line(text: str) -> str:
+    """Collapse whitespace and casing for fuzzy PTY prompt matching."""
+    return re.sub(r"\s+", "", text).lower()
+
+
+def _prefix_before_store_marker(line: str) -> tuple[str, bool]:
+    """Return any token content before the Claude storage warning marker."""
+    lowered = line.lower()
+    index = lowered.find("store")
+    if index < 0:
+        return line, False
+    return line[:index], True
+
+
+def _is_claude_oauth_header(line: str) -> bool:
+    """Return whether a PTY line looks like Claude's OAuth token header."""
+    normalized = _normalize_terminal_line(line)
+    return "validfor1year" in normalized and (
+        "youroauthtok" in normalized or "youroauthto" in normalized
+    )
+
+
+def _token_line_after_header(line: str) -> str | None:
+    """Return any token content that appears after the header colon."""
+    if not _is_claude_oauth_header(line):
+        return None
+    if ":" not in line:
+        return ""
+    return line.split(":", 1)[1].strip()
+
+
+def _extract_token_segment_from_line(
+    line: str,
+    *,
+    saw_prefix: bool,
+) -> tuple[str | None, bool, bool, bool]:
+    """Return one token segment, whether the prefix was seen, and stop status."""
+    candidate, saw_store_marker = _prefix_before_store_marker(line.strip())
+    if not candidate:
+        return None, saw_prefix, saw_store_marker, False
+    if "*" in candidate:
+        return None, saw_prefix, saw_store_marker, False
+
+    saw_new_prefix = False
+    if not saw_prefix:
+        prefix_index = candidate.find("sk-ant-")
+        if prefix_index < 0:
+            return None, saw_prefix, saw_store_marker, False
+        saw_prefix = True
+        candidate = candidate[prefix_index:]
+    else:
+        prefix_index = candidate.find("sk-ant-")
+        if prefix_index >= 0:
+            saw_new_prefix = True
+            candidate = candidate[prefix_index:]
+
+    segment = "".join(CLAUDE_OAUTH_TOKEN_SEGMENT_PATTERN.findall(candidate))
+    return (segment or None), saw_prefix, saw_store_marker, saw_new_prefix
+
+
+def _extract_claude_oauth_token_from_lines(output: str) -> str | None:
+    """Rebuild a wrapped Claude OAuth token from the explicit token block."""
+    lines = output.splitlines()
+    collecting = False
+    saw_prefix = False
+    token_segments: list[str] = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        if not collecting:
+            line_after_header = _token_line_after_header(line)
+            if line_after_header is None:
+                continue
+            collecting = True
+            line = line_after_header
+
+        if not line:
+            continue
+
+        segment, saw_prefix, saw_store_marker, saw_new_prefix = (
+            _extract_token_segment_from_line(
+                line,
+                saw_prefix=saw_prefix,
+            )
+        )
+        if saw_new_prefix:
+            token_segments = []
+        if segment is not None:
+            token_segments.append(segment)
+        if saw_store_marker:
+            break
+
+    if not token_segments:
+        return None
+
+    token = "".join(token_segments)
+    return token if token.startswith("sk-ant-") else None
+
+
+def _redact_sensitive_output(output: str) -> str:
+    output = CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN.sub(
+        lambda match: match.group(0).replace(
+            match.group("token"),
+            "[redacted worker auth token]",
+        ),
+        output,
+    )
+    output = CLAUDE_OAUTH_TOKEN_FUZZY_BLOCK_PATTERN.sub(
+        "valid for 1 year):\n[redacted worker auth token]\nStore this token securely.",
+        output,
+    )
+    return CLAUDE_OAUTH_TOKEN_PATTERN.sub("[redacted worker auth token]", output)
 
 
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
@@ -91,11 +352,14 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
 def _drain_login_output(
     master_fd: int,
     *,
+    terminal_screen: Any,
+    raw_output: str,
     output: str,
     auth_url: str | None,
     device_code: str | None,
+    auth_token: str | None,
     on_output: Callable[[str, str | None, str | None], None],
-) -> tuple[str, str | None, str | None]:
+) -> tuple[str, str, str | None, str | None, str | None]:
     """Read and normalize any available PTY output for the login process."""
     while True:
         try:
@@ -106,43 +370,89 @@ def _drain_login_output(
             chunk = b""
         if not chunk:
             break
-        cleaned = _strip_ansi(chunk.decode("utf-8", errors="replace"))
-        output += cleaned
-        auth_url = auth_url or _extract_auth_url(output)
-        device_code = device_code or _extract_device_code(output)
+        decoded = chunk.decode("utf-8", errors="replace")
+        cleaned = _strip_ansi(decoded)
+        raw_output += cleaned
+        terminal_screen.write(chunk)
+        rendered_output = _render_terminal_screen(terminal_screen)
+        visible_output = rendered_output or raw_output
+        auth_url = (
+            auth_url
+            or _extract_auth_url(raw_output)
+            or _extract_auth_url(rendered_output)
+        )
+        device_code = (
+            device_code
+            or _extract_device_code(raw_output)
+            or _extract_device_code(rendered_output)
+        )
+        auth_token = auth_token or _extract_worker_auth_token(
+            raw_output,
+            visible_output,
+        )
+        output = _redact_sensitive_output(visible_output)
         on_output(output, auth_url, device_code)
-    return output, auth_url, device_code
+    return raw_output, output, auth_url, device_code, auth_token
 
 
 def _forward_login_input(
     master_fd: int,
-    consume_input: Callable[[], str | None] | None,
-) -> None:
-    """Send any queued operator input back to the interactive login PTY."""
-    if consume_input is None:
-        return
-    queued_input = consume_input()
-    if queued_input:
-        os.write(master_fd, f"{queued_input}\n".encode())
+    *,
+    queued_input: str | None,
+    last_sent_input: str | None,
+    last_sent_at: float | None,
+    awaiting_output_after_input: bool,
+    now: float,
+) -> tuple[str | None, float | None, bool]:
+    """Send queued operator input back to the interactive login PTY when needed."""
+    if not queued_input:
+        return last_sent_input, last_sent_at, awaiting_output_after_input
+
+    should_send = queued_input != last_sent_input
+    if (
+        not should_send
+        and awaiting_output_after_input
+        and last_sent_at is not None
+        and now - last_sent_at >= LOGIN_INPUT_RESEND_SECONDS
+    ):
+        should_send = True
+
+    if should_send:
+        os.write(master_fd, queued_input.encode())
+        os.write(master_fd, b"\r")
+        return queued_input, now, True
+
+    return last_sent_input, last_sent_at, awaiting_output_after_input
 
 
-def _run_login_command(
+def _run_login_command(  # noqa: C901, PLR0915
     command: list[str],
     *,
     env: Mapping[str, str],
     on_output: Callable[[str, str | None, str | None], None],
-    consume_input: Callable[[], str | None] | None = None,
+    consume_input: Callable[[bool], str | None] | None = None,
+    is_authenticated: Callable[[], bool] | None = None,
+    on_tick: Callable[[], None] | None = None,
     timeout_seconds: int = LOGIN_TIMEOUT_SECONDS,
 ) -> LoginCommandResult:
     """Run an interactive provider login command inside a PTY."""
     master_fd, slave_fd = pty.openpty()
+    _set_pty_size(slave_fd)
     os.set_blocking(master_fd, False)
     selector = selectors.DefaultSelector()
     process: subprocess.Popen[bytes] | None = None
+    terminal_screen = _create_terminal_emulator()
+    raw_output = ""
     output = ""
     auth_url: str | None = None
     device_code: str | None = None
+    auth_token: str | None = None
     timed_out = False
+    last_sent_input: str | None = None
+    last_sent_at: float | None = None
+    awaiting_output_after_input = False
+    output_len_at_last_input = 0
+    last_tick_at = 0.0
     try:
         process = subprocess.Popen(
             command,
@@ -158,16 +468,62 @@ def _run_login_command(
 
         while True:
             selector.select(timeout=0.5)
-            output, auth_url, device_code = _drain_login_output(
+            previous_output_len = len(output)
+            raw_output, output, auth_url, device_code, auth_token = _drain_login_output(
                 master_fd,
+                terminal_screen=terminal_screen,
+                raw_output=raw_output,
                 output=output,
                 auth_url=auth_url,
                 device_code=device_code,
+                auth_token=auth_token,
                 on_output=on_output,
             )
-            _forward_login_input(master_fd, consume_input)
+            if awaiting_output_after_input and len(output) > output_len_at_last_input:
+                awaiting_output_after_input = False
+                last_sent_input = None
+                if consume_input is not None:
+                    consume_input(True)
+
+            now = time.monotonic()
+            if on_tick is not None and now - last_tick_at >= LOGIN_HEARTBEAT_SECONDS:
+                on_tick()
+                last_tick_at = now
+            queued_input = consume_input(False) if consume_input is not None else None
+            (
+                last_sent_input,
+                last_sent_at,
+                awaiting_output_after_input,
+            ) = _forward_login_input(
+                master_fd,
+                queued_input=queued_input,
+                last_sent_input=last_sent_input,
+                last_sent_at=last_sent_at,
+                awaiting_output_after_input=awaiting_output_after_input,
+                now=now,
+            )
+            if len(output) == previous_output_len and last_sent_at == now:
+                output_len_at_last_input = len(output)
+
+            if is_authenticated is not None and is_authenticated():
+                if consume_input is not None:
+                    consume_input(True)
+                _terminate_process_group(process)
+                break
 
             if process.poll() is not None:
+                raw_output, output, auth_url, device_code, auth_token = (
+                    _drain_login_output(
+                        master_fd,
+                        terminal_screen=terminal_screen,
+                        raw_output=raw_output,
+                        output=output,
+                        auth_url=auth_url,
+                        device_code=device_code,
+                        auth_token=auth_token,
+                        on_output=on_output,
+                    )
+                )
                 break
             if time.monotonic() - started_at > timeout_seconds:
                 timed_out = True
@@ -181,6 +537,7 @@ def _run_login_command(
             output=output,
             auth_url=auth_url,
             device_code=device_code,
+            auth_token=auth_token,
         )
     finally:
         selector.close()
@@ -247,6 +604,25 @@ def _browser_login_detail(provider_name: ExternalAgentProviderName) -> str:
     return "Complete the browser sign-in to finish connecting the worker."
 
 
+def _clear_stored_claude_oauth_token(
+    manager: ExternalAgentRuntimeManager,
+    runtime_store: object,
+) -> None:
+    """Remove any persisted Claude OAuth token before starting a fresh login."""
+    manager.save_provider_environment(
+        ExternalAgentProviderName.CLAUDE_CODE.value,
+        {"CLAUDE_CODE_OAUTH_TOKEN": ""},
+    )
+    shared_environ = runtime_store.get_provider_environment(  # type: ignore[attr-defined]
+        ExternalAgentProviderName.CLAUDE_CODE
+    )
+    shared_environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    runtime_store.save_provider_environment(  # type: ignore[attr-defined]
+        ExternalAgentProviderName.CLAUDE_CODE,
+        shared_environ,
+    )
+
+
 def _last_auth_ok_at(manifest: object | None) -> datetime | None:
     """Return the stored last-auth timestamp when a manifest is present."""
     return getattr(manifest, "last_auth_ok_at", None)
@@ -303,15 +679,67 @@ def _save_needs_login_provider_status(
     )
 
 
+def _active_login_session_status(
+    runtime_store: object,
+    provider_id: ExternalAgentProviderName,
+    *,
+    checked_at: datetime,
+) -> ExternalAgentProviderStatus | None:
+    """Return the in-flight provider status for one active login session."""
+    current = runtime_store.get_provider_status(provider_id)  # type: ignore[attr-defined]
+    session_id = current.active_session_id
+    if not session_id:
+        return None
+
+    session = runtime_store.get_login_session(session_id)  # type: ignore[attr-defined]
+    if session is None or is_terminal_login_state(session.state):
+        return None
+    if (checked_at - session.updated_at).total_seconds() > LOGIN_SESSION_STALE_SECONDS:
+        return None
+
+    state = (
+        ExternalAgentProviderState.INSTALLING
+        if session.state == ExternalAgentLoginSessionState.INSTALLING
+        else ExternalAgentProviderState.AUTHENTICATING
+    )
+    installed = state != ExternalAgentProviderState.INSTALLING
+    detail = session.detail or current.detail or "Waiting for worker-side sign-in."
+
+    return _provider_status(
+        provider_id,
+        state=state,
+        authenticated=False,
+        installed=installed,
+        detail=detail,
+        resolved_version=session.resolved_version or current.resolved_version,
+        executable_path=session.executable_path or current.executable_path,
+        checked_at=checked_at,
+        last_auth_ok_at=current.last_auth_ok_at,
+        active_session_id=session.session_id,
+    )
+
+
 async def refresh_external_agent_status_async(provider_name: str) -> dict[str, str]:
     """Refresh one provider status without forcing a runtime install."""
     provider_id = ExternalAgentProviderName(provider_name)
     runtime_store = get_external_agent_runtime_store()
-    manager = ExternalAgentRuntimeManager()
+    manager = ExternalAgentRuntimeManager(
+        environ=_worker_provider_environment(runtime_store)
+    )
     provider = manager.get_provider(provider_name)
     checked_at = _utcnow()
+    provider_environ = manager.environment_for_provider(provider_name)
 
     try:
+        active_session_status = _active_login_session_status(
+            runtime_store,
+            provider_id,
+            checked_at=checked_at,
+        )
+        if active_session_status is not None:
+            runtime_store.save_provider_status(active_session_status)
+            return {"status": active_session_status.state.value}
+
         runtime, manifest = manager.inspect_runtime(provider_name)
         if runtime is None:
             runtime_store.save_provider_status(
@@ -326,7 +754,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
             )
             return {"status": "not_installed"}
 
-        probe = provider.probe_auth(runtime, environ=manager.environ)
+        probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
             manifest = manager.mark_auth_success(provider_name)
             _save_ready_provider_status(
@@ -370,11 +798,15 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
     """Install the provider runtime if needed and run the interactive OAuth flow."""
     provider_id = ExternalAgentProviderName(provider_name)
     runtime_store = get_external_agent_runtime_store()
-    manager = ExternalAgentRuntimeManager()
+    manager = ExternalAgentRuntimeManager(
+        environ=_worker_provider_environment(runtime_store)
+    )
     provider = manager.get_provider(provider_name)
     session = runtime_store.get_login_session(session_id)
     if session is None:
         return {"status": "missing_session"}
+    if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
+        _clear_stored_claude_oauth_token(manager, runtime_store)
 
     def save_session(
         state: ExternalAgentLoginSessionState,
@@ -453,7 +885,8 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
             runtime = resolution.runtime
             manifest = resolution.manifest
 
-        probe = provider.probe_auth(runtime, environ=manager.environ)
+        provider_environ = manager.environment_for_provider(provider_name)
+        probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
             manifest = manager.mark_auth_success(provider_name)
             save_authenticated_session(runtime, "Already authenticated on the worker.")
@@ -504,13 +937,46 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 executable_path=str(runtime.executable_path),
             )
 
+        def manage_login_input(clear: bool) -> str | None:
+            """Read or clear queued operator input for the active login session."""
+            if clear:
+                runtime_store.clear_login_input(session_id)
+                return None
+            return runtime_store.get_login_input(session_id)
+
+        def heartbeat_session() -> None:
+            """Keep the login session fresh while the worker process is alive."""
+            current = runtime_store.get_login_session(session_id)
+            if current is None or is_terminal_login_state(current.state):
+                return
+            runtime_store.save_login_session(
+                current.model_copy(update={"updated_at": _utcnow()})
+            )
+
         result = _run_login_command(
             provider.oauth_login_command(runtime),
-            env=provider.build_environment(manager.environ),
+            env=provider.build_environment(provider_environ),
             on_output=on_output,
-            consume_input=lambda: runtime_store.consume_login_input(session_id),
+            consume_input=manage_login_input,
+            is_authenticated=lambda: provider.probe_auth(
+                runtime,
+                environ=manager.environment_for_provider(provider_name),
+            ).authenticated,
+            on_tick=heartbeat_session,
         )
-        probe = provider.probe_auth(runtime, environ=manager.environ)
+        if result.auth_token:
+            manager.save_provider_environment(
+                provider_name,
+                {"CLAUDE_CODE_OAUTH_TOKEN": result.auth_token},
+            )
+            runtime_store.save_provider_environment(
+                provider_id,
+                {"CLAUDE_CODE_OAUTH_TOKEN": result.auth_token},
+            )
+        probe = provider.probe_auth(
+            runtime,
+            environ=manager.environment_for_provider(provider_name),
+        )
         if probe.authenticated:
             manifest = manager.mark_auth_success(provider_name)
             save_session(

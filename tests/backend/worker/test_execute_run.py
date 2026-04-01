@@ -1,10 +1,13 @@
 """Tests for the execute_run Celery task."""
 
 from __future__ import annotations
+import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
+from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
+from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
 @pytest.fixture
@@ -203,6 +206,35 @@ class TestDispatchCronTriggers:
 
 class TestExternalAgentTasks:
     """Tests for worker-side external agent helper tasks."""
+
+    def test_external_agent_provider_environment_loads_from_runtime_store(self) -> None:
+        """Worker tasks should load shared provider env vars from the runtime store."""
+        from orcheo_backend.worker.tasks import _external_agent_provider_environment
+
+        store = ExternalAgentRuntimeStore()
+        store._redis = None
+        store.save_provider_environment(
+            ExternalAgentProviderName.CLAUDE_CODE,
+            {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"},
+        )
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
+            return_value=store,
+        ):
+            environ = _external_agent_provider_environment()
+
+        assert environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+    def test_patched_environment_temporarily_sets_provider_env(self) -> None:
+        """Patched env should expose shared auth during a run and restore after."""
+        from orcheo_backend.worker.tasks import _patched_environment
+
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        with _patched_environment({"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"}):
+            assert os.environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in os.environ
 
     def test_refresh_external_agent_status_runs_async_helper(self) -> None:
         """The refresh task should delegate to the async helper via the event loop."""

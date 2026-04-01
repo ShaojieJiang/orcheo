@@ -1,6 +1,7 @@
 """Tests for the ChatKit workflow executor helper."""
 
 from __future__ import annotations
+import os
 from collections.abc import Mapping
 from contextlib import asynccontextmanager, nullcontext
 from unittest.mock import AsyncMock, Mock
@@ -12,8 +13,10 @@ from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_mo
 from orcheo_backend.app.chatkit.workflow_executor import (
     WorkflowExecutor,
     _append_chatkit_history_step,
+    _external_agent_provider_environment,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
+    _patched_environment,
     _start_chatkit_history,
     _with_chatkit_model,
     _with_thread_id,
@@ -150,6 +153,33 @@ class DummyStreamingGraph:
         self.last_store = store
         del checkpointer, store
         self.last_compiled = DummyStreamingCompiledGraph(self._steps, self._final_state)
+        return self.last_compiled
+
+
+class EnvCapturingCompiledGraph:
+    def __init__(self, final_state: CustomState) -> None:
+        self._final_state = final_state
+        self.oauth_token_during_invoke: str | None = None
+
+    async def ainvoke(self, *args: object, **kwargs: object) -> CustomState:
+        del args, kwargs
+        self.oauth_token_during_invoke = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        return self._final_state
+
+
+class EnvCapturingGraph:
+    def __init__(self, final_state: CustomState) -> None:
+        self._final_state = final_state
+        self.last_compiled: EnvCapturingCompiledGraph | None = None
+
+    def compile(
+        self,
+        *,
+        checkpointer: object,
+        store: object | None = None,
+    ) -> EnvCapturingCompiledGraph:
+        del checkpointer, store
+        self.last_compiled = EnvCapturingCompiledGraph(self._final_state)
         return self.last_compiled
 
 
@@ -303,6 +333,66 @@ async def test_run_streams_progress_updates(
 
 
 @pytest.mark.asyncio
+async def test_run_applies_external_agent_auth_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = Mock(id="version", graph={"format": "standard"}, runnable_config=None)
+    repository = AsyncMock()
+    repository.get_latest_version.return_value = version
+    repository.create_run.return_value = Mock(id="run-id")
+    repository.mark_run_started = AsyncMock()
+    repository.mark_run_succeeded = AsyncMock()
+    history_store = AsyncMock()
+
+    final_state = CustomState(
+        reply="final reply", messages=[HumanMessage(content="ok")]
+    )
+    graph = EnvCapturingGraph(final_state)
+    runtime_store = Mock()
+    runtime_store.get_provider_environment.return_value = {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"
+    }
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
+    monkeypatch.setattr(
+        workflow_executor_module, "get_history_store", lambda: history_store
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "create_checkpointer", fake_checkpointer
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "create_graph_store", fake_checkpointer
+    )
+    monkeypatch.setattr(workflow_executor_module, "build_graph", lambda config: graph)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda _: nullcontext(),  # type: ignore[assignment]
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "CredentialResolver", lambda vault, context: Mock()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_external_agent_runtime_store",
+        lambda: runtime_store,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "list_external_agent_providers",
+        lambda: ["claude_code"],
+    )
+    os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+
+    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
+    await executor.run(uuid4(), {"message": "hello"})
+
+    assert graph.last_compiled is not None
+    assert graph.last_compiled.oauth_token_during_invoke == "sk-ant-shared"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in os.environ
+
+
+@pytest.mark.asyncio
 async def test_run_uses_chatkit_thread_id_for_langgraph_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -429,6 +519,39 @@ def test_with_chatkit_model_handles_non_mapping_configurable() -> None:
     updated = _with_chatkit_model({"configurable": "invalid"}, "openai:gpt-5")
 
     assert updated["configurable"]["chatkit_model"] == "openai:gpt-5"
+
+
+def test_external_agent_provider_environment_loads_from_runtime_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_store = Mock()
+    runtime_store.get_provider_environment.side_effect = [
+        {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"},
+        {},
+    ]
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_external_agent_runtime_store",
+        lambda: runtime_store,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "list_external_agent_providers",
+        lambda: ["claude_code", "codex"],
+    )
+
+    environ = _external_agent_provider_environment()
+
+    assert environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+
+def test_patched_environment_restores_original_values() -> None:
+    os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+
+    with _patched_environment({"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"}):
+        assert os.environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in os.environ
 
 
 @pytest.mark.asyncio

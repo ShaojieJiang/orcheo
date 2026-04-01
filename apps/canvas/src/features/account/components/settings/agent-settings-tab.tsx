@@ -156,7 +156,7 @@ const AgentSettingsTab = () => {
   const syncActiveSessions = useCallback(
     (providers: ExternalAgentProviderStatus[]) => {
       setActiveSessions((current) => {
-        const next = { ...current };
+        const next: ActiveSessions = { ...current };
         for (const provider of providers) {
           if (provider.active_session_id) {
             next[provider.provider] = provider.active_session_id;
@@ -344,6 +344,10 @@ const AgentSettingsTab = () => {
           ...current,
           [provider]: session,
         }));
+        setActiveSessions((current) => ({
+          ...current,
+          [provider]: session.session_id,
+        }));
         setSessionInputs((current) => ({
           ...current,
           [provider]: "",
@@ -365,12 +369,17 @@ const AgentSettingsTab = () => {
   const providerCards = useMemo(
     () =>
       providerStatuses.map((provider) => {
+        const currentSession = loginSessions[provider.provider];
+        const authoritativeSessionId =
+          activeSessions[provider.provider] ?? provider.active_session_id;
         const session =
-          loginSessions[provider.provider] &&
-          loginSessions[provider.provider]?.session_id ===
-            provider.active_session_id
-            ? loginSessions[provider.provider]
-            : loginSessions[provider.provider];
+          currentSession &&
+          ((authoritativeSessionId &&
+            currentSession.session_id === authoritativeSessionId) ||
+            (!authoritativeSessionId &&
+              isTerminalSessionState(currentSession.state)))
+            ? currentSession
+            : null;
         const checkedAt = formatTimestamp(provider.checked_at);
         const lastAuthAt = formatTimestamp(provider.last_auth_ok_at);
         const isBusy =
@@ -435,18 +444,18 @@ const AgentSettingsTab = () => {
                   )}
                   {session.auth_url && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <code className="rounded bg-background px-2 py-1 text-xs">
-                        {session.auth_url}
-                      </code>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          window.open(session.auth_url ?? "", "_blank")
-                        }
-                      >
-                        <ExternalLink className="mr-2 h-3.5 w-3.5" />
-                        Open sign-in
+                      <p className="text-xs text-muted-foreground">
+                        Canvas detected the browser sign-in link.
+                      </p>
+                      <Button variant="outline" size="sm" asChild>
+                        <a
+                          href={session.auth_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                          Open sign-in
+                        </a>
                       </Button>
                     </div>
                   )}
@@ -467,7 +476,7 @@ const AgentSettingsTab = () => {
                     </div>
                   )}
                   {session.recent_output && (
-                    <pre className="mt-3 max-h-40 overflow-auto rounded bg-background p-3 text-xs text-muted-foreground">
+                    <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-muted-foreground">
                       {session.recent_output}
                     </pre>
                   )}
@@ -475,8 +484,10 @@ const AgentSettingsTab = () => {
                     !isTerminalSessionState(session.state) && (
                       <div className="mt-3 space-y-2">
                         <p className="text-xs text-muted-foreground">
-                          If Claude finishes sign-in by showing a one-time code,
-                          paste it here to send it back to the worker CLI.
+                          Paste the full Claude browser value here. Canvas
+                          accepts the final redirect URL, a full{" "}
+                          <code>code#state</code> value, or just the one-time
+                          code shown at the end of sign-in.
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
                           <Input
@@ -488,7 +499,7 @@ const AgentSettingsTab = () => {
                                 [provider.provider]: value,
                               }));
                             }}
-                            placeholder="Paste Claude auth code"
+                            placeholder="Paste Claude auth code or redirect URL"
                             className="max-w-sm bg-background"
                           />
                           <Button
@@ -536,6 +547,7 @@ const AgentSettingsTab = () => {
         );
       }),
     [
+      activeSessions,
       copiedValue,
       copy,
       handleConnect,

@@ -3,7 +3,10 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import time
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 from celery import Task
@@ -87,6 +90,36 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
+
+
+def _external_agent_provider_environment() -> dict[str, str]:
+    """Return shared external-agent auth env from the runtime store."""
+    from orcheo_backend.app.dependencies import get_external_agent_runtime_store
+    from orcheo_backend.app.external_agent_runtime_store import (
+        list_external_agent_providers,
+    )
+
+    runtime_store = get_external_agent_runtime_store()
+    merged: dict[str, str] = {}
+    for provider_name in list_external_agent_providers():
+        merged.update(runtime_store.get_provider_environment(provider_name))
+    return merged
+
+
+@contextmanager
+def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
+    """Temporarily apply environment variables for the current worker process."""
+    original = {key: os.environ.get(key) for key in updates}
+    for key, value in updates.items():
+        os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, old_value in original.items():
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value
 
 
 async def _load_and_validate_run(
@@ -201,25 +234,27 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
             history_error_cls=RunHistoryError,
         )
 
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
-                    state = _build_initial_state(graph_config, inputs, state_config)
-                    await _stream_run_history_steps(
-                        compiled=compiled,
-                        state=state,
-                        runtime_config=runtime_config,
-                        history_store=history_store,
-                        execution_id=execution_id,
-                        history_error_cls=RunHistoryError,
-                    )
-                    final_state = await compiled.aget_state(runtime_config)
-                    final_state = getattr(final_state, "values", final_state)
+        external_agent_environ = _external_agent_provider_environment()
+        with _patched_environment(external_agent_environ):
+            with credential_resolution(resolver):
+                async with create_checkpointer(settings) as checkpointer:
+                    async with create_graph_store(settings) as graph_store:
+                        graph = build_graph(graph_config)
+                        compiled = graph.compile(
+                            checkpointer=checkpointer,
+                            store=graph_store,
+                        )
+                        state = _build_initial_state(graph_config, inputs, state_config)
+                        await _stream_run_history_steps(
+                            compiled=compiled,
+                            state=state,
+                            runtime_config=runtime_config,
+                            history_store=history_store,
+                            execution_id=execution_id,
+                            history_error_cls=RunHistoryError,
+                        )
+                        final_state = await compiled.aget_state(runtime_config)
+                        final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(

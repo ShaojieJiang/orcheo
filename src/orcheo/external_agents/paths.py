@@ -44,6 +44,11 @@ def provider_manifest_path(runtime_root: Path, provider: str) -> Path:
     return provider_root(runtime_root, provider) / "manifest.json"
 
 
+def provider_environment_path(runtime_root: Path, provider: str) -> Path:
+    """Return the persisted provider environment path for ``provider``."""
+    return provider_root(runtime_root, provider) / "environment.json"
+
+
 def provider_lock_path(runtime_root: Path, provider: str) -> Path:
     """Return the advisory lock path for ``provider``."""
     return provider_root(runtime_root, provider) / ".lock"

@@ -1,8 +1,9 @@
 """Shared storage for worker-scoped external agent status and login sessions."""
 
 from __future__ import annotations
+import json
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from threading import RLock
 from typing import cast
@@ -63,6 +64,7 @@ class ExternalAgentRuntimeStore:
         """Initialize a Redis-backed store with an in-memory fallback."""
         self._lock = RLock()
         self._provider_statuses: dict[str, ExternalAgentProviderStatus] = {}
+        self._provider_environments: dict[str, dict[str, str]] = {}
         self._sessions: dict[str, ExternalAgentLoginSession] = {}
         self._session_inputs: dict[str, str] = {}
         self._redis: redis.Redis | None = None
@@ -93,6 +95,21 @@ class ExternalAgentRuntimeStore:
         """Persist the latest status for one provider."""
         self._write_provider_payload(status)
 
+    def get_provider_environment(
+        self,
+        provider_name: ExternalAgentProviderName,
+    ) -> dict[str, str]:
+        """Return persisted provider environment variables."""
+        return dict(self._read_provider_environment_payload(provider_name))
+
+    def save_provider_environment(
+        self,
+        provider_name: ExternalAgentProviderName,
+        environ: Mapping[str, str],
+    ) -> None:
+        """Persist provider environment variables."""
+        self._write_provider_environment_payload(provider_name, environ)
+
     def get_login_session(self, session_id: str) -> ExternalAgentLoginSession | None:
         """Return one stored login session if present."""
         payload = self._read_session_payload(session_id)
@@ -116,15 +133,24 @@ class ExternalAgentRuntimeStore:
         """Persist one queued operator input for a login session."""
         self._write_session_input(session_id, input_text)
 
-    def consume_login_input(self, session_id: str) -> str | None:
-        """Return and clear the next queued operator input for a login session."""
-        return self._pop_session_input(session_id)
+    def get_login_input(self, session_id: str) -> str | None:
+        """Return the current queued operator input for a login session."""
+        return self._read_session_input(session_id)
+
+    def clear_login_input(self, session_id: str) -> None:
+        """Clear any queued operator input for a login session."""
+        self._delete_session_input(session_id)
 
     def _provider_key(self, provider_name: ExternalAgentProviderName) -> str:
         return f"orcheo:external_agents:provider:{provider_name.value}"
 
     def _session_key(self, session_id: str) -> str:
         return f"orcheo:external_agents:session:{session_id}"
+
+    def _provider_environment_key(
+        self, provider_name: ExternalAgentProviderName
+    ) -> str:
+        return f"orcheo:external_agents:provider-env:{provider_name.value}"
 
     def _session_input_key(self, session_id: str) -> str:
         return f"orcheo:external_agents:session-input:{session_id}"
@@ -158,6 +184,44 @@ class ExternalAgentRuntimeStore:
             self._provider_statuses[status.provider.value] = status.model_copy(
                 deep=True
             )
+
+    def _read_provider_environment_payload(
+        self,
+        provider_name: ExternalAgentProviderName,
+    ) -> dict[str, str]:
+        if self._redis is not None:
+            try:
+                payload = self._redis.get(self._provider_environment_key(provider_name))
+                if payload:
+                    decoded = json.loads(cast(str, payload))
+                    if isinstance(decoded, dict):
+                        return {
+                            str(key): str(value)
+                            for key, value in decoded.items()
+                            if str(value).strip()
+                        }
+            except (redis.RedisError, json.JSONDecodeError):
+                pass
+        with self._lock:
+            payload = self._provider_environments.get(provider_name.value, {})
+            return dict(payload)
+
+    def _write_provider_environment_payload(
+        self,
+        provider_name: ExternalAgentProviderName,
+        environ: Mapping[str, str],
+    ) -> None:
+        payload = {key: value for key, value in environ.items() if value.strip()}
+        if self._redis is not None:
+            try:
+                self._redis.set(
+                    self._provider_environment_key(provider_name),
+                    json.dumps(payload, sort_keys=True),
+                )
+            except redis.RedisError:
+                pass
+        with self._lock:
+            self._provider_environments[provider_name.value] = dict(payload)
 
     def _read_session_payload(
         self, session_id: str
@@ -201,16 +265,25 @@ class ExternalAgentRuntimeStore:
         with self._lock:
             self._session_inputs[session_id] = input_text
 
-    def _pop_session_input(self, session_id: str) -> str | None:
+    def _read_session_input(self, session_id: str) -> str | None:
         if self._redis is not None:
             try:
-                payload = self._redis.getdel(self._session_input_key(session_id))
+                payload = self._redis.get(self._session_input_key(session_id))
                 if payload is not None:
                     return cast(str, payload)
             except redis.RedisError:
                 pass
         with self._lock:
-            return self._session_inputs.pop(session_id, None)
+            return self._session_inputs.get(session_id)
+
+    def _delete_session_input(self, session_id: str) -> None:
+        if self._redis is not None:
+            try:
+                self._redis.delete(self._session_input_key(session_id))
+            except redis.RedisError:
+                pass
+        with self._lock:
+            self._session_inputs.pop(session_id, None)
 
 
 def list_active_login_sessions(

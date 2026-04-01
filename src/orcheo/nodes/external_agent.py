@@ -136,7 +136,8 @@ class ExternalAgentNode(TaskNode):
 
         provider = manager.get_provider(self.provider_name)
         runtime = resolution.runtime
-        auth_probe = provider.probe_auth(runtime, environ=manager.environ)
+        provider_environ = manager.environment_for_provider(self.provider_name)
+        auth_probe = provider.probe_auth(runtime, environ=provider_environ)
         if not auth_probe.authenticated:
             self._set_trace_metadata_for_run(
                 {
@@ -172,7 +173,7 @@ class ExternalAgentNode(TaskNode):
         result = await execute_process(
             command,
             cwd=working_directory,
-            env=provider.build_environment(manager.environ),
+            env=provider.build_environment(provider_environ),
             timeout_seconds=self.timeout_seconds,
         )
         self._set_trace_metadata_for_run(

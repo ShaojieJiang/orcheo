@@ -1,8 +1,10 @@
 """Shared runtime manager for external agent CLI providers."""
 
 from __future__ import annotations
+import json
 import os
 import shutil
+import tempfile
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -17,6 +19,8 @@ from orcheo.external_agents.models import (
 )
 from orcheo.external_agents.paths import (
     ensure_runtime_root,
+    provider_environment_path,
+    provider_root,
     provider_runtimes_dir,
     provider_staging_dir,
     validate_working_directory,
@@ -55,6 +59,31 @@ class ExternalAgentRuntimeManager:
         except KeyError as exc:
             msg = f"Unknown external agent provider '{provider_name}'."
             raise ValueError(msg) from exc
+
+    def environment_for_provider(self, provider_name: str) -> dict[str, str]:
+        """Return the effective environment for one provider."""
+        merged = dict(self.environ)
+        merged.update(self._load_provider_environment(provider_name))
+        return merged
+
+    def save_provider_environment(
+        self,
+        provider_name: str,
+        updates: Mapping[str, str],
+    ) -> dict[str, str]:
+        """Persist provider-specific environment variables."""
+        with provider_lock(self.runtime_root, provider_name):
+            current = self._load_provider_environment(provider_name)
+            for key, value in updates.items():
+                stripped = value.strip()
+                if stripped:
+                    current[key] = stripped
+                    self.environ[key] = stripped
+                else:
+                    current.pop(key, None)
+                    self.environ.pop(key, None)
+            self._write_provider_environment(provider_name, current)
+            return current
 
     def maintenance_due(
         self,
@@ -311,6 +340,50 @@ class ExternalAgentRuntimeManager:
                 continue
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
+
+    def _load_provider_environment(self, provider_name: str) -> dict[str, str]:
+        """Load persisted provider-specific environment variables."""
+        env_path = provider_environment_path(self.runtime_root, provider_name)
+        if not env_path.exists():
+            return {}
+        payload = json.loads(env_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            msg = (
+                f"Persisted environment for provider '{provider_name}' must be a JSON "
+                "object."
+            )
+            raise ValueError(msg)
+        return {
+            str(key): str(value).strip()
+            for key, value in payload.items()
+            if str(value).strip()
+        }
+
+    def _write_provider_environment(
+        self,
+        provider_name: str,
+        payload: Mapping[str, str],
+    ) -> None:
+        """Persist provider-specific environment variables atomically."""
+        provider_dir = provider_root(self.runtime_root, provider_name)
+        provider_dir.mkdir(parents=True, exist_ok=True)
+        env_path = provider_environment_path(self.runtime_root, provider_name)
+
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=provider_dir,
+            delete=False,
+        ) as handle:
+            json.dump(dict(payload), handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+
+        temp_path.chmod(0o600)
+        os.replace(temp_path, env_path)
+        env_path.chmod(0o600)
 
 
 def _safe_version_directory_name(version: str) -> str:
