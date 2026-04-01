@@ -6,7 +6,9 @@ import os
 import shutil
 import tempfile
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from orcheo.external_agents.manifest import RuntimeManifestStore, provider_lock
@@ -30,6 +32,24 @@ from orcheo.external_agents.providers import DEFAULT_PROVIDERS, ExternalAgentPro
 
 
 DEFAULT_MAINTENANCE_INTERVAL = timedelta(days=7)
+_ACTIVE_ENVIRONMENT_OVERRIDES: ContextVar[dict[str, str] | None] = ContextVar(
+    "external_agent_environment_overrides",
+    default=None,
+)
+
+
+@contextmanager
+def scoped_external_agent_environment(
+    overrides: Mapping[str, str],
+) -> Iterator[None]:
+    """Apply task-local environment overrides for external-agent runtime managers."""
+    token: Token[dict[str, str] | None] = _ACTIVE_ENVIRONMENT_OVERRIDES.set(
+        dict(overrides)
+    )
+    try:
+        yield
+    finally:
+        _ACTIVE_ENVIRONMENT_OVERRIDES.reset(token)
 
 
 class ExternalAgentRuntimeManager:
@@ -47,6 +67,9 @@ class ExternalAgentRuntimeManager:
         self.runtime_root = ensure_runtime_root(runtime_root)
         self.providers = dict(providers or DEFAULT_PROVIDERS)
         self.environ = dict(os.environ)
+        active_overrides = _ACTIVE_ENVIRONMENT_OVERRIDES.get()
+        if active_overrides is not None:
+            self.environ.update(active_overrides)
         if environ is not None:
             self.environ.update(environ)
         self.maintenance_interval = maintenance_interval

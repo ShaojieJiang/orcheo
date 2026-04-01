@@ -3,10 +3,8 @@
 from __future__ import annotations
 import asyncio
 import logging
-import os
 import uuid
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
@@ -15,6 +13,7 @@ from opentelemetry.trace import Span, Tracer
 from orcheo.agentensor.evaluation import EvaluationRequest
 from orcheo.agentensor.training import TrainingRequest
 from orcheo.config import get_settings
+from orcheo.external_agents import scoped_external_agent_environment
 from orcheo.graph.state import State
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
@@ -104,22 +103,6 @@ def _external_agent_provider_environment() -> dict[str, str]:
     for provider_name in list_external_agent_providers():
         merged.update(runtime_store.get_provider_environment(provider_name))
     return merged
-
-
-@contextmanager
-def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
-    """Temporarily apply environment variables for the current backend process."""
-    original = {key: os.environ.get(key) for key in updates}
-    for key, value in updates.items():
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, old_value in original.items():
-            if old_value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = old_value
 
 
 def _sanitize_public_step_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -413,7 +396,7 @@ async def execute_workflow(
         )
 
         external_agent_environ = _external_agent_provider_environment()
-        with _patched_environment(external_agent_environ):
+        with scoped_external_agent_environment(external_agent_environ):
             with credential_resolution(resolver):
                 async with create_checkpointer(settings) as checkpointer:
                     async with create_graph_store(settings) as graph_store:
@@ -483,7 +466,7 @@ async def _run_evaluation_node(
         )
 
     external_agent_environ = _external_agent_provider_environment()
-    with _patched_environment(external_agent_environ):
+    with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
                 async with create_graph_store(settings) as graph_store:
@@ -504,69 +487,71 @@ async def _run_evaluation_node(
                         state_config=state_config,
                         progress_callback=on_progress,
                     )
-                state = _build_initial_state(graph_config, inputs, state_config)
-                _log_sensitive_debug("Initial state: %s", state)
+                    state = _build_initial_state(graph_config, inputs, state_config)
+                    _log_sensitive_debug("Initial state: %s", state)
 
-                try:
-                    result = await node(state, runtime_config)
-                    node_payload = result.get("results", {}).get(
-                        node.name, result.get("results", result)
-                    )
-                    final_step = await history_store.append_step(
-                        execution_id,
-                        {
-                            "node": node.name,
-                            "event": "evaluation_result",
-                            "payload": node_payload,
-                        },
-                    )
-                    await _safe_send_json(
-                        websocket,
-                        {
-                            "node": node.name,
-                            "event": "evaluation_result",
-                            "payload": node_payload,
-                        },
-                    )
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        step=final_step,
-                    )
-                except asyncio.CancelledError as exc:
-                    reason = str(exc) or "Evaluation cancelled"
-                    record_workflow_cancellation(span, reason=reason)
-                    cancellation_payload = {"status": "cancelled", "reason": reason}
-                    await history_store.append_step(execution_id, cancellation_payload)
-                    await history_store.mark_cancelled(execution_id, reason=reason)
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        include_root=True,
-                        complete=True,
-                    )
-                    raise
-                except Exception as exc:
-                    record_workflow_failure(span, exc)
-                    error_message = str(exc)
-                    error_payload = {"status": "error", "error": error_message}
-                    await _persist_failure_history(
-                        history_store,
-                        execution_id,
-                        error_payload,
-                        error_message,
-                        span,
-                    )
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        include_root=True,
-                        complete=True,
-                    )
-                    raise
+                    try:
+                        result = await node(state, runtime_config)
+                        node_payload = result.get("results", {}).get(
+                            node.name, result.get("results", result)
+                        )
+                        final_step = await history_store.append_step(
+                            execution_id,
+                            {
+                                "node": node.name,
+                                "event": "evaluation_result",
+                                "payload": node_payload,
+                            },
+                        )
+                        await _safe_send_json(
+                            websocket,
+                            {
+                                "node": node.name,
+                                "event": "evaluation_result",
+                                "payload": node_payload,
+                            },
+                        )
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            step=final_step,
+                        )
+                    except asyncio.CancelledError as exc:
+                        reason = str(exc) or "Evaluation cancelled"
+                        record_workflow_cancellation(span, reason=reason)
+                        cancellation_payload = {"status": "cancelled", "reason": reason}
+                        await history_store.append_step(
+                            execution_id, cancellation_payload
+                        )
+                        await history_store.mark_cancelled(execution_id, reason=reason)
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            include_root=True,
+                            complete=True,
+                        )
+                        raise
+                    except Exception as exc:
+                        record_workflow_failure(span, exc)
+                        error_message = str(exc)
+                        error_payload = {"status": "error", "error": error_message}
+                        await _persist_failure_history(
+                            history_store,
+                            execution_id,
+                            error_payload,
+                            error_message,
+                            span,
+                        )
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            include_root=True,
+                            complete=True,
+                        )
+                        raise
 
 
 async def _run_training_node(
@@ -602,7 +587,7 @@ async def _run_training_node(
         )
 
     external_agent_environ = _external_agent_provider_environment()
-    with _patched_environment(external_agent_environ):
+    with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
                 async with create_graph_store(settings) as graph_store:
@@ -626,69 +611,71 @@ async def _run_training_node(
                         workflow_id=workflow_id,
                         checkpoint_store=checkpoint_store,
                     )
-                state = _build_initial_state(graph_config, inputs, state_config)
-                _log_sensitive_debug("Initial state: %s", state)
+                    state = _build_initial_state(graph_config, inputs, state_config)
+                    _log_sensitive_debug("Initial state: %s", state)
 
-                try:
-                    result = await node(state, runtime_config)
-                    node_payload = result.get("results", {}).get(
-                        node.name, result.get("results", result)
-                    )
-                    final_step = await history_store.append_step(
-                        execution_id,
-                        {
-                            "node": node.name,
-                            "event": "training_result",
-                            "payload": node_payload,
-                        },
-                    )
-                    await _safe_send_json(
-                        websocket,
-                        {
-                            "node": node.name,
-                            "event": "training_result",
-                            "payload": node_payload,
-                        },
-                    )
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        step=final_step,
-                    )
-                except asyncio.CancelledError as exc:
-                    reason = str(exc) or "Training cancelled"
-                    record_workflow_cancellation(span, reason=reason)
-                    cancellation_payload = {"status": "cancelled", "reason": reason}
-                    await history_store.append_step(execution_id, cancellation_payload)
-                    await history_store.mark_cancelled(execution_id, reason=reason)
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        include_root=True,
-                        complete=True,
-                    )
-                    raise
-                except Exception as exc:
-                    record_workflow_failure(span, exc)
-                    error_message = str(exc)
-                    error_payload = {"status": "error", "error": error_message}
-                    await _persist_failure_history(
-                        history_store,
-                        execution_id,
-                        error_payload,
-                        error_message,
-                        span,
-                    )
-                    await _emit_trace_update(
-                        history_store,
-                        websocket,
-                        execution_id,
-                        include_root=True,
-                        complete=True,
-                    )
-                    raise
+                    try:
+                        result = await node(state, runtime_config)
+                        node_payload = result.get("results", {}).get(
+                            node.name, result.get("results", result)
+                        )
+                        final_step = await history_store.append_step(
+                            execution_id,
+                            {
+                                "node": node.name,
+                                "event": "training_result",
+                                "payload": node_payload,
+                            },
+                        )
+                        await _safe_send_json(
+                            websocket,
+                            {
+                                "node": node.name,
+                                "event": "training_result",
+                                "payload": node_payload,
+                            },
+                        )
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            step=final_step,
+                        )
+                    except asyncio.CancelledError as exc:
+                        reason = str(exc) or "Training cancelled"
+                        record_workflow_cancellation(span, reason=reason)
+                        cancellation_payload = {"status": "cancelled", "reason": reason}
+                        await history_store.append_step(
+                            execution_id, cancellation_payload
+                        )
+                        await history_store.mark_cancelled(execution_id, reason=reason)
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            include_root=True,
+                            complete=True,
+                        )
+                        raise
+                    except Exception as exc:
+                        record_workflow_failure(span, exc)
+                        error_message = str(exc)
+                        error_payload = {"status": "error", "error": error_message}
+                        await _persist_failure_history(
+                            history_store,
+                            execution_id,
+                            error_payload,
+                            error_message,
+                            span,
+                        )
+                        await _emit_trace_update(
+                            history_store,
+                            websocket,
+                            execution_id,
+                            include_root=True,
+                            complete=True,
+                        )
+                        raise
 
 
 async def execute_workflow_evaluation(
@@ -918,7 +905,7 @@ async def execute_node(
     resolver = CredentialResolver(vault, context=context)
 
     external_agent_environ = _external_agent_provider_environment()
-    with _patched_environment(external_agent_environ):
+    with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             node_instance = node_class(**node_params)
             execution_id = str(uuid.uuid4())

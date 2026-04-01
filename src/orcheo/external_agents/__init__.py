@@ -19,6 +19,7 @@ from orcheo.external_agents.process import execute_process
 from orcheo.external_agents.runtime import (
     DEFAULT_MAINTENANCE_INTERVAL,
     ExternalAgentRuntimeManager,
+    scoped_external_agent_environment,
 )
 
 
@@ -41,4 +42,5 @@ __all__ = [
     "ensure_runtime_root",
     "execute_process",
     "provider_lock",
+    "scoped_external_agent_environment",
 ]
